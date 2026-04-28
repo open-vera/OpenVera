@@ -26,7 +26,7 @@ check() {
     hits=$(git show ":$file" 2>/dev/null \
       | grep -inE "$pattern" \
       | head -3 \
-      | sed "s/^/    /")
+      | sed "s/^/    /" || true)
     if [[ -n "$hits" ]]; then
       VIOLATIONS+=("[$label] $file")
       VIOLATIONS+=("$hits")
@@ -69,7 +69,7 @@ if echo "$STAGED" | grep -qE "(\.env|settings\.json|config\.json)$"; then
       | grep -inE "[A-Z_]+=.{8,}" \
       | grep -ivE "(placeholder|your_|example|changeme|xxx|<|>|\*)" \
       | head -3 \
-      | sed "s/^/    /")
+      | sed "s/^/    /" || true)
     if [[ -n "$local_hits" ]]; then
       VIOLATIONS+=("[ENV-VALUE] $file")
       VIOLATIONS+=("$local_hits")
