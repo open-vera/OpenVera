@@ -119,8 +119,8 @@ export const subagentToolSchema: Tool = {
       isolation: {
         type: "string",
         description:
-          "Optional execution isolation. Use 'try' to run the subagent in an isolated git worktree that can later be merged.",
-        enum: ["none", "try"],
+          "Optional execution isolation. Use 'try' for local worktree isolation or 'remote' for remote executor isolation.",
+        enum: ["none", "try", "remote"],
       },
       run_mode: {
         type: "string",
@@ -180,6 +180,25 @@ export interface RunSubagentToolOptions {
     cwd: string;
     sessionStore?: SessionStore;
   }) => ToolHandler;
+  remoteExecutor?: (opts: {
+    task: string;
+    description?: string;
+    context?: string;
+    definition: AgentDefinition;
+    prompt: string;
+    model: string;
+    system?: string;
+    tools: Tool[];
+    maxTurns?: number;
+    signal?: AbortSignal;
+    onUsage?: (usage: Usage) => void;
+    parentSessionId?: string;
+  }) => Promise<{
+    content: string;
+    transcriptId?: string;
+    toolCalls?: string[];
+    location?: string;
+  }>;
 }
 
 export interface LoadAgentDefinitionsOptions {
@@ -220,6 +239,21 @@ export function getBackgroundSubagentJob(jobIdOrPrefix: string): SubagentBackgro
   return matches.length === 1 ? matches[0] : undefined;
 }
 
+interface ResolvedRemoteExecutorContext {
+  task: string;
+  description?: string;
+  context?: string;
+  definition: AgentDefinition;
+  prompt: string;
+  model: string;
+  system?: string;
+  tools: Tool[];
+  maxTurns?: number;
+  signal?: AbortSignal;
+  onUsage?: (usage: Usage) => void;
+  parentSessionId?: string;
+}
+
 export async function runSubagentTool({
   args,
   adapter,
@@ -235,6 +269,7 @@ export async function runSubagentTool({
   parentSessionId,
   definitions = BUILTIN_AGENT_DEFINITIONS,
   createToolHandlerForCwd,
+  remoteExecutor,
 }: RunSubagentToolOptions): Promise<RunSubagentToolResult> {
   const task = stringArg(args.prompt) || stringArg(args.task);
   if (!task) {
@@ -258,7 +293,7 @@ export async function runSubagentTool({
   const definitionTools = allowedToolSetForDefinition(definition);
   const disallowedTools = new Set(definition.disallowedTools ?? []);
   const isolation = stringArg(args.isolation) || "none";
-  if (isolation !== "none" && isolation !== "try") {
+  if (isolation !== "none" && isolation !== "try" && isolation !== "remote") {
     return { ok: false, content: `Unknown subagent isolation "${isolation}".` };
   }
   const runMode = stringArg(args.run_mode) || "sync";
@@ -332,7 +367,13 @@ export async function runSubagentTool({
     `Task:\n${task}`,
     context ? `Context:\n${context}` : "",
   ].filter(Boolean).join("\n\n");
-  const childStore = childCwd
+  const childStore = isolation === "remote" && !remoteExecutor
+    ? childCwd
+      ? new SessionStore({ cwd: childCwd })
+      : undefined
+    : isolation === "remote"
+    ? undefined
+    : childCwd
     ? new SessionStore({ cwd: childCwd, ...(resumedSession ? { sessionId: resumedSession.sessionId } : {}) })
     : undefined;
   const childToolHandler = worktree && createToolHandlerForCwd
@@ -360,6 +401,38 @@ export async function runSubagentTool({
     transcriptId?: string;
     worktreePath?: string;
   }> => {
+    if (isolation === "remote") {
+      const remoteExec = remoteExecutor ?? createDefaultRemoteExecutor({
+        adapter,
+        onToolCall,
+        childToolNames,
+        childToolCalls,
+        childStore,
+        childUserUuid,
+        signal,
+      });
+      const remote = await remoteExec({
+        task,
+        ...(description ? { description } : {}),
+        ...(context ? { context } : {}),
+        definition,
+        prompt,
+        model,
+        system: [system, definition.systemPrompt, SUBAGENT_SYSTEM_SUFFIX].filter(Boolean).join("\n\n"),
+        tools: childTools,
+        ...(maxTurns ? { maxTurns } : {}),
+        signal,
+        onUsage,
+        parentSessionId,
+      });
+      return {
+        finalText: remote.content,
+        toolCalls: remote.toolCalls ?? [],
+        transcriptId: remote.transcriptId,
+        worktreePath: remote.location ? `remote:${remote.location}` : "remote",
+      };
+    }
+
     const finalText = await streamAgent(
       prompt,
       {
@@ -477,7 +550,11 @@ export async function runSubagentTool({
       `Subagent (${definition.agentType}) result:`,
       done.finalText.trim() || "(no final text)",
       done.toolCalls.length > 0 ? `\nTools used: ${[...new Set(done.toolCalls)].join(", ")}` : "",
-      done.worktreePath ? `Isolation: try worktree ${done.worktreePath}` : "",
+      done.worktreePath
+        ? isolation === "remote"
+          ? `Isolation: ${done.worktreePath}`
+          : `Isolation: try worktree ${done.worktreePath}`
+        : "",
       done.transcriptId ? `Transcript: ${done.transcriptId}` : "",
     ].filter(Boolean).join("\n"),
   };
@@ -648,4 +725,59 @@ function summarizeHistoryForResume(history: Array<{ role: string; content: strin
   return tail
     .map((msg) => `${msg.role}: ${msg.content.replace(/\s+/g, " ").trim().slice(0, 280)}`)
     .join("\n");
+}
+
+function createDefaultRemoteExecutor(input: {
+  adapter: LLMAdapter;
+  onToolCall: ToolHandler;
+  childToolNames: Set<string>;
+  childToolCalls: string[];
+  childStore?: SessionStore;
+  childUserUuid?: string;
+  signal?: AbortSignal;
+}): (opts: ResolvedRemoteExecutorContext) => Promise<{
+  content: string;
+  transcriptId?: string;
+  toolCalls?: string[];
+  location?: string;
+}> {
+  return async (opts) => {
+    const result = await streamAgent(
+      opts.prompt,
+      {
+        adapter: input.adapter,
+        model: opts.model,
+        tools: opts.tools,
+        system: opts.system,
+        maxTurns: opts.maxTurns,
+        signal: input.signal,
+        onUsage: opts.onUsage,
+        onToolCall: async (name, toolArgs) => {
+          if (!input.childToolNames.has(name)) {
+            return `Tool "${name}" is not available to this subagent.`;
+          }
+          input.childToolCalls.push(name);
+          const toolCallUuid = input.childStore?.writeToolCall({
+            parentUuid: input.childUserUuid ?? input.childStore?.sessionId ?? "remote-subagent",
+            toolName: name,
+            toolCallId: name,
+            arguments: toolArgs,
+          });
+          const content = await input.onToolCall(name, toolArgs);
+          if (input.childStore && toolCallUuid) {
+            input.childStore.writeToolResult({ parentUuid: toolCallUuid, toolCallId: name, content });
+          }
+          return content;
+        },
+      },
+      () => {},
+    );
+
+    return {
+      content: result,
+      transcriptId: input.childStore?.sessionId,
+      toolCalls: [...new Set(input.childToolCalls)],
+      location: "local-default",
+    };
+  };
 }

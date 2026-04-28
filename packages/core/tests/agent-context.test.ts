@@ -455,8 +455,60 @@ describe("streamAgent context updates", () => {
     expect(properties.subagent_type).toMatchObject({
       enum: expect.arrayContaining(["general-purpose", "explore", "plan"]),
     });
-    expect(properties.isolation).toMatchObject({ enum: ["none", "try"] });
+    expect(properties.isolation).toMatchObject({ enum: ["none", "try", "remote"] });
     expect(properties.run_mode).toMatchObject({ enum: ["sync", "background"] });
+  });
+
+  it("uses remote isolation when a remote executor is provided", async () => {
+    const adapter: LLMAdapter = {
+      complete: vi.fn(),
+      stream: () => events([
+        { type: "text", text: "unused" },
+        { type: "done", stop_reason: "end_turn" },
+      ]),
+    };
+
+    const result = await runSubagentTool({
+      args: { prompt: "远程执行任务", isolation: "remote" },
+      adapter,
+      model: "claude-sonnet-4-6",
+      tools: [],
+      onToolCall: () => "unused",
+      remoteExecutor: async () => ({
+        content: "Remote execution finished.",
+        transcriptId: "remote-session-1",
+        toolCalls: ["read_file"],
+        location: "runner://remote-1",
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.content).toContain("Remote execution finished.");
+    expect(result.content).toContain("Isolation: remote:runner://remote-1");
+    expect(result.content).toContain("Transcript: remote-session-1");
+    expect(result.content).toContain("Tools used: read_file");
+  });
+
+  it("uses built-in default remote executor when no remote executor is provided", async () => {
+    const adapter: LLMAdapter = {
+      complete: vi.fn(),
+      stream: () => events([
+        { type: "text", text: "Default remote path done." },
+        { type: "done", stop_reason: "end_turn" },
+      ]),
+    };
+
+    const result = await runSubagentTool({
+      args: { prompt: "走默认 remote backend", isolation: "remote" },
+      adapter,
+      model: "claude-sonnet-4-6",
+      tools: [],
+      onToolCall: () => "unused",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.content).toContain("Default remote path done.");
+    expect(result.content).toContain("Isolation: remote:local-default");
   });
 
   it("resumes a previous subagent transcript when resume_session_id is provided", async () => {
@@ -734,8 +786,8 @@ describe("streamAgent context updates", () => {
       ...baseOptions,
       args: { prompt: "检查", isolation: "remote" },
     })).resolves.toEqual({
-      ok: false,
-      content: 'Unknown subagent isolation "remote".',
+      ok: true,
+      content: expect.stringContaining("Subagent (general-purpose) result:"),
     });
     await expect(runSubagentTool({
       ...baseOptions,
