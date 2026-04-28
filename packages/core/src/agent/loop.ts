@@ -272,6 +272,66 @@ function hasAnotherTurnAfter(turn: number, maxTurns: number | undefined): boolea
   return maxTurns === undefined || turn < maxTurns - 1;
 }
 
+// ── Compression helpers (shared by runAgent + streamAgent) ───────────────────
+
+interface CompressResult {
+  messages: Message[];
+  compressionState: CompressionState | null;
+}
+
+async function applyProactiveCompress(
+  messages: Message[],
+  compressionState: CompressionState,
+  options: AgentOptions,
+  adapter: LLMAdapter,
+  model: string,
+  microCompactState: MicroCompactState | null,
+  hooks: AgentHooks | undefined,
+): Promise<CompressResult> {
+  const before = messages.length;
+  const compressed = await compressMessages(messages, compressionState, options.compressionOptions!, adapter, model);
+  options.onUsage?.(compressed.usage!);
+  options.onContextUpdate?.(compressed.messages, { compressionState: compressed.state, microCompactState });
+  if (compressed.messages.length !== before) {
+    await hooks?.onCompression?.("progressive", before, compressed.messages.length);
+  }
+  return { messages: compressed.messages, compressionState: compressed.state };
+}
+
+interface ReactiveCompactResult extends CompressResult {
+  retries: number;
+}
+
+async function tryReactiveCompact(
+  err: unknown,
+  messages: Message[],
+  compressionState: CompressionState | null,
+  reactiveRetries: number,
+  maxRetries: number,
+  options: AgentOptions,
+  adapter: LLMAdapter,
+  model: string,
+  microCompactState: MicroCompactState | null,
+  hooks: AgentHooks | undefined,
+): Promise<ReactiveCompactResult | null> {
+  if (!isPromptTooLongError(err) || reactiveRetries >= maxRetries || !options.compressionOptions?.enabled) {
+    return null;
+  }
+  await hooks?.onRetry?.("reactive_compact", reactiveRetries);
+  const before = messages.length;
+  const compressed = await compressMessages(
+    messages,
+    compressionState ?? createCompressionState(),
+    options.compressionOptions,
+    adapter,
+    model,
+    true,
+  );
+  options.onContextUpdate?.(compressed.messages, { compressionState: compressed.state, microCompactState });
+  await hooks?.onCompression?.("reactive", before, compressed.messages.length);
+  return { messages: compressed.messages, compressionState: compressed.state, retries: reactiveRetries + 1 };
+}
+
 // ── Non-streaming agent ───────────────────────────────────────────────────────
 
 /** Non-streaming run; returns the final text response. */
@@ -316,21 +376,9 @@ export async function runAgent(
     for (let turn = 0; shouldContinueTurns(turn, maxTurns); turn++) {
       // ── Auto-compact: proactive compression when over threshold ────────
       if (compressionState && options.compressionOptions) {
-        const before = messages.length;
-        const compressed = await compressMessages(
-          messages,
-          compressionState,
-          options.compressionOptions,
-          adapter,
-          model,
-        );
-        messages = compressed.messages;
-        compressionState = compressed.state;
-        if (compressed.usage) options.onUsage?.(compressed.usage);
-        options.onContextUpdate?.(messages, { compressionState, microCompactState });
-        if (messages.length !== before) {
-          await hooks?.onCompression?.("progressive", before, messages.length);
-        }
+        const r = await applyProactiveCompress(messages, compressionState, options, adapter, model, microCompactState, hooks);
+        messages = r.messages;
+        compressionState = r.compressionState;
       }
 
       // ── Prepare messages (budget → micro-compact → window trim) ───────
@@ -357,28 +405,8 @@ export async function runAgent(
         response = await adapter.complete(request);
         reactiveRetries = 0;
       } catch (err) {
-        if (
-          isPromptTooLongError(err) &&
-          reactiveRetries < MAX_REACTIVE_RETRIES &&
-          options.compressionOptions?.enabled
-        ) {
-          await hooks?.onRetry?.("reactive_compact", turn);
-          const before = messages.length;
-          const compressed = await compressMessages(
-            messages,
-            compressionState ?? createCompressionState(),
-            options.compressionOptions,
-            adapter,
-            model,
-            true, // isReactive
-          );
-          messages = compressed.messages;
-          compressionState = compressed.state;
-          options.onContextUpdate?.(messages, { compressionState, microCompactState });
-          await hooks?.onCompression?.("reactive", before, messages.length);
-          reactiveRetries++;
-          continue;
-        }
+        const rc = await tryReactiveCompact(err, messages, compressionState, reactiveRetries, MAX_REACTIVE_RETRIES, options, adapter, model, microCompactState, hooks);
+        if (rc) { messages = rc.messages; compressionState = rc.compressionState; reactiveRetries = rc.retries; continue; }
         throw err;
       }
 
@@ -513,21 +541,9 @@ export async function streamAgent(
     for (let turn = 0; shouldContinueTurns(turn, maxTurns); turn++) {
       // ── Auto-compact: proactive compression when over threshold ────────
       if (compressionState && options.compressionOptions) {
-        const before = messages.length;
-        const compressed = await compressMessages(
-          messages,
-          compressionState,
-          options.compressionOptions,
-          adapter,
-          model,
-        );
-        messages = compressed.messages;
-        compressionState = compressed.state;
-        if (compressed.usage) onUsage?.(compressed.usage);
-        options.onContextUpdate?.(messages, { compressionState, microCompactState });
-        if (messages.length !== before) {
-          await hooks?.onCompression?.("progressive", before, messages.length);
-        }
+        const r = await applyProactiveCompress(messages, compressionState, options, adapter, model, microCompactState, hooks);
+        messages = r.messages;
+        compressionState = r.compressionState;
       }
 
       // ── Memory: select + inject ────────────────────────────────────────
