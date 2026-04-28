@@ -855,6 +855,7 @@ function readSessionSummary(filePath: string): SessionSummary | null {
   const tailEntries = parseJsonlLines(tailRaw);
 
   let turnCount = 0;
+  let messageCount = 0;
   let totalCostUsd = 0;
   let totalUsage: Usage = { input_tokens: 0, output_tokens: 0 };
   let customTitle: string | undefined;
@@ -868,10 +869,20 @@ function readSessionSummary(filePath: string): SessionSummary | null {
   let pr: SessionSummary["pr"] | undefined;
   let foundEnd = false;
   let branch: SessionSummary["branch"] | undefined;
+  const seenUuids = new Set<string>();
 
   for (const entry of headEntries) {
-    if (entry.type === "user" && !firstPrompt) {
-      firstPrompt = entry.content;
+    if (entry.type === "user") {
+      if (!firstPrompt) firstPrompt = entry.content;
+      if ("uuid" in entry && entry.uuid && !seenUuids.has(entry.uuid)) {
+        seenUuids.add(entry.uuid);
+        messageCount++;
+      }
+    } else if (entry.type === "assistant") {
+      if ("uuid" in entry && entry.uuid && !seenUuids.has(entry.uuid)) {
+        seenUuids.add(entry.uuid);
+        messageCount++;
+      }
     } else if (entry.type === "custom_title" || entry.type === "custom-title") {
       customTitle = entry.customTitle ?? entry.title;
     } else if (entry.type === "ai-title") {
@@ -900,6 +911,15 @@ function readSessionSummary(filePath: string): SessionSummary | null {
       storedSummary = entry.summary;
     } else if (entry.type === "user") {
       lastUserInput = entry.content;
+      if ("uuid" in entry && entry.uuid && !seenUuids.has(entry.uuid)) {
+        seenUuids.add(entry.uuid);
+        messageCount++;
+      }
+    } else if (entry.type === "assistant") {
+      if ("uuid" in entry && entry.uuid && !seenUuids.has(entry.uuid)) {
+        seenUuids.add(entry.uuid);
+        messageCount++;
+      }
     } else if (entry.type === "tag") {
       tag = entry.tag;
     } else if (entry.type === "git-branch") {
@@ -977,6 +997,7 @@ function readSessionSummary(filePath: string): SessionSummary | null {
     model: first.model,
     provider: first.provider,
     turnCount,
+    messageCount: messageCount || undefined,
     totalUsage,
     totalCostUsd,
     cwd: first.cwd,

@@ -1,4 +1,5 @@
 import { Box, Text } from "ink";
+import { theme } from "../theme.js";
 
 const MAX_LINES = 3;
 
@@ -19,7 +20,7 @@ export function BashOutputView({ content, exitCode, width, expanded }: BashOutpu
   return (
     <Box flexDirection="column" width={width}>
       {!success && (
-        <Text color="red" bold>
+        <Text color={theme.error} bold>
           exit {exitCode}
         </Text>
       )}
@@ -27,7 +28,7 @@ export function BashOutputView({ content, exitCode, width, expanded }: BashOutpu
         <Text key={i} wrap="wrap">{line}</Text>
       ))}
       {truncated && (
-        <Text color="gray">[... +{remaining} lines]</Text>
+        <Text color={theme.textDim}>[... +{remaining} lines]</Text>
       )}
     </Box>
   );

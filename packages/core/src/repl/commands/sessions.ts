@@ -24,6 +24,13 @@ function formatTokens(n: number | undefined): string {
   return (n ?? 0).toLocaleString("en-US");
 }
 
+function formatFileSize(bytes: number | undefined): string {
+  if (!bytes) return "-";
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : `${s.slice(0, Math.max(0, n - 3))}...`;
 }
@@ -66,6 +73,8 @@ export async function sessionsCommand(
     padEnd("DATE", 12),
     padEnd("MODEL", 22),
     padStart("TURNS", 6),
+    padStart("MSGS", 6),
+    padStart("SIZE", 8),
     padStart("IN", 10),
     padStart("OUT", 10),
     padStart("CACHE W", 10),
@@ -84,6 +93,8 @@ export async function sessionsCommand(
       padEnd(formatDate(s.startedAt), 12),
       padEnd(s.model, 22),
       padStart(String(s.turnCount), 6),
+      padStart(s.messageCount ? String(s.messageCount) : "-", 6),
+      padStart(formatFileSize(s.fileSize), 8),
       padStart(formatTokens(s.totalUsage.input_tokens), 10),
       padStart(formatTokens(s.totalUsage.output_tokens), 10),
       padStart(formatTokens(s.totalUsage.cache_creation_input_tokens), 10),

@@ -2,6 +2,7 @@ import { useApp, useStdout, Box, Text } from "ink";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { loadavg } from "node:os";
 import { streamAgent } from "../../agent/loop.js";
 import {
   SUBAGENT_TOOL_NAME,
@@ -30,6 +31,7 @@ import {
   createCompressionState,
   createMicroCompactState,
   getModelContextLimit,
+  estimateMessageTokens,
 } from "../../context/index.js";
 import type {
   CompressionState,
@@ -43,6 +45,7 @@ import { StatusBar } from "./StatusBar.js";
 import { WelcomeScreen } from "./WelcomeScreen.js";
 import { resolveResumeWorkspace } from "../workspace.js";
 import type { ChatMessage, RoutingInfo, StreamStatus, TokenUsage, ToolUse } from "./types.js";
+import { theme } from "./theme.js";
 
 function formatError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
@@ -210,6 +213,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
   const inputHistoryRef = useRef<string[]>([]);
   const costRef = useRef<AccumulatedCost>(emptyAccumulatedCost());
   const turnCountRef = useRef(0);
+  const latestInputTokensRef = useRef(0);
   const pendingQueueRef = useRef<string[]>([]);
   const [pendingQueue, setPendingQueue] = useState<string[]>([]);
   // Plan mode refs
@@ -368,6 +372,8 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     const updated = accumulateCost(costRef.current, u, routing.model, routing.provider);
     costRef.current = updated;
 
+    if (u.input_tokens) latestInputTokensRef.current = u.input_tokens;
+
     setUsage((prev) => ({
       inputTotal: prev.inputTotal + (u.input_tokens ?? 0),
       outputTotal: prev.outputTotal + (u.output_tokens ?? 0),
@@ -453,21 +459,54 @@ export function App({ ctx, resumeSessionId }: AppProps) {
         setMessages((prev) => {
           const r = routing;
           const u = usage;
-          const byModel = Object.entries(costRef.current.byModel)
-            .map(([m, rec]) => `  ${m}: $${rec.costUsd.toFixed(4)}`)
-            .join("\n");
+
+          // Context window
+          const ctxMax = getModelContextLimit(r.model);
+          const ctxUsed = latestInputTokensRef.current;
+          const ctxPct = ctxMax > 0 ? ((ctxUsed / ctxMax) * 100).toFixed(1) : "0.0";
+          const ctxBar = ctxUsed > 0
+            ? `${ctxUsed.toLocaleString()} / ${ctxMax.toLocaleString()} (${ctxPct}%)`
+            : `unknown / ${ctxMax.toLocaleString()}`;
+
+          // Per-model cost breakdown with token details
+          const byModelLines = Object.entries(costRef.current.byModel)
+            .map(([m, rec]) => {
+              const inTok = rec.usage.input_tokens.toLocaleString();
+              const outTok = rec.usage.output_tokens.toLocaleString();
+              const cacheW = rec.usage.cache_creation_input_tokens;
+              const cacheR = rec.usage.cache_read_input_tokens;
+              const cachePart = (cacheW || cacheR)
+                ? ` | cache w:${(cacheW ?? 0).toLocaleString()} r:${(cacheR ?? 0).toLocaleString()}`
+                : "";
+              return `  ${m}: in ${inTok} / out ${outTok}${cachePart} = $${rec.costUsd.toFixed(4)}`;
+            });
+
+          // Memory
+          const mem = process.memoryUsage();
+          const rss = (mem.rss / 1024 / 1024).toFixed(0);
+          const heapUsed = (mem.heapUsed / 1024 / 1024).toFixed(0);
+          const heapTotal = (mem.heapTotal / 1024 / 1024).toFixed(0);
+
+          // CPU load average (1m / 5m / 15m)
+          const load = loadavg();
+          const loadStr = load.map((l) => l.toFixed(2)).join(" / ");
+
           const parts = [
             `Provider: ${r.provider}`,
             `Model:    ${r.model}`,
+            `Turns:    ${turnCountRef.current}`,
+            `Context:  ${ctxBar}`,
             `Tokens:   in ${u.inputTotal.toLocaleString()} / out ${u.outputTotal.toLocaleString()}`,
             ...(u.cacheWriteTotal || u.cacheReadTotal
               ? [`Cache:    write ${u.cacheWriteTotal.toLocaleString()} / read ${u.cacheReadTotal.toLocaleString()}`]
               : []),
             `Cost:     $${u.costUsd.toFixed(4)}`,
-            ...(byModel ? [`\nBy model:\n${byModel}`] : []),
+            ...(byModelLines.length ? ["\nBy model:", ...byModelLines] : []),
+            `\nMemory:   RSS ${rss} MB / heap ${heapUsed}/${heapTotal} MB`,
+            `CPU load: ${loadStr} (1m/5m/15m)`,
           ];
           if (r.intent) {
-            parts.push(`Intent:   L${r.intent.level} · ${r.intent.domain} → ${r.provider}`);
+            parts.push(`\nIntent:   L${r.intent.level} · ${r.intent.domain} → ${r.provider}`);
           }
           return [...prev, { role: "assistant", content: parts.join("\n") }];
         });
@@ -497,10 +536,21 @@ export function App({ ctx, resumeSessionId }: AppProps) {
         : activeAdapter;
       const classifierModel = classifierTarget?.model ?? "claude-haiku-4-5";
       try {
+        const classifierProvider = classifierTarget?.provider ?? ctxRef.current.config.default_provider ?? "anthropic";
         const { model: routed, provider: routedProvider, intent } = await resolveModel(
           line, classifierAdapter, classifierModel, routingCfg,
           ctxRef.current.config.default_provider ?? "anthropic",
           ctxRef.current.model,
+          (u) => {
+            const updated = accumulateCost(costRef.current, u, classifierModel, classifierProvider);
+            costRef.current = updated;
+            setUsage((prev) => ({
+              ...prev,
+              inputTotal: prev.inputTotal + (u.input_tokens ?? 0),
+              outputTotal: prev.outputTotal + (u.output_tokens ?? 0),
+              costUsd: updated.totalUsd,
+            }));
+          },
         );
         if (routedProvider) {
           activeAdapter = ctxRef.current.buildAdapter(routedProvider);
@@ -1180,7 +1230,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
             expandToolOutput={expandToolOutput}
           />
           <Box>
-            <Text color="gray">{"─".repeat(columns)}</Text>
+            <Text color={theme.textSubtle}>{"─".repeat(columns)}</Text>
           </Box>
           <StatusBar
             status={streamStatus}
@@ -1191,14 +1241,14 @@ export function App({ ctx, resumeSessionId }: AppProps) {
           />
           {pendingQueue.map((msg, i) => (
             <Box key={i}>
-              <Text color="yellow">{"⏎ "}</Text>
-              <Text color="#b8860b" wrap="truncate-end">{msg}</Text>
+              <Text color={theme.warning}>{"⏎ "}</Text>
+              <Text color={theme.brandShimmer} wrap="truncate-end">{msg}</Text>
             </Box>
           ))}
           {pathConfirm ? (
             <Box flexDirection="column">
-              <Text color="yellow">⚠ {pathConfirm.message}</Text>
-              <Text color="yellow">Allow? [y/N] </Text>
+              <Text color={theme.warning}>⚠ {pathConfirm.message}</Text>
+              <Text color={theme.warning}>Allow? [y/N] </Text>
               <InputBar
                 value={inputValue}
                 onChange={setInputValue}

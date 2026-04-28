@@ -1,6 +1,6 @@
 import type { LLMAdapter } from "../adapters/base.js";
 import type { RoutingConfig, RoutingTarget } from "../config/types.js";
-import type { ContentPart } from "../types/index.js";
+import type { ContentPart, Usage } from "../types/index.js";
 
 export interface IntentResult {
   level: 0 | 1 | 2 | 3;
@@ -45,7 +45,8 @@ function extractJson(text: string): string {
 export async function classifyIntent(
   input: string,
   adapter: LLMAdapter,
-  classifierModel: string
+  classifierModel: string,
+  onUsage?: (usage: Usage) => void
 ): Promise<IntentResult> {
   const response = await adapter.complete({
     model: classifierModel,
@@ -53,6 +54,8 @@ export async function classifyIntent(
     system: CLASSIFIER_PROMPT,
     messages: [{ role: "user", content: input }],
   });
+
+  if (response.usage && onUsage) onUsage(response.usage);
 
   const { message } = response;
   const parts: ContentPart[] =
@@ -92,7 +95,8 @@ export async function resolveModel(
   classifierModel: string,
   routing: RoutingConfig,
   fallbackProvider: string,
-  fallbackModel: string
+  fallbackModel: string,
+  onUsage?: (usage: Usage) => void
 ): Promise<{
   model: string;
   provider: string | null;
@@ -102,7 +106,8 @@ export async function resolveModel(
     const intent = await classifyIntent(
       input,
       classifierAdapter,
-      classifierModel
+      classifierModel,
+      onUsage
     );
     const target = routeTarget(intent, routing);
     return { model: target.model, provider: target.provider, intent };

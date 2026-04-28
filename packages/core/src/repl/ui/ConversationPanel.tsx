@@ -1,6 +1,7 @@
 import { Box, Text } from "ink";
 import type { ChatMessage, PlanStepUI } from "./types.js";
 import { ToolResultView } from "./ToolResultView.js";
+import { theme } from "./theme.js";
 
 const TOOL_RESULT_ESTIMATED_LINES = 6;
 
@@ -31,10 +32,10 @@ const STEP_ICONS = {
 } as const;
 
 const STEP_COLORS = {
-  pending: "gray",
-  running: "cyan",
-  done:    "green",
-  failed:  "red",
+  pending: theme.stepPending,
+  running: theme.stepRunning,
+  done:    theme.stepDone,
+  failed:  theme.stepFailed,
 } as const;
 
 function PlanStepRow({
@@ -56,8 +57,8 @@ function PlanStepRow({
       {/* Step header */}
       <Box>
         <Text color={color} bold={isActive}>{icon} </Text>
-        <Text color={isActive ? "white" : "gray"} bold={isActive}>{step.description}</Text>
-        {step.status === "running" && <Text color="cyan"> ▌</Text>}
+        <Text color={isActive ? theme.text : theme.textDim} bold={isActive}>{step.description}</Text>
+        {step.status === "running" && <Text color={theme.stepRunning}> ▌</Text>}
       </Box>
 
       {/* Tool uses */}
@@ -84,7 +85,7 @@ function PlanStepRow({
             <Text key={i} wrap="wrap">{line}</Text>
           ))}
           {step.content.split("\n").length > 20 && (
-            <Text color="gray" dimColor>[...截断]</Text>
+            <Text color={theme.textDim} dimColor>[...截断]</Text>
           )}
         </Box>
       )}
@@ -188,7 +189,7 @@ function PlanMessageView({
 
   return (
     <Box flexDirection="column">
-      <Text color="blue" bold>{"● "}{headerText}</Text>
+      <Text color={theme.suggestion} bold>{"● "}{headerText}</Text>
       {steps.length > 0 && (
         <Box flexDirection="column" paddingLeft={2} marginTop={1}>
           {steps.map((step, i) => (
@@ -205,7 +206,7 @@ function PlanMessageView({
       {/* Fallback error text */}
       {!msg.planMode && msg.content && (
         <Box paddingLeft={2}>
-          <Text color="red">{msg.content}</Text>
+          <Text color={theme.error}>{msg.content}</Text>
         </Box>
       )}
     </Box>
@@ -309,7 +310,7 @@ export function ConversationPanel({
       {/* Hidden messages indicator */}
       {hiddenAbove > 0 && (
         <Box>
-          <Text color="gray" dimColor>↑ {hiddenAbove} 条消息已隐藏  (PageUp 向上滚动)</Text>
+          <Text color={theme.textDim} dimColor>↑ {hiddenAbove} 条消息已隐藏  (PageUp 向上滚动)</Text>
         </Box>
       )}
 
@@ -363,13 +364,13 @@ export function ConversationPanel({
               <Box key={lineIdx}>
                 {isUser ? (
                   <>
-                    <Text color="green" bold>{">"} </Text>
+                    <Text color={theme.success} bold>{">"} </Text>
                     <Text>{line}</Text>
                   </>
                 ) : (
                   <>
                     {lineIdx === 0
-                      ? <Text color="blue">{"● "}</Text>
+                      ? <Text color={theme.brand}>{"● "}</Text>
                       : <Text>{"  "}</Text>
                     }
                     <Text>{line}</Text>

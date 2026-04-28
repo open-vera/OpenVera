@@ -404,4 +404,86 @@ describe('SessionStore', () => {
     const summaries = SessionStore.listSessions();
     expect(summaries.map((s) => s.summary).sort()).toEqual(['Project A task', 'Project B task']);
   });
+
+  it('should populate fileSize in session summary', () => {
+    const cwd = makeCwd();
+    const store = new SessionStore({ cwd });
+    store.writeStart('gpt-4', 'openai');
+    store.writeUser('test message for file size');
+
+    const sessions = SessionStore.listSessions(cwd);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].fileSize).toBeGreaterThan(0);
+  });
+
+  it('should count user and assistant messages as messageCount', () => {
+    const cwd = makeCwd();
+    const store = new SessionStore({ cwd });
+    store.writeStart('gpt-4', 'openai');
+
+    const u1 = store.writeUser('First question');
+    store.writeAssistant({
+      parentUuid: u1, content: 'First answer', model: 'gpt-4', provider: 'openai',
+      stopReason: 'end_turn', usage: { input_tokens: 5, output_tokens: 5 },
+      turn: 1, latencyMs: 100, toolCalls: [], status: 'ok',
+    });
+    const u2 = store.writeUser('Second question');
+    store.writeAssistant({
+      parentUuid: u2, content: 'Second answer', model: 'gpt-4', provider: 'openai',
+      stopReason: 'end_turn', usage: { input_tokens: 5, output_tokens: 5 },
+      turn: 2, latencyMs: 100, toolCalls: [], status: 'ok',
+    });
+
+    const sessions = SessionStore.listSessions(cwd);
+    expect(sessions[0].messageCount).toBe(4); // 2 user + 2 assistant
+    expect(sessions[0].turnCount).toBe(2);
+  });
+
+  it('messageCount is undefined for sessions with no messages yet', () => {
+    const cwd = makeCwd();
+    const store = new SessionStore({ cwd });
+    store.writeStart('gpt-4', 'openai');
+    store.writeUser('Only user message, no assistant');
+
+    const sessions = SessionStore.listSessions(cwd);
+    // 1 user message — no assistant entry yet
+    expect(sessions[0].messageCount).toBe(1);
+  });
+
+  it('messageCount does not double-count when head and tail overlap (small file)', () => {
+    const cwd = makeCwd();
+    const store = new SessionStore({ cwd });
+    store.writeStart('gpt-4', 'openai');
+
+    const u1 = store.writeUser('Q1');
+    store.writeAssistant({
+      parentUuid: u1, content: 'A1', model: 'gpt-4', provider: 'openai',
+      stopReason: 'end_turn', usage: { input_tokens: 2, output_tokens: 2 },
+      turn: 1, latencyMs: 10, toolCalls: [], status: 'ok',
+    });
+
+    const sessions = SessionStore.listSessions(cwd);
+    // Small file — head and tail overlap, but UUID dedup should keep count at 2
+    expect(sessions[0].messageCount).toBe(2);
+  });
+
+  it('fileSize increases as more messages are written', () => {
+    const cwd = makeCwd();
+    const store = new SessionStore({ cwd });
+    store.writeStart('gpt-4', 'openai');
+    store.writeUser('initial');
+
+    const [before] = SessionStore.listSessions(cwd);
+    const sizeBefore = before!.fileSize ?? 0;
+
+    const u = store.writeUser('extra message');
+    store.writeAssistant({
+      parentUuid: u, content: 'extra reply', model: 'gpt-4', provider: 'openai',
+      stopReason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 },
+      turn: 1, latencyMs: 10, toolCalls: [], status: 'ok',
+    });
+
+    const [after] = SessionStore.listSessions(cwd);
+    expect(after!.fileSize).toBeGreaterThan(sizeBefore);
+  });
 });

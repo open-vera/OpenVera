@@ -1,18 +1,9 @@
 import { Box, Text } from "ink";
 import { useState, useEffect } from "react";
 import type { StreamStatus } from "./types.js";
+import { theme } from "./theme.js";
 
-// Breathing animation frames — brightness pulses in and out
-const BREATH_FRAMES = [
-  { char: "●", color: "#1a6b4a" },
-  { char: "●", color: "#1f8a5e" },
-  { char: "●", color: "#27a872" },
-  { char: "●", color: "#33cc8a" },
-  { char: "●", color: "#44eea0" },
-  { char: "●", color: "#33cc8a" },
-  { char: "●", color: "#27a872" },
-  { char: "●", color: "#1f8a5e" },
-];
+const BREATH_FRAMES = theme.spinnerFrames.map((color) => ({ char: "●", color }));
 const BREATH_MS = 120;
 
 interface StatusBarProps {
@@ -60,8 +51,8 @@ export function StatusBar({
     if (scrollOffset > 0) {
       return (
         <Box gap={1}>
-          <Text color="yellow">↑</Text>
-          <Text color="gray">
+          <Text color={theme.warning}>↑</Text>
+          <Text color={theme.textDim}>
             滚动中  PageDown 向下  PageUp 继续上滚  ⌥O {expandToolOutput ? "折叠工具输出" : "展开工具输出"}
           </Text>
         </Box>
@@ -69,7 +60,7 @@ export function StatusBar({
     }
     return (
       <Box gap={1}>
-        <Text color="gray">⌥O {expandToolOutput ? "折叠工具输出" : "展开工具输出"}</Text>
+        <Text color={theme.textDim}>⌥O {expandToolOutput ? "折叠工具输出" : "展开工具输出"}</Text>
       </Box>
     );
   }
@@ -91,7 +82,7 @@ export function StatusBar({
   return (
     <Box gap={1}>
       <Text color={frame.color}>{frame.char}</Text>
-      <Text color="gray">{parts.join(" · ")}</Text>
+      <Text color={theme.textDim}>{parts.join(" · ")}</Text>
     </Box>
   );
 }

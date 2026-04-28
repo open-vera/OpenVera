@@ -1,6 +1,7 @@
 import { Box, Text, useInput, useStdin } from "ink";
 import type { Key } from "ink";
 import { useState, useRef, useMemo, useEffect, useCallback, useLayoutEffect } from "react";
+import { theme } from "./theme.js";
 import stringWidth from "string-width";
 
 // Parse a raw stdin chunk into Ink's (input, key) format.
@@ -386,23 +387,23 @@ export function InputBar({
             const active = i === selectedIdx;
             return (
               <Box key={s.name} gap={2}>
-                <Text color={active ? "cyan" : "gray"} bold={active}>
+                <Text color={active ? theme.suggestion : theme.textDim} bold={active}>
                   {active ? "▶ " : "  "}/{s.name}
                 </Text>
-                <Text color={active ? "white" : "gray"} dimColor={!active}>
+                <Text color={active ? theme.text : theme.textDim} dimColor={!active}>
                   {s.description}
                 </Text>
               </Box>
             );
           })}
           <Box paddingLeft={2}>
-            <Text color="gray" dimColor>↑↓ navigate  enter select  tab complete  esc dismiss</Text>
+            <Text color={theme.textDim} dimColor>↑↓ navigate  enter select  tab complete  esc dismiss</Text>
           </Box>
         </Box>
       )}
 
       <Box>
-        <Text color={isStreaming ? "cyan" : "gray"}>{">"} </Text>
+        <Text color={isStreaming ? theme.brand : theme.textDim}>{">"} </Text>
         {value || cursorPos === 0 ? (
           <Text>
             {before}<Text inverse>{cursorDisplay}</Text>{after}
@@ -410,7 +411,7 @@ export function InputBar({
         ) : (
           <Text>
             <Text inverse> </Text>
-            <Text color="gray" dimColor>  Type a message or / for commands</Text>
+            <Text color={theme.textDim} dimColor>  Type a message or / for commands</Text>
           </Text>
         )}
       </Box>

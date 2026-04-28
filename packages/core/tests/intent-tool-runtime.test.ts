@@ -17,16 +17,19 @@ import { ToolRegistry } from "../src/tools/registry.js";
 import { SecurityPlugin } from "../src/tools/security.js";
 import { errorResult } from "../src/tools/types.js";
 
-function adapterWithText(text: string): LLMAdapter {
+function adapterWithText(text: string, usage?: CompletionResponse["usage"]): LLMAdapter {
   const response: CompletionResponse = {
     message: { role: "assistant", content: text },
     stop_reason: "end_turn",
+    ...(usage ? { usage } : {}),
   };
   return {
     complete: vi.fn().mockResolvedValue(response),
     stream: vi.fn(),
   };
 }
+
+const SIMPLE_INTENT_JSON = `{"level":1,"needs_tools":false,"needs_planning":false,"domain":"chat","reason":"simple"}`;
 
 describe("intent routing", () => {
   it("parses fenced classifier JSON", async () => {
@@ -116,6 +119,50 @@ describe("intent routing", () => {
       domain: "code",
       reason: "simple",
     })).toBe(false);
+  });
+
+  it("classifyIntent calls onUsage with usage when adapter returns it", async () => {
+    const usageFromApi = { input_tokens: 42, output_tokens: 8 };
+    const adapter = adapterWithText(SIMPLE_INTENT_JSON, usageFromApi);
+    const collected: typeof usageFromApi[] = [];
+
+    await classifyIntent("hello", adapter, "haiku", (u) => collected.push(u as typeof usageFromApi));
+
+    expect(collected).toHaveLength(1);
+    expect(collected[0]).toEqual(usageFromApi);
+  });
+
+  it("classifyIntent does not throw when no onUsage is provided and adapter returns usage", async () => {
+    const adapter = adapterWithText(SIMPLE_INTENT_JSON, { input_tokens: 10, output_tokens: 5 });
+    await expect(classifyIntent("hello", adapter, "haiku")).resolves.not.toThrow();
+  });
+
+  it("classifyIntent skips onUsage when adapter response has no usage", async () => {
+    const adapter = adapterWithText(SIMPLE_INTENT_JSON);
+    const collected: unknown[] = [];
+
+    await classifyIntent("hello", adapter, "haiku", (u) => collected.push(u));
+
+    expect(collected).toHaveLength(0);
+  });
+
+  it("resolveModel forwards usage to onUsage callback", async () => {
+    const usageFromApi = { input_tokens: 55, output_tokens: 12 };
+    const adapter = adapterWithText(SIMPLE_INTENT_JSON, usageFromApi);
+    const collected: typeof usageFromApi[] = [];
+
+    await resolveModel("hi", adapter, "haiku", {}, "anthropic", "fallback", (u) =>
+      collected.push(u as typeof usageFromApi),
+    );
+
+    expect(collected).toHaveLength(1);
+    expect(collected[0]).toEqual(usageFromApi);
+  });
+
+  it("resolveModel works without onUsage callback", async () => {
+    const adapter = adapterWithText(SIMPLE_INTENT_JSON, { input_tokens: 10, output_tokens: 5 });
+    const result = await resolveModel("hi", adapter, "haiku", {}, "anthropic", "fallback");
+    expect(result.intent).not.toBeNull();
   });
 });
 

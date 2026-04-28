@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import figlet from "figlet";
 import type { RoutingInfo } from "./types.js";
 import { InputBar } from "./InputBar.js";
+import { theme } from "./theme.js";
 
 // Generated once at module load — figlet handles all alignment automatically
 const MASCOT = figlet.textSync("VERA", { font: "ANSI Shadow" }).split("\n").filter(l => l.trim());
@@ -116,16 +117,16 @@ export function WelcomeScreen({
           borderColor={gradientColor(0.5)}
           marginRight={1}
         >
-          <Text color="gray">{routing.provider}</Text>
+          <Text color={theme.textDim}>{routing.provider}</Text>
           <Text color={gradientColor(0.3)}>{routing.model}</Text>
-          <Text color="gray">{workingDir}</Text>
+          <Text color={theme.suggestion}>{workingDir}</Text>
           <Text> </Text>
-          <Text color="gray" dimColor>💡 {tip}</Text>
+          <Text color={theme.textDim} dimColor>💡 {tip}</Text>
         </Box>
       </Box>
 
       <Box>
-        <Text color="gray">{"─".repeat(columns)}</Text>
+        <Text color={theme.textSubtle}>{"─".repeat(columns)}</Text>
       </Box>
 
       {showInput && (

@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import React from "react";
+import { theme } from "./theme.js";
 import type { ToolResult } from "../../tools/types.js";
 import { DiffView } from "./DiffView.js";
 import { ErrorView } from "./renderers/ErrorView.js";
@@ -35,8 +36,8 @@ export function ToolResultView({ toolName, args, result, width, preface, expande
 
   const header = (
     <Box>
-      <Text color="yellow" bold>{toolName}</Text>
-      {label ? <Text color={toolName === "bash" ? "white" : "gray"}>{"  "}{label}</Text> : null}
+      <Text color={theme.toolName} bold>{toolName}</Text>
+      {label ? <Text color={toolName === "bash" ? theme.text : theme.suggestion}>{"  "}{label}</Text> : null}
     </Box>
   );
 

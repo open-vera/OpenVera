@@ -142,6 +142,7 @@ export interface SessionSummary {
   model: string;
   provider: string;
   turnCount: number;
+  messageCount?: number;
   totalUsage: Usage;
   totalCostUsd: number;
   cwd: string;

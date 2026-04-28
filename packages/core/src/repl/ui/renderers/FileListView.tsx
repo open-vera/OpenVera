@@ -1,4 +1,5 @@
 import { Box, Text } from "ink";
+import { theme } from "../theme.js";
 
 const MAX_LINES = 5;
 
@@ -16,10 +17,10 @@ export function FileListView({ content, expanded }: FileListViewProps) {
   return (
     <Box flexDirection="column">
       {visible.map((line, i) => (
-        <Text key={i} color={line.startsWith("📁") ? "cyan" : undefined}>{line}</Text>
+        <Text key={i} color={line.startsWith("📁") ? theme.suggestion : undefined}>{line}</Text>
       ))}
       {truncated && (
-        <Text color="gray">[... +{remaining} items]</Text>
+        <Text color={theme.textDim}>[... +{remaining} items]</Text>
       )}
     </Box>
   );

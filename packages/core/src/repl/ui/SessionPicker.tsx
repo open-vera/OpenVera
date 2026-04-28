@@ -66,6 +66,13 @@ function sessionLabel(s: SessionSummary): string {
   return s.summary ?? s.lastUserInput ?? "No prompt recorded";
 }
 
+function formatFileSize(bytes: number | undefined): string {
+  if (!bytes) return "";
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
 function sessionMeta(s: SessionSummary): string {
   const tokens = [
     `in ${formatTokens(s.totalUsage.input_tokens)}`,
@@ -74,12 +81,17 @@ function sessionMeta(s: SessionSummary): string {
   const cacheWrite = s.totalUsage.cache_creation_input_tokens ?? 0;
   const cacheRead = s.totalUsage.cache_read_input_tokens ?? 0;
   if (cacheWrite || cacheRead) tokens.push(`cache ${formatTokens(cacheWrite)}/${formatTokens(cacheRead)}`);
+  const turnsLabel = s.messageCount
+    ? `${s.turnCount} turns / ${s.messageCount} msgs`
+    : `${s.turnCount} turns`;
+  const sizePart = s.fileSize ? formatFileSize(s.fileSize) : undefined;
   const meta = [
     s.sessionId.slice(0, 8),
     s.gitBranch ? `branch:${s.gitBranch}` : undefined,
     s.tag ? `tag:${s.tag}` : undefined,
     s.pr ? `pr:${s.pr.number ?? s.pr.url}` : undefined,
-    `${s.turnCount} turns`,
+    turnsLabel,
+    sizePart,
     tokens.join(" "),
     `$${s.totalCostUsd.toFixed(4)}`,
   ].filter(Boolean);

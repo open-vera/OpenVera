@@ -1,6 +1,7 @@
 import { diffWordsWithSpace, type StructuredPatchHunk } from "diff";
 import { Box, Text } from "ink";
 import React, { memo, useMemo } from "react";
+import { theme } from "./theme.js";
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -91,17 +92,17 @@ function WordDiffRow({
     <>
       {/* remove row */}
       <Box flexDirection="row">
-        <Text color={dim ? "gray" : "red"} dimColor={dim}>
+        <Text color={dim ? theme.textDim : theme.diffRemovedWord} dimColor={dim}>
           {`-${fmtLineNo(removed.lineNo, noW)} `}
         </Text>
         <Text>
           {parts.map((p, i) =>
             p.removed ? (
-              <Text key={i} color="red" backgroundColor={dim ? undefined : "#3d0000"}>
+              <Text key={i} color={theme.diffRemovedWord} backgroundColor={dim ? undefined : theme.diffRemovedBg}>
                 {p.value}
               </Text>
             ) : !p.added ? (
-              <Text key={i} color={dim ? "gray" : "red"}>
+              <Text key={i} color={dim ? theme.textDim : theme.diffRemovedWord}>
                 {p.value}
               </Text>
             ) : null
@@ -110,17 +111,17 @@ function WordDiffRow({
       </Box>
       {/* add row */}
       <Box flexDirection="row">
-        <Text color={dim ? "gray" : "green"} dimColor={dim}>
+        <Text color={dim ? theme.textDim : theme.diffAddedWord} dimColor={dim}>
           {`+${fmtLineNo(added.lineNo, noW)} `}
         </Text>
         <Text>
           {parts.map((p, i) =>
             p.added ? (
-              <Text key={i} color="green" backgroundColor={dim ? undefined : "#003d00"}>
+              <Text key={i} color={theme.diffAddedWord} backgroundColor={dim ? undefined : theme.diffAddedBg}>
                 {p.value}
               </Text>
             ) : !p.removed ? (
-              <Text key={i} color={dim ? "gray" : "green"}>
+              <Text key={i} color={dim ? theme.textDim : theme.diffAddedWord}>
                 {p.value}
               </Text>
             ) : null
@@ -140,7 +141,7 @@ const DiffHunk = memo(function DiffHunk({ hunk, dim = false, width }: DiffHunkPr
 
   const rows: React.ReactNode[] = [
     <Box key="header">
-      <Text color="cyan" dimColor={dim}>
+      <Text color={theme.diffHunk} dimColor={dim}>
         {header}
       </Text>
     </Box>,
@@ -176,11 +177,12 @@ const DiffHunk = memo(function DiffHunk({ hunk, dim = false, width }: DiffHunkPr
     const noW = gutW - 2;
     const marker = line.type === "add" ? "+" : line.type === "remove" ? "-" : " ";
     const color =
-      line.type === "add" ? "green" : line.type === "remove" ? "red" : undefined;
+      line.type === "add" ? theme.diffAddedWord :
+      line.type === "remove" ? theme.diffRemovedWord : undefined;
 
     rows.push(
       <Box key={i} flexDirection="row">
-        <Text color={color ?? "gray"} dimColor={dim || line.type === "nochange"}>
+        <Text color={color ?? theme.textDim} dimColor={dim || line.type === "nochange"}>
           {`${marker}${fmtLineNo(line.lineNo, noW)} `}
         </Text>
         <Text color={color} dimColor={dim || line.type === "nochange"}>
@@ -223,11 +225,11 @@ export const DiffView = memo(function DiffView({
         <Text bold dimColor={dim}>
           {filePath}{" "}
         </Text>
-        <Text color="green" dimColor={dim}>
+        <Text color={theme.diffAddedWord} dimColor={dim}>
           +{added}
         </Text>
         <Text dimColor> </Text>
-        <Text color="red" dimColor={dim}>
+        <Text color={theme.diffRemovedWord} dimColor={dim}>
           -{removed}
         </Text>
       </Box>
