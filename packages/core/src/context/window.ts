@@ -48,9 +48,11 @@ function findTurnStarts(messages: Message[]): number[] {
 /**
  * Trim messages to fit within the token budget.
  *
- * Strategy: drop the oldest complete turns (user message + all following
- * assistant/tool messages) until the remaining history fits in the budget,
- * while always keeping the last `keepRecentTurns` turns intact.
+ * Strategy:
+ * 1. Always preserve messages[0] (the first user message = original task
+ *    definition). Losing this causes the model to forget the goal entirely.
+ * 2. Drop the oldest complete turns starting from turn 2, keeping the last
+ *    `keepRecentTurns` turns intact.
  *
  * The original messages array is never mutated. Returns the same array
  * reference if no trimming is needed.
@@ -70,9 +72,16 @@ export function trimToWindow(
   if (turnStarts.length <= keepRecentTurns) return messages;
 
   const maxDrop = turnStarts.length - keepRecentTurns;
+  // Always keep the first user message (turn index 0 = messages[turnStarts[0]])
+  // by starting drops from turn index 1.
+  const firstDroppable = 1;
 
-  for (let drop = 1; drop <= maxDrop; drop++) {
-    const trimmed = messages.slice(turnStarts[drop]!);
+  for (let drop = firstDroppable; drop <= maxDrop; drop++) {
+    const anchor = messages[0]!; // original task definition
+    const rest = messages.slice(turnStarts[drop]!);
+    // Avoid duplicating anchor when it's already at the start of rest
+    const trimmed =
+      rest[0] === anchor ? rest : [anchor, ...rest];
     if (estimateMessageTokens(trimmed) <= budget || drop === maxDrop) {
       return trimmed;
     }

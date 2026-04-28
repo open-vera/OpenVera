@@ -1,5 +1,5 @@
 import type { LLMAdapter } from "../adapters/base.js";
-import type { Message, ContentPart } from "../types/index.js";
+import type { Message, ContentPart, Usage } from "../types/index.js";
 import { estimateMessageTokens } from "./tokens.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -299,17 +299,17 @@ export async function compressMessages(
   adapter: LLMAdapter,
   model: string,
   isReactive = false,
-): Promise<{ messages: Message[]; state: CompressionState }> {
+): Promise<{ messages: Message[]; state: CompressionState; usage?: Usage }> {
   const {
     enabled = false,
     triggerTokens = 100_000,
     keepRecentTurns = 6,
   } = options;
 
-  if (!enabled && !isReactive) return { messages, state };
+  if (!enabled && !isReactive) return { messages, state, usage: undefined };
 
   const currentTokens = estimateMessageTokens(messages);
-  if (!isReactive && currentTokens <= triggerTokens) return { messages, state };
+  if (!isReactive && currentTokens <= triggerTokens) return { messages, state, usage: undefined };
 
   const turnStarts = findTurnStarts(messages);
   const totalTurns = turnStarts.length;
@@ -319,10 +319,10 @@ export async function compressMessages(
     ? Math.max(2, Math.floor(keepRecentTurns / 2))
     : keepRecentTurns;
 
-  if (totalTurns <= effectiveKeep + 1) return { messages, state };
+  if (totalTurns <= effectiveKeep + 1) return { messages, state, usage: undefined };
 
   const turnsToCompress = totalTurns - effectiveKeep;
-  if (turnsToCompress <= 0) return { messages, state };
+  if (turnsToCompress <= 0) return { messages, state, usage: undefined };
 
   const compressEndIdx = turnStarts[turnsToCompress]!;
   const oldMessages = messages.slice(0, compressEndIdx);
@@ -343,6 +343,7 @@ export async function compressMessages(
 
   // Call compression LLM (with error fallback)
   let output: CompressionOutput;
+  let compressionUsage: Usage | undefined;
   try {
     const compressModel = options.model ?? model;
     const response = await adapter.complete({
@@ -353,12 +354,13 @@ export async function compressMessages(
       messages: [{ role: "user", content: segmentText }],
     });
     output = parseCompressionOutput(extractText(response.message));
+    compressionUsage = response.usage;
   } catch {
     // Compression failed — skip this round, will retry next turn
-    return { messages, state };
+    return { messages, state, usage: undefined };
   }
 
-  if (!output.summary) return { messages, state };
+  if (!output.summary) return { messages, state, usage: undefined };
 
   const segment: CompressedSegment = {
     summary: output.summary,
@@ -375,9 +377,8 @@ export async function compressMessages(
 
   return {
     messages: [synthetic, ...recentMessages],
-    state: {
-      segments: [...state.segments, segment],
-    },
+    state: { segments: [...state.segments, segment] },
+    usage: compressionUsage,
   };
 }
 
@@ -417,10 +418,11 @@ export function microCompact(
     lastAssistantTs: state.lastAssistantTs,
   };
 
+  // Only track tool IDs here. lastAssistantTs is updated by the agent loop
+  // immediately after each real assistant response — scanning historical messages
+  // and calling Date.now() would reset the gap to zero every turn, defeating
+  // the time-based clearing logic.
   for (const m of messages) {
-    if (m.role === "assistant") {
-      newState.lastAssistantTs = Date.now();
-    }
     if (m.role === "tool" && m.tool_call_id) {
       if (!newState.toolUseIds.includes(m.tool_call_id)) {
         newState.toolUseIds.push(m.tool_call_id);
