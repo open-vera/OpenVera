@@ -68,15 +68,7 @@ function printHelp() {
 
 const { command, flags } = parseArgs(process.argv.slice(2));
 
-if (command[0] === "repl") {
-  await runReplCommand({
-    dir: flags["dir"] as string | undefined,
-    model: flags["model"] as string | undefined,
-    provider: flags["provider"] as string | undefined,
-    apiKey: flags["api-key"] as string | undefined,
-    resume: flags["resume"] as string | undefined,
-  });
-} else if (command[0] === "flow" && command[1] === "run") {
+if (command[0] === "flow" && command[1] === "run") {
   await runFlowCommand({
     dir: flags["dir"] as string | undefined,
     model: flags["model"] as string | undefined,
@@ -86,7 +78,15 @@ if (command[0] === "repl") {
     maxSteps: flags["max-steps"] !== undefined ? Number(flags["max-steps"]) : undefined,
     skipPlanCritique: Boolean(flags["skip-plan-critique"]),
   });
+} else if (command[0] === undefined || command[0] === "repl") {
+  await runReplCommand({
+    dir: flags["dir"] as string | undefined,
+    model: flags["model"] as string | undefined,
+    provider: flags["provider"] as string | undefined,
+    apiKey: flags["api-key"] as string | undefined,
+    resume: flags["resume"] as string | undefined,
+  });
 } else {
   printHelp();
-  process.exit(command.length > 0 ? 1 : 0);
+  process.exit(1);
 }
