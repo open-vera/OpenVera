@@ -42,12 +42,16 @@ import {
   buildAskUserQuestionSchema,
 } from "../../tools/ask-user-question.js";
 import type { ChatMessage, RoutingInfo, StreamStatus, TokenUsage, ToolUse } from "./types.js";
+import type { UiEvent } from "./events.js";
+import { emptyTokenUsage } from "./events.js";
+import { projectUiEvent } from "./controller/eventProjector.js";
 import { theme } from "./theme.js";
 import { resumedVisibleMessages } from "./utils.js";
 import { useSessionLifecycle } from "./hooks/useSessionLifecycle.js";
 import { useStreamingHelpers } from "./hooks/useStreamingHelpers.js";
 import { buildToolCallHandler } from "./hooks/useToolCallHandler.js";
 import { buildPlanEventHandler } from "./hooks/usePlanRunner.js";
+import { useFocusRecent, formatRecentLine } from "./hooks/useFocusRecent.js";
 
 function formatError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
@@ -184,6 +188,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     resolve: (approved: boolean) => void;
   } | null>(null);
   const [askUserQuestion, setAskUserQuestion] = useState<AskUserQuestionState | null>(null);
+  const { summary: recentSummary, dismiss: dismissRecent } = useFocusRecent({ messages, streamStatus });
   const [usage, setUsage] = useState<TokenUsage>({
     inputTotal: 0, outputTotal: 0, cacheWriteTotal: 0, cacheReadTotal: 0, costUsd: 0,
   });
@@ -193,6 +198,14 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     model: ctx.model,
     intent: null,
   });
+
+  const dispatchUiEvent = useCallback((event: UiEvent) => {
+    setMessages((prev) => projectUiEvent({
+      messages: prev,
+      status: streamStatus,
+      usage: emptyTokenUsage(),
+    }, event).messages);
+  }, [streamStatus]);
 
   // ── Session lifecycle ────────────────────────────────────────────────────────
 
@@ -213,6 +226,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     routing, inputValue, streamStatus, rows: dimensions.rows,
     setMessages, setUsage, setCurrentOutputTokens,
     setScrollOffset, setInputValue, syncQueue,
+    onAssistantUpdate: (text) => dispatchUiEvent({ type: "assistant.updated", text }),
   });
 
   // ── Main submit handler ──────────────────────────────────────────────────────
@@ -230,7 +244,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     const isSlashCommand = firstToken.length > 0 && !firstToken.includes("/");
 
     if (!isSlashCommand) {
-      setMessages((prev) => [...prev, { role: "user", content: line }]);
+      dispatchUiEvent({ type: "user.submitted", text: line });
       inputHistoryRef.current = [...inputHistoryRef.current, line];
       isFollowingRef.current = true;
       setScrollOffset(0);
@@ -480,9 +494,12 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     // ── Stream mode ───────────────────────────────────────────────────────────
 
     setMessages((prev) => {
-      const base: ChatMessage = { role: "assistant", content: "", streaming: true };
       const prefix: ChatMessage[] = routingFailed ? [{ role: "assistant", content: "⚠ routing failed — using default model" }] : [];
-      return [...prev, ...prefix, base];
+      return projectUiEvent({
+        messages: [...prev, ...prefix],
+        status: streamStatus,
+        usage: emptyTokenUsage(),
+      }, { type: "assistant.started" }).messages;
     });
     setStreamStatus("streaming");
     streamingBufferRef.current = "";
@@ -498,18 +515,10 @@ export function App({ ctx, resumeSessionId }: AppProps) {
             if (rafRef.current !== null) { clearTimeout(rafRef.current); rafRef.current = null; }
             const preface = streamingBufferRef.current.trim();
             streamingBufferRef.current = "";
-            setMessages((prev) => {
-              const last = prev[prev.length - 1];
-              if (!last?.streaming || !last.content) return prev;
-              return [...prev.slice(0, -1), { ...last, content: "" }];
-            });
+            dispatchUiEvent({ type: "tool.started", name, args: args as Record<string, unknown>, preface });
             const toolResult = await toolCallHandler(name, args as Record<string, unknown>);
             const toolUse: ToolUse = { name, args: args as Record<string, unknown>, result: toolResult, ...(preface ? { preface } : {}) };
-            setMessages((prev) => {
-              const last = prev[prev.length - 1];
-              if (!last?.streaming) return prev;
-              return [...prev.slice(0, -1), { ...last, toolUses: [...(last.toolUses ?? []), toolUse] }];
-            });
+            dispatchUiEvent({ type: "tool.completed", tool: toolUse });
             return toolResult.content;
           },
         },
@@ -518,11 +527,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
 
       if (rafRef.current !== null) { clearTimeout(rafRef.current); rafRef.current = null; }
       streamingBufferRef.current = fullText;
-      setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (!last?.streaming) return prev;
-        return [...prev.slice(0, -1), { ...last, content: fullText, streaming: false }];
-      });
+      dispatchUiEvent({ type: "assistant.completed", text: fullText });
       writeAiTitleIfNeeded(fullText);
       store.writeAssistant({ parentUuid: userUuid, content: fullText, model: activeModel, provider: activeProvider, stopReason: "end_turn", usage: turnUsage, turn: turnCountRef.current + 1, latencyMs: Date.now() - turnStart, toolCalls: turnToolCalls, status: "ok" });
       turnCountRef.current += 1;
@@ -530,11 +535,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
       if (rafRef.current !== null) { clearTimeout(rafRef.current); rafRef.current = null; }
       const isAbort = err instanceof Error && (err.name === "AbortError" || err.message.includes("aborted"));
       const errMsg = isAbort ? "Cancelled." : formatError(err);
-      setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (last?.streaming) return [...prev.slice(0, -1), { role: "assistant", content: last.content || errMsg, streaming: false }];
-        return [...prev, { role: "assistant", content: errMsg }];
-      });
+      dispatchUiEvent({ type: "assistant.failed", message: errMsg, preservePartial: true });
       if (!isAbort) {
         store.writeAssistant({ parentUuid: userUuid, content: errMsg, model: activeModel, provider: activeProvider, stopReason: "end_turn", usage: turnUsage, turn: turnCountRef.current + 1, latencyMs: Date.now() - turnStart, toolCalls: turnToolCalls, status: "error" });
       }
@@ -543,7 +544,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
       abortRef.current = null;
       setStreamStatus("idle");
     }
-  }, [onTextDelta, onUsage, exit, routing, usage, streamStatus]);
+  }, [dispatchUiEvent, onTextDelta, onUsage, exit, routing, usage, streamStatus]);
 
   useEffect(() => {
     if (streamStatus === "idle" && pendingQueueRef.current.length > 0) {
@@ -629,12 +630,21 @@ export function App({ ctx, resumeSessionId }: AppProps) {
               }}
             />
           ) : (
-            <InputBar
-              value={inputValue} onChange={setInputValue} onSubmit={handleSubmit} onExit={exit} onCancel={handleCancel}
-              isStreaming={streamStatus !== "idle"} history={inputHistoryRef.current}
-              onScrollUp={handleScrollUp} onScrollDown={handleScrollDown}
-              onToggleToolOutput={() => setExpandToolOutput((v) => !v)}
-            />
+            <>
+              {recentSummary && (
+                <Box marginBottom={1}>
+                  <Text color={theme.warning}>{"  " + formatRecentLine(recentSummary)}</Text>
+                </Box>
+              )}
+              <InputBar
+                value={inputValue}
+                onChange={(v) => { dismissRecent(); setInputValue(v); }}
+                onSubmit={handleSubmit} onExit={exit} onCancel={handleCancel}
+                isStreaming={streamStatus !== "idle"} history={inputHistoryRef.current}
+                onScrollUp={handleScrollUp} onScrollDown={handleScrollDown}
+                onToggleToolOutput={() => setExpandToolOutput((v) => !v)}
+              />
+            </>
           )}
         </>
       )}
