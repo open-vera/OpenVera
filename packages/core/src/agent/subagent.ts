@@ -122,6 +122,19 @@ export const subagentToolSchema: Tool = {
           "Optional execution isolation. Use 'try' to run the subagent in an isolated git worktree that can later be merged.",
         enum: ["none", "try"],
       },
+      run_mode: {
+        type: "string",
+        description: "Execution mode: sync waits for completion, background returns immediately.",
+        enum: ["sync", "background"],
+      },
+      resume_session_id: {
+        type: "string",
+        description: "Optional transcript session id to resume a previous subagent route.",
+      },
+      resumeSessionId: {
+        type: "string",
+        description: "Deprecated alias for resume_session_id.",
+      },
     },
     required: ["prompt"],
   },
@@ -180,6 +193,33 @@ export interface RunSubagentToolResult {
   content: string;
 }
 
+export type SubagentJobStatus = "running" | "succeeded" | "failed";
+
+export interface SubagentBackgroundJob {
+  jobId: string;
+  status: SubagentJobStatus;
+  agentType: string;
+  prompt: string;
+  createdAt: string;
+  updatedAt: string;
+  transcriptId?: string;
+  result?: string;
+  error?: string;
+}
+
+const BACKGROUND_SUBAGENT_JOBS = new Map<string, SubagentBackgroundJob>();
+
+export function listBackgroundSubagentJobs(): SubagentBackgroundJob[] {
+  return [...BACKGROUND_SUBAGENT_JOBS.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export function getBackgroundSubagentJob(jobIdOrPrefix: string): SubagentBackgroundJob | undefined {
+  if (!jobIdOrPrefix) return undefined;
+  if (BACKGROUND_SUBAGENT_JOBS.has(jobIdOrPrefix)) return BACKGROUND_SUBAGENT_JOBS.get(jobIdOrPrefix);
+  const matches = [...BACKGROUND_SUBAGENT_JOBS.values()].filter((job) => job.jobId.startsWith(jobIdOrPrefix));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 export async function runSubagentTool({
   args,
   adapter,
@@ -221,6 +261,14 @@ export async function runSubagentTool({
   if (isolation !== "none" && isolation !== "try") {
     return { ok: false, content: `Unknown subagent isolation "${isolation}".` };
   }
+  const runMode = stringArg(args.run_mode) || "sync";
+  if (runMode !== "sync" && runMode !== "background") {
+    return { ok: false, content: `Unknown agent run_mode "${runMode}".` };
+  }
+  const resumeSessionId = stringArg(args.resume_session_id) || stringArg(args.resumeSessionId);
+  if (resumeSessionId && isolation !== "none") {
+    return { ok: false, content: "resume_session_id cannot be used with isolation." };
+  }
 
   const childTools = tools.filter((tool) => {
     if (tool.name === SUBAGENT_TOOL_NAME) return false;
@@ -254,20 +302,47 @@ export async function runSubagentTool({
     }
   }
 
+  let resumedSession:
+    | {
+        sessionId: string;
+        cwd: string;
+        resumeContext: string;
+      }
+    | undefined;
+  if (resumeSessionId) {
+    try {
+      const loaded = SessionStore.loadSession(resumeSessionId, cwd);
+      childCwd = loaded.cwd;
+      resumedSession = {
+        sessionId: loaded.sessionId,
+        cwd: loaded.cwd,
+        resumeContext: summarizeHistoryForResume(loaded.history),
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        content: `Failed to resume subagent session "${resumeSessionId}": ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
   const prompt = [
     description ? `Description:\n${description}` : "",
+    resumedSession ? `Resume context:\n${resumedSession.resumeContext}` : "",
     `Task:\n${task}`,
     context ? `Context:\n${context}` : "",
   ].filter(Boolean).join("\n\n");
-  const childStore = childCwd ? new SessionStore({ cwd: childCwd }) : undefined;
+  const childStore = childCwd
+    ? new SessionStore({ cwd: childCwd, ...(resumedSession ? { sessionId: resumedSession.sessionId } : {}) })
+    : undefined;
   const childToolHandler = worktree && createToolHandlerForCwd
     ? createToolHandlerForCwd({ cwd: worktree.worktreePath, sessionStore: childStore })
     : onToolCall;
   const startedAt = Date.now();
   let childUsage: Usage = { input_tokens: 0, output_tokens: 0 };
   let childCostUsd = 0;
-  childStore?.writeStart(model, provider ?? "unknown");
-  if (childStore && parentSessionId) {
+  if (!resumedSession) childStore?.writeStart(model, provider ?? "unknown");
+  if (!resumedSession && childStore && parentSessionId) {
     childStore.writeBranch({
       parentSessionId,
       title: `subagent:${definition.agentType}`,
@@ -279,63 +354,131 @@ export async function runSubagentTool({
   }
   const childUserUuid = childStore?.writeUser(prompt);
 
-  const finalText = await streamAgent(
-    prompt,
-    {
-      adapter,
+  const runChild = async (): Promise<{
+    finalText: string;
+    toolCalls: string[];
+    transcriptId?: string;
+    worktreePath?: string;
+  }> => {
+    const finalText = await streamAgent(
+      prompt,
+      {
+        adapter,
+        model,
+        tools: childTools,
+        system: [system, definition.systemPrompt, SUBAGENT_SYSTEM_SUFFIX].filter(Boolean).join("\n\n"),
+        maxTurns,
+        runDir: worktree?.worktreePath ?? runDir,
+        signal,
+        onUsage: (usage) => {
+          childUsage = addUsage(childUsage, usage);
+          childCostUsd += calculateCost(usage, model);
+          onUsage?.(usage);
+        },
+        onToolCall: async (name, toolArgs) => {
+          if (!childToolNames.has(name)) {
+            return `Tool "${name}" is not available to this subagent.`;
+          }
+          childToolCalls.push(name);
+          const toolCallUuid = childStore?.writeToolCall({
+            parentUuid: childUserUuid ?? childStore.sessionId,
+            toolName: name,
+            toolCallId: name,
+            arguments: toolArgs,
+          });
+          const content = await childToolHandler(name, toolArgs);
+          if (childStore && toolCallUuid) {
+            childStore.writeToolResult({ parentUuid: toolCallUuid, toolCallId: name, content });
+          }
+          return content;
+        },
+      },
+      () => {},
+    );
+    childStore?.writeAssistant({
+      parentUuid: childUserUuid ?? childStore.sessionId,
+      content: finalText,
       model,
-      tools: childTools,
-      system: [system, definition.systemPrompt, SUBAGENT_SYSTEM_SUFFIX].filter(Boolean).join("\n\n"),
-      maxTurns,
-      runDir: worktree?.worktreePath ?? runDir,
-      signal,
-      onUsage: (usage) => {
-        childUsage = addUsage(childUsage, usage);
-        childCostUsd += calculateCost(usage, model);
-        onUsage?.(usage);
-      },
-      onToolCall: async (name, toolArgs) => {
-        if (!childToolNames.has(name)) {
-          return `Tool "${name}" is not available to this subagent.`;
-        }
-        childToolCalls.push(name);
-        const toolCallUuid = childStore?.writeToolCall({
-          parentUuid: childUserUuid ?? childStore.sessionId,
-          toolName: name,
-          toolCallId: name,
-          arguments: toolArgs,
-        });
-        const content = await childToolHandler(name, toolArgs);
-        if (childStore && toolCallUuid) {
-          childStore.writeToolResult({ parentUuid: toolCallUuid, toolCallId: name, content });
-        }
-        return content;
-      },
-    },
-    () => {},
-  );
-  childStore?.writeAssistant({
-    parentUuid: childUserUuid ?? childStore.sessionId,
-    content: finalText,
-    model,
-    provider: provider ?? "unknown",
-    stopReason: "end_turn",
-    usage: childUsage,
-    turn: 1,
-    latencyMs: Date.now() - startedAt,
-    toolCalls: childToolCalls,
-    status: "ok",
-  });
-  childStore?.writeEnd(childUsage, childCostUsd, 1, task);
+      provider: provider ?? "unknown",
+      stopReason: "end_turn",
+      usage: childUsage,
+      turn: 1,
+      latencyMs: Date.now() - startedAt,
+      toolCalls: childToolCalls,
+      status: "ok",
+    });
+    childStore?.writeEnd(childUsage, childCostUsd, 1, task);
+    return {
+      finalText,
+      toolCalls: [...childToolCalls],
+      transcriptId: childStore?.sessionId,
+      worktreePath: worktree?.worktreePath,
+    };
+  };
 
+  if (runMode === "background") {
+    const jobId = `subjob-${randomUUID().slice(0, 12)}`;
+    const now = new Date().toISOString();
+    BACKGROUND_SUBAGENT_JOBS.set(jobId, {
+      jobId,
+      status: "running",
+      agentType: definition.agentType,
+      prompt: task,
+      createdAt: now,
+      updatedAt: now,
+      transcriptId: childStore?.sessionId,
+    });
+    void (async () => {
+      try {
+        const done = await runChild();
+        const finishedAt = new Date().toISOString();
+        BACKGROUND_SUBAGENT_JOBS.set(jobId, {
+          ...(BACKGROUND_SUBAGENT_JOBS.get(jobId) ?? {
+            jobId,
+            agentType: definition.agentType,
+            prompt: task,
+            createdAt: now,
+          }),
+          status: "succeeded",
+          updatedAt: finishedAt,
+          transcriptId: done.transcriptId,
+          result: done.finalText.trim() || "(no final text)",
+        });
+      } catch (err) {
+        const failedAt = new Date().toISOString();
+        BACKGROUND_SUBAGENT_JOBS.set(jobId, {
+          ...(BACKGROUND_SUBAGENT_JOBS.get(jobId) ?? {
+            jobId,
+            agentType: definition.agentType,
+            prompt: task,
+            createdAt: now,
+          }),
+          status: "failed",
+          updatedAt: failedAt,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    })();
+    return {
+      ok: true,
+      content: [
+        `Subagent (${definition.agentType}) started in background.`,
+        `Job: ${jobId}`,
+        childStore ? `Transcript: ${childStore.sessionId}` : "",
+        "Use /subjobs to inspect status.",
+      ].filter(Boolean).join("\n"),
+    };
+  }
+
+  const done = await runChild();
   return {
     ok: true,
     content: [
       `Subagent (${definition.agentType}) result:`,
-      finalText.trim() || "(no final text)",
-      childToolCalls.length > 0 ? `\nTools used: ${[...new Set(childToolCalls)].join(", ")}` : "",
-      worktree ? `Isolation: try worktree ${worktree.worktreePath}` : "",
-      childStore ? `Transcript: ${childStore.sessionId}` : "",
+      done.finalText.trim() || "(no final text)",
+      done.toolCalls.length > 0 ? `\nTools used: ${[...new Set(done.toolCalls)].join(", ")}` : "",
+      done.worktreePath ? `Isolation: try worktree ${done.worktreePath}` : "",
+      done.transcriptId ? `Transcript: ${done.transcriptId}` : "",
     ].filter(Boolean).join("\n"),
   };
 }
@@ -497,4 +640,12 @@ function stringArg(value: unknown): string {
 function normalizeAgentType(value: string): string {
   const normalized = value.toLowerCase().replaceAll("_", "-");
   return normalized === "general" ? "general-purpose" : normalized;
+}
+
+function summarizeHistoryForResume(history: Array<{ role: string; content: string }>): string {
+  const tail = history.slice(-12);
+  if (tail.length === 0) return "(no prior messages)";
+  return tail
+    .map((msg) => `${msg.role}: ${msg.content.replace(/\s+/g, " ").trim().slice(0, 280)}`)
+    .join("\n");
 }

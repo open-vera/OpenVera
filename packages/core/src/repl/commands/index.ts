@@ -13,6 +13,7 @@ import { adoptCommand } from "./adopt.js";
 import { tryCommand } from "./try.js";
 import { mergeCommand } from "./merge.js";
 import { subCommand, transcriptCommand } from "./transcript.js";
+import { subjobsCommand } from "./subjobs.js";
 
 type CommandFn = (args: string[], ctx: ReplContext) => Promise<void>;
 
@@ -31,6 +32,7 @@ const COMMANDS: Record<string, CommandFn> = {
   try: tryCommand,
   merge: mergeCommand,
   sub: subCommand,
+  subjobs: subjobsCommand,
   transcript: transcriptCommand,
 };
 

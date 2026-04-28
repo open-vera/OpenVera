@@ -10,6 +10,7 @@ Commands:
   /sessions [--all]      List saved sessions for this project (--all: all projects)
   /resume [id-prefix]    Resume a previous session by ID prefix
   /sub <id-prefix>       View a subagent transcript preview
+  /subjobs [job-prefix]  Show background subagent jobs or one job detail
   /branch [name]         Fork the current session and continue in the branch
   /try [name]            Fork into an isolated git worktree and continue there
   /branches              List branches forked from the active session

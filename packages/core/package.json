@@ -25,6 +25,7 @@
     "dev": "tsx src/index.ts",
     "dev:watch": "tsx watch --clear-screen=false src/index.ts",
     "test": "vitest run",
+    "test:smoke": "vitest run tests/p0-alignment-smoke.test.ts",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },
