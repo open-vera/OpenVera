@@ -46,4 +46,4 @@ Vera = Harness 为内核的 agent runtime。两层结构：
 
 - 入口：`docs/README.md`
 - 路线图：`docs/roadmap.md`
-- 当前 P0 进度：Plan Mode 已完成，待做无限上下文
+- 当前 P0 进度：全部完成 ✅（intent routing / tool runtime / rendering / session / infinite context / plan mode / critique / flow control）

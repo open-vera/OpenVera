@@ -82,10 +82,12 @@ P0 的目标不是做一个会调工具的 assistant，而是建立最小可用�
 - cost 统计：按模型计费，累计汇总，`/status` 展示 ✅
 - `/sessions` 列出历史会话，含 turn / cost / model ✅
 
-**6. 无限上下文** → 详见 [agent-design.md](./core/agent-design.md#1-无限上下文infinite-context)
-- 滑动窗口 + 渐进压缩 + 按需召回
-- token 计数在 API 调用前完成
-- 压缩后保留决策、已完成步骤、关键事实
+**6. 无限上下文** ✅ → 详见 [infinite-context-implementation.md](./core/infinite-context-implementation.md)
+- 渐进压缩（compressMessages）：token 超阈值自动摘要旧轮次 ✅
+- 微压缩（microCompact）：时间间隙超阈值清理旧工具结果，纯启发式无 LLM 调用 ✅
+- 反应式压缩（reactive compact）：prompt-too-long 错误时激进压缩重试，含熔断器 ✅
+- 召回（findRelevantSegments / expandSegment）：搜索和还原已压缩片段 ✅
+- 集成到 runAgent 和 streamAgent 两个主循环 ✅
 
 **7. Plan Mode 基础版**
 - **AgentRunner 接口**（`packages/core/src/types/agent.ts`）

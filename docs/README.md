@@ -49,7 +49,7 @@ pnpm repl
 | [runtime-design.md](./core/runtime-design.md) | Core runtime 设计——adapter 抽象、loop、streaming |
 | [tool-rendering.md](./core/tool-rendering.md) | Tool 输出渲染——RenderHint、ToolResultView、各渲染组件 ✅ |
 | [plan-mode-implementation.md](./core/plan-mode-implementation.md) | **[P0 已完成]** Plan Mode——planner、parser、state machine、REPL 接入 ✅ |
-| [infinite-context-implementation.md](./core/infinite-context-implementation.md) | **[P0 待做]** 无限上下文——token 计数、滑动窗口、工具输出截断 |
+| [infinite-context-implementation.md](./core/infinite-context-implementation.md) | **[P0 已完成]** 无限上下文——progressive compression、micro-compact、reactive compact ✅ |
 
 → [core/README.md](./core/README.md)
 
