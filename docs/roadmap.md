@@ -66,8 +66,10 @@ P0 的目标不是做一个会调工具的 assistant，而是建立最小可用�
 **3. Tool 生命周期 Hook 系统** ✅ → 详见 [tool-runtime.md](./core/tool-runtime.md)
 - SecurityPlugin：路径越界 + 工具白名单 + 预算 + 只读模式 + injection 防御 ✅
 - AnalyticsPlugin：session JSONL 写入 ✅
-- `onBeforeToolCall` / `onAfterToolCall` hook 调度 ✅
-- `onTurnStart` / `onTurnEnd` / `onSessionEnd`（接口已定义，调用方待接入）
+- `onBeforeToolCall` / `onAfterToolCall` hook 调度（Tier 3，ToolRegistry 插件层）✅
+- `AgentHooks`（`packages/core/src/agent/loop.ts`）：分级 hook 体系，已接入两个主循环 ✅
+  - Tier 1：`onTurnStart` / `onTurnEnd` / `onSessionEnd`（turn/session 生命周期）
+  - Tier 2：`onCompression` / `onRetry`（压缩事件 + reactive retry 可观测性）
 
 **4. Tool 输出渲染** ✅ → 详见 [tool-rendering.md](./core/tool-rendering.md)
 - RenderHint 类型系统：`diff / code / bash-output / file-list / image / error / text` ✅
@@ -89,22 +91,13 @@ P0 的目标不是做一个会调工具的 assistant，而是建立最小可用�
 - 召回（findRelevantSegments / expandSegment）：搜索和还原已压缩片段 ✅
 - 集成到 runAgent 和 streamAgent 两个主循环 ✅
 
-**7. Plan Mode 基础版**
-- **AgentRunner 接口**（`packages/core/src/types/agent.ts`）
-  - `interface AgentRunner { run(prompt, tools, ctx): Promise<AgentResult> }`
-  - Harness 依赖此接口，Core 提供默认实现
-- **ExecutionPlan 数据结构**（`packages/harness/src/plan/types.ts`）
-  - `Step: { id, description, toolHint?, status: pending|running|done|failed|skipped }`
-  - `ExecutionPlan: { id, goal, steps, currentStepIndex, status: FlowStatus }`
-  - `FlowStatus: running | waiting_approval | critiquing | paused | completed | failed`
-- **Plan 解析器**（`packages/harness/src/plan/parser.ts`）
-  - 从 LLM 输出文本中提取结构化 steps（JSON fence 或编号列表）
-  - 解析失败时降级为单步 Plan（直接执行）
-- **PlanRunner**（`packages/harness/src/plan/runner.ts`）
-  - 按 Step 顺序驱动 AgentRunner 执行
-  - 每步执行后更新 `step.status`，写入 session JSONL
-  - 遇到失败 step 可选重试或跳过
-- **触发时机**：intent classifier 返回 `needs_planning: true` 时进入 Plan Mode；否则走直接 ReAct 模式
+**7. Plan Mode 基础版** ✅
+- **AgentRunner 接口**（`packages/harness/src/agent/types.ts`）：`AgentRunner` + `StreamAgentRunner` ✅
+- **ExecutionPlan 数据结构** + **Flow State Machine**（`packages/harness/src/runtime/`）✅
+  - `FlowStatus: intaking → planning → dispatching → executing → critiquing → completed/failed`
+- **Plan 解析器**（`harness/runtime/plan-parser.ts`）：JSON fence 或编号列表，失败降级单步 ✅
+- **HarnessRuntime + runFlowLoop**（`harness/runtime/runtime.ts`）：Plan→Act→Critique→Replan 闭环 ✅
+- **REPL 接入**（`harness/cli/repl-plan-executor.ts`）：`createHarnessPlanExecutor`，intent `needs_planning: true` 时触发 ✅
 
 **8. Critique 基础版** ✅
 - **Critique 数据结构**（`packages/core/src/types/runtime.ts`）
@@ -288,7 +281,7 @@ P3 的目标不是立刻做，而是在 P0-P2 稳定后向更宽环境扩展。
 
          → P0 工具链完整，工具结果可视化
 
-[下一步] [进行中] Plan Mode 基础版（P0.7）
+[已完成] Plan Mode 基础版（P0.7）✅
          ├── harness/runtime/planner.ts ✅（planFromPrompt，LLM → ExecutionPlan）
          ├── harness/runtime/plan-parser.ts ✅（parseExecutionPlan，LLM 文本 → ExecutionPlan）
          ├── harness/runtime/flow-state.ts ✅（Flow State Machine，合法转换校验）
@@ -299,7 +292,12 @@ P3 的目标不是立刻做，而是在 P0-P2 稳定后向更宽环境扩展。
          ├── harness/agent/ ✅（AgentRunner 接口 + StreamAgentRunner）
          └── harness/cli/repl-plan-executor.ts ✅（REPL 接入：planFromPrompt + critique + state machine）
 
-         → Plan→Act→Critique→Replan 闭环已完成，REPL 已接入
+         → Plan→Act→Critique→Replan 闭环完成，REPL 已接入
+
+[已完成] AgentHooks 分级 hook 体系 ✅
+         ├── core/agent/loop.ts — AgentHooks 接口（Tier 1 + Tier 2）
+         ├── Tier 1：onTurnStart / onTurnEnd / onSessionEnd（try/finally 保证触发）
+         └── Tier 2：onCompression（progressive/micro/reactive）/ onRetry
 
 [P1]     Self-Loop Runtime
          └── harness/flow/loop.ts（SelfLoopRunner，Plan→Act→Critique→Replan 自循环）

@@ -91,18 +91,8 @@ export interface ToolDef<TArgs = Record<string, unknown>> {
 }
 
 // ── ToolLifecycleHook ─────────────────────────────────────────────────────────
-
-export interface Message {
-  role: "user" | "assistant";
-  content: string;
-}
-
-export interface Usage {
-  input_tokens: number;
-  output_tokens: number;
-  cache_creation_input_tokens?: number;
-  cache_read_input_tokens?: number;
-}
+// Tier 3 hook: per-tool interception for ToolRegistry plugins (SecurityPlugin,
+// AnalyticsPlugin). Turn/session lifecycle belongs in AgentHooks (agent/loop.ts).
 
 export interface ToolLifecycleHook {
   /** Return non-null to short-circuit execution (harness denial). */
@@ -118,10 +108,6 @@ export interface ToolLifecycleHook {
     result: ToolResult,
     ctx: ToolContext
   ): Promise<void>;
-
-  onTurnStart?(turn: number, messages: Message[]): Promise<void>;
-  onTurnEnd?(turn: number, messages: Message[], usage: Usage): Promise<void>;
-  onSessionEnd?(sessionId: string): Promise<void>;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
