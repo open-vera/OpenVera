@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Parallel quality scan: oxlint + ESLint/sonarjs + jscpd
+# Parallel quality scan: oxlint + ESLint/sonarjs + jscpd + vitest coverage
 # Usage: bash scan.sh [target_dir] [--verbose]
+# Coverage threshold: 90% (lines). Exits non-zero if threshold not met or
+# any oxlint/sonarjs error-severity finding is present.
 set -uo pipefail
 
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

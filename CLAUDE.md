@@ -46,7 +46,31 @@ Vera = Harness 为内核的 agent runtime。两层结构：
 
 - 入口：`docs/README.md`
 - 路线图：`docs/roadmap.md`
+- 变更日志：`docs/changelog.md`（入口索引）+ `docs/changelog/<YYYY-MM-DD-HH>.md`（详细）
 - 当前 P0 进度：全部完成 ✅（intent routing / tool runtime / rendering / session / infinite context / plan mode / critique / flow control）
+
+## 提交前检查清单
+
+提交代码前必须按顺序完成以下步骤：
+
+### 1. 测试与质量
+
+- **覆盖率 ≥ 90%**：运行 `pnpm --filter @vera/core run test:coverage`，确认 lines 覆盖率不低于 90%
+- **无 error 级别质量问题**：运行 `bash .claude/skills/quality-scan/scan.sh`，oxlint / sonarjs 不允许任何 `error` 级别发现（warning 可接受）
+- 新增业务逻辑必须有对应 unit test；纯类型定义、配置文件、文档除外
+
+### 2. Roadmap 同步
+
+- 本次提交完成了 roadmap 中的某项能力 → 在 `docs/roadmap.md` 对应条目标记 ✅
+- 发现新的遗留问题或技术债 → 追加到 roadmap 的"已知缺陷与技术债"或"P0 后对齐项"对应分区
+
+### 3. Changelog 更新
+
+- 在 `docs/changelog.md` 索引表追加一行（`YYYY-MM-DD · HH:xx` + 一句话摘要 + 链接）
+- 在 `docs/changelog/<YYYY-MM-DD-HH>.md` 写入本批次详细记录，格式：
+  - **变更**：commit 表格（hash / 模块 / 内容）
+  - **Roadmap 同步**：标记了哪些条目
+  - **遗留事项**：本次未完成、已知待修复的问题
 
 ## Skills 维护规则
 
