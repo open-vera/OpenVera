@@ -64,9 +64,56 @@ export interface SessionEndEntry extends BaseEntry {
   turnCount: number;
 }
 
+export interface LastPromptEntry extends BaseEntry {
+  type: "last-prompt" | "last_prompt";
+  lastPrompt: string;
+}
+
 export interface CustomTitleEntry extends BaseEntry {
-  type: "custom_title";
-  title: string;
+  type: "custom-title" | "custom_title";
+  title?: string;
+  customTitle?: string;
+}
+
+export interface AiTitleEntry extends BaseEntry {
+  type: "ai-title";
+  aiTitle: string;
+}
+
+export interface SummaryEntry extends BaseEntry {
+  type: "summary";
+  summary: string;
+  leafUuid?: string;
+}
+
+export interface TagEntry extends BaseEntry {
+  type: "tag";
+  tag: string;
+}
+
+export interface GitBranchEntry extends BaseEntry {
+  type: "git-branch";
+  gitBranch: string;
+}
+
+export interface PrLinkEntry extends BaseEntry {
+  type: "pr-link";
+  prUrl: string;
+  prRepository?: string;
+  prNumber?: number;
+}
+
+export type BranchStatus = "active" | "adopted" | "merged" | "discarded";
+
+export interface BranchEntry extends BaseEntry {
+  type: "branch";
+  parentSessionId: string;
+  forkedFromUuid?: string;
+  title?: string;
+  status: BranchStatus;
+  worktreePath?: string;
+  worktreeBranch?: string;
+  baseCommit?: string;
 }
 
 export type SessionEntry =
@@ -76,7 +123,14 @@ export type SessionEntry =
   | ToolCallEntry
   | ToolResultEntry
   | SessionEndEntry
-  | CustomTitleEntry;
+  | LastPromptEntry
+  | CustomTitleEntry
+  | AiTitleEntry
+  | SummaryEntry
+  | TagEntry
+  | GitBranchEntry
+  | PrLinkEntry
+  | BranchEntry;
 
 // ── Query / resume types ──────────────────────────────────────────────────────
 
@@ -88,19 +142,107 @@ export interface SessionSummary {
   model: string;
   provider: string;
   turnCount: number;
+  totalUsage: Usage;
   totalCostUsd: number;
   cwd: string;
+  fileSize?: number;
+  createdAt?: Date;
   title?: string;
+  summary?: string;
+  firstPrompt?: string;
+  lastUserInput?: string;
+  tag?: string;
+  gitBranch?: string;
+  pr?: {
+    url: string;
+    repository?: string;
+    number?: number;
+  };
+  branch?: {
+    parentSessionId: string;
+    forkedFromUuid?: string;
+    title?: string;
+    status: BranchStatus;
+    worktreePath?: string;
+    worktreeBranch?: string;
+    baseCommit?: string;
+  };
 }
 
 export interface LoadedSession {
   sessionId: string;
+  filePath: string;
+  cwd: string;
   history: Message[];
   totalUsage: Usage;
   totalCostUsd: number;
   turnCount: number;
   model: string;
   provider: string;
+}
+
+export interface SessionCandidate {
+  sessionId: string;
+  filePath: string;
+  mtimeMs: number;
+  fileSize: number;
+  projectPath?: string;
+}
+
+export interface ListSessionsOptions {
+  cwd?: string;
+  all?: boolean;
+  limit?: number;
+  offset?: number;
+  includeWorktrees?: boolean;
+}
+
+export interface ListSessionsResult {
+  sessions: SessionSummary[];
+  nextOffset?: number;
+  totalCandidates: number;
+}
+
+export interface SessionPreviewToolUse {
+  name: string;
+  args: Record<string, unknown>;
+  result: {
+    ok: boolean;
+    content: string;
+  };
+}
+
+export interface SessionPreviewMessage {
+  role: "user" | "assistant";
+  content: string;
+  toolUses?: SessionPreviewToolUse[];
+}
+
+export interface SessionTranscriptPreview {
+  sessionId: string;
+  messages: SessionPreviewMessage[];
+  summary?: SessionSummary;
+}
+
+export interface ForkSessionOptions {
+  fromSessionId: string;
+  cwd?: string;
+  title?: string;
+  atUuid?: string;
+  worktreePath?: string;
+  worktreeBranch?: string;
+  baseCommit?: string;
+}
+
+export interface ForkedSession {
+  sessionId: string;
+  parentSessionId: string;
+  forkedFromUuid?: string;
+  filePath: string;
+  title?: string;
+  worktreePath?: string;
+  worktreeBranch?: string;
+  baseCommit?: string;
 }
 
 // ── Accumulated cost (in-memory, held by App.tsx) ─────────────────────────────

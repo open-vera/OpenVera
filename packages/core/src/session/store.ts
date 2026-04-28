@@ -9,18 +9,29 @@ import {
   readFileSync,
   readSync,
   readdirSync,
+  realpathSync,
   statSync,
 } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, normalize } from "node:path";
 import type { StopReason, Usage } from "../types/index.js";
 import type { Message } from "../types/message.js";
 import { calculateCost } from "./cost.js";
 import type {
   AssistantEntry,
+  BranchEntry,
+  ForkedSession,
+  ForkSessionOptions,
   CustomTitleEntry,
+  ListSessionsOptions,
+  ListSessionsResult,
   LoadedSession,
+  SessionCandidate,
   SessionEntry,
+  SessionPreviewMessage,
+  SessionPreviewToolUse,
+  SessionTranscriptPreview,
   SessionSummary,
   ToolCallEntry,
   ToolResultEntry,
@@ -56,12 +67,76 @@ function sanitizePath(p: string): string {
 }
 
 function projectDir(cwd: string): string {
+  return join(projectsDir(), sanitizePath(canonicalizePath(cwd)));
+}
+
+function projectDirExact(cwd: string): string {
+  return join(projectsDir(), sanitizePath(cwd));
+}
+
+function canonicalizePath(p: string): string {
+  try {
+    return normalize(realpathSync(p)).normalize("NFC");
+  } catch {
+    return normalize(p).normalize("NFC");
+  }
+}
+
+function projectsDir(): string {
   const home = process.env.VERA_HOME || homedir();
-  return join(home, ".vera", "projects", sanitizePath(cwd));
+  return join(home, ".vera", "projects");
 }
 
 function sessionFilePath(sessionId: string, cwd: string): string {
   return join(projectDir(cwd), `${sessionId}.jsonl`);
+}
+
+function listProjectDirs(): string[] {
+  try {
+    return readdirSync(projectsDir(), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => join(projectsDir(), entry.name));
+  } catch {
+    return [];
+  }
+}
+
+function gitWorktreePaths(cwd: string): string[] {
+  try {
+    const raw = execFileSync("git", ["-C", cwd, "worktree", "list", "--porcelain"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return raw
+      .split("\n")
+      .filter((line) => line.startsWith("worktree "))
+      .map((line) => line.slice("worktree ".length).trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function sessionDirsFor(cwd?: string, includeWorktrees = true): string[] {
+  if (!cwd) return listProjectDirs();
+  const candidates = includeWorktrees ? [cwd, ...gitWorktreePaths(cwd)] : [cwd];
+  return [...new Set(candidates.flatMap((candidate) => [
+    projectDir(candidate),
+    projectDirExact(candidate),
+  ]))];
+}
+
+function resolveSessionFilePath(sessionId: string, cwd?: string): string {
+  const fileName = `${sessionId}.jsonl`;
+  for (const dir of sessionDirsFor(cwd)) {
+    const candidate = join(dir, fileName);
+    try {
+      if (statSync(candidate).size > 0) return candidate;
+    } catch {
+      // keep searching
+    }
+  }
+  return cwd ? sessionFilePath(sessionId, cwd) : join(projectsDir(), fileName);
 }
 
 // ── JSONL helpers ─────────────────────────────────────────────────────────────
@@ -84,9 +159,118 @@ function parseJsonlLines(raw: string): SessionEntry[] {
     .filter((e): e is SessionEntry => e !== null);
 }
 
+function unescapeJsonString(raw: string): string {
+  if (!raw.includes("\\")) return raw;
+  try {
+    return JSON.parse(`"${raw}"`) as string;
+  } catch {
+    return raw;
+  }
+}
+
+function extractJsonStringField(text: string, key: string): string | undefined {
+  return extractJsonStringFieldInternal(text, key, false);
+}
+
+function extractLastJsonStringField(text: string, key: string): string | undefined {
+  return extractJsonStringFieldInternal(text, key, true);
+}
+
+function extractLastJsonNumberField(text: string, key: string): number | undefined {
+  const pattern = new RegExp(`"${key}"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`, "g");
+  let value: number | undefined;
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    value = Number(match[1]);
+  }
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function extractJsonStringFieldInternal(text: string, key: string, last: boolean): string | undefined {
+  const patterns = [`"${key}":"`, `"${key}": "`];
+  let value: string | undefined;
+
+  for (const pattern of patterns) {
+    let searchFrom = 0;
+    while (searchFrom < text.length) {
+      const idx = text.indexOf(pattern, searchFrom);
+      if (idx < 0) break;
+      const valueStart = idx + pattern.length;
+      let i = valueStart;
+      while (i < text.length) {
+        if (text[i] === "\\") {
+          i += 2;
+          continue;
+        }
+        if (text[i] === "\"") {
+          value = unescapeJsonString(text.slice(valueStart, i));
+          if (!last) return value;
+          break;
+        }
+        i++;
+      }
+      searchFrom = i + 1;
+    }
+  }
+
+  return value;
+}
+
+function extractTagFromTail(tailRaw: string): string | undefined {
+  const lines = tailRaw.split("\n");
+  let line: string | undefined;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i]?.startsWith("{\"type\":\"tag\"")) {
+      line = lines[i];
+      break;
+    }
+  }
+  return line ? extractLastJsonStringField(line, "tag") : undefined;
+}
+
+function extractLastLineByType(raw: string, type: string): string | undefined {
+  const lines = raw.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (line?.includes(`"type":"${type}"`) || line?.includes(`"type": "${type}"`)) {
+      return line;
+    }
+  }
+  return undefined;
+}
+
+function extractSessionEndFallback(tailRaw: string): {
+  totalUsage?: Usage;
+  totalCostUsd?: number;
+  turnCount?: number;
+} | undefined {
+  const line = extractLastLineByType(tailRaw, "session_end");
+  if (!line) return undefined;
+  const input = extractLastJsonNumberField(line, "input_tokens");
+  const output = extractLastJsonNumberField(line, "output_tokens");
+  const cacheCreation = extractLastJsonNumberField(line, "cache_creation_input_tokens");
+  const cacheRead = extractLastJsonNumberField(line, "cache_read_input_tokens");
+  const totalCostUsd = extractLastJsonNumberField(line, "totalCostUsd");
+  const turnCount = extractLastJsonNumberField(line, "turnCount");
+  const totalUsage =
+    input !== undefined || output !== undefined || cacheCreation !== undefined || cacheRead !== undefined
+      ? {
+          input_tokens: input ?? 0,
+          output_tokens: output ?? 0,
+          ...(cacheCreation !== undefined ? { cache_creation_input_tokens: cacheCreation } : {}),
+          ...(cacheRead !== undefined ? { cache_read_input_tokens: cacheRead } : {}),
+        }
+      : undefined;
+  if (!totalUsage && totalCostUsd === undefined && turnCount === undefined) return undefined;
+  return {
+    ...(totalUsage ? { totalUsage } : {}),
+    ...(totalCostUsd !== undefined ? { totalCostUsd } : {}),
+    ...(turnCount !== undefined ? { turnCount } : {}),
+  };
+}
+
 // ── File I/O helpers ──────────────────────────────────────────────────────────
 
-const HEAD_BYTES = 512;       // enough for one session_start line
+const HEAD_BYTES = 65_536;    // matches tail size so first prompt/title metadata can be scanned
 const TAIL_BYTES = 65_536;    // 64 KB — covers recent turns + session_end
 
 /** Read first HEAD_BYTES bytes; returns raw string. */
@@ -140,6 +324,10 @@ export class SessionStore {
     this.filePath = sessionFilePath(this.sessionId, this._cwd);
   }
 
+  get cwd(): string {
+    return this._cwd;
+  }
+
   // ── Append helpers ──────────────────────────────────────────────────────────
 
   private append(entry: SessionEntry): void {
@@ -165,10 +353,85 @@ export class SessionStore {
 
   writeTitle(title: string): void {
     const entry: CustomTitleEntry = {
-      type: "custom_title",
+      type: "custom-title",
       sessionId: this.sessionId,
       timestamp: this.now(),
-      title,
+      customTitle: title,
+    };
+    this.append(entry);
+  }
+
+  writeAiTitle(aiTitle: string): void {
+    this.append({
+      type: "ai-title",
+      sessionId: this.sessionId,
+      timestamp: this.now(),
+      aiTitle,
+    });
+  }
+
+  writeSummary(summary: string): void {
+    this.append({
+      type: "summary",
+      sessionId: this.sessionId,
+      timestamp: this.now(),
+      summary,
+    });
+  }
+
+  writeTag(tag: string): void {
+    this.append({
+      type: "tag",
+      sessionId: this.sessionId,
+      timestamp: this.now(),
+      tag,
+    });
+  }
+
+  writeGitBranch(gitBranch: string): void {
+    this.append({
+      type: "git-branch",
+      sessionId: this.sessionId,
+      timestamp: this.now(),
+      gitBranch,
+    });
+  }
+
+  writePrLink(p: {
+    prUrl: string;
+    prRepository?: string;
+    prNumber?: number;
+  }): void {
+    this.append({
+      type: "pr-link",
+      sessionId: this.sessionId,
+      timestamp: this.now(),
+      prUrl: p.prUrl,
+      ...(p.prRepository ? { prRepository: p.prRepository } : {}),
+      ...(p.prNumber ? { prNumber: p.prNumber } : {}),
+    });
+  }
+
+  writeBranch(p: {
+    parentSessionId: string;
+    forkedFromUuid?: string;
+    title?: string;
+    status?: BranchEntry["status"];
+    worktreePath?: string;
+    worktreeBranch?: string;
+    baseCommit?: string;
+  }): void {
+    const entry: BranchEntry = {
+      type: "branch",
+      sessionId: this.sessionId,
+      timestamp: this.now(),
+      parentSessionId: p.parentSessionId,
+      ...(p.forkedFromUuid ? { forkedFromUuid: p.forkedFromUuid } : {}),
+      ...(p.title ? { title: p.title } : {}),
+      status: p.status ?? "active",
+      ...(p.worktreePath ? { worktreePath: p.worktreePath } : {}),
+      ...(p.worktreeBranch ? { worktreeBranch: p.worktreeBranch } : {}),
+      ...(p.baseCommit ? { baseCommit: p.baseCommit } : {}),
     };
     this.append(entry);
   }
@@ -257,7 +520,16 @@ export class SessionStore {
     this.append(entry);
   }
 
-  writeEnd(totalUsage: Usage, totalCostUsd: number, turnCount: number): void {
+  writeEnd(totalUsage: Usage, totalCostUsd: number, turnCount: number, lastPrompt?: string): void {
+    const normalizedLastPrompt = preview(lastPrompt);
+    if (normalizedLastPrompt) {
+      this.append({
+        type: "last-prompt",
+        sessionId: this.sessionId,
+        timestamp: this.now(),
+        lastPrompt: normalizedLastPrompt,
+      });
+    }
     this.append({
       type: "session_end",
       sessionId: this.sessionId,
@@ -271,38 +543,199 @@ export class SessionStore {
   // ── Static: list sessions ───────────────────────────────────────────────────
 
   /**
-   * List sessions for the given CWD (defaults to process.cwd()).
+   * List sessions for a CWD and its git worktrees. When cwd is omitted,
+   * list sessions across all known projects.
    * Uses progressive loading: first HEAD_BYTES + last TAIL_BYTES per file.
    */
   static listSessions(cwd?: string): SessionSummary[] {
-    const dir = projectDir(cwd ?? process.cwd());
-    let files: string[];
-    try {
-      files = readdirSync(dir).filter((f) => f.endsWith(".jsonl"));
-    } catch {
-      return [];
+    return SessionStore.listSessionsPaged({ cwd, limit: 0 }).sessions;
+  }
+
+  static listSessionCandidates(opts: ListSessionsOptions = {}): SessionCandidate[] {
+    const dirs = opts.all ? sessionDirsFor(undefined) : sessionDirsFor(opts.cwd, opts.includeWorktrees ?? true);
+    const candidates: SessionCandidate[] = [];
+
+    for (const dir of dirs) {
+      let files: string[];
+      try {
+        files = readdirSync(dir).filter((f) => f.endsWith(".jsonl"));
+      } catch {
+        continue;
+      }
+
+      for (const file of files) {
+        const sessionId = file.slice(0, -".jsonl".length);
+        const filePath = join(dir, file);
+        try {
+          const stat = statSync(filePath);
+          if (stat.size <= 0) continue;
+          candidates.push({
+            sessionId,
+            filePath,
+            mtimeMs: stat.mtimeMs,
+            fileSize: stat.size,
+          });
+        } catch {
+          // skip unreadable files
+        }
+      }
     }
 
-    const summaries: SessionSummary[] = [];
-    for (const file of files) {
-      const filePath = join(dir, file);
+    return candidates.sort((a, b) =>
+      b.mtimeMs !== a.mtimeMs
+        ? b.mtimeMs - a.mtimeMs
+        : b.sessionId.localeCompare(a.sessionId)
+    );
+  }
+
+  static listSessionsPaged(opts: ListSessionsOptions = {}): ListSessionsResult {
+    const limit = opts.limit ?? 0;
+    const offset = Math.max(0, opts.offset ?? 0);
+    const candidates = SessionStore.listSessionCandidates(opts);
+    const sessions: SessionSummary[] = [];
+    const seen = new Set<string>();
+    const want = limit > 0 ? limit : Number.POSITIVE_INFINITY;
+    let skipped = 0;
+    let nextOffset: number | undefined;
+
+    for (let i = 0; i < candidates.length; i++) {
+      const candidate = candidates[i]!;
+      if (seen.has(candidate.sessionId)) continue;
+      seen.add(candidate.sessionId);
+      if (skipped < offset) {
+        skipped++;
+        continue;
+      }
+
       try {
-        const summary = readSessionSummary(filePath);
-        if (summary) summaries.push(summary);
+        const summary = readSessionSummary(candidate.filePath);
+        if (!summary) continue;
+        sessions.push(summary);
+        if (sessions.length >= want) {
+          nextOffset = offset + sessions.length;
+          break;
+        }
       } catch {
         // skip unreadable files
       }
     }
 
-    return summaries.sort(
-      (a, b) => b.lastActivityAt.getTime() - a.lastActivityAt.getTime()
+    return {
+      sessions,
+      ...(nextOffset !== undefined && nextOffset < candidates.length ? { nextOffset } : {}),
+      totalCandidates: candidates.length,
+    };
+  }
+
+  static forkSession(options: ForkSessionOptions): ForkedSession {
+    const cwd = options.cwd ?? process.cwd();
+    const sourcePath = resolveSessionFilePath(options.fromSessionId, cwd);
+    const raw = readFileSync(sourcePath, "utf8");
+    const entries = parseJsonlLines(raw);
+    const sourceMessages = entries.filter(isReplayableSessionEntry);
+
+    if (sourceMessages.length === 0) {
+      throw new Error(`No replayable session entries found for ${options.fromSessionId}`);
+    }
+
+    const forkedFromUuid = options.atUuid ?? findLastMessageUuid(sourceMessages);
+    const forkStore = new SessionStore({ cwd });
+    const forkedEntries = sourceMessages.map((entry) => ({
+      ...entry,
+      sessionId: forkStore.sessionId,
+    }));
+
+    for (const entry of forkedEntries) {
+      forkStore.append(entry);
+    }
+    forkStore.writeBranch({
+      parentSessionId: options.fromSessionId,
+      forkedFromUuid,
+      title: options.title,
+      status: "active",
+      worktreePath: options.worktreePath,
+      worktreeBranch: options.worktreeBranch,
+      baseCommit: options.baseCommit,
+    });
+    if (options.title) {
+      forkStore.writeTitle(`${options.title} (Branch)`);
+    }
+
+    return {
+      sessionId: forkStore.sessionId,
+      parentSessionId: options.fromSessionId,
+      ...(forkedFromUuid ? { forkedFromUuid } : {}),
+      filePath: forkStore.filePath,
+      ...(options.title ? { title: options.title } : {}),
+      ...(options.worktreePath ? { worktreePath: options.worktreePath } : {}),
+      ...(options.worktreeBranch ? { worktreeBranch: options.worktreeBranch } : {}),
+      ...(options.baseCommit ? { baseCommit: options.baseCommit } : {}),
+    };
+  }
+
+  static listBranches(parentSessionId: string, cwd?: string): SessionSummary[] {
+    return SessionStore.listSessions(cwd).filter(
+      (session) =>
+        session.branch?.parentSessionId === parentSessionId &&
+        session.branch.status !== "discarded"
     );
+  }
+
+  static discardBranch(sessionId: string, cwd?: string): void {
+    const loaded = readBranchMetadata(resolveSessionFilePath(sessionId, cwd ?? process.cwd()));
+    if (!loaded) {
+      throw new Error(`Session ${sessionId} is not a branch`);
+    }
+    const store = new SessionStore({ sessionId, cwd });
+    store.writeBranch({
+      parentSessionId: loaded.parentSessionId,
+      forkedFromUuid: loaded.forkedFromUuid,
+      title: loaded.title,
+      status: "discarded",
+      worktreePath: loaded.worktreePath,
+      worktreeBranch: loaded.worktreeBranch,
+      baseCommit: loaded.baseCommit,
+    });
+  }
+
+  static adoptBranch(sessionId: string, cwd?: string): void {
+    const loaded = readBranchMetadata(resolveSessionFilePath(sessionId, cwd ?? process.cwd()));
+    if (!loaded) {
+      throw new Error(`Session ${sessionId} is not a branch`);
+    }
+    const store = new SessionStore({ sessionId, cwd });
+    store.writeBranch({
+      parentSessionId: loaded.parentSessionId,
+      forkedFromUuid: loaded.forkedFromUuid,
+      title: loaded.title,
+      status: "adopted",
+      worktreePath: loaded.worktreePath,
+      worktreeBranch: loaded.worktreeBranch,
+      baseCommit: loaded.baseCommit,
+    });
+  }
+
+  static markBranchMerged(sessionId: string, cwd?: string): void {
+    const loaded = readBranchMetadata(resolveSessionFilePath(sessionId, cwd ?? process.cwd()));
+    if (!loaded) {
+      throw new Error(`Session ${sessionId} is not a branch`);
+    }
+    const store = new SessionStore({ sessionId, cwd });
+    store.writeBranch({
+      parentSessionId: loaded.parentSessionId,
+      forkedFromUuid: loaded.forkedFromUuid,
+      title: loaded.title,
+      status: "merged",
+      worktreePath: loaded.worktreePath,
+      worktreeBranch: loaded.worktreeBranch,
+      baseCommit: loaded.baseCommit,
+    });
   }
 
   // ── Static: load session for resume ────────────────────────────────────────
 
   static loadSession(sessionId: string, cwd?: string): LoadedSession {
-    const filePath = sessionFilePath(sessionId, cwd ?? process.cwd());
+    const filePath = resolveSessionFilePath(sessionId, cwd ?? process.cwd());
     const raw = readFileSync(filePath, "utf8");
     const entries = parseJsonlLines(raw);
 
@@ -312,11 +745,13 @@ export class SessionStore {
     let turnCount = 0;
     let model = "";
     let provider = "";
+    let loadedCwd = cwd ?? process.cwd();
 
     for (const entry of entries) {
       if (entry.type === "session_start") {
         if (!model) model = entry.model;
         if (!provider) provider = entry.provider;
+        if (entry.cwd) loadedCwd = entry.cwd;
       } else if (entry.type === "user") {
         history.push({ role: "user", content: entry.content });
       } else if (entry.type === "assistant") {
@@ -333,7 +768,56 @@ export class SessionStore {
       // tool_call / tool_result / custom_title not replayed into LLM history
     }
 
-    return { sessionId, history, totalUsage, totalCostUsd, turnCount, model, provider };
+    return { sessionId, filePath, cwd: loadedCwd, history, totalUsage, totalCostUsd, turnCount, model, provider };
+  }
+
+  static loadTranscriptPreview(sessionId: string, cwd?: string): SessionTranscriptPreview {
+    const filePath = resolveSessionFilePath(sessionId, cwd);
+    const raw = readFileSync(filePath, "utf8");
+    const entries = parseJsonlLines(raw);
+    const messages: SessionPreviewMessage[] = [];
+    const toolCallsByParent = new Map<string, ToolCallEntry[]>();
+    const toolResultsByCallUuid = new Map<string, ToolResultEntry>();
+
+    for (const entry of entries) {
+      if (entry.type === "tool_call") {
+        const existing = toolCallsByParent.get(entry.parentUuid) ?? [];
+        existing.push(entry);
+        toolCallsByParent.set(entry.parentUuid, existing);
+      } else if (entry.type === "tool_result") {
+        toolResultsByCallUuid.set(entry.parentUuid, entry);
+      }
+    }
+
+    for (const entry of entries) {
+      if (entry.type === "user") {
+        messages.push({ role: "user", content: entry.content });
+      } else if (entry.type === "assistant") {
+        const toolUses = (toolCallsByParent.get(entry.parentUuid) ?? []).map((toolCall): SessionPreviewToolUse => {
+          const result = toolResultsByCallUuid.get(toolCall.uuid);
+          return {
+            name: toolCall.toolName,
+            args: toolCall.arguments,
+            result: {
+              ok: Boolean(result),
+              content: result?.content ?? "(no tool result recorded)",
+            },
+          };
+        });
+        messages.push({
+          role: "assistant",
+          content: entry.content,
+          ...(toolUses.length ? { toolUses } : {}),
+        });
+      }
+    }
+
+    const summary = readSessionSummary(filePath) ?? undefined;
+    return {
+      sessionId,
+      messages,
+      ...(summary ? { summary } : {}),
+    };
   }
 }
 
@@ -352,8 +836,8 @@ function addUsage(a: Usage, b: Usage): Usage {
 
 /**
  * Build a SessionSummary using progressive loading:
- * - First 512 B  → parse session_start (model, provider, cwd, startedAt)
- * - Last  64 KB  → scan for session_end (authoritative cost/turns) + custom_title
+ * - First 64 KB  → parse session_start + first prompt/title metadata
+ * - Last  64 KB  → scan for session_end + latest title/prompt/summary metadata
  * - Falls back to counting assistant entries in the tail when no session_end exists
  */
 function readSessionSummary(filePath: string): SessionSummary | null {
@@ -364,22 +848,103 @@ function readSessionSummary(filePath: string): SessionSummary | null {
   const first = parseJsonlLine(firstLine);
   if (!first || first.type !== "session_start") return null;
 
-  // ── Tail: scan for session_end + custom_title ───────────────────────────────
+  // ── Tail: scan for authoritative totals + latest display metadata ───────────
   const stat = statSync(filePath);
-  const tailEntries = parseJsonlLines(readFileTail(filePath));
+  const tailRaw = readFileTail(filePath);
+  const headEntries = parseJsonlLines(headRaw);
+  const tailEntries = parseJsonlLines(tailRaw);
 
   let turnCount = 0;
   let totalCostUsd = 0;
-  let title: string | undefined;
+  let totalUsage: Usage = { input_tokens: 0, output_tokens: 0 };
+  let customTitle: string | undefined;
+  let aiTitle: string | undefined;
+  let storedSummary: string | undefined;
+  let firstPrompt: string | undefined;
+  let lastPrompt: string | undefined;
+  let lastUserInput: string | undefined;
+  let tag: string | undefined;
+  let gitBranch: string | undefined;
+  let pr: SessionSummary["pr"] | undefined;
   let foundEnd = false;
+  let branch: SessionSummary["branch"] | undefined;
+
+  for (const entry of headEntries) {
+    if (entry.type === "user" && !firstPrompt) {
+      firstPrompt = entry.content;
+    } else if (entry.type === "custom_title" || entry.type === "custom-title") {
+      customTitle = entry.customTitle ?? entry.title;
+    } else if (entry.type === "ai-title") {
+      aiTitle = entry.aiTitle;
+    } else if (entry.type === "tag") {
+      tag = entry.tag;
+    } else if (entry.type === "git-branch") {
+      gitBranch = entry.gitBranch;
+    }
+  }
 
   for (const entry of tailEntries) {
     if (entry.type === "session_end") {
       turnCount = entry.turnCount;
+      totalUsage = entry.totalUsage;
       totalCostUsd = entry.totalCostUsd;
       foundEnd = true;
-    } else if (entry.type === "custom_title") {
-      title = entry.title; // last title wins
+    } else if (entry.type === "custom_title" || entry.type === "custom-title") {
+      customTitle = entry.customTitle ?? entry.title; // last title wins
+    } else if (entry.type === "ai-title") {
+      aiTitle = entry.aiTitle;
+    } else if (entry.type === "last_prompt" || entry.type === "last-prompt") {
+      lastPrompt = entry.lastPrompt;
+      lastUserInput = entry.lastPrompt;
+    } else if (entry.type === "summary") {
+      storedSummary = entry.summary;
+    } else if (entry.type === "user") {
+      lastUserInput = entry.content;
+    } else if (entry.type === "tag") {
+      tag = entry.tag;
+    } else if (entry.type === "git-branch") {
+      gitBranch = entry.gitBranch;
+    } else if (entry.type === "pr-link") {
+      pr = {
+        url: entry.prUrl,
+        ...(entry.prRepository ? { repository: entry.prRepository } : {}),
+        ...(entry.prNumber ? { number: entry.prNumber } : {}),
+      };
+    } else if (entry.type === "branch") {
+      branch = {
+        parentSessionId: entry.parentSessionId,
+        ...(entry.forkedFromUuid ? { forkedFromUuid: entry.forkedFromUuid } : {}),
+        ...(entry.title ? { title: entry.title } : {}),
+        status: entry.status,
+        ...(entry.worktreePath ? { worktreePath: entry.worktreePath } : {}),
+        ...(entry.worktreeBranch ? { worktreeBranch: entry.worktreeBranch } : {}),
+        ...(entry.baseCommit ? { baseCommit: entry.baseCommit } : {}),
+      };
+    }
+  }
+
+  customTitle =
+    extractLastJsonStringField(tailRaw, "customTitle") ??
+    extractLastJsonStringField(headRaw, "customTitle") ??
+    customTitle;
+  aiTitle =
+    extractLastJsonStringField(tailRaw, "aiTitle") ??
+    extractLastJsonStringField(headRaw, "aiTitle") ??
+    aiTitle;
+  lastPrompt = extractLastJsonStringField(tailRaw, "lastPrompt") ?? lastPrompt;
+  storedSummary = extractLastJsonStringField(tailRaw, "summary") ?? storedSummary;
+  gitBranch =
+    extractLastJsonStringField(tailRaw, "gitBranch") ??
+    extractJsonStringField(headRaw, "gitBranch") ??
+    gitBranch;
+  tag = extractTagFromTail(tailRaw) ?? tag;
+  if (!foundEnd) {
+    const endFallback = extractSessionEndFallback(tailRaw);
+    if (endFallback) {
+      if (endFallback.totalUsage) totalUsage = endFallback.totalUsage;
+      if (endFallback.totalCostUsd !== undefined) totalCostUsd = endFallback.totalCostUsd;
+      if (endFallback.turnCount !== undefined) turnCount = endFallback.turnCount;
+      foundEnd = true;
     }
   }
 
@@ -388,21 +953,78 @@ function readSessionSummary(filePath: string): SessionSummary | null {
     for (const entry of tailEntries) {
       if (entry.type === "assistant") {
         turnCount++;
+        totalUsage = addUsage(totalUsage, entry.usage);
         totalCostUsd += calculateCost(entry.usage, entry.model);
       }
     }
   }
+
+  const displaySummary =
+    preview(customTitle) ??
+    preview(aiTitle) ??
+    preview(lastPrompt) ??
+    preview(storedSummary) ??
+    preview(firstPrompt);
+  if (!displaySummary) return null;
 
   return {
     sessionId: first.sessionId,
     filePath,
     startedAt: new Date(first.timestamp),
     lastActivityAt: stat.mtime,
+    fileSize: stat.size,
+    createdAt: new Date(first.timestamp),
     model: first.model,
     provider: first.provider,
     turnCount,
+    totalUsage,
     totalCostUsd,
     cwd: first.cwd,
-    title,
+    ...(customTitle ? { title: preview(customTitle) } : {}),
+    summary: displaySummary,
+    ...(firstPrompt ? { firstPrompt: preview(firstPrompt) } : {}),
+    lastUserInput: preview(lastUserInput),
+    ...(tag ? { tag } : {}),
+    ...(gitBranch ? { gitBranch } : {}),
+    ...(pr ? { pr } : {}),
+    ...(branch ? { branch } : {}),
   };
+}
+
+function isReplayableSessionEntry(
+  entry: SessionEntry
+): entry is Exclude<SessionEntry, BranchEntry> {
+  return (
+    entry.type !== "session_end" &&
+    entry.type !== "last_prompt" &&
+    entry.type !== "last-prompt" &&
+    entry.type !== "summary" &&
+    entry.type !== "ai-title" &&
+    entry.type !== "tag" &&
+    entry.type !== "git-branch" &&
+    entry.type !== "pr-link" &&
+    entry.type !== "branch"
+  );
+}
+
+function findLastMessageUuid(entries: SessionEntry[]): string | undefined {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i]!;
+    if ("uuid" in entry) {
+      return entry.uuid;
+    }
+  }
+  return undefined;
+}
+
+function readBranchMetadata(filePath: string): BranchEntry | null {
+  const raw = readFileSync(filePath, "utf8");
+  const entries = parseJsonlLines(raw);
+  return entries.filter((entry): entry is BranchEntry => entry.type === "branch").at(-1) ?? null;
+}
+
+function preview(content: string | undefined): string | undefined {
+  const normalized = content?.replace(/\s+/g, " ").trim();
+  if (!normalized) return undefined;
+  return normalized.length > 120 ? `${normalized.slice(0, 117)}...` : normalized;
 }
