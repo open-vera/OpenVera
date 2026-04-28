@@ -1,4 +1,7 @@
 import {
+  execFileSync,
+} from "node:child_process";
+import {
   existsSync,
   readdirSync,
   readFileSync,
@@ -742,6 +745,22 @@ function createDefaultRemoteExecutor(input: {
   location?: string;
 }> {
   return async (opts) => {
+    const external = tryRunExternalRemoteRunner({
+      task: opts.task,
+      ...(opts.description ? { description: opts.description } : {}),
+      ...(opts.context ? { context: opts.context } : {}),
+      agentType: opts.definition.agentType,
+      prompt: opts.prompt,
+      model: opts.model,
+      ...(opts.system ? { system: opts.system } : {}),
+      maxTurns: opts.maxTurns,
+      toolNames: opts.tools.map((t) => t.name),
+      ...(opts.parentSessionId ? { parentSessionId: opts.parentSessionId } : {}),
+    });
+    if (external) {
+      return external;
+    }
+
     const result = await streamAgent(
       opts.prompt,
       {
@@ -780,4 +799,60 @@ function createDefaultRemoteExecutor(input: {
       location: "local-default",
     };
   };
+}
+
+function tryRunExternalRemoteRunner(payload: {
+  task: string;
+  description?: string;
+  context?: string;
+  agentType: string;
+  prompt: string;
+  model: string;
+  system?: string;
+  maxTurns?: number;
+  toolNames: string[];
+  parentSessionId?: string;
+}): {
+  content: string;
+  transcriptId?: string;
+  toolCalls?: string[];
+  location?: string;
+} | null {
+  const runnerCmd = process.env.VERA_SUBAGENT_REMOTE_RUNNER?.trim();
+  if (!runnerCmd) return null;
+
+  const args = parseJsonStringArray(process.env.VERA_SUBAGENT_REMOTE_RUNNER_ARGS);
+  try {
+    const stdout = execFileSync(runnerCmd, args, {
+      input: JSON.stringify(payload),
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+    const parsed = JSON.parse(stdout) as {
+      content?: unknown;
+      transcriptId?: unknown;
+      toolCalls?: unknown;
+      location?: unknown;
+    };
+    const content = typeof parsed.content === "string" ? parsed.content : "(empty remote result)";
+    const transcriptId = typeof parsed.transcriptId === "string" ? parsed.transcriptId : undefined;
+    const toolCalls = Array.isArray(parsed.toolCalls)
+      ? parsed.toolCalls.filter((name): name is string => typeof name === "string")
+      : undefined;
+    const location = typeof parsed.location === "string" ? parsed.location : `external:${runnerCmd}`;
+    return { content, ...(transcriptId ? { transcriptId } : {}), ...(toolCalls ? { toolCalls } : {}), location };
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`Remote runner failed (${runnerCmd}): ${detail}`);
+  }
+}
+
+function parseJsonStringArray(raw: string | undefined): string[] {
+  if (!raw?.trim()) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
 }

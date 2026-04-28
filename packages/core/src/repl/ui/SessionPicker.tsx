@@ -192,6 +192,8 @@ export function SessionPicker({
   const [searchScanStatus, setSearchScanStatus] = useState<"idle" | "scanning">("idle");
   const [previewScrollOffset, setPreviewScrollOffset] = useState(0);
   const [expandPreviewTools, setExpandPreviewTools] = useState(false);
+  const [showBranchCompare, setShowBranchCompare] = useState(true);
+  const [branchCompare, setBranchCompare] = useState<SessionSummary[]>([]);
   const selectedIdxRef = useRef(0);
   selectedIdxRef.current = selectedIdx;
 
@@ -271,6 +273,10 @@ export function SessionPicker({
       setExpandPreviewTools((v) => !v);
       return;
     }
+    if (!searchMode && chunk === "b") {
+      setShowBranchCompare((v) => !v);
+      return;
+    }
     if (!searchMode && chunk === "u") {
       setPreviewScrollOffset((v) => v + Math.floor(PREVIEW_HEIGHT / 2));
       return;
@@ -347,6 +353,21 @@ export function SessionPicker({
     }, 150);
     return () => clearTimeout(timer);
   }, [cwd, selected?.sessionId]);
+
+  useEffect(() => {
+    if (!selected) {
+      setBranchCompare([]);
+      return;
+    }
+    const parentSessionId = selected.branch?.parentSessionId ?? selected.sessionId;
+    const branches = SessionStore.listBranches(parentSessionId, cwd);
+    if (!selected.branch) {
+      const selfIncluded = branches.some((s) => s.sessionId === selected.sessionId);
+      setBranchCompare(selfIncluded ? branches : [selected, ...branches]);
+      return;
+    }
+    setBranchCompare(branches);
+  }, [cwd, selected?.sessionId, selected?.branch?.parentSessionId, selected?.branch]);
 
   if (sessions.length === 0) {
     return (
@@ -426,7 +447,30 @@ export function SessionPicker({
           </>
         )}
       </Box>
-      <Text color="gray" dimColor>↑↓ select  pgup/pgdn load/jump  u/d preview scroll  o tools  / search  enter resume  esc close</Text>
+      {showBranchCompare && branchCompare.length > 1 ? (
+        <Box marginTop={1} flexDirection="column">
+          <Text color="gray" dimColor>--- Branch Compare -------------------------</Text>
+          {branchCompare
+            .slice()
+            .sort((a, b) => {
+              const aTime = a.lastActivityAt.getTime();
+              const bTime = b.lastActivityAt.getTime();
+              return bTime - aTime;
+            })
+            .slice(0, 8)
+            .map((session) => {
+              const status = session.branch?.status ?? "active";
+              const marker = session.sessionId === selected?.sessionId ? ">" : " ";
+              const title = truncate(sessionLabel(session), 40);
+              return (
+                <Text key={session.sessionId} color={session.sessionId === selected?.sessionId ? "cyan" : "gray"}>
+                  {`${marker} ${session.sessionId.slice(0, 8)}  ${status.padEnd(9)}  ${String(session.turnCount).padStart(3)} turns  $${session.totalCostUsd.toFixed(4)}  ${title}`}
+                </Text>
+              );
+            })}
+        </Box>
+      ) : null}
+      <Text color="gray" dimColor>↑↓ select  pgup/pgdn load/jump  u/d preview scroll  o tools  b compare  / search  enter resume  esc close</Text>
     </Box>
   );
 }
