@@ -30,6 +30,13 @@
   },
   "default_provider": "anthropic",
   "default_model": "claude-sonnet-4-6",
+  "session": {
+    "ai_title": {
+      "enabled": true,
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001"
+    }
+  },
   "routing": {
     "enabled": true,
     "classifier": {

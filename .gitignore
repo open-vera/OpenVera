@@ -12,6 +12,7 @@ dist/
 
 # Local config (may contain keys)
 .vera/settings.json
+.vera/worktrees/
 .qwen/
 .gemini/
 
@@ -46,3 +47,6 @@ coverage/
 .cache/
 .eslintcache
 *.tmp
+
+# references
+# references/
