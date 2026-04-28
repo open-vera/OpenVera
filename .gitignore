@@ -48,5 +48,8 @@ coverage/
 .eslintcache
 *.tmp
 
+# Skill-generated reports (may contain session content or sensitive quotes)
+docs/agent-changes/
+
 # references
 # references/
