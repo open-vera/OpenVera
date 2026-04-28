@@ -433,8 +433,11 @@ export function microCompact(
   }
 
   // Clear old tool results, keeping the most recent ones
+  // slice(0, -0) would return [] in JS, so handle keepRecent=0 explicitly
   const idsToClear = new Set(
-    newState.toolUseIds.slice(0, -keepRecent),
+    keepRecent > 0
+      ? newState.toolUseIds.slice(0, -keepRecent)
+      : newState.toolUseIds,
   );
 
   if (idsToClear.size === 0) {
