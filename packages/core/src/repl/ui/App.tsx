@@ -1,4 +1,4 @@
-import { useApp, useStdout, Box, Text } from "ink";
+import { useApp, useStdout, useInput, Box, Text } from "ink";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -534,6 +534,20 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     }
   }, [onTextDelta, onUsage, exit, routing, usage, streamStatus]);
 
+  useInput((input, key) => {
+    if (!pathConfirm) return;
+    const ch = input.toLowerCase();
+    if (ch === "y") {
+      const confirm = pathConfirm;
+      setPathConfirm(null);
+      confirm.resolve(true);
+    } else if (ch === "n" || key.escape || (key.ctrl && input === "c")) {
+      const confirm = pathConfirm;
+      setPathConfirm(null);
+      confirm.resolve(false);
+    }
+  });
+
   useEffect(() => {
     if (streamStatus === "idle" && pendingQueueRef.current.length > 0) {
       const next = pendingQueueRef.current.shift()!;
@@ -543,6 +557,11 @@ export function App({ ctx, resumeSessionId }: AppProps) {
   }, [streamStatus, handleSubmit]);
 
   // ── Render ────────────────────────────────────────────────────────────────
+
+  const handleScrollAdjust = useCallback(
+    (delta: number) => setScrollOffset((prev) => prev + delta),
+    [],
+  );
 
   const { columns, rows } = dimensions;
   const reservedRows = 4 + pendingQueue.length;
@@ -583,7 +602,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
       <WelcomeScreen cwd={ctx.cwd} routing={routing} columns={columns} value={inputValue} onChange={setInputValue} onSubmit={handleSubmit} onExit={exit} showInput={messages.length === 0} />
       {messages.length > 0 && (
         <>
-          <ConversationPanel messages={messages} width={columns} availableHeight={availableHeight} scrollOffset={scrollOffset} expandToolOutput={expandToolOutput} />
+          <ConversationPanel messages={messages} width={columns} availableHeight={availableHeight} scrollOffset={scrollOffset} expandToolOutput={expandToolOutput} onScrollAdjust={handleScrollAdjust} />
           <Box><Text color={theme.textSubtle}>{"─".repeat(columns)}</Text></Box>
           <StatusBar status={streamStatus} outputTokens={currentOutputTokens} pendingCount={pendingQueue.length} scrollOffset={scrollOffset} expandToolOutput={expandToolOutput} />
           {pendingQueue.map((msg, i) => (
@@ -593,17 +612,13 @@ export function App({ ctx, resumeSessionId }: AppProps) {
             </Box>
           ))}
           {pathConfirm ? (
-            <Box flexDirection="column">
-              <Text color={theme.warning}>⚠ {pathConfirm.message}</Text>
-              <Text color={theme.warning}>Allow? [y/N] </Text>
-              <InputBar
-                value={inputValue} onChange={setInputValue}
-                onSubmit={(line) => { const approved = line.trim().toLowerCase() === "y"; setInputValue(""); pathConfirm.resolve(approved); }}
-                onExit={exit} onCancel={() => { setInputValue(""); pathConfirm.resolve(false); }}
-                isStreaming={false} history={[]}
-                onScrollUp={handleScrollUp} onScrollDown={handleScrollDown}
-                onToggleToolOutput={() => setExpandToolOutput((v) => !v)}
-              />
+            <Box flexDirection="column" marginTop={1}>
+              <Text color={theme.warning}>⚠  {pathConfirm.message}</Text>
+              <Box marginTop={1} gap={3}>
+                <Text color={theme.warning}>Allow access?</Text>
+                <Text color="green" bold>[y] Allow</Text>
+                <Text color="red" bold>[n] Deny</Text>
+              </Box>
             </Box>
           ) : (
             <InputBar

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Box, Text } from "ink";
 import type { ChatMessage, PlanStepUI } from "./types.js";
 import { ToolResultView } from "./ToolResultView.js";
@@ -20,6 +21,7 @@ interface ConversationPanelProps {
   availableHeight: number;
   scrollOffset: number; // lines scrolled up from bottom (0 = follow bottom)
   expandToolOutput?: boolean;
+  onScrollAdjust?: (delta: number) => void; // called when content grows while user is scrolled up
 }
 
 // ── Plan step renderer ────────────────────────────────────────────────────────
@@ -262,12 +264,26 @@ export function ConversationPanel({
   availableHeight,
   scrollOffset,
   expandToolOutput,
+  onScrollAdjust,
 }: ConversationPanelProps) {
   const wrapWidth = Math.max(1, width - 3);
 
   // Compute per-message line estimates
   const lineCounts = messages.map((m) => estimateMessageLines(m, wrapWidth, expandToolOutput));
   const totalLines = lineCounts.reduce((a, b) => a + b, 0);
+
+  // Scroll anchor: when user has scrolled up and new content arrives, compensate
+  // the offset so the visible window stays fixed rather than drifting downward.
+  const prevTotalLinesRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (prevTotalLinesRef.current === null) {
+      prevTotalLinesRef.current = totalLines;
+      return;
+    }
+    const delta = totalLines - prevTotalLinesRef.current;
+    prevTotalLinesRef.current = totalLines;
+    if (delta > 0 && scrollOffset > 0) onScrollAdjust?.(delta);
+  });
 
   // Determine the visible window [viewStart, viewEnd) in line space
   const clampedOffset = Math.max(0, Math.min(scrollOffset, Math.max(0, totalLines - availableHeight)));
