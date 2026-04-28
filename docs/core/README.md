@@ -20,14 +20,21 @@ packages/core/src/
   adapters/          LLM 适配层（Anthropic / OpenAI / Gemini）
   agent/loop.ts      runAgent / streamAgent（ReAct 循环）
   intent/            意图识别与复杂度分级
-  context/           上下文管理（待建）
+  context/           上下文管理（token/window/compression/tool-budget）
   types/             核心类型定义
   config/            配置加载
   repl/              交互式 REPL
+  session/           会话持久化、恢复、成本统计、标题生成
+  project-context/   项目规则加载与注入
+  tools/             ToolRegistry、内置工具与安全/分析插件
 ```
 
-## 待实现（P0 剩余）
+## P0 实现结论
 
-- `context/tokens.ts` — token 估算
-- `context/window.ts` — trimToWindow（滑动窗口裁剪）
-- 与 `@vera/harness` 的 Plan Mode 打通（planFromPrompt → runStep）
+- P0 目标能力已落地：意图路由、工具运行时、会话持久化、无限上下文、Plan Mode。
+- 代码入口：`context/tokens.ts`、`context/window.ts`、`context/compression.ts`、`plan/repl-runner.ts`、`agent/loop.ts` 已全部存在并接入主链路。
+
+## 当前仍需补齐（非 P0 功能缺失）
+
+- P0 后对齐项见 [capability-gaps.md](./capability-gaps.md)：权限体验、项目上下文规则、UI 信息密度、子 agent 远程隔离等。
+- P1 方向见 [roadmap.md](../roadmap.md#p1--补齐自循环和自我修正的能力)：checkpoint/resume、memory、自循环与失败归因。
