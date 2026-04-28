@@ -82,7 +82,7 @@ export function routeTarget(
 }
 
 export function shouldPlan(intent: IntentResult): boolean {
-  return intent.level >= 3 || intent.needs_planning;
+  return intent.level >= 3;
 }
 
 /**
