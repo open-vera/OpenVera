@@ -1,9 +1,15 @@
 {
-  "name": "@vera/harness",
+  "name": "@open-vera/harness",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "vera-harness": "./dist/cli/index.js"
   },
@@ -11,11 +17,12 @@
     "dev": "VERA_CONFIG_DIR=../../.vera tsx src/cli/index.ts repl --dir ../..",
     "build": "tsc",
     "postbuild": "chmod +x dist/cli/index.js",
+    "deploy": "pnpm build && npm publish",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "@vera/core": "workspace:*",
+    "@open-vera/core": "workspace:*",
     "tsx": "^4.19.0"
   },
   "devDependencies": {

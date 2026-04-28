@@ -1,4 +1,4 @@
-import type { AgentAssignment, StepResult } from "@vera/core/types";
+import type { AgentAssignment, StepResult } from "@open-vera/core/types";
 import type { RunAssignmentOptions } from "../runtime/internal.js";
 
 /**

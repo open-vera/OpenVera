@@ -1,11 +1,11 @@
-import type { LLMAdapter } from "@vera/core/adapters";
-import type { Message } from "@vera/core/types";
-import type { PlanExecutor, PlanStepDef } from "@vera/core/plan";
-import { streamAgent } from "@vera/core/agent";
+import type { LLMAdapter } from "@open-vera/core/adapters";
+import type { Message } from "@open-vera/core/types";
+import type { PlanExecutor, PlanStepDef } from "@open-vera/core/plan";
+import { streamAgent } from "@open-vera/core/agent";
 import { planFromPrompt } from "../runtime/planner.js";
 import { critiqueStep } from "../runtime/critique.js";
 import { assertTransition } from "../runtime/flow-state.js";
-import type { HarnessState } from "@vera/core/types";
+import type { HarnessState } from "@open-vera/core/types";
 
 /**
  * Convert an ExecutionPlan's steps into PlanStepDef[] for REPL UI events.

@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ArtifactRecord } from "@vera/core/types";
+import type { ArtifactRecord } from "@open-vera/core/types";
 import type { ArtifactStore } from "./internal.js";
 
 export async function writeArtifact(

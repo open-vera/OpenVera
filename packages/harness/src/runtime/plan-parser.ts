@@ -1,4 +1,4 @@
-import type { ExecutionPlan, PlanStep } from "@vera/core/types";
+import type { ExecutionPlan, PlanStep } from "@open-vera/core/types";
 
 /**
  * Extract a JSON block from LLM text output.

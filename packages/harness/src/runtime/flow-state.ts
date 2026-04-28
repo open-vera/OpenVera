@@ -1,4 +1,4 @@
-import type { HarnessState, TaskFlow } from "@vera/core/types";
+import type { HarnessState, TaskFlow } from "@open-vera/core/types";
 
 // ── Valid transition map ────────────────────────────────────────────────────────
 

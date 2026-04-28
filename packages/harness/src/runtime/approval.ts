@@ -1,4 +1,4 @@
-import type { PendingAction } from "@vera/core/types";
+import type { PendingAction } from "@open-vera/core/types";
 import type { ApprovalDecision, ApprovalRecord } from "./internal.js";
 
 export function createApprovalRecord(

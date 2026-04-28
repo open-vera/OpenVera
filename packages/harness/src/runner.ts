@@ -1,6 +1,6 @@
-import type { LLMAdapter } from "@vera/core/adapters";
-import type { AgentOptions } from "@vera/core/agent";
-import type { Tool } from "@vera/core/types";
+import type { LLMAdapter } from "@open-vera/core/adapters";
+import type { AgentOptions } from "@open-vera/core/agent";
+import type { Tool } from "@open-vera/core/types";
 import type { TestCase, RunResult, ToolCallRecord } from "./types.js";
 import type { SkillResolver, IntentSignal } from "./skill/index.js";
 
@@ -23,7 +23,7 @@ export async function runCase(
   testCase: TestCase,
   options: RunnerOptions
 ): Promise<RunResult> {
-  const { streamAgent } = await import("@vera/core/agent");
+  const { streamAgent } = await import("@open-vera/core/agent");
 
   // Resolve tools + system via skill resolver if provided
   let tools: Tool[] | undefined = options.tools;

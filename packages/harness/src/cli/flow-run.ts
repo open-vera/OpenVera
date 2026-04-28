@@ -7,8 +7,8 @@ import type { FlowLoopEvent, RunFlowLoopOptions } from "../runtime/internal.js";
 import { buildCliAdapter } from "./adapter.js";
 import { markdownToPlan } from "./plan.js";
 import { createSkillResolver, RegistryToolProvider } from "../skill/index.js";
-import { createToolRegistry } from "@vera/core/tools";
-import { SessionStore } from "@vera/core/session";
+import { createToolRegistry } from "@open-vera/core/tools";
+import { SessionStore } from "@open-vera/core/session";
 
 export interface FlowRunArgs {
   dir?: string;

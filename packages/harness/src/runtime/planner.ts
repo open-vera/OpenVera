@@ -1,5 +1,5 @@
-import type { LLMAdapter } from "@vera/core/adapters";
-import type { ExecutionPlan, PlanStep } from "@vera/core/types";
+import type { LLMAdapter } from "@open-vera/core/adapters";
+import type { ExecutionPlan, PlanStep } from "@open-vera/core/types";
 import { completeJson } from "./json.js";
 
 export interface PlanFromPromptOptions {

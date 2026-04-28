@@ -1,6 +1,6 @@
 // Skill 系统核心类型
 
-import type { Tool } from "@vera/core/types";
+import type { Tool } from "@open-vera/core/types";
 
 export type IntentDomain = "chat" | "code" | "search" | "writing" | "analysis" | "other";
 

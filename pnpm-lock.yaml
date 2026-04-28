@@ -50,10 +50,10 @@ importers:
 
   packages/benchmark:
     dependencies:
-      '@vera/core':
+      '@open-vera/core':
         specifier: workspace:*
         version: link:../core
-      '@vera/harness':
+      '@open-vera/harness':
         specifier: workspace:*
         version: link:../harness
     devDependencies:
@@ -121,7 +121,7 @@ importers:
 
   packages/harness:
     dependencies:
-      '@vera/core':
+      '@open-vera/core':
         specifier: workspace:*
         version: link:../core
       tsx:

@@ -1,4 +1,4 @@
-import type { PolicyProposal } from "@vera/core/types";
+import type { PolicyProposal } from "@open-vera/core/types";
 import type { CreateProposalInput, ProposalBundle } from "./internal.js";
 
 function randomId(prefix: string): string {

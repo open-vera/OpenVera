@@ -21,7 +21,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, extname } from "node:path";
 import type { Skill, SkillTrigger, IntentDomain } from "./types.js";
 import type { ToolExecutor } from "./types.js";
-import type { Tool } from "@vera/core/types";
+import type { Tool } from "@open-vera/core/types";
 
 export interface BuiltinToolProvider {
   /** Return Tool schema + executor for a built-in tool name, or null if unknown */

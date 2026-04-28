@@ -1,11 +1,11 @@
-import type { LLMAdapter } from "@vera/core/adapters";
+import type { LLMAdapter } from "@open-vera/core/adapters";
 import type {
   CritiqueResult,
   ExecutionPlan,
   PlanStep,
   RetrospectiveResult,
   StepResult,
-} from "@vera/core/types";
+} from "@open-vera/core/types";
 import { completeJson } from "./json.js";
 import type {
   LegacyChallengeIssue,

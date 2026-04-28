@@ -1,5 +1,5 @@
-import type { LLMAdapter } from "@vera/core/adapters";
-import type { AgentAssignment, StepResult } from "@vera/core/types";
+import type { LLMAdapter } from "@open-vera/core/adapters";
+import type { AgentAssignment, StepResult } from "@open-vera/core/types";
 import type { RunAssignmentOptions, StepCritiqueInput } from "../runtime/internal.js";
 import type { AgentRunner } from "./types.js";
 import { critiqueStep } from "../runtime/critique.js";

@@ -5,7 +5,7 @@ import type {
   FlowCheckpoint,
   TaskFlow,
   TaskScope,
-} from "@vera/core/types";
+} from "@open-vera/core/types";
 import type { CreateCheckpointInput, StartFlowInput } from "./internal.js";
 import { transitionFlow } from "./flow-state.js";
 

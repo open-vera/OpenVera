@@ -7,8 +7,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@vera/core": "workspace:*",
-    "@vera/harness": "workspace:*"
+    "@open-vera/core": "workspace:*",
+    "@open-vera/harness": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

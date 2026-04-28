@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ExecutionPlan } from "@vera/core/types";
+import type { ExecutionPlan } from "@open-vera/core/types";
 import {
   assertTransition,
   canTransition,

@@ -5,7 +5,7 @@
 
 import type { BuiltinToolProvider } from "./loader.js";
 import type { ToolExecutor } from "./types.js";
-import type { Tool } from "@vera/core/types";
+import type { Tool } from "@open-vera/core/types";
 
 export interface RegistryLike {
   getSchemas(): Tool[];

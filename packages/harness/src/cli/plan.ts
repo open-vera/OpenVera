@@ -1,4 +1,4 @@
-import type { ExecutionPlan } from "@vera/core/types";
+import type { ExecutionPlan } from "@open-vera/core/types";
 import type { MarkdownFlowInput } from "../runtime/internal.js";
 
 /**

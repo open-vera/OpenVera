@@ -1,9 +1,9 @@
-import type { LLMAdapter } from "@vera/core/adapters";
+import type { LLMAdapter } from "@open-vera/core/adapters";
 import type {
   JsonCompletionOptions,
   JsonCompletionResult,
 } from "./internal.js";
-import type { Message, ContentPart } from "@vera/core/types";
+import type { Message, ContentPart } from "@open-vera/core/types";
 
 function extractText(message: Message): string {
   if (typeof message.content === "string") return message.content;

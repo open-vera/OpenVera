@@ -1,6 +1,6 @@
-import { loadConfig } from "@vera/core/config";
-import { AnthropicAdapter, OpenAIAdapter, GeminiAdapter } from "@vera/core/adapters";
-import type { LLMAdapter } from "@vera/core/adapters";
+import { loadConfig } from "@open-vera/core/config";
+import { AnthropicAdapter, OpenAIAdapter, GeminiAdapter } from "@open-vera/core/adapters";
+import type { LLMAdapter } from "@open-vera/core/adapters";
 
 function resolveEnvKey(adapter: string, name: string): string | undefined {
   switch (adapter) {

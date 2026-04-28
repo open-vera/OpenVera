@@ -1,7 +1,7 @@
-import { runSuite } from "@vera/harness";
-import { evaluate } from "@vera/harness";
-import { loadConfig, AnthropicAdapter } from "@vera/core/adapters";
-import type { TestCase, ReportEntry } from "@vera/harness";
+import { runSuite } from "@open-vera/harness";
+import { evaluate } from "@open-vera/harness";
+import { loadConfig, AnthropicAdapter } from "@open-vera/core/adapters";
+import type { TestCase, ReportEntry } from "@open-vera/harness";
 
 // 示例 case 集（后续从文件加载）
 const cases: TestCase[] = [

@@ -1,4 +1,4 @@
-// @vera/harness — 自动化智能测试框架
+// @open-vera/harness — 自动化智能测试框架
 // 负责：加载 case、执行 agent、评估结果、生成报告
 
 export * from "./runner.js";

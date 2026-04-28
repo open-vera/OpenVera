@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import type { AgentAssignment, StepResult } from "@vera/core/types";
+import type { AgentAssignment, StepResult } from "@open-vera/core/types";
 import type { RunAssignmentOptions } from "../runtime/internal.js";
 import type { AgentRunner } from "./types.js";
 

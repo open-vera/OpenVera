@@ -1,4 +1,4 @@
-import type { LLMAdapter } from "@vera/core/adapters";
+import type { LLMAdapter } from "@open-vera/core/adapters";
 import type {
   AgentAssignment,
   ArtifactRecord,
@@ -8,7 +8,7 @@ import type {
   RetrospectiveResult,
   StepResult,
   TaskScope,
-} from "@vera/core/types";
+} from "@open-vera/core/types";
 import { writeArtifact } from "./artifacts.js";
 import { createApprovalRecord, shouldPauseForApproval } from "./approval.js";
 import {
@@ -351,7 +351,7 @@ export class HarnessRuntime {
   async runStepRetrospective(
     handle: FlowHandle,
     stepId: string,
-    critique: import("@vera/core/types").CritiqueResult,
+    critique: import("@open-vera/core/types").CritiqueResult,
     existingLessons?: string
   ): Promise<{ handle: FlowHandle; result: RetrospectiveResult }> {
     const result = await generateRetrospective(

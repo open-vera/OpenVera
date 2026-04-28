@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import type { LLMAdapter } from "@vera/core/adapters";
+import type { LLMAdapter } from "@open-vera/core/adapters";
 import type {
   CompletionResponse,
   StreamEvent,
-} from "@vera/core/types";
-import type { AgentAssignment, StepResult } from "@vera/core/types";
+} from "@open-vera/core/types";
+import type { AgentAssignment, StepResult } from "@open-vera/core/types";
 import { CritiqueRunner } from "../src/agent/critique-runner.js";
 import type { StepCritiqueInput } from "../src/runtime/internal.js";
 

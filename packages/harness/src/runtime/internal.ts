@@ -13,7 +13,7 @@ import type {
   TaskFlow,
   TaskScope,
   Tool,
-} from "@vera/core/types";
+} from "@open-vera/core/types";
 
 export interface LegacyChallengeIssue {
   severity: "critical" | "major" | "minor";

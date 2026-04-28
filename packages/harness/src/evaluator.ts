@@ -1,4 +1,4 @@
-import type { LLMAdapter } from "@vera/core/adapters";
+import type { LLMAdapter } from "@open-vera/core/adapters";
 import type { TestCase, RunResult, EvalResult } from "./types.js";
 
 const LLM_JUDGE_SYSTEM = `You are an output quality evaluator. Given a task criteria and an actual output, decide if the output satisfies the criteria.
