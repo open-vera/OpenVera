@@ -7,6 +7,8 @@ import type { LLMAdapter } from "../src/adapters/base.js";
 import { streamAgent } from "../src/agent/loop.js";
 import {
   buildSubagentToolSchema,
+  getBackgroundSubagentJob,
+  listBackgroundSubagentJobs,
   loadAgentDefinitions,
   runSubagentTool,
   subagentToolSchema,
@@ -446,11 +448,103 @@ describe("streamAgent context updates", () => {
       "allowedTools",
       "maxTurns",
       "isolation",
+      "run_mode",
+      "resume_session_id",
+      "resumeSessionId",
     ]));
     expect(properties.subagent_type).toMatchObject({
       enum: expect.arrayContaining(["general-purpose", "explore", "plan"]),
     });
     expect(properties.isolation).toMatchObject({ enum: ["none", "try"] });
+    expect(properties.run_mode).toMatchObject({ enum: ["sync", "background"] });
+  });
+
+  it("resumes a previous subagent transcript when resume_session_id is provided", async () => {
+    const tempHome = mkdtempSync(join(tmpdir(), "vera-subagent-resume-home-"));
+    const repo = mkdtempSync(join(tmpdir(), "vera-subagent-resume-repo-"));
+    const originalVeraHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = tempHome;
+    try {
+      const previous = new SessionStore({ cwd: repo });
+      previous.writeStart("claude-sonnet-4-6", "anthropic");
+      const userUuid = previous.writeUser("First task");
+      previous.writeAssistant({
+        parentUuid: userUuid,
+        content: "First result",
+        model: "claude-sonnet-4-6",
+        provider: "anthropic",
+        stopReason: "end_turn",
+        usage: { input_tokens: 10, output_tokens: 10 },
+        turn: 1,
+        latencyMs: 10,
+        toolCalls: [],
+        status: "ok",
+      });
+
+      const prompts: string[] = [];
+      const adapter: LLMAdapter = {
+        complete: vi.fn(),
+        stream: (request) => {
+          prompts.push(String(request.messages.at(-1)?.content ?? ""));
+          return events([
+            { type: "text", text: "Resumed done." },
+            { type: "done", stop_reason: "end_turn" },
+          ]);
+        },
+      };
+
+      const result = await runSubagentTool({
+        args: { prompt: "继续处理", resume_session_id: previous.sessionId },
+        adapter,
+        model: "claude-sonnet-4-6",
+        tools: [],
+        cwd: repo,
+        onToolCall: () => "unused",
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.content).toContain(`Transcript: ${previous.sessionId}`);
+      expect(prompts[0]).toContain("Resume context:");
+      expect(prompts[0]).toContain("user: First task");
+      expect(prompts[0]).toContain("assistant: First result");
+    } finally {
+      process.env.VERA_HOME = originalVeraHome;
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("can launch background subagent jobs and expose status", async () => {
+    const adapter: LLMAdapter = {
+      complete: vi.fn(),
+      stream: () => events([
+        { type: "text", text: "后台完成" },
+        { type: "done", stop_reason: "end_turn" },
+      ]),
+    };
+
+    const started = await runSubagentTool({
+      args: { prompt: "后台执行", run_mode: "background" },
+      adapter,
+      model: "claude-sonnet-4-6",
+      tools: [],
+      onToolCall: () => "unused",
+    });
+
+    expect(started.ok).toBe(true);
+    expect(started.content).toContain("started in background");
+    const jobId = started.content.match(/Job:\s+([a-z0-9-]+)/i)?.[1];
+    expect(jobId).toBeTruthy();
+
+    let job = getBackgroundSubagentJob(jobId!);
+    for (let i = 0; i < 20 && job?.status === "running"; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      job = getBackgroundSubagentJob(jobId!);
+    }
+
+    expect(job?.status).toBe("succeeded");
+    expect(job?.result).toContain("后台完成");
+    expect(listBackgroundSubagentJobs().some((entry) => entry.jobId === jobId)).toBe(true);
   });
 
   it("accepts Claude Code style subagent arguments and builds scoped child context", async () => {
@@ -645,10 +739,24 @@ describe("streamAgent context updates", () => {
     });
     await expect(runSubagentTool({
       ...baseOptions,
+      args: { prompt: "检查", run_mode: "async" },
+    })).resolves.toEqual({
+      ok: false,
+      content: 'Unknown agent run_mode "async".',
+    });
+    await expect(runSubagentTool({
+      ...baseOptions,
       args: { prompt: "检查", isolation: "try" },
     })).resolves.toEqual({
       ok: false,
       content: "agent isolation 'try' requires a cwd.",
+    });
+    await expect(runSubagentTool({
+      ...baseOptions,
+      args: { prompt: "检查", isolation: "try", resume_session_id: "abc" },
+    })).resolves.toEqual({
+      ok: false,
+      content: "resume_session_id cannot be used with isolation.",
     });
   });
 
