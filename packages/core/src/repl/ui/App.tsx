@@ -8,44 +8,39 @@ import {
   SUBAGENT_TOOL_NAME,
   buildSubagentToolSchema,
   loadAgentDefinitions,
-  runSubagentTool,
 } from "../../agent/subagent.js";
 import { resolveModel, shouldPlan } from "../../intent/classifier.js";
 import type { IntentResult } from "../../intent/classifier.js";
 import { defaultPlanExecutor } from "../../plan/index.js";
-import type { PlanEvent, PlanStepUI } from "../../plan/index.js";
+import type { PlanStepUI } from "../../plan/index.js";
 import { handleCommand } from "../commands/index.js";
 import { accumulateCost, emptyAccumulatedCost, generateSessionTitle, SessionStore } from "../../session/index.js";
 import type { AccumulatedCost } from "../../session/index.js";
 import type { ReplContext } from "../context.js";
 import type { Usage, Message } from "../../types/index.js";
-import type { ToolResult } from "../../tools/types.js";
 import { MemoryTracker } from "../../memory/index.js";
 import type { MemoryFile } from "../../memory/index.js";
-import {
-  loadNestedProjectContext,
-  loadProjectContext,
-} from "../../project-context/index.js";
+import { loadProjectContext } from "../../project-context/index.js";
 import type { ProjectContext } from "../../project-context/index.js";
 import {
   createCompressionState,
   createMicroCompactState,
   getModelContextLimit,
-  estimateMessageTokens,
 } from "../../context/index.js";
-import type {
-  CompressionState,
-  MicroCompactState,
-} from "../../context/index.js";
+import type { CompressionState, MicroCompactState } from "../../context/index.js";
 import { ConversationPanel } from "./ConversationPanel.js";
 import { DiffDialog } from "./DiffDialog.js";
 import { InputBar } from "./InputBar.js";
 import { SessionPicker } from "./SessionPicker.js";
 import { StatusBar } from "./StatusBar.js";
 import { WelcomeScreen } from "./WelcomeScreen.js";
-import { resolveResumeWorkspace } from "../workspace.js";
 import type { ChatMessage, RoutingInfo, StreamStatus, TokenUsage, ToolUse } from "./types.js";
 import { theme } from "./theme.js";
+import { resumedVisibleMessages } from "./utils.js";
+import { useSessionLifecycle } from "./hooks/useSessionLifecycle.js";
+import { useStreamingHelpers } from "./hooks/useStreamingHelpers.js";
+import { buildToolCallHandler } from "./hooks/useToolCallHandler.js";
+import { buildPlanEventHandler } from "./hooks/usePlanRunner.js";
 
 function formatError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
@@ -95,82 +90,29 @@ function memoryInventorySignature(memories: MemoryFile[]): string {
 
 function buildMemoryPreamble(memories: MemoryFile[]): string {
   if (memories.length === 0) return "";
-
   const blocks: string[] = [];
   let remaining = MEMORY_TOTAL_CHAR_LIMIT;
-
   for (const memory of memories) {
     if (remaining <= 0) break;
-
     try {
       const raw = readFileSync(memory.path, "utf8");
       const body = raw.slice(0, Math.min(MEMORY_FILE_CHAR_LIMIT, remaining));
       const truncated = raw.length > body.length ? "\n[truncated]" : "";
       blocks.push(
-        [
-          `### ${memory.filename}`,
-          memory.description ? `description: ${memory.description}` : "",
-          memory.type ? `type: ${memory.type}` : "",
-          body + truncated,
-        ].filter(Boolean).join("\n"),
+        [`### ${memory.filename}`, memory.description ? `description: ${memory.description}` : "", memory.type ? `type: ${memory.type}` : "", body + truncated]
+          .filter(Boolean).join("\n"),
       );
       remaining -= body.length;
     } catch {
       // Memory files are opportunistic context; ignore files that disappeared.
     }
   }
-
   if (blocks.length === 0) return "";
-  return [
-    "",
-    "Relevant memory files selected for this turn:",
-    blocks.join("\n\n"),
-  ].join("\n");
+  return ["", "Relevant memory files selected for this turn:", blocks.join("\n\n")].join("\n");
 }
 
 function mergeSystemPrompts(...parts: Array<string | undefined>): string {
   return parts.map((p) => p?.trim()).filter(Boolean).join("\n\n");
-}
-
-function maybeWriteGitBranch(store: SessionStore, cwd: string): void {
-  try {
-    const branch = readFileSync(join(cwd, ".git", "HEAD"), "utf8")
-      .trim()
-      .replace(/^ref: refs\/heads\//, "");
-    if (branch) store.writeGitBranch(branch);
-  } catch {
-    // Git metadata is opportunistic; keep session startup fast and quiet.
-  }
-}
-
-function previewToChatMessages(preview: ReturnType<typeof SessionStore.loadTranscriptPreview>): ChatMessage[] {
-  return preview.messages.map((message) => ({
-    role: message.role,
-    content: message.content,
-    ...(message.toolUses?.length
-      ? {
-          toolUses: message.toolUses.map((toolUse) => ({
-            name: toolUse.name,
-            args: toolUse.args,
-            result: {
-              ok: toolUse.result.ok,
-              content: toolUse.result.content,
-            },
-          })),
-        }
-      : {}),
-  }));
-}
-
-function resumedVisibleMessages(sessionId: string, preview: ReturnType<typeof SessionStore.loadTranscriptPreview>, loaded: { turnCount: number; totalCostUsd: number }): ChatMessage[] {
-  const recentMessages = previewToChatMessages(preview).slice(-12);
-  return [
-    {
-      role: "assistant",
-      content: `Resumed session ${sessionId.slice(0, 8)} — showing the last ${recentMessages.length} messages from ${loaded.turnCount} turns, $${loaded.totalCostUsd.toFixed(4)} spent.`,
-    },
-    ...recentMessages,
-  ];
 }
 
 interface AppProps {
@@ -188,8 +130,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
   });
 
   useEffect(() => {
-    const onResize = () =>
-      setDimensions({ columns: stdout.columns ?? 80, rows: stdout.rows ?? 24 });
+    const onResize = () => setDimensions({ columns: stdout.columns ?? 80, rows: stdout.rows ?? 24 });
     stdout.on("resize", onResize);
     return () => { stdout.off("resize", onResize); };
   }, [stdout]);
@@ -216,7 +157,6 @@ export function App({ ctx, resumeSessionId }: AppProps) {
   const latestInputTokensRef = useRef(0);
   const pendingQueueRef = useRef<string[]>([]);
   const [pendingQueue, setPendingQueue] = useState<string[]>([]);
-  // Plan mode refs
   const planStepTextRef = useRef("");
   const planRafRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const planStepsRef = useRef<PlanStepUI[]>([]);
@@ -231,18 +171,13 @@ export function App({ ctx, resumeSessionId }: AppProps) {
   const isFollowingRef = useRef(true);
   const [diffOpen, setDiffOpen] = useState(false);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
-  // Pending path-confirm request — blocks agent until user responds y/n
   const [pathConfirm, setPathConfirm] = useState<{
     message: string;
     allowDir: string;
     resolve: (approved: boolean) => void;
   } | null>(null);
   const [usage, setUsage] = useState<TokenUsage>({
-    inputTotal: 0,
-    outputTotal: 0,
-    cacheWriteTotal: 0,
-    cacheReadTotal: 0,
-    costUsd: 0,
+    inputTotal: 0, outputTotal: 0, cacheWriteTotal: 0, cacheReadTotal: 0, costUsd: 0,
   });
   const [currentOutputTokens, setCurrentOutputTokens] = useState(0);
   const [routing, setRouting] = useState<RoutingInfo>({
@@ -251,277 +186,100 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     intent: null,
   });
 
-  // ── Session init ────────────────────────────────────────────────────────────
+  // ── Session lifecycle ────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    // Expose onResume for /resume command
-    ctxRef.current.onResume = (loaded) => {
-      const workspace = resolveResumeWorkspace(loaded, ctxRef.current.cwd);
-      const nextCwd = workspace.cwd;
-      const resumedStore = new SessionStore({
-        sessionId: loaded.sessionId,
-        cwd: loaded.cwd,
-      });
-      ctxRef.current.onSwitchWorkspace?.(nextCwd, resumedStore);
-      ctxRef.current.sessionStore = resumedStore;
-      historyRef.current = loaded.history;
-      compressionStateRef.current = createCompressionState();
-      microCompactStateRef.current = createMicroCompactState();
-      memoryTrackerRef.current = null;
-      frozenMemoryFilesRef.current = [];
-      frozenMemorySignatureRef.current = "";
-      frozenMemoryTurnRef.current = -MEMORY_REFRESH_TURNS;
-      loadedVeraContextPathsRef.current = new Set(
-        projectContextRef.current?.files.map((file) => file.path) ?? []
-      );
-      costRef.current = {
-        totalUsd: loaded.totalCostUsd,
-        byModel: {},
-        totalUsage: loaded.totalUsage,
-      };
-      turnCountRef.current = loaded.turnCount;
-      setUsage((prev) => ({
-        ...prev,
-        inputTotal: loaded.totalUsage.input_tokens,
-        outputTotal: loaded.totalUsage.output_tokens,
-        cacheWriteTotal: loaded.totalUsage.cache_creation_input_tokens ?? 0,
-        cacheReadTotal: loaded.totalUsage.cache_read_input_tokens ?? 0,
-        costUsd: loaded.totalCostUsd,
-      }));
-      // Write a new session_start to mark re-entry
-      resumedStore.writeStart(
-        loaded.model || ctxRef.current.model,
-        loaded.provider || (ctxRef.current.config.default_provider ?? "anthropic")
-      );
-      maybeWriteGitBranch(resumedStore, ctxRef.current.cwd);
-      if (workspace.warning) {
-        console.log(workspace.warning);
-      }
-    };
+  useSessionLifecycle({
+    ctx, resumeSessionId, ctxRef,
+    historyRef, compressionStateRef, microCompactStateRef,
+    memoryTrackerRef, frozenMemoryFilesRef, frozenMemorySignatureRef,
+    frozenMemoryTurnRef, loadedVeraContextPathsRef, projectContextRef,
+    costRef, turnCountRef, inputHistoryRef,
+    setMessages, setUsage, setSessionPickerOpen,
+  });
 
-    // Expose session picker for /resume command (no args)
-    ctxRef.current.onShowSessionPicker = () => setSessionPickerOpen(true);
-    ctxRef.current.onSwitchWorkspace = (cwd, sessionStore) => {
-      ctxRef.current.cwd = cwd;
-      const bundle = ctxRef.current.createToolRegistry?.({ cwd, sessionStore });
-      if (bundle) {
-        ctxRef.current.registry = bundle.registry;
-        ctxRef.current.security = bundle.security;
-        ctxRef.current.tools = bundle.registry.getSchemas();
-      }
-      projectContextRef.current = null;
-      loadedVeraContextPathsRef.current = new Set();
-      memoryTrackerRef.current = null;
-    };
+  // ── Streaming helpers ────────────────────────────────────────────────────────
 
-    // Resume from CLI flag
-    if (resumeSessionId) {
-      try {
-        const loaded = SessionStore.loadSession(resumeSessionId, ctxRef.current.cwd);
-        const preview = SessionStore.loadTranscriptPreview(resumeSessionId, ctxRef.current.cwd);
-        ctxRef.current.onResume!(loaded);
-        setMessages(resumedVisibleMessages(resumeSessionId, preview, loaded));
-      } catch (err) {
-        setMessages([{ role: "assistant", content: `Failed to resume session: ${err instanceof Error ? err.message : String(err)}` }]);
-      }
-    } else {
-      ctx.sessionStore.writeStart(ctx.model, ctx.config.default_provider ?? "anthropic");
-      maybeWriteGitBranch(ctx.sessionStore, ctx.cwd);
-    }
+  const { onTextDelta, onUsage, handleCancel, handleScrollUp, handleScrollDown } = useStreamingHelpers({
+    streamingBufferRef, rafRef, abortRef,
+    costRef, latestInputTokensRef, pendingQueueRef,
+    routing, inputValue, streamStatus, rows: dimensions.rows,
+    setMessages, setUsage, setCurrentOutputTokens,
+    setScrollOffset, setInputValue, syncQueue,
+  });
 
-    // Write session_end on process exit
-    const handleExit = () => {
-      ctxRef.current.sessionStore.writeEnd(
-        costRef.current.totalUsage,
-        costRef.current.totalUsd,
-        turnCountRef.current,
-        inputHistoryRef.current.at(-1)
-      );
-    };
-    process.on("exit", handleExit);
-    process.on("SIGINT", handleExit);
-    return () => {
-      process.off("exit", handleExit);
-      process.off("SIGINT", handleExit);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── Streaming helpers ───────────────────────────────────────────────────────
-
-  const flushBuffer = useCallback(() => {
-    setMessages((prev) => {
-      const last = prev[prev.length - 1];
-      if (!last?.streaming) return prev;
-      return [...prev.slice(0, -1), { ...last, content: streamingBufferRef.current }];
-    });
-  }, []);
-
-  const onTextDelta = useCallback((delta: string) => {
-    streamingBufferRef.current += delta;
-    if (rafRef.current === null) {
-      rafRef.current = setTimeout(() => {
-        flushBuffer();
-        rafRef.current = null;
-      }, 16);
-    }
-  }, [flushBuffer]);
-
-  const onUsage = useCallback((u: Usage) => {
-    // Accumulate into session cost
-    const updated = accumulateCost(costRef.current, u, routing.model, routing.provider);
-    costRef.current = updated;
-
-    if (u.input_tokens) latestInputTokensRef.current = u.input_tokens;
-
-    setUsage((prev) => ({
-      inputTotal: prev.inputTotal + (u.input_tokens ?? 0),
-      outputTotal: prev.outputTotal + (u.output_tokens ?? 0),
-      cacheWriteTotal: prev.cacheWriteTotal + (u.cache_creation_input_tokens ?? 0),
-      cacheReadTotal: prev.cacheReadTotal + (u.cache_read_input_tokens ?? 0),
-      costUsd: updated.totalUsd,
-    }));
-    setCurrentOutputTokens((prev) => prev + (u.output_tokens ?? 0));
-  }, [routing.model, routing.provider]);
-
-  const handleCancel = useCallback(() => {
-    if (streamStatus !== "idle") {
-      const pending = inputValue.trim();
-      if (pending) {
-        pendingQueueRef.current.unshift(pending);
-        syncQueue();
-        setInputValue("");
-      }
-      abortRef.current?.abort();
-    } else {
-      if (inputValue.length > 0) setInputValue("");
-    }
-  }, [inputValue, streamStatus]);
-
-  const SCROLL_STEP = Math.max(5, Math.floor((dimensions.rows - 4) / 2));
-
-  const handleScrollUp = useCallback(() => {
-    isFollowingRef.current = false;
-    setScrollOffset((prev) => prev + SCROLL_STEP);
-  }, [SCROLL_STEP]);
-
-  const handleScrollDown = useCallback(() => {
-    setScrollOffset((prev) => {
-      const next = Math.max(0, prev - SCROLL_STEP);
-      if (next === 0) isFollowingRef.current = true;
-      return next;
-    });
-  }, [SCROLL_STEP]);
+  // ── Main submit handler ──────────────────────────────────────────────────────
 
   const handleSubmit = useCallback(async (line: string) => {
     if (streamStatus !== "idle") {
       const trimmed = line.trim();
-      if (trimmed) {
-        pendingQueueRef.current.push(trimmed);
-        syncQueue();
-      }
+      if (trimmed) { pendingQueueRef.current.push(trimmed); syncQueue(); }
       return;
     }
 
     if (!line.startsWith("/")) {
       setMessages((prev) => [...prev, { role: "user", content: line }]);
       inputHistoryRef.current = [...inputHistoryRef.current, line];
-      // Reset scroll to bottom on new user message
       isFollowingRef.current = true;
       setScrollOffset(0);
     }
 
-    // --- Commands ---
+    // ── Commands ──────────────────────────────────────────────────────────────
+
     if (line.startsWith("/")) {
       const [cmd, ...args] = line.slice(1).split(/\s+/);
       if (cmd === "exit" || cmd === "quit") {
         ctxRef.current.sessionStore.writeEnd(
-          costRef.current.totalUsage,
-          costRef.current.totalUsd,
-          turnCountRef.current,
-          inputHistoryRef.current.at(-1)
+          costRef.current.totalUsage, costRef.current.totalUsd,
+          turnCountRef.current, inputHistoryRef.current.at(-1),
         );
         exit();
         return;
       }
-
-      if (cmd === "diff") {
-        setDiffOpen(true);
-        return;
-      }
-
-      if (cmd === "title") {
-        hasCustomTitleRef.current = true;
-      }
+      if (cmd === "diff") { setDiffOpen(true); return; }
+      if (cmd === "title") { hasCustomTitleRef.current = true; }
 
       setMessages((prev) => [...prev, { role: "user", content: line }]);
       if (cmd === "status") {
         setMessages((prev) => {
           const r = routing;
           const u = usage;
-
-          // Context window
           const ctxMax = getModelContextLimit(r.model);
           const ctxUsed = latestInputTokensRef.current;
           const ctxPct = ctxMax > 0 ? ((ctxUsed / ctxMax) * 100).toFixed(1) : "0.0";
           const ctxBar = ctxUsed > 0
             ? `${ctxUsed.toLocaleString()} / ${ctxMax.toLocaleString()} (${ctxPct}%)`
             : `unknown / ${ctxMax.toLocaleString()}`;
-
-          // Per-model cost breakdown with token details
-          const byModelLines = Object.entries(costRef.current.byModel)
-            .map(([m, rec]) => {
-              const inTok = rec.usage.input_tokens.toLocaleString();
-              const outTok = rec.usage.output_tokens.toLocaleString();
-              const cacheW = rec.usage.cache_creation_input_tokens;
-              const cacheR = rec.usage.cache_read_input_tokens;
-              const cachePart = (cacheW || cacheR)
-                ? ` | cache w:${(cacheW ?? 0).toLocaleString()} r:${(cacheR ?? 0).toLocaleString()}`
-                : "";
-              return `  ${m}: in ${inTok} / out ${outTok}${cachePart} = $${rec.costUsd.toFixed(4)}`;
-            });
-
-          // Memory
+          const byModelLines = Object.entries(costRef.current.byModel).map(([m, rec]) => {
+            const cacheW = rec.usage.cache_creation_input_tokens;
+            const cacheR = rec.usage.cache_read_input_tokens;
+            const cachePart = (cacheW || cacheR) ? ` | cache w:${(cacheW ?? 0).toLocaleString()} r:${(cacheR ?? 0).toLocaleString()}` : "";
+            return `  ${m}: in ${rec.usage.input_tokens.toLocaleString()} / out ${rec.usage.output_tokens.toLocaleString()}${cachePart} = $${rec.costUsd.toFixed(4)}`;
+          });
           const mem = process.memoryUsage();
-          const rss = (mem.rss / 1024 / 1024).toFixed(0);
-          const heapUsed = (mem.heapUsed / 1024 / 1024).toFixed(0);
-          const heapTotal = (mem.heapTotal / 1024 / 1024).toFixed(0);
-
-          // CPU load average (1m / 5m / 15m)
           const load = loadavg();
-          const loadStr = load.map((l) => l.toFixed(2)).join(" / ");
-
           const parts = [
-            `Provider: ${r.provider}`,
-            `Model:    ${r.model}`,
-            `Turns:    ${turnCountRef.current}`,
-            `Context:  ${ctxBar}`,
-            `Tokens:   in ${u.inputTotal.toLocaleString()} / out ${u.outputTotal.toLocaleString()}`,
-            ...(u.cacheWriteTotal || u.cacheReadTotal
-              ? [`Cache:    write ${u.cacheWriteTotal.toLocaleString()} / read ${u.cacheReadTotal.toLocaleString()}`]
-              : []),
+            `Provider: ${r.provider}`, `Model:    ${r.model}`, `Turns:    ${turnCountRef.current}`,
+            `Context:  ${ctxBar}`, `Tokens:   in ${u.inputTotal.toLocaleString()} / out ${u.outputTotal.toLocaleString()}`,
+            ...(u.cacheWriteTotal || u.cacheReadTotal ? [`Cache:    write ${u.cacheWriteTotal.toLocaleString()} / read ${u.cacheReadTotal.toLocaleString()}`] : []),
             `Cost:     $${u.costUsd.toFixed(4)}`,
             ...(byModelLines.length ? ["\nBy model:", ...byModelLines] : []),
-            `\nMemory:   RSS ${rss} MB / heap ${heapUsed}/${heapTotal} MB`,
-            `CPU load: ${loadStr} (1m/5m/15m)`,
+            `\nMemory:   RSS ${(mem.rss / 1024 / 1024).toFixed(0)} MB / heap ${(mem.heapUsed / 1024 / 1024).toFixed(0)}/${(mem.heapTotal / 1024 / 1024).toFixed(0)} MB`,
+            `CPU load: ${load.map((l) => l.toFixed(2)).join(" / ")} (1m/5m/15m)`,
           ];
-          if (r.intent) {
-            parts.push(`\nIntent:   L${r.intent.level} · ${r.intent.domain} → ${r.provider}`);
-          }
+          if (r.intent) parts.push(`\nIntent:   L${r.intent.level} · ${r.intent.domain} → ${r.provider}`);
           return [...prev, { role: "assistant", content: parts.join("\n") }];
         });
         return;
       }
-
       const output = await captureCommand(cmd!, args, ctxRef.current);
       setMessages((prev) => [...prev, { role: "assistant", content: output }]);
       return;
     }
 
-    // --- Write user entry to session ---
+    // ── Turn setup ────────────────────────────────────────────────────────────
+
     const userUuid = ctxRef.current.sessionStore.writeUser(line);
 
-    // --- Intent routing ---
     let activeAdapter = ctxRef.current.adapter;
     let activeModel = ctxRef.current.model;
     let activeProvider = ctxRef.current.config.default_provider ?? "anthropic";
@@ -531,39 +289,24 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     if (routingCfg?.enabled) {
       setStreamStatus("thinking");
       const classifierTarget = routingCfg.classifier;
-      const classifierAdapter = classifierTarget
-        ? ctxRef.current.buildAdapter(classifierTarget.provider)
-        : activeAdapter;
+      const classifierAdapter = classifierTarget ? ctxRef.current.buildAdapter(classifierTarget.provider) : activeAdapter;
       const classifierModel = classifierTarget?.model ?? "claude-haiku-4-5";
       try {
         const classifierProvider = classifierTarget?.provider ?? ctxRef.current.config.default_provider ?? "anthropic";
         const { model: routed, provider: routedProvider, intent } = await resolveModel(
           line, classifierAdapter, classifierModel, routingCfg,
-          ctxRef.current.config.default_provider ?? "anthropic",
-          ctxRef.current.model,
+          ctxRef.current.config.default_provider ?? "anthropic", ctxRef.current.model,
           (u) => {
             const updated = accumulateCost(costRef.current, u, classifierModel, classifierProvider);
             costRef.current = updated;
-            setUsage((prev) => ({
-              ...prev,
-              inputTotal: prev.inputTotal + (u.input_tokens ?? 0),
-              outputTotal: prev.outputTotal + (u.output_tokens ?? 0),
-              costUsd: updated.totalUsd,
-            }));
+            setUsage((prev) => ({ ...prev, inputTotal: prev.inputTotal + (u.input_tokens ?? 0), outputTotal: prev.outputTotal + (u.output_tokens ?? 0), costUsd: updated.totalUsd }));
           },
         );
-        if (routedProvider) {
-          activeAdapter = ctxRef.current.buildAdapter(routedProvider);
-          activeProvider = routedProvider;
-        }
+        if (routedProvider) { activeAdapter = ctxRef.current.buildAdapter(routedProvider); activeProvider = routedProvider; }
         activeModel = routed;
         activeIntent = intent;
         routingFailed = intent === null;
-        setRouting({
-          provider: routedProvider ?? ctxRef.current.config.default_provider ?? "anthropic",
-          model: routed,
-          intent,
-        });
+        setRouting({ provider: routedProvider ?? ctxRef.current.config.default_provider ?? "anthropic", model: routed, intent });
       } catch (err) {
         routingFailed = true;
         console.error("[routing]", err instanceof Error ? err.message : String(err));
@@ -571,11 +314,9 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     }
 
     setCurrentOutputTokens(0);
-
     const controller = new AbortController();
     abortRef.current = controller;
 
-    // Per-turn usage accumulator + timing + tool names (for writeAssistant)
     let turnUsage: Usage = { input_tokens: 0, output_tokens: 0 };
     const turnToolCalls: string[] = [];
     const turnStart = Date.now();
@@ -583,10 +324,8 @@ export function App({ ctx, resumeSessionId }: AppProps) {
       turnUsage = {
         input_tokens: turnUsage.input_tokens + u.input_tokens,
         output_tokens: turnUsage.output_tokens + u.output_tokens,
-        cache_creation_input_tokens:
-          (turnUsage.cache_creation_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0),
-        cache_read_input_tokens:
-          (turnUsage.cache_read_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0),
+        cache_creation_input_tokens: (turnUsage.cache_creation_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0),
+        cache_read_input_tokens: (turnUsage.cache_read_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0),
       };
       onUsage(u);
     };
@@ -595,14 +334,10 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     const runDir = dirname(store.filePath);
     if (projectContextRef.current === null) {
       projectContextRef.current = loadProjectContext({ cwd: ctxRef.current.cwd });
-      loadedVeraContextPathsRef.current = new Set(
-        projectContextRef.current.files.map((file) => file.path)
-      );
+      loadedVeraContextPathsRef.current = new Set(projectContextRef.current.files.map((f) => f.path));
     }
     if (memoryTrackerRef.current === null) {
-      memoryTrackerRef.current = new MemoryTracker({
-        memoryDir: join(runDir, "memory"),
-      });
+      memoryTrackerRef.current = new MemoryTracker({ memoryDir: join(runDir, "memory") });
     }
     const scannedMemoryFiles = await memoryTrackerRef.current.scan();
     const memorySignature = memoryInventorySignature(scannedMemoryFiles);
@@ -615,191 +350,48 @@ export function App({ ctx, resumeSessionId }: AppProps) {
       frozenMemorySignatureRef.current = memorySignature;
       frozenMemoryTurnRef.current = turnCountRef.current;
     }
+
     const modelContextLimit = getModelContextLimit(activeModel);
     const dynamicContext = {
-      contextOptions: {
-        maxTokens: modelContextLimit,
-        targetUtilization: CONTEXT_TARGET_UTILIZATION,
-        keepRecentTurns: 6,
-      },
-      compressionOptions: {
-        enabled: true,
-        triggerTokens: Math.floor(modelContextLimit * COMPRESSION_TRIGGER_UTILIZATION),
-        keepRecentTurns: 6,
-        model: activeModel,
-      },
-      microCompactOptions: {
-        enabled: true,
-        gapThresholdMinutes: 60,
-        keepRecent: 5,
-      },
+      contextOptions: { maxTokens: modelContextLimit, targetUtilization: CONTEXT_TARGET_UTILIZATION, keepRecentTurns: 6 },
+      compressionOptions: { enabled: true, triggerTokens: Math.floor(modelContextLimit * COMPRESSION_TRIGGER_UTILIZATION), keepRecentTurns: 6, model: activeModel },
+      microCompactOptions: { enabled: true, gapThresholdMinutes: 60, keepRecent: 5 },
       compressionState: compressionStateRef.current,
       microCompactState: microCompactStateRef.current,
       memoryTracker: memoryTrackerRef.current,
       scannedMemoryFiles: frozenMemoryFilesRef.current,
       onMemorySelected: buildMemoryPreamble,
-      onContextUpdate: (
-        nextHistory: Message[],
-        update: {
-          compressionState: CompressionState | null;
-          microCompactState: MicroCompactState | null;
-        },
-      ) => {
+      onContextUpdate: (nextHistory: Message[], update: { compressionState: typeof compressionStateRef.current | null; microCompactState: typeof microCompactStateRef.current | null }) => {
         historyRef.current = [...nextHistory];
         if (update.compressionState) compressionStateRef.current = update.compressionState;
         if (update.microCompactState) microCompactStateRef.current = update.microCompactState;
       },
     };
 
-    // Resolve skill bundle if available (augments tools + system prompt)
-    const skillBundle = ctxRef.current.resolveSkillBundle?.({
-      domain: activeIntent?.domain ?? "chat",
-      level: activeIntent?.level ?? 0,
-      needs_tools: activeIntent?.needs_tools ?? false,
-    });
-    // Merge registry tools (always available) + any skill-specific extras (e.g. MCP tools)
+    const skillBundle = ctxRef.current.resolveSkillBundle?.({ domain: activeIntent?.domain ?? "chat", level: activeIntent?.level ?? 0, needs_tools: activeIntent?.needs_tools ?? false });
     const registryTools = ctxRef.current.tools;
-    const skillExtras = (skillBundle?.tools ?? []).filter(
-      (t) => !registryTools.some((r) => r.name === t.name)
-    );
+    const skillExtras = (skillBundle?.tools ?? []).filter((t) => !registryTools.some((r) => r.name === t.name));
     const activeToolsWithoutAgent = skillExtras.length ? [...registryTools, ...skillExtras] : registryTools;
     const agentDefinitions = loadAgentDefinitions({ cwd: ctxRef.current.cwd });
     const agentToolSchema = buildSubagentToolSchema(agentDefinitions);
-    const activeTools = activeToolsWithoutAgent.some((tool) => tool.name === SUBAGENT_TOOL_NAME)
+    const activeTools = activeToolsWithoutAgent.some((t) => t.name === SUBAGENT_TOOL_NAME)
       ? activeToolsWithoutAgent
       : [...activeToolsWithoutAgent, agentToolSchema];
-    // Base system prompt from PromptStore (templated + profile-matched), overridden by skill bundle if present
-    const resolvedPrompt = ctxRef.current.promptStore.resolve({
-      domain: activeIntent?.domain ?? "chat",
-      level: activeIntent?.level ?? 0,
-      needs_tools: activeIntent?.needs_tools ?? false,
-    });
+    const resolvedPrompt = ctxRef.current.promptStore.resolve({ domain: activeIntent?.domain ?? "chat", level: activeIntent?.level ?? 0, needs_tools: activeIntent?.needs_tools ?? false });
     const baseSystem = resolvedPrompt?.system ?? "You are Vera, a helpful assistant.";
     const activeSystem = mergeSystemPrompts(skillBundle?.system ?? baseSystem, projectContextRef.current?.system);
     const activeExecutors = skillBundle?.executors;
 
-    // Shared tool call handler — used by both stream mode and plan mode
-    const sharedOnToolCall = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
-      turnToolCalls.push(name);
-      const toolCallUuid = store.writeToolCall({
-        parentUuid: userUuid,
-        toolName: name,
-        toolCallId: name,
-        arguments: args,
-      });
-
-      const executeOnce = async (n: string, a: Record<string, unknown>): Promise<ToolResult> => {
-        if (n === SUBAGENT_TOOL_NAME) {
-          const result = await runSubagentTool({
-            args: a,
-            adapter: activeAdapter,
-            model: activeModel,
-            tools: activeTools,
-            system: activeSystem,
-            runDir,
-            signal: controller.signal,
-            onUsage: captureUsage,
-            cwd: ctxRef.current.cwd,
-            provider: activeProvider,
-            parentSessionId: store.sessionId,
-            definitions: agentDefinitions,
-            createToolHandlerForCwd: ({ cwd, sessionStore }) => {
-              const bundle = ctxRef.current.createToolRegistry?.({ cwd, sessionStore });
-              return async (childName, childArgs) => {
-                if (activeExecutors?.has(childName)) {
-                  return activeExecutors.get(childName)!(childArgs);
-                }
-                if (!bundle) {
-                  const result = await executeOnce(childName, childArgs);
-                  return result.content;
-                }
-                const result = await bundle.registry.execute(childName, childArgs, {
-                  cwd,
-                  sessionId: sessionStore?.sessionId ?? store.sessionId,
-                });
-                return result.content;
-              };
-            },
-            onToolCall: async (childName, childArgs) => {
-              const childResult = await finalizeToolResult(
-                childName,
-                childArgs,
-                await executeOnce(childName, childArgs),
-              );
-              return childResult.content;
-            },
-          });
-          return result.ok
-            ? { ok: true, content: result.content, metadata: { renderHint: { type: "text" } } }
-            : {
-                ok: false,
-                content: result.content,
-                error: { code: "UNKNOWN", message: result.content, retryable: false },
-              };
-        }
-        if (activeExecutors?.has(n)) {
-          const content = await activeExecutors.get(n)!(a);
-          return { ok: true, content };
-        }
-        const registry = ctxRef.current.registry;
-        if (registry) {
-          return registry.execute(n, a, { cwd: ctxRef.current.cwd, sessionId: store.sessionId });
-        }
-        return { ok: false, content: `Tool "${n}" is not implemented yet.`, error: { code: "UNKNOWN", message: `Tool "${n}" is not implemented yet.`, retryable: false } };
-      };
-
-      async function finalizeToolResult(
-        n: string,
-        a: Record<string, unknown>,
-        initialResult: ToolResult,
-      ): Promise<ToolResult> {
-        let result = initialResult;
-
-        // Path confirmation: suspend agent, prompt user, retry once if approved.
-        if (result.needsConfirm) {
-          const confirm = result.needsConfirm;
-          const approved = await new Promise<boolean>((res) => {
-            setPathConfirm({ message: confirm.message, allowDir: confirm.allowDir, resolve: res });
-          });
-          setPathConfirm(null);
-          if (approved) {
-            ctxRef.current.security?.allowPath(confirm.allowDir);
-            result = await executeOnce(confirm.retry.name, confirm.retry.args);
-          }
-          // If denied, fall through with the original error result.
-        }
-
-        if (result.ok && n === "read_file") {
-          const pathArg = a.path;
-          if (typeof pathArg === "string") {
-            const nested = loadNestedProjectContext({
-              cwd: ctxRef.current.cwd,
-              targetPath: pathArg,
-              loadedPaths: loadedVeraContextPathsRef.current,
-            });
-            if (nested.system) {
-              for (const file of nested.files) loadedVeraContextPathsRef.current.add(file.path);
-              result = {
-                ...result,
-                content: [
-                  result.content,
-                  `<nested-vera-context>\n${nested.system}\n</nested-vera-context>`,
-                ].join("\n\n"),
-              };
-            }
-          }
-        }
-
-        return result;
-      }
-
-      let toolResult = await finalizeToolResult(name, args, await executeOnce(name, args));
-
-      store.writeToolResult({ parentUuid: toolCallUuid, toolCallId: name, content: toolResult.content });
-      return toolResult;
-    };
+    const toolCallHandler = buildToolCallHandler({
+      ctxRef, store, userUuid, controller,
+      activeAdapter, activeModel, activeProvider,
+      activeTools, activeSystem, activeExecutors,
+      agentDefinitions, loadedVeraContextPathsRef,
+      turnToolCalls, captureUsage, setPathConfirm,
+    });
 
     const usePlanMode = activeIntent !== null && shouldPlan(activeIntent);
+
     const writeAiTitleIfNeeded = (assistantText: string) => {
       const aiTitleConfig = ctxRef.current.config.session?.ai_title;
       if (aiTitleConfig?.enabled === false) return;
@@ -807,201 +399,43 @@ export function App({ ctx, resumeSessionId }: AppProps) {
       if (turnCountRef.current > 1) return;
       aiTitleGeneratedRef.current = true;
       aiTitleAttemptsRef.current += 1;
-      const toolsSummary = turnToolCalls.length
-        ? `Tools used: ${[...new Set(turnToolCalls)].slice(0, 8).join(", ")}`
-        : undefined;
+      const toolsSummary = turnToolCalls.length ? `Tools used: ${[...new Set(turnToolCalls)].slice(0, 8).join(", ")}` : undefined;
       void generateSessionTitle({
         adapter: aiTitleConfig?.provider ? ctxRef.current.buildAdapter(aiTitleConfig.provider) : activeAdapter,
         model: aiTitleConfig?.model ?? activeModel,
         userPrompt: line,
         assistantText: assistantText.trim() || toolsSummary,
-      })
-        .then((title) => {
-          if (title && !hasCustomTitleRef.current) store.writeAiTitle(title);
-          if (!title) aiTitleGeneratedRef.current = false;
-        })
-        .catch(() => {
-          aiTitleGeneratedRef.current = false;
-        });
+      }).then((title) => {
+        if (title && !hasCustomTitleRef.current) store.writeAiTitle(title);
+        if (!title) aiTitleGeneratedRef.current = false;
+      }).catch(() => { aiTitleGeneratedRef.current = false; });
     };
 
-    // ── Plan Mode ────────────────────────────────────────────────────────────
+    // ── Plan mode ─────────────────────────────────────────────────────────────
 
     if (usePlanMode) {
       planStepsRef.current = [];
       planStepTextRef.current = "";
-
       setMessages((prev) => {
-        const prefix: ChatMessage[] = routingFailed
-          ? [{ role: "assistant", content: "⚠ routing failed — using default model" }]
-          : [];
-        return [...prev, ...prefix, {
-          role: "assistant",
-          content: "",
-          streaming: true,
-          planMode: true,
-          planSteps: [],
-          activeStepIndex: -1,
-        }];
+        const prefix: ChatMessage[] = routingFailed ? [{ role: "assistant", content: "⚠ routing failed — using default model" }] : [];
+        return [...prev, ...prefix, { role: "assistant", content: "", streaming: true, planMode: true, planSteps: [], activeStepIndex: -1 }];
       });
       setStreamStatus("planning");
 
-      const handlePlanEvent = (event: PlanEvent) => {
-        switch (event.type) {
-          case "plan_ready": {
-            // Preserve already-done steps (handles replan events)
-            const doneById = new Map(
-              planStepsRef.current
-                .filter((s) => s.status === "done")
-                .map((s) => [s.id, s])
-            );
-            const steps: PlanStepUI[] = event.steps.map((s) =>
-              doneById.get(s.id) ?? {
-                id: s.id,
-                description: s.description,
-                status: "pending" as const,
-                content: "",
-                toolUses: [],
-              }
-            );
-            planStepsRef.current = steps;
-            setMessages((prev) => {
-              const last = prev[prev.length - 1];
-              if (!last?.planMode) return prev;
-              return [...prev.slice(0, -1), { ...last, planSteps: steps }];
-            });
-            setStreamStatus("streaming");
-            break;
-          }
-          case "step_start": {
-            planStepTextRef.current = "";
-            setMessages((prev) => {
-              const last = prev[prev.length - 1];
-              if (!last?.planMode) return prev;
-              const steps = (last.planSteps ?? []).map((s, i) =>
-                i === event.stepIndex ? { ...s, status: "running" as const } : s
-              );
-              return [...prev.slice(0, -1), { ...last, planSteps: steps, activeStepIndex: event.stepIndex }];
-            });
-            break;
-          }
-          case "step_text": {
-            planStepTextRef.current += event.delta;
-            if (planRafRef.current === null) {
-              planRafRef.current = setTimeout(() => {
-                const text = planStepTextRef.current;
-                setMessages((prev) => {
-                  const last = prev[prev.length - 1];
-                  if (!last?.planMode || last.activeStepIndex == null || last.activeStepIndex < 0) return prev;
-                  const idx = last.activeStepIndex;
-                  const steps = (last.planSteps ?? []).map((s, i) =>
-                    i === idx ? { ...s, content: text } : s
-                  );
-                  return [...prev.slice(0, -1), { ...last, planSteps: steps }];
-                });
-                planRafRef.current = null;
-              }, 16);
-            }
-            break;
-          }
-          case "step_tool": {
-            const toolUse: ToolUse = { name: event.name, args: event.args, result: event.result };
-            setMessages((prev) => {
-              const last = prev[prev.length - 1];
-              if (!last?.planMode || last.activeStepIndex == null) return prev;
-              const idx = last.activeStepIndex;
-              const steps = (last.planSteps ?? []).map((s, i) =>
-                i === idx ? { ...s, toolUses: [...s.toolUses, toolUse] } : s
-              );
-              return [...prev.slice(0, -1), { ...last, planSteps: steps }];
-            });
-            // Sync ref for history building
-            const runningIdx = planStepsRef.current.findIndex((s) => s.status === "running");
-            if (runningIdx >= 0) planStepsRef.current[runningIdx]!.toolUses.push(toolUse);
-            break;
-          }
-          case "step_done": {
-            if (planRafRef.current !== null) { clearTimeout(planRafRef.current); planRafRef.current = null; }
-            const finalText = planStepTextRef.current;
-            if (planStepsRef.current[event.stepIndex]) {
-              planStepsRef.current[event.stepIndex]!.status = "done";
-              planStepsRef.current[event.stepIndex]!.content = finalText;
-            }
-            setMessages((prev) => {
-              const last = prev[prev.length - 1];
-              if (!last?.planMode) return prev;
-              const steps = (last.planSteps ?? []).map((s, i) =>
-                i === event.stepIndex ? { ...s, status: "done" as const, content: finalText } : s
-              );
-              return [...prev.slice(0, -1), { ...last, planSteps: steps }];
-            });
-            break;
-          }
-          case "plan_done": {
-            setMessages((prev) => {
-              const last = prev[prev.length - 1];
-              if (!last?.planMode) return prev;
-              return [...prev.slice(0, -1), { ...last, streaming: false, activeStepIndex: undefined }];
-            });
-            break;
-          }
-          case "plan_error": {
-            if (planRafRef.current !== null) { clearTimeout(planRafRef.current); planRafRef.current = null; }
-            setMessages((prev) => {
-              const last = prev[prev.length - 1];
-              if (!last?.planMode) return prev;
-              return [...prev.slice(0, -1), { ...last, content: `Error: ${event.error}`, streaming: false, planMode: false }];
-            });
-            break;
-          }
-        }
-      };
-
+      const handlePlanEvent = buildPlanEventHandler({ setMessages, setStreamStatus, planStepsRef, planStepTextRef, planRafRef });
       const planExec = ctxRef.current.planExecutor ?? defaultPlanExecutor;
 
       try {
         await planExec(
           line,
-          {
-            adapter: activeAdapter,
-            model: activeModel,
-            tools: activeTools,
-            system: activeSystem,
-            maxTurns: resolvedPrompt?.maxTurns,
-            signal: controller.signal,
-            onToolCall: sharedOnToolCall,
-            runDir,
-            history: historyRef.current,
-            ...dynamicContext,
-          },
+          { adapter: activeAdapter, model: activeModel, tools: activeTools, system: activeSystem, maxTurns: resolvedPrompt?.maxTurns, signal: controller.signal, onToolCall: toolCallHandler, runDir, history: historyRef.current, ...dynamicContext },
           handlePlanEvent,
           captureUsage,
         );
-
-        // Build summary text for session + history
-        const summaryLines = planStepsRef.current.map((s, i) =>
-          `步骤 ${i + 1}：${s.description}\n${s.content}`
-        );
+        const summaryLines = planStepsRef.current.map((s, i) => `步骤 ${i + 1}：${s.description}\n${s.content}`);
         const fullText = summaryLines.join("\n\n");
-
-        store.writeAssistant({
-          parentUuid: userUuid,
-          content: fullText,
-          model: activeModel,
-          provider: activeProvider,
-          stopReason: "end_turn",
-          usage: turnUsage,
-          turn: turnCountRef.current + 1,
-          latencyMs: Date.now() - turnStart,
-          toolCalls: turnToolCalls,
-          status: "ok",
-        });
-
-        historyRef.current = [
-          ...historyRef.current,
-          { role: "user", content: line } satisfies Message,
-          { role: "assistant", content: fullText } satisfies Message,
-        ];
+        store.writeAssistant({ parentUuid: userUuid, content: fullText, model: activeModel, provider: activeProvider, stopReason: "end_turn", usage: turnUsage, turn: turnCountRef.current + 1, latencyMs: Date.now() - turnStart, toolCalls: turnToolCalls, status: "ok" });
+        historyRef.current = [...historyRef.current, { role: "user", content: line } satisfies Message, { role: "assistant", content: fullText } satisfies Message];
         writeAiTitleIfNeeded(fullText);
         turnCountRef.current += 1;
       } catch (err) {
@@ -1027,13 +461,11 @@ export function App({ ctx, resumeSessionId }: AppProps) {
       return;
     }
 
-    // ── Stream Mode (regular ReAct) ──────────────────────────────────────────
+    // ── Stream mode ───────────────────────────────────────────────────────────
 
     setMessages((prev) => {
       const base: ChatMessage = { role: "assistant", content: "", streaming: true };
-      const prefix: ChatMessage[] = routingFailed
-        ? [{ role: "assistant", content: "⚠ routing failed — using default model" }]
-        : [];
+      const prefix: ChatMessage[] = routingFailed ? [{ role: "assistant", content: "⚠ routing failed — using default model" }] : [];
       return [...prev, ...prefix, base];
     });
     setStreamStatus("streaming");
@@ -1043,21 +475,11 @@ export function App({ ctx, resumeSessionId }: AppProps) {
       const fullText = await streamAgent(
         line,
         {
-          adapter: activeAdapter,
-          model: activeModel,
-          tools: activeTools,
-          system: activeSystem,
-          maxTurns: resolvedPrompt?.maxTurns,
-          history: historyRef.current,
-          onUsage: captureUsage,
-          signal: controller.signal,
-          runDir,
-          ...dynamicContext,
+          adapter: activeAdapter, model: activeModel, tools: activeTools, system: activeSystem,
+          maxTurns: resolvedPrompt?.maxTurns, history: historyRef.current, onUsage: captureUsage,
+          signal: controller.signal, runDir, ...dynamicContext,
           onToolCall: async (name, args) => {
-            if (rafRef.current !== null) {
-              clearTimeout(rafRef.current);
-              rafRef.current = null;
-            }
+            if (rafRef.current !== null) { clearTimeout(rafRef.current); rafRef.current = null; }
             const preface = streamingBufferRef.current.trim();
             streamingBufferRef.current = "";
             setMessages((prev) => {
@@ -1065,21 +487,12 @@ export function App({ ctx, resumeSessionId }: AppProps) {
               if (!last?.streaming || !last.content) return prev;
               return [...prev.slice(0, -1), { ...last, content: "" }];
             });
-            const toolResult = await sharedOnToolCall(name, args as Record<string, unknown>);
-            // Append to toolUses on the current streaming message
-            const toolUse: ToolUse = {
-              name,
-              args: args as Record<string, unknown>,
-              result: toolResult,
-              ...(preface ? { preface } : {}),
-            };
+            const toolResult = await toolCallHandler(name, args as Record<string, unknown>);
+            const toolUse: ToolUse = { name, args: args as Record<string, unknown>, result: toolResult, ...(preface ? { preface } : {}) };
             setMessages((prev) => {
               const last = prev[prev.length - 1];
               if (!last?.streaming) return prev;
-              return [
-                ...prev.slice(0, -1),
-                { ...last, toolUses: [...(last.toolUses ?? []), toolUse] },
-              ];
+              return [...prev.slice(0, -1), { ...last, toolUses: [...(last.toolUses ?? []), toolUse] }];
             });
             return toolResult.content;
           },
@@ -1087,63 +500,27 @@ export function App({ ctx, resumeSessionId }: AppProps) {
         onTextDelta,
       );
 
-      if (rafRef.current !== null) {
-        clearTimeout(rafRef.current);
-        rafRef.current = null;
-      }
+      if (rafRef.current !== null) { clearTimeout(rafRef.current); rafRef.current = null; }
       streamingBufferRef.current = fullText;
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         if (!last?.streaming) return prev;
         return [...prev.slice(0, -1), { ...last, content: fullText, streaming: false }];
       });
-
       writeAiTitleIfNeeded(fullText);
-      // Write assistant entry
-      store.writeAssistant({
-        parentUuid: userUuid,
-        content: fullText,
-        model: activeModel,
-        provider: activeProvider,
-        stopReason: "end_turn",
-        usage: turnUsage,
-        turn: turnCountRef.current + 1,
-        latencyMs: Date.now() - turnStart,
-        toolCalls: turnToolCalls,
-        status: "ok",
-      });
-
+      store.writeAssistant({ parentUuid: userUuid, content: fullText, model: activeModel, provider: activeProvider, stopReason: "end_turn", usage: turnUsage, turn: turnCountRef.current + 1, latencyMs: Date.now() - turnStart, toolCalls: turnToolCalls, status: "ok" });
       turnCountRef.current += 1;
     } catch (err) {
-      if (rafRef.current !== null) {
-        clearTimeout(rafRef.current);
-        rafRef.current = null;
-      }
-      const isAbort =
-        err instanceof Error &&
-        (err.name === "AbortError" || err.message.includes("aborted"));
+      if (rafRef.current !== null) { clearTimeout(rafRef.current); rafRef.current = null; }
+      const isAbort = err instanceof Error && (err.name === "AbortError" || err.message.includes("aborted"));
       const errMsg = isAbort ? "Cancelled." : formatError(err);
       setMessages((prev) => {
         const last = prev[prev.length - 1];
-        if (last?.streaming) {
-          const content = last.content || errMsg;
-          return [...prev.slice(0, -1), { role: "assistant", content, streaming: false }];
-        }
+        if (last?.streaming) return [...prev.slice(0, -1), { role: "assistant", content: last.content || errMsg, streaming: false }];
         return [...prev, { role: "assistant", content: errMsg }];
       });
       if (!isAbort) {
-        store.writeAssistant({
-          parentUuid: userUuid,
-          content: errMsg,
-          model: activeModel,
-          provider: activeProvider,
-          stopReason: "end_turn",
-          usage: turnUsage,
-          turn: turnCountRef.current + 1,
-          latencyMs: Date.now() - turnStart,
-          toolCalls: turnToolCalls,
-          status: "error",
-        });
+        store.writeAssistant({ parentUuid: userUuid, content: errMsg, model: activeModel, provider: activeProvider, stopReason: "end_turn", usage: turnUsage, turn: turnCountRef.current + 1, latencyMs: Date.now() - turnStart, toolCalls: turnToolCalls, status: "error" });
       }
       store.writeEnd(costRef.current.totalUsage, costRef.current.totalUsd, turnCountRef.current, line);
     } finally {
@@ -1160,20 +537,14 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     }
   }, [streamStatus, handleSubmit]);
 
+  // ── Render ────────────────────────────────────────────────────────────────
+
   const { columns, rows } = dimensions;
-  // Reserve rows for: separator(1) + statusbar(1) + pendingQueue + inputbar(1) + buffer(1)
   const reservedRows = 4 + pendingQueue.length;
   const availableHeight = Math.max(5, rows - reservedRows);
 
   if (diffOpen) {
-    return (
-      <DiffDialog
-        cwd={ctx.cwd}
-        width={columns}
-        height={dimensions.rows}
-        onClose={() => setDiffOpen(false)}
-      />
-    );
+    return <DiffDialog cwd={ctx.cwd} width={columns} height={dimensions.rows} onClose={() => setDiffOpen(false)} />;
   }
 
   if (sessionPickerOpen) {
@@ -1191,15 +562,9 @@ export function App({ ctx, resumeSessionId }: AppProps) {
               const loaded = SessionStore.loadSession(sessionId, ctx.cwd);
               const preview = SessionStore.loadTranscriptPreview(sessionId, ctx.cwd);
               ctxRef.current.onResume!(loaded);
-              setMessages((prev) => [
-                ...prev,
-                ...resumedVisibleMessages(sessionId, preview, loaded),
-              ]);
+              setMessages((prev) => [...prev, ...resumedVisibleMessages(sessionId, preview, loaded)]);
             } catch (err) {
-              setMessages((prev) => [
-                ...prev,
-                { role: "assistant", content: `Failed to load session: ${err instanceof Error ? err.message : String(err)}` },
-              ]);
+              setMessages((prev) => [...prev, { role: "assistant", content: `Failed to load session: ${err instanceof Error ? err.message : String(err)}` }]);
             }
           }}
           onClose={() => setSessionPickerOpen(false)}
@@ -1210,35 +575,12 @@ export function App({ ctx, resumeSessionId }: AppProps) {
 
   return (
     <Box flexDirection="column">
-      <WelcomeScreen
-        cwd={ctx.cwd}
-        routing={routing}
-        columns={columns}
-        value={inputValue}
-        onChange={setInputValue}
-        onSubmit={handleSubmit}
-        onExit={exit}
-        showInput={messages.length === 0}
-      />
+      <WelcomeScreen cwd={ctx.cwd} routing={routing} columns={columns} value={inputValue} onChange={setInputValue} onSubmit={handleSubmit} onExit={exit} showInput={messages.length === 0} />
       {messages.length > 0 && (
         <>
-          <ConversationPanel
-            messages={messages}
-            width={columns}
-            availableHeight={availableHeight}
-            scrollOffset={scrollOffset}
-            expandToolOutput={expandToolOutput}
-          />
-          <Box>
-            <Text color={theme.textSubtle}>{"─".repeat(columns)}</Text>
-          </Box>
-          <StatusBar
-            status={streamStatus}
-            outputTokens={currentOutputTokens}
-            pendingCount={pendingQueue.length}
-            scrollOffset={scrollOffset}
-            expandToolOutput={expandToolOutput}
-          />
+          <ConversationPanel messages={messages} width={columns} availableHeight={availableHeight} scrollOffset={scrollOffset} expandToolOutput={expandToolOutput} />
+          <Box><Text color={theme.textSubtle}>{"─".repeat(columns)}</Text></Box>
+          <StatusBar status={streamStatus} outputTokens={currentOutputTokens} pendingCount={pendingQueue.length} scrollOffset={scrollOffset} expandToolOutput={expandToolOutput} />
           {pendingQueue.map((msg, i) => (
             <Box key={i}>
               <Text color={theme.warning}>{"⏎ "}</Text>
@@ -1250,33 +592,19 @@ export function App({ ctx, resumeSessionId }: AppProps) {
               <Text color={theme.warning}>⚠ {pathConfirm.message}</Text>
               <Text color={theme.warning}>Allow? [y/N] </Text>
               <InputBar
-                value={inputValue}
-                onChange={setInputValue}
-                onSubmit={(line) => {
-                  const approved = line.trim().toLowerCase() === "y";
-                  setInputValue("");
-                  pathConfirm.resolve(approved);
-                }}
-                onExit={exit}
-                onCancel={() => { setInputValue(""); pathConfirm.resolve(false); }}
-                isStreaming={false}
-                history={[]}
-                onScrollUp={handleScrollUp}
-                onScrollDown={handleScrollDown}
+                value={inputValue} onChange={setInputValue}
+                onSubmit={(line) => { const approved = line.trim().toLowerCase() === "y"; setInputValue(""); pathConfirm.resolve(approved); }}
+                onExit={exit} onCancel={() => { setInputValue(""); pathConfirm.resolve(false); }}
+                isStreaming={false} history={[]}
+                onScrollUp={handleScrollUp} onScrollDown={handleScrollDown}
                 onToggleToolOutput={() => setExpandToolOutput((v) => !v)}
               />
             </Box>
           ) : (
             <InputBar
-              value={inputValue}
-              onChange={setInputValue}
-              onSubmit={handleSubmit}
-              onExit={exit}
-              onCancel={handleCancel}
-              isStreaming={streamStatus !== "idle"}
-              history={inputHistoryRef.current}
-              onScrollUp={handleScrollUp}
-              onScrollDown={handleScrollDown}
+              value={inputValue} onChange={setInputValue} onSubmit={handleSubmit} onExit={exit} onCancel={handleCancel}
+              isStreaming={streamStatus !== "idle"} history={inputHistoryRef.current}
+              onScrollUp={handleScrollUp} onScrollDown={handleScrollDown}
               onToggleToolOutput={() => setExpandToolOutput((v) => !v)}
             />
           )}

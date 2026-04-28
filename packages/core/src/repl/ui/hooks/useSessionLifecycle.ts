@@ -1,0 +1,130 @@
+import { useEffect } from "react";
+import type { MutableRefObject } from "react";
+import { SessionStore } from "../../../session/index.js";
+import {
+  createCompressionState,
+  createMicroCompactState,
+} from "../../../context/index.js";
+import { resolveResumeWorkspace } from "../../workspace.js";
+import type { ReplContext } from "../../context.js";
+import type { Message, Usage } from "../../../types/index.js";
+import type { CompressionState, MicroCompactState } from "../../../context/index.js";
+import type { MemoryTracker, MemoryFile } from "../../../memory/index.js";
+import type { ProjectContext } from "../../../project-context/index.js";
+import type { AccumulatedCost } from "../../../session/index.js";
+import type { ChatMessage, TokenUsage } from "../types.js";
+import { maybeWriteGitBranch, resumedVisibleMessages } from "../utils.js";
+
+const MEMORY_REFRESH_TURNS = 5;
+
+export interface SessionLifecycleProps {
+  ctx: ReplContext;
+  resumeSessionId: string | undefined;
+  ctxRef: MutableRefObject<ReplContext>;
+  historyRef: MutableRefObject<Message[]>;
+  compressionStateRef: MutableRefObject<CompressionState>;
+  microCompactStateRef: MutableRefObject<MicroCompactState>;
+  memoryTrackerRef: MutableRefObject<MemoryTracker | null>;
+  frozenMemoryFilesRef: MutableRefObject<MemoryFile[]>;
+  frozenMemorySignatureRef: MutableRefObject<string>;
+  frozenMemoryTurnRef: MutableRefObject<number>;
+  loadedVeraContextPathsRef: MutableRefObject<Set<string>>;
+  projectContextRef: MutableRefObject<ProjectContext | null>;
+  costRef: MutableRefObject<AccumulatedCost>;
+  turnCountRef: MutableRefObject<number>;
+  inputHistoryRef: MutableRefObject<string[]>;
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  setUsage: React.Dispatch<React.SetStateAction<TokenUsage>>;
+  setSessionPickerOpen: React.Dispatch<React.SetStateAction<boolean>>;
+}
+
+export function useSessionLifecycle(props: SessionLifecycleProps): void {
+  const {
+    ctx, resumeSessionId, ctxRef,
+    historyRef, compressionStateRef, microCompactStateRef,
+    memoryTrackerRef, frozenMemoryFilesRef, frozenMemorySignatureRef,
+    frozenMemoryTurnRef, loadedVeraContextPathsRef, projectContextRef,
+    costRef, turnCountRef, inputHistoryRef,
+    setMessages, setUsage, setSessionPickerOpen,
+  } = props;
+
+  useEffect(() => {
+    ctxRef.current.onResume = (loaded) => {
+      const workspace = resolveResumeWorkspace(loaded, ctxRef.current.cwd);
+      const resumedStore = new SessionStore({ sessionId: loaded.sessionId, cwd: loaded.cwd });
+      ctxRef.current.onSwitchWorkspace?.(workspace.cwd, resumedStore);
+      ctxRef.current.sessionStore = resumedStore;
+      historyRef.current = loaded.history;
+      compressionStateRef.current = createCompressionState();
+      microCompactStateRef.current = createMicroCompactState();
+      memoryTrackerRef.current = null;
+      frozenMemoryFilesRef.current = [];
+      frozenMemorySignatureRef.current = "";
+      frozenMemoryTurnRef.current = -MEMORY_REFRESH_TURNS;
+      loadedVeraContextPathsRef.current = new Set(
+        projectContextRef.current?.files.map((f) => f.path) ?? []
+      );
+      costRef.current = { totalUsd: loaded.totalCostUsd, byModel: {}, totalUsage: loaded.totalUsage };
+      turnCountRef.current = loaded.turnCount;
+      setUsage((prev) => ({
+        ...prev,
+        inputTotal: loaded.totalUsage.input_tokens,
+        outputTotal: loaded.totalUsage.output_tokens,
+        cacheWriteTotal: loaded.totalUsage.cache_creation_input_tokens ?? 0,
+        cacheReadTotal: loaded.totalUsage.cache_read_input_tokens ?? 0,
+        costUsd: loaded.totalCostUsd,
+      }));
+      resumedStore.writeStart(
+        loaded.model || ctxRef.current.model,
+        loaded.provider || (ctxRef.current.config.default_provider ?? "anthropic"),
+      );
+      maybeWriteGitBranch(resumedStore, ctxRef.current.cwd);
+      if (workspace.warning) console.log(workspace.warning);
+    };
+
+    ctxRef.current.onShowSessionPicker = () => setSessionPickerOpen(true);
+
+    ctxRef.current.onSwitchWorkspace = (cwd, sessionStore) => {
+      ctxRef.current.cwd = cwd;
+      const bundle = ctxRef.current.createToolRegistry?.({ cwd, sessionStore });
+      if (bundle) {
+        ctxRef.current.registry = bundle.registry;
+        ctxRef.current.security = bundle.security;
+        ctxRef.current.tools = bundle.registry.getSchemas();
+      }
+      projectContextRef.current = null;
+      loadedVeraContextPathsRef.current = new Set();
+      memoryTrackerRef.current = null;
+    };
+
+    if (resumeSessionId) {
+      try {
+        const loaded = SessionStore.loadSession(resumeSessionId, ctxRef.current.cwd);
+        const preview = SessionStore.loadTranscriptPreview(resumeSessionId, ctxRef.current.cwd);
+        ctxRef.current.onResume!(loaded);
+        setMessages(resumedVisibleMessages(resumeSessionId, preview, loaded));
+      } catch (err) {
+        setMessages([{ role: "assistant", content: `Failed to resume session: ${err instanceof Error ? err.message : String(err)}` }]);
+      }
+    } else {
+      ctx.sessionStore.writeStart(ctx.model, ctx.config.default_provider ?? "anthropic");
+      maybeWriteGitBranch(ctx.sessionStore, ctx.cwd);
+    }
+
+    const handleExit = () => {
+      ctxRef.current.sessionStore.writeEnd(
+        costRef.current.totalUsage,
+        costRef.current.totalUsd,
+        turnCountRef.current,
+        inputHistoryRef.current.at(-1),
+      );
+    };
+    process.on("exit", handleExit);
+    process.on("SIGINT", handleExit);
+    return () => {
+      process.off("exit", handleExit);
+      process.off("SIGINT", handleExit);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}

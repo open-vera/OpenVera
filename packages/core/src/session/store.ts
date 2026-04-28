@@ -834,44 +834,26 @@ function addUsage(a: Usage, b: Usage): Usage {
   };
 }
 
-/**
- * Build a SessionSummary using progressive loading:
- * - First 64 KB  → parse session_start + first prompt/title metadata
- * - Last  64 KB  → scan for session_end + latest title/prompt/summary metadata
- * - Falls back to counting assistant entries in the tail when no session_end exists
- */
-function readSessionSummary(filePath: string): SessionSummary | null {
-  // ── Head: parse session_start ───────────────────────────────────────────────
-  const headRaw = readFileHead(filePath);
-  const firstLine = headRaw.split("\n")[0];
-  if (!firstLine) return null;
-  const first = parseJsonlLine(firstLine);
-  if (!first || first.type !== "session_start") return null;
+interface HeadMeta {
+  firstPrompt: string | undefined;
+  customTitle: string | undefined;
+  aiTitle: string | undefined;
+  tag: string | undefined;
+  gitBranch: string | undefined;
+  messageCount: number;
+  seenUuids: Set<string>;
+}
 
-  // ── Tail: scan for authoritative totals + latest display metadata ───────────
-  const stat = statSync(filePath);
-  const tailRaw = readFileTail(filePath);
-  const headEntries = parseJsonlLines(headRaw);
-  const tailEntries = parseJsonlLines(tailRaw);
-
-  let turnCount = 0;
-  let messageCount = 0;
-  let totalCostUsd = 0;
-  let totalUsage: Usage = { input_tokens: 0, output_tokens: 0 };
+function parseHeadMeta(entries: SessionEntry[]): HeadMeta {
+  let firstPrompt: string | undefined;
   let customTitle: string | undefined;
   let aiTitle: string | undefined;
-  let storedSummary: string | undefined;
-  let firstPrompt: string | undefined;
-  let lastPrompt: string | undefined;
-  let lastUserInput: string | undefined;
   let tag: string | undefined;
   let gitBranch: string | undefined;
-  let pr: SessionSummary["pr"] | undefined;
-  let foundEnd = false;
-  let branch: SessionSummary["branch"] | undefined;
+  let messageCount = 0;
   const seenUuids = new Set<string>();
 
-  for (const entry of headEntries) {
+  for (const entry of entries) {
     if (entry.type === "user") {
       if (!firstPrompt) firstPrompt = entry.content;
       if ("uuid" in entry && entry.uuid && !seenUuids.has(entry.uuid)) {
@@ -894,14 +876,50 @@ function readSessionSummary(filePath: string): SessionSummary | null {
     }
   }
 
-  for (const entry of tailEntries) {
+  return { firstPrompt, customTitle, aiTitle, tag, gitBranch, messageCount, seenUuids };
+}
+
+interface TailMeta {
+  turnCount: number;
+  totalUsage: Usage;
+  totalCostUsd: number;
+  customTitle: string | undefined;
+  aiTitle: string | undefined;
+  lastPrompt: string | undefined;
+  storedSummary: string | undefined;
+  lastUserInput: string | undefined;
+  tag: string | undefined;
+  gitBranch: string | undefined;
+  pr: SessionSummary["pr"] | undefined;
+  branch: SessionSummary["branch"] | undefined;
+  foundEnd: boolean;
+  additionalMessageCount: number;
+}
+
+function parseTailMeta(entries: SessionEntry[], seenUuids: Set<string>): TailMeta {
+  let turnCount = 0;
+  let totalUsage: Usage = { input_tokens: 0, output_tokens: 0 };
+  let totalCostUsd = 0;
+  let customTitle: string | undefined;
+  let aiTitle: string | undefined;
+  let lastPrompt: string | undefined;
+  let storedSummary: string | undefined;
+  let lastUserInput: string | undefined;
+  let tag: string | undefined;
+  let gitBranch: string | undefined;
+  let pr: SessionSummary["pr"] | undefined;
+  let branch: SessionSummary["branch"] | undefined;
+  let foundEnd = false;
+  let additionalMessageCount = 0;
+
+  for (const entry of entries) {
     if (entry.type === "session_end") {
       turnCount = entry.turnCount;
       totalUsage = entry.totalUsage;
       totalCostUsd = entry.totalCostUsd;
       foundEnd = true;
     } else if (entry.type === "custom_title" || entry.type === "custom-title") {
-      customTitle = entry.customTitle ?? entry.title; // last title wins
+      customTitle = entry.customTitle ?? entry.title;
     } else if (entry.type === "ai-title") {
       aiTitle = entry.aiTitle;
     } else if (entry.type === "last_prompt" || entry.type === "last-prompt") {
@@ -913,12 +931,12 @@ function readSessionSummary(filePath: string): SessionSummary | null {
       lastUserInput = entry.content;
       if ("uuid" in entry && entry.uuid && !seenUuids.has(entry.uuid)) {
         seenUuids.add(entry.uuid);
-        messageCount++;
+        additionalMessageCount++;
       }
     } else if (entry.type === "assistant") {
       if ("uuid" in entry && entry.uuid && !seenUuids.has(entry.uuid)) {
         seenUuids.add(entry.uuid);
-        messageCount++;
+        additionalMessageCount++;
       }
     } else if (entry.type === "tag") {
       tag = entry.tag;
@@ -943,21 +961,47 @@ function readSessionSummary(filePath: string): SessionSummary | null {
     }
   }
 
-  customTitle =
+  return { turnCount, totalUsage, totalCostUsd, customTitle, aiTitle, lastPrompt, storedSummary, lastUserInput, tag, gitBranch, pr, branch, foundEnd, additionalMessageCount };
+}
+
+/**
+ * Build a SessionSummary using progressive loading:
+ * - First 64 KB  → parse session_start + first prompt/title metadata
+ * - Last  64 KB  → scan for session_end + latest title/prompt/summary metadata
+ * - Falls back to counting assistant entries in the tail when no session_end exists
+ */
+function readSessionSummary(filePath: string): SessionSummary | null {
+  const headRaw = readFileHead(filePath);
+  const firstLine = headRaw.split("\n")[0];
+  if (!firstLine) return null;
+  const first = parseJsonlLine(firstLine);
+  if (!first || first.type !== "session_start") return null;
+
+  const stat = statSync(filePath);
+  const tailRaw = readFileTail(filePath);
+  const head = parseHeadMeta(parseJsonlLines(headRaw));
+  const tail = parseTailMeta(parseJsonlLines(tailRaw), head.seenUuids);
+
+  const messageCount = head.messageCount + tail.additionalMessageCount;
+  let { turnCount, totalUsage, totalCostUsd, foundEnd } = tail;
+
+  // Regex-based fallbacks override parsed values (handles partial writes)
+  const customTitle =
     extractLastJsonStringField(tailRaw, "customTitle") ??
     extractLastJsonStringField(headRaw, "customTitle") ??
-    customTitle;
-  aiTitle =
+    tail.customTitle ?? head.customTitle;
+  const aiTitle =
     extractLastJsonStringField(tailRaw, "aiTitle") ??
     extractLastJsonStringField(headRaw, "aiTitle") ??
-    aiTitle;
-  lastPrompt = extractLastJsonStringField(tailRaw, "lastPrompt") ?? lastPrompt;
-  storedSummary = extractLastJsonStringField(tailRaw, "summary") ?? storedSummary;
-  gitBranch =
+    tail.aiTitle ?? head.aiTitle;
+  const lastPrompt = extractLastJsonStringField(tailRaw, "lastPrompt") ?? tail.lastPrompt;
+  const storedSummary = extractLastJsonStringField(tailRaw, "summary") ?? tail.storedSummary;
+  const gitBranch =
     extractLastJsonStringField(tailRaw, "gitBranch") ??
     extractJsonStringField(headRaw, "gitBranch") ??
-    gitBranch;
-  tag = extractTagFromTail(tailRaw) ?? tag;
+    tail.gitBranch ?? head.gitBranch;
+  const tag = extractTagFromTail(tailRaw) ?? tail.tag ?? head.tag;
+
   if (!foundEnd) {
     const endFallback = extractSessionEndFallback(tailRaw);
     if (endFallback) {
@@ -968,9 +1012,9 @@ function readSessionSummary(filePath: string): SessionSummary | null {
     }
   }
 
-  // No session_end yet (session still active): compute from assistant entries in tail
+  // No session_end yet: estimate from assistant entries in tail
   if (!foundEnd) {
-    for (const entry of tailEntries) {
+    for (const entry of parseJsonlLines(tailRaw)) {
       if (entry.type === "assistant") {
         turnCount++;
         totalUsage = addUsage(totalUsage, entry.usage);
@@ -984,7 +1028,7 @@ function readSessionSummary(filePath: string): SessionSummary | null {
     preview(aiTitle) ??
     preview(lastPrompt) ??
     preview(storedSummary) ??
-    preview(firstPrompt);
+    preview(head.firstPrompt);
   if (!displaySummary) return null;
 
   return {
@@ -1003,12 +1047,12 @@ function readSessionSummary(filePath: string): SessionSummary | null {
     cwd: first.cwd,
     ...(customTitle ? { title: preview(customTitle) } : {}),
     summary: displaySummary,
-    ...(firstPrompt ? { firstPrompt: preview(firstPrompt) } : {}),
-    lastUserInput: preview(lastUserInput),
+    ...(head.firstPrompt ? { firstPrompt: preview(head.firstPrompt) } : {}),
+    lastUserInput: preview(tail.lastUserInput),
     ...(tag ? { tag } : {}),
     ...(gitBranch ? { gitBranch } : {}),
-    ...(pr ? { pr } : {}),
-    ...(branch ? { branch } : {}),
+    ...(tail.pr ? { pr: tail.pr } : {}),
+    ...(tail.branch ? { branch: tail.branch } : {}),
   };
 }
 
