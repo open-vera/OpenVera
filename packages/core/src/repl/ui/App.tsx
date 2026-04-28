@@ -1,6 +1,7 @@
 import { useApp, useStdout, Box, Text } from "ink";
 import { useState, useRef, useEffect, useCallback } from "react";
-import { dirname } from "node:path";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { streamAgent } from "../../agent/loop.js";
 import { resolveModel, shouldPlan } from "../../intent/classifier.js";
 import { defaultPlanExecutor } from "../../plan/index.js";
@@ -11,6 +12,17 @@ import type { AccumulatedCost } from "../../session/index.js";
 import type { ReplContext } from "../context.js";
 import type { Usage, Message } from "../../types/index.js";
 import type { ToolResult } from "../../tools/types.js";
+import { MemoryTracker } from "../../memory/index.js";
+import type { MemoryFile } from "../../memory/index.js";
+import {
+  createCompressionState,
+  createMicroCompactState,
+  getModelContextLimit,
+} from "../../context/index.js";
+import type {
+  CompressionState,
+  MicroCompactState,
+} from "../../context/index.js";
 import { ConversationPanel } from "./ConversationPanel.js";
 import { DiffDialog } from "./DiffDialog.js";
 import { InputBar } from "./InputBar.js";
@@ -52,6 +64,54 @@ async function captureCommand(cmd: string, args: string[], ctx: ReplContext): Pr
   return lines.join("\n") || `Unknown command: /${cmd}`;
 }
 
+const MEMORY_FILE_CHAR_LIMIT = 8_000;
+const MEMORY_TOTAL_CHAR_LIMIT = 24_000;
+const MEMORY_REFRESH_TURNS = 5;
+const CONTEXT_TARGET_UTILIZATION = 0.85;
+const COMPRESSION_TRIGGER_UTILIZATION = 0.78;
+
+function memoryInventorySignature(memories: MemoryFile[]): string {
+  return memories
+    .map((m) => `${m.path}:${Math.floor(m.mtimeMs)}`)
+    .sort()
+    .join("|");
+}
+
+function buildMemoryPreamble(memories: MemoryFile[]): string {
+  if (memories.length === 0) return "";
+
+  const blocks: string[] = [];
+  let remaining = MEMORY_TOTAL_CHAR_LIMIT;
+
+  for (const memory of memories) {
+    if (remaining <= 0) break;
+
+    try {
+      const raw = readFileSync(memory.path, "utf8");
+      const body = raw.slice(0, Math.min(MEMORY_FILE_CHAR_LIMIT, remaining));
+      const truncated = raw.length > body.length ? "\n[truncated]" : "";
+      blocks.push(
+        [
+          `### ${memory.filename}`,
+          memory.description ? `description: ${memory.description}` : "",
+          memory.type ? `type: ${memory.type}` : "",
+          body + truncated,
+        ].filter(Boolean).join("\n"),
+      );
+      remaining -= body.length;
+    } catch {
+      // Memory files are opportunistic context; ignore files that disappeared.
+    }
+  }
+
+  if (blocks.length === 0) return "";
+  return [
+    "",
+    "Relevant memory files selected for this turn:",
+    blocks.join("\n\n"),
+  ].join("\n");
+}
+
 interface AppProps {
   ctx: ReplContext;
   resumeSessionId?: string;
@@ -78,6 +138,12 @@ export function App({ ctx, resumeSessionId }: AppProps) {
   const rafRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const historyRef = useRef<Message[]>([]);
+  const compressionStateRef = useRef<CompressionState>(createCompressionState());
+  const microCompactStateRef = useRef<MicroCompactState>(createMicroCompactState());
+  const memoryTrackerRef = useRef<MemoryTracker | null>(null);
+  const frozenMemoryFilesRef = useRef<MemoryFile[]>([]);
+  const frozenMemorySignatureRef = useRef("");
+  const frozenMemoryTurnRef = useRef(-MEMORY_REFRESH_TURNS);
   const inputHistoryRef = useRef<string[]>([]);
   const costRef = useRef<AccumulatedCost>(emptyAccumulatedCost());
   const turnCountRef = useRef(0);
@@ -123,6 +189,11 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     // Expose onResume for /resume command
     ctxRef.current.onResume = (loaded) => {
       historyRef.current = loaded.history;
+      compressionStateRef.current = createCompressionState();
+      microCompactStateRef.current = createMicroCompactState();
+      frozenMemoryFilesRef.current = [];
+      frozenMemorySignatureRef.current = "";
+      frozenMemoryTurnRef.current = -MEMORY_REFRESH_TURNS;
       costRef.current = {
         totalUsd: loaded.totalCostUsd,
         byModel: {},
@@ -363,6 +434,57 @@ export function App({ ctx, resumeSessionId }: AppProps) {
 
     const store = ctxRef.current.sessionStore;
     const runDir = dirname(store.filePath);
+    if (memoryTrackerRef.current === null) {
+      memoryTrackerRef.current = new MemoryTracker({
+        memoryDir: join(runDir, "memory"),
+      });
+    }
+    const scannedMemoryFiles = await memoryTrackerRef.current.scan();
+    const memorySignature = memoryInventorySignature(scannedMemoryFiles);
+    const shouldRefreshMemory =
+      frozenMemoryFilesRef.current.length === 0 ||
+      turnCountRef.current - frozenMemoryTurnRef.current >= MEMORY_REFRESH_TURNS ||
+      memorySignature !== frozenMemorySignatureRef.current;
+    if (shouldRefreshMemory) {
+      frozenMemoryFilesRef.current = memoryTrackerRef.current.selectForInjection(scannedMemoryFiles);
+      frozenMemorySignatureRef.current = memorySignature;
+      frozenMemoryTurnRef.current = turnCountRef.current;
+    }
+    const modelContextLimit = getModelContextLimit(activeModel);
+    const dynamicContext = {
+      contextOptions: {
+        maxTokens: modelContextLimit,
+        targetUtilization: CONTEXT_TARGET_UTILIZATION,
+        keepRecentTurns: 6,
+      },
+      compressionOptions: {
+        enabled: true,
+        triggerTokens: Math.floor(modelContextLimit * COMPRESSION_TRIGGER_UTILIZATION),
+        keepRecentTurns: 6,
+        model: activeModel,
+      },
+      microCompactOptions: {
+        enabled: true,
+        gapThresholdMinutes: 60,
+        keepRecent: 5,
+      },
+      compressionState: compressionStateRef.current,
+      microCompactState: microCompactStateRef.current,
+      memoryTracker: memoryTrackerRef.current,
+      scannedMemoryFiles: frozenMemoryFilesRef.current,
+      onMemorySelected: buildMemoryPreamble,
+      onContextUpdate: (
+        nextHistory: Message[],
+        update: {
+          compressionState: CompressionState | null;
+          microCompactState: MicroCompactState | null;
+        },
+      ) => {
+        historyRef.current = [...nextHistory];
+        if (update.compressionState) compressionStateRef.current = update.compressionState;
+        if (update.microCompactState) microCompactStateRef.current = update.microCompactState;
+      },
+    };
 
     // Resolve skill bundle if available (augments tools + system prompt)
     const skillBundle = ctxRef.current.resolveSkillBundle?.({
@@ -575,6 +697,8 @@ export function App({ ctx, resumeSessionId }: AppProps) {
             signal: controller.signal,
             onToolCall: sharedOnToolCall,
             runDir,
+            history: historyRef.current,
+            ...dynamicContext,
           },
           handlePlanEvent,
           captureUsage,
@@ -652,6 +776,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
           onUsage: captureUsage,
           signal: controller.signal,
           runDir,
+          ...dynamicContext,
           onToolCall: async (name, args) => {
             const toolResult = await sharedOnToolCall(name, args as Record<string, unknown>);
             // Append to toolUses on the current streaming message
@@ -695,11 +820,6 @@ export function App({ ctx, resumeSessionId }: AppProps) {
         status: "ok",
       });
 
-      historyRef.current = [
-        ...historyRef.current,
-        { role: "user", content: line } satisfies Message,
-        { role: "assistant", content: fullText } satisfies Message,
-      ];
       turnCountRef.current += 1;
     } catch (err) {
       if (rafRef.current !== null) {

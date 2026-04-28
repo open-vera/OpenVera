@@ -62,7 +62,7 @@ export function createHarnessPlanExecutor(
     let flowState: HarnessState = "dispatching";
     assertTransition("planning", flowState);
 
-    const history: Message[] = [];
+    let history: Message[] = [...(ctx.history ?? [])];
     let i = 0;
 
     while (i < steps.length) {
@@ -97,6 +97,20 @@ export function createHarnessPlanExecutor(
             onUsage,
             signal: ctx.signal,
             runDir: ctx.runDir,
+            contextOptions: ctx.contextOptions,
+            compressionOptions: ctx.compressionOptions,
+            microCompactOptions: ctx.microCompactOptions,
+            compressionState: ctx.compressionState,
+            microCompactState: ctx.microCompactState,
+            memoryTracker: ctx.memoryTracker,
+            scannedMemoryFiles: ctx.scannedMemoryFiles,
+            onMemorySelected: ctx.onMemorySelected,
+            onContextUpdate: ctx.onContextUpdate
+              ? (messages, update) => {
+                  history = messages;
+                  ctx.onContextUpdate?.(messages, update);
+                }
+              : undefined,
             onToolCall: async (name, args) => {
               const result = await ctx.onToolCall(
                 name,
@@ -165,10 +179,12 @@ export function createHarnessPlanExecutor(
         }
       }
 
-      history.push(
-        { role: "user", content: stepPrompt },
-        { role: "assistant", content: stepOutput },
-      );
+      if (!ctx.onContextUpdate) {
+        history.push(
+          { role: "user", content: stepPrompt },
+          { role: "assistant", content: stepOutput },
+        );
+      }
 
       assertTransition(flowState, "dispatching");
       flowState = "dispatching";

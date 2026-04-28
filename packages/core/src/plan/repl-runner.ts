@@ -1,7 +1,7 @@
 import type { LLMAdapter } from "../adapters/base.js";
 import type { Tool, Usage, Message } from "../types/index.js";
 import type { ToolResult } from "../tools/types.js";
-import { streamAgent } from "../agent/loop.js";
+import { streamAgent, type AgentOptions } from "../agent/loop.js";
 import { generatePlan, type PlanStepDef } from "./generator.js";
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -38,6 +38,17 @@ export interface PlanRunContext {
   signal: AbortSignal;
   /** Directory for persisting large tool results (enables compression). */
   runDir?: string;
+  /** Model-facing history to continue from before the plan starts. */
+  history?: Message[];
+  contextOptions?: AgentOptions["contextOptions"];
+  compressionOptions?: AgentOptions["compressionOptions"];
+  microCompactOptions?: AgentOptions["microCompactOptions"];
+  compressionState?: AgentOptions["compressionState"];
+  microCompactState?: AgentOptions["microCompactState"];
+  memoryTracker?: AgentOptions["memoryTracker"];
+  scannedMemoryFiles?: AgentOptions["scannedMemoryFiles"];
+  onMemorySelected?: AgentOptions["onMemorySelected"];
+  onContextUpdate?: AgentOptions["onContextUpdate"];
 }
 
 export type PlanExecutor = (
@@ -70,12 +81,12 @@ export const defaultPlanExecutor: PlanExecutor = async (
   onEvent({ type: "plan_ready", steps });
 
   // 2. Execute each step, chaining history so later steps have prior context
-  const history: Message[] = [];
+  let history: Message[] = [...(ctx.history ?? [])];
 
   for (let i = 0; i < steps.length; i++) {
     if (ctx.signal.aborted) return;
 
-    const step = steps[i]!;
+    const step = steps[i];
     onEvent({ type: "step_start", stepIndex: i, total: steps.length });
 
     const stepPrompt = [
@@ -87,7 +98,7 @@ export const defaultPlanExecutor: PlanExecutor = async (
         : "",
     ].join("\n");
 
-    let stepOutput = "";
+    let stepOutput: string;
     try {
       stepOutput = await streamAgent(
         stepPrompt,
@@ -100,9 +111,23 @@ export const defaultPlanExecutor: PlanExecutor = async (
           onUsage,
           signal: ctx.signal,
           runDir: ctx.runDir,
+          contextOptions: ctx.contextOptions,
+          compressionOptions: ctx.compressionOptions,
+          microCompactOptions: ctx.microCompactOptions,
+          compressionState: ctx.compressionState,
+          microCompactState: ctx.microCompactState,
+          memoryTracker: ctx.memoryTracker,
+          scannedMemoryFiles: ctx.scannedMemoryFiles,
+          onMemorySelected: ctx.onMemorySelected,
+          onContextUpdate: ctx.onContextUpdate
+            ? (messages, update) => {
+                history = messages;
+                ctx.onContextUpdate?.(messages, update);
+              }
+            : undefined,
           onToolCall: async (name, args) => {
-            const result = await ctx.onToolCall(name, args as Record<string, unknown>);
-            onEvent({ type: "step_tool", name, args: args as Record<string, unknown>, result });
+            const result = await ctx.onToolCall(name, args);
+            onEvent({ type: "step_tool", name, args, result });
             return result.content;
           },
         },
@@ -114,10 +139,12 @@ export const defaultPlanExecutor: PlanExecutor = async (
       return;
     }
 
-    history.push(
-      { role: "user", content: stepPrompt },
-      { role: "assistant", content: stepOutput },
-    );
+    if (!ctx.onContextUpdate) {
+      history.push(
+        { role: "user", content: stepPrompt },
+        { role: "assistant", content: stepOutput },
+      );
+    }
     onEvent({ type: "step_done", stepIndex: i, output: stepOutput });
   }
 

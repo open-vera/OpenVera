@@ -1,4 +1,5 @@
 import { loadConfig } from "./config/index.js";
+import { dirname } from "node:path";
 import { AnthropicAdapter } from "./adapters/anthropic.js";
 import { OpenAIAdapter } from "./adapters/openai.js";
 import { GeminiAdapter } from "./adapters/gemini.js";
@@ -9,6 +10,7 @@ import { startRepl } from "./repl/index.js";
 import { SessionStore } from "./session/index.js";
 import { createToolRegistry } from "./tools/index.js";
 import { PromptStore, loadTemplates } from "./prompt/index.js";
+import { getModelContextLimit } from "./context/index.js";
 export { MemoryTracker } from "./memory/index.js";
 export type {
   MemoryFile,
@@ -125,6 +127,8 @@ if (process.argv[2]) {
   const { registry } = createToolRegistry({ cwd, sessionStore });
   const resolved = promptStore.resolve({ domain: "chat", level: 0, needs_tools: true });
   const system = resolved?.system ?? "You are Vera, a helpful assistant.";
+  const runDir = dirname(sessionStore.filePath);
+  const modelContextLimit = getModelContextLimit(model);
   const answer = await streamAgent(
     process.argv[2],
     {
@@ -132,6 +136,18 @@ if (process.argv[2]) {
       model,
       tools: registry.getSchemas(),
       system,
+      runDir,
+      compressionOptions: {
+        enabled: true,
+        triggerTokens: Math.floor(modelContextLimit * 0.78),
+        keepRecentTurns: 6,
+        model,
+      },
+      microCompactOptions: {
+        enabled: true,
+        gapThresholdMinutes: 60,
+        keepRecent: 5,
+      },
       onToolCall: (name, args) =>
         registry.execute(name, args as Record<string, unknown>, { cwd, sessionId: sessionStore.sessionId })
           .then((r) => r.content),
