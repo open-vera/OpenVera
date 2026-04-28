@@ -50,6 +50,7 @@ pnpm repl
 | [runtime-design.md](./core/runtime-design.md) | Core runtime 设计——adapter 抽象、loop、streaming |
 | [tool-rendering.md](./core/tool-rendering.md) | Tool 输出渲染——RenderHint、ToolResultView、各渲染组件 ✅ |
 | [capability-gaps.md](./core/capability-gaps.md) | 当前能力差距与近期实现路线——权限、上下文、UI、可靠性 |
+| [p0-alignment-checklist.md](./core/p0-alignment-checklist.md) | P0 后对齐项代码核验清单——已完成/部分完成/未完成 |
 | [plan-mode-implementation.md](./core/plan-mode-implementation.md) | **[P0 已完成]** Plan Mode——planner、parser、state machine、REPL 接入 ✅ |
 | [infinite-context-implementation.md](./core/infinite-context-implementation.md) | **[P0 已完成]** 无限上下文——progressive compression、micro-compact、reactive compact ✅ |
 
@@ -108,6 +109,14 @@ Computer Use、MCP 接入、智能 UI 测试等 P2/P3 能力。
 
 ---
 
+### Code Governance — 代码治理
+
+| 文档 | 说明 |
+|---|---|
+| [static-analysis.md](./code-governance/static-analysis.md) | 静态代码质量扫描——oxlint + jscpd 并行方案、指标阈值、Skill 设计 |
+
+---
+
 ## 参考资料
 
 精选外部文章，按来源整理：
@@ -123,7 +132,7 @@ Computer Use、MCP 接入、智能 UI 测试等 P2/P3 能力。
 ## 推荐阅读顺序
 
 ```
-roadmap.md                          了解全局目标和阶段
+roadmap.md                          了解全局目标和阶段（含 P0 完成状态与已知技术债）
   ↓
 harness/design.md                   理解 Harness 内核设计（最重要）
   ↓
@@ -131,9 +140,11 @@ core/agent-design.md                理解 Agent 能力版图
   ↓
 core/intent-routing.md              意图路由（已完成，可快速过）
   ↓
-core/plan-mode-implementation.md        P0 进行中——Plan Mode 基础版
+core/plan-mode-implementation.md        P0 已完成——Plan Mode 基础版
   ↓
-core/infinite-context-implementation.md   P0 待做
+core/infinite-context-implementation.md   P0 已完成——无限上下文
+  ↓
+core/capability-gaps.md             查看 P0 后对齐项（权限/上下文/UI/子 agent）
   ↓
 eval/benchmark.md                   了解评测体系（P2 准备）
 ```
