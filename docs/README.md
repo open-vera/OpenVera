@@ -27,6 +27,15 @@ pnpm repl
 
 ---
 
+## 项目介绍
+
+| 文档 | 说明 |
+|---|---|
+| [PROJECT_INTRO.md](./PROJECT_INTRO.md) | 项目说明文档（英文）——理念、愿景、架构、价值主张 |
+| [PROJECT_INTRO_CN.md](./PROJECT_INTRO_CN.md) | 项目说明文档（中文）——理念、愿景、架构、价值主张 |
+
+---
+
 ## 整体规划
 
 | 文档 | 说明 |
