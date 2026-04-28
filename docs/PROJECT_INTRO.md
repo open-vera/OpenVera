@@ -61,7 +61,7 @@ Self-planning without a Harness is uncontrolled. Self-critique without structura
 
 ## Our Vision
 
-> **Achieve SOTA AGI and accelerate the realization of human creativity.**
+> **Our vision is to achieve SOTA AGI and accelerate human creativity from idea to reality.**
 
 We believe the path to SOTA AGI is not only through larger models — it runs through **principled execution frameworks** that make agent systems reliable, verifiable, and self-improving at scale.
 
