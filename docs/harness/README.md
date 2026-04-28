@@ -22,18 +22,23 @@ packages/harness/src/
     artifacts.ts      Artifact 存储
     proposal.ts       PolicyProposal 生成（stub）
     markdown.ts       Markdown Flow 格式解析
-    planner.ts        ← 待建：planFromPrompt
-    executor.ts       ← 待建：runStep
+    planner.ts        planFromPrompt（LLM 生成 ExecutionPlan）
+    plan-parser.ts    LLM 计划解析（JSON/list fallback）
+    flow-state.ts     Flow 状态机与合法迁移校验
+    json.ts           critique/planner JSON 纠错与重试
   cli/
     flow-run.ts       CLI 入口
     plan.ts           markdownToPlan
     adapter.ts        CLI adapter 适配
+    repl-plan-executor.ts REPL Plan Executor（plan → act → critique）
 ```
 
-## 待实现（P0 剩余）
+## P0 实现结论
 
-- `runtime/planner.ts` — LLM 主动生成 Plan（`planFromPrompt`）
-- `runtime/executor.ts` — Step 执行引擎（`runStep`）
-- `runtime.ts` 中 `runFlowLoop` 串联上面两者
+- P0 目标能力已落地：`planFromPrompt`、`HarnessRuntime.runFlowLoop`、step critique/replan、审批门、timeline/artifact。
+- `runtime/executor.ts` 并非必需文件；Step 执行责任已由 `runtime.ts`（`dispatchStep`/`runAgentAssignment`）承载。
 
-参考：[plan-mode-implementation.md](../core/plan-mode-implementation.md)
+## 当前仍需补齐（非 P0 功能缺失）
+
+- P1 方向见 [roadmap.md](../roadmap.md#p1--补齐自循环和自我修正的能力)：checkpoint/resume、self-loop、critic agent、失败归因。
+- P0 后对齐项见 [capability-gaps.md](../core/capability-gaps.md)：权限/上下文/UI/子 agent 对齐。

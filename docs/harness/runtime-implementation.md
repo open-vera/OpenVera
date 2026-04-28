@@ -4,9 +4,9 @@
 
 ---
 
-## 1. 当前目标
+## 1. 当前目标（已完成）
 
-当前不是一次性重写完整 harness，而是先把 MVP 中已经验证过的运行模式迁进新的 `@vera/harness`：
+已完成从 MVP 运行模式向当前 `@vera/harness` 的迁移，核心目标是建立可运行的 Plan → Act → Critique → Replan 闭环：
 
 - `Plan Challenge`
 - `Step Challenge`
@@ -25,7 +25,7 @@
 
 ## 2. 新模块结构
 
-位于 [packages/harness/src/runtime](</Users/yang.zhou/workspace/agent/packages/harness/src/runtime>)：
+位于 [packages/harness/src/runtime](/Users/yang.zhou/workspace/open-vera/packages/harness/src/runtime)：
 
 - `runtime.ts`
   第一版 `HarnessRuntime` 类
@@ -50,7 +50,7 @@
 
 ### 3.1 `HarnessRuntime`
 
-[runtime.ts](/Users/yang.zhou/workspace/agent/packages/harness/src/runtime/runtime.ts:1) 当前提供：
+[runtime.ts](/Users/yang.zhou/workspace/open-vera/packages/harness/src/runtime/runtime.ts:1) 当前提供：
 
 - `loadMarkdownFlow(flowDir)`
 - `startFlow(input)`
@@ -103,21 +103,21 @@
 
 ---
 
-## 5. 下一步实现顺序
+## 5. P0 结论与后续
 
-### P0
+### P0 已实现
 
-- 让 `HarnessRuntime.startFlow()` 支持从 Markdown 输入生成 `ExecutionPlan`
-- 为 `FlowHandle` 增加 `currentStep` / `latestOutput`
-- 将 `checkpointFlow()` 接入真实 `Resume`
+- `planFromPrompt` + `HarnessRuntime.runFlowLoop` 已落地，支持 Plan→Act→Critique→Replan。
+- `FlowHandle` 已包含执行态字段并在 runtime 中持续更新。
+- `waiting_approval`、依赖环检测、step critique 低置信度 replan 均已接入。
 
-### P1
+### P1（下一阶段）
 
 - 让 `dispatchStep()` 生成更丰富的 `contextSlices`
 - 让 `runStepCritique()` 消费结构化 outputs，而不只是单一文本
 - 给 `replanFlow()` 增加更强的 plan diff / merge 策略
 
-### P2
+### P2（中期）
 
 - 将 retrospective / challenger lesson 自动转为 `Proposal`
 - Proposal 接入 Rollout / benchmark 验证链路
