@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchesSession, parseSearchFilter } from "../src/repl/ui/SessionPicker.js";
+import { buildBranchCompareSessions, matchesSession, parseSearchFilter } from "../src/repl/ui/SessionPicker.js";
 import type { SessionSummary } from "../src/session/index.js";
 
 function summary(overrides: Partial<SessionSummary> = {}): SessionSummary {
@@ -41,5 +41,42 @@ describe("SessionPicker search helpers", () => {
     expect(matchesSession(summary({ gitBranch: "main" }), filter)).toBe(false);
     expect(matchesSession(summary({ totalCostUsd: 1.5 }), filter)).toBe(false);
     expect(matchesSession(summary({ lastActivityAt: new Date("2026-06-01T00:00:00Z") }), filter)).toBe(false);
+  });
+
+  it("builds branch-compare sessions and includes selected root session when missing", () => {
+    const selected = summary({
+      sessionId: "root001",
+      lastActivityAt: new Date("2026-04-20T00:00:00Z"),
+      branch: undefined,
+    });
+    const branchA = summary({
+      sessionId: "brA111",
+      lastActivityAt: new Date("2026-04-21T00:00:00Z"),
+      branch: { parentSessionId: "root001", status: "active" },
+    });
+    const branchB = summary({
+      sessionId: "brB222",
+      lastActivityAt: new Date("2026-04-19T00:00:00Z"),
+      branch: { parentSessionId: "root001", status: "merged" },
+    });
+
+    const result = buildBranchCompareSessions(selected, [branchB, branchA]);
+    expect(result.map((s) => s.sessionId)).toEqual(["brA111", "root001", "brB222"]);
+  });
+
+  it("builds branch-compare sessions for selected branch without duplicating selected", () => {
+    const selectedBranch = summary({
+      sessionId: "brA111",
+      lastActivityAt: new Date("2026-04-21T00:00:00Z"),
+      branch: { parentSessionId: "root001", status: "active" },
+    });
+    const branchB = summary({
+      sessionId: "brB222",
+      lastActivityAt: new Date("2026-04-19T00:00:00Z"),
+      branch: { parentSessionId: "root001", status: "merged" },
+    });
+
+    const result = buildBranchCompareSessions(selectedBranch, [selectedBranch, branchB]);
+    expect(result.map((s) => s.sessionId)).toEqual(["brA111", "brB222"]);
   });
 });

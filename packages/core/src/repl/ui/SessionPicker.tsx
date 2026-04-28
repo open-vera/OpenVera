@@ -151,6 +151,21 @@ export function matchesSession(s: SessionSummary, filter: SearchFilter): boolean
   return filter.text.every((term) => haystack.includes(term));
 }
 
+export function buildBranchCompareSessions(
+  selected: SessionSummary | undefined,
+  branches: SessionSummary[],
+): SessionSummary[] {
+  if (!selected) return [];
+  const base = selected.branch
+    ? branches
+    : branches.some((s) => s.sessionId === selected.sessionId)
+      ? branches
+      : [selected, ...branches];
+  return base
+    .slice()
+    .sort((a, b) => b.lastActivityAt.getTime() - a.lastActivityAt.getTime());
+}
+
 function Highlighted({ text, query }: { text: string; query: string }) {
   const term = parseSearchFilter(query).text[0];
   if (!term) return <Text>{text}</Text>;
@@ -361,12 +376,7 @@ export function SessionPicker({
     }
     const parentSessionId = selected.branch?.parentSessionId ?? selected.sessionId;
     const branches = SessionStore.listBranches(parentSessionId, cwd);
-    if (!selected.branch) {
-      const selfIncluded = branches.some((s) => s.sessionId === selected.sessionId);
-      setBranchCompare(selfIncluded ? branches : [selected, ...branches]);
-      return;
-    }
-    setBranchCompare(branches);
+    setBranchCompare(buildBranchCompareSessions(selected, branches));
   }, [cwd, selected?.sessionId, selected?.branch?.parentSessionId, selected?.branch]);
 
   if (sessions.length === 0) {
@@ -452,11 +462,6 @@ export function SessionPicker({
           <Text color="gray" dimColor>--- Branch Compare -------------------------</Text>
           {branchCompare
             .slice()
-            .sort((a, b) => {
-              const aTime = a.lastActivityAt.getTime();
-              const bTime = b.lastActivityAt.getTime();
-              return bTime - aTime;
-            })
             .slice(0, 8)
             .map((session) => {
               const status = session.branch?.status ?? "active";

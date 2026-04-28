@@ -290,7 +290,7 @@ async function applyProactiveCompress(
 ): Promise<CompressResult> {
   const before = messages.length;
   const compressed = await compressMessages(messages, compressionState, options.compressionOptions!, adapter, model);
-  options.onUsage?.(compressed.usage!);
+  if (compressed.usage) options.onUsage?.(compressed.usage);
   options.onContextUpdate?.(compressed.messages, { compressionState: compressed.state, microCompactState });
   if (compressed.messages.length !== before) {
     await hooks?.onCompression?.("progressive", before, compressed.messages.length);
@@ -593,28 +593,8 @@ export async function streamAgent(
         }
         reactiveRetries = 0;
       } catch (err) {
-        if (
-          isPromptTooLongError(err) &&
-          reactiveRetries < MAX_REACTIVE_RETRIES &&
-          options.compressionOptions?.enabled
-        ) {
-          await hooks?.onRetry?.("reactive_compact", turn);
-          const before = messages.length;
-          const compressed = await compressMessages(
-            messages,
-            compressionState ?? createCompressionState(),
-            options.compressionOptions,
-            adapter,
-            model,
-            true, // isReactive
-          );
-          messages = compressed.messages;
-          compressionState = compressed.state;
-          options.onContextUpdate?.(messages, { compressionState, microCompactState });
-          await hooks?.onCompression?.("reactive", before, messages.length);
-          reactiveRetries++;
-          continue;
-        }
+        const rc = await tryReactiveCompact(err, messages, compressionState, reactiveRetries, MAX_REACTIVE_RETRIES, options, adapter, model, microCompactState, hooks);
+        if (rc) { messages = rc.messages; compressionState = rc.compressionState; reactiveRetries = rc.retries; continue; }
         throw err;
       }
 
