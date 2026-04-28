@@ -177,8 +177,9 @@ export interface AgentOptions {
   hooks?: AgentHooks;
 }
 
-// Claude Code uses 200 as the default agent loop limit.
-export const DEFAULT_MAX_TURNS = 200;
+// Match Claude Code's main thread behavior: no default loop cap. Callers can
+// still pass maxTurns for bounded subflows such as planning or compaction.
+export const DEFAULT_MAX_TURNS: number | undefined = undefined;
 
 // Appended to every system prompt so the model knows to keep calling tools
 // until the task is fully complete — same pattern Claude Code uses.
@@ -186,7 +187,16 @@ const AGENTIC_SYSTEM_SUFFIX = `
 
 You have access to tools. Use them continuously until the task is fully complete.
 After receiving a tool result, decide if more tool calls are needed and call them immediately — do not stop to summarize until the work is done.
+When the user asks what to do next, asks about current status, or gives a workspace-relative request without enough details, inspect the current workspace with read-only tools first (for example list_dir, grep, glob, or read_file) before asking follow-up questions.
 Only ask the user for input when you are genuinely blocked and cannot proceed without their answer.`;
+
+const EMPTY_AFTER_TOOL_RESULT_PROMPT =
+  "The previous tool result has been provided, but your last response was empty. Continue from that tool result: either call another tool to recover, or provide a concise final answer if no more tools are needed.";
+
+// Max retries when the assistant returns empty text immediately after a tool result.
+// 1 was too low — a single fluke causes silent failure; 3 gives the model enough
+// attempts without masking persistent empty-response bugs.
+const MAX_EMPTY_AFTER_TOOL_RETRIES = 3;
 
 // ── Context helpers ───────────────────────────────────────────────────────────
 
@@ -254,6 +264,14 @@ function getToolMaxChars(
   return DEFAULT_MAX_RESULT_SIZE_CHARS;
 }
 
+function shouldContinueTurns(turn: number, maxTurns: number | undefined): boolean {
+  return maxTurns === undefined || turn < maxTurns;
+}
+
+function hasAnotherTurnAfter(turn: number, maxTurns: number | undefined): boolean {
+  return maxTurns === undefined || turn < maxTurns - 1;
+}
+
 // ── Non-streaming agent ───────────────────────────────────────────────────────
 
 /** Non-streaming run; returns the final text response. */
@@ -291,9 +309,11 @@ export async function runAgent(
   const MAX_REACTIVE_RETRIES = 3;
   let reactiveRetries = 0;
   let result = "";
+  let lastTurnHadToolResults = false;
+  let emptyAfterToolRetries = 0;
 
   try {
-    for (let turn = 0; turn < maxTurns; turn++) {
+    for (let turn = 0; shouldContinueTurns(turn, maxTurns); turn++) {
       // ── Auto-compact: proactive compression when over threshold ────────
       if (compressionState && options.compressionOptions) {
         const before = messages.length;
@@ -306,6 +326,7 @@ export async function runAgent(
         );
         messages = compressed.messages;
         compressionState = compressed.state;
+        if (compressed.usage) options.onUsage?.(compressed.usage);
         options.onContextUpdate?.(messages, { compressionState, microCompactState });
         if (messages.length !== before) {
           await hooks?.onCompression?.("progressive", before, messages.length);
@@ -366,18 +387,36 @@ export async function runAgent(
       await hooks?.onTurnEnd?.(turn, response.usage, assistantText);
 
       messages.push(response.message);
+      if (microCompactState) microCompactState = { ...microCompactState, lastAssistantTs: Date.now() };
       options.onContextUpdate?.(messages, { compressionState, microCompactState });
 
-      if (response.stop_reason !== "tool_use") {
+      const toolCalls = extractToolCalls(response.message);
+      if (toolCalls.length === 0) {
+        if (
+          lastTurnHadToolResults &&
+          assistantText.trim() === "" &&
+          emptyAfterToolRetries < MAX_EMPTY_AFTER_TOOL_RETRIES &&
+          hasAnotherTurnAfter(turn, maxTurns)
+        ) {
+          messages.push({ role: "user", content: EMPTY_AFTER_TOOL_RESULT_PROMPT });
+          emptyAfterToolRetries++;
+          lastTurnHadToolResults = false;
+          options.onContextUpdate?.(messages, { compressionState, microCompactState });
+          continue;
+        }
         result = assistantText;
         break;
       }
 
       await handleToolCalls(response.message, messages, onToolCall, tools, budgetState, runDir);
+      lastTurnHadToolResults = true;
       options.onContextUpdate?.(messages, { compressionState, microCompactState });
     }
 
-    if (!result) result = extractText(messages[messages.length - 1]!);
+    if (!result) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage) result = extractText(lastMessage);
+    }
   } finally {
     await hooks?.onSessionEnd?.();
   }
@@ -441,7 +480,7 @@ export async function streamAgent(
     onToolCall,
     onUsage,
     system,
-    maxTurns = 10,
+    maxTurns = DEFAULT_MAX_TURNS,
     runDir,
     signal,
     history = [],
@@ -462,13 +501,16 @@ export async function streamAgent(
       ? options.microCompactState ?? createMicroCompactState()
       : null;
   let messages: Message[] = [...history, { role: "user", content: userMessage }];
-  let fullText = "";
+  let finalText = "";
+  const activeSystem = system ? system + AGENTIC_SYSTEM_SUFFIX : AGENTIC_SYSTEM_SUFFIX.trim();
 
   const MAX_REACTIVE_RETRIES = 3;
   let reactiveRetries = 0;
+  let lastTurnHadToolResults = false;
+  let emptyAfterToolRetries = 0;
 
   try {
-    for (let turn = 0; turn < maxTurns; turn++) {
+    for (let turn = 0; shouldContinueTurns(turn, maxTurns); turn++) {
       // ── Auto-compact: proactive compression when over threshold ────────
       if (compressionState && options.compressionOptions) {
         const before = messages.length;
@@ -481,6 +523,7 @@ export async function streamAgent(
         );
         messages = compressed.messages;
         compressionState = compressed.state;
+        if (compressed.usage) onUsage?.(compressed.usage);
         options.onContextUpdate?.(messages, { compressionState, microCompactState });
         if (messages.length !== before) {
           await hooks?.onCompression?.("progressive", before, messages.length);
@@ -506,7 +549,7 @@ export async function streamAgent(
         await hooks?.onCompression?.("micro", messages.length, messages.length);
       }
 
-      const request: CompletionRequest = { model, messages: apiMessages, tools, system, signal };
+      const request: CompletionRequest = { model, messages: apiMessages, tools, system: activeSystem, signal };
 
       // ── onTurnStart ────────────────────────────────────────────────────
       await hooks?.onTurnStart?.(turn, apiMessages);
@@ -517,7 +560,6 @@ export async function streamAgent(
         arguments: string;
       }> = [];
       let turnText = "";
-      let stopReason = "end_turn";
       let turnUsage: Usage | undefined;
 
       // ── Stream with reactive compact ───────────────────────────────────
@@ -529,7 +571,6 @@ export async function streamAgent(
           } else if (event.type === "tool_call") {
             collectedToolCalls.push(event);
           } else if (event.type === "done") {
-            stopReason = event.stop_reason;
             turnUsage = event.usage;
             if (event.usage) onUsage?.(event.usage);
           }
@@ -583,19 +624,44 @@ export async function streamAgent(
       messages.push({
         role: "assistant",
         content:
-          assistantContent.length === 1 && assistantContent[0]!.type === "text"
+          assistantContent.length === 1 && assistantContent[0]?.type === "text"
             ? turnText
             : assistantContent,
       });
+      if (microCompactState) microCompactState = { ...microCompactState, lastAssistantTs: Date.now() };
       options.onContextUpdate?.(messages, { compressionState, microCompactState });
 
-      fullText += turnText;
-
-      if (stopReason !== "tool_use" && collectedToolCalls.length === 0) break;
+      if (collectedToolCalls.length === 0) {
+        if (
+          lastTurnHadToolResults &&
+          turnText.trim() === "" &&
+          emptyAfterToolRetries < MAX_EMPTY_AFTER_TOOL_RETRIES &&
+          hasAnotherTurnAfter(turn, maxTurns)
+        ) {
+          messages.push({ role: "user", content: EMPTY_AFTER_TOOL_RESULT_PROMPT });
+          emptyAfterToolRetries++;
+          lastTurnHadToolResults = false;
+          options.onContextUpdate?.(messages, { compressionState, microCompactState });
+          continue;
+        }
+        finalText = turnText;
+        break;
+      }
 
       // Execute tools and append results
       for (const tc of collectedToolCalls) {
-        const args = JSON.parse(tc.arguments) as Record<string, unknown>;
+        let args: Record<string, unknown>;
+        try {
+          args = JSON.parse(tc.arguments) as Record<string, unknown>;
+        } catch {
+          messages.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content: `[Error: could not parse tool arguments — ${tc.arguments.slice(0, 200)}]`,
+          });
+          options.onContextUpdate?.(messages, { compressionState, microCompactState });
+          continue;
+        }
         const rawResult = onToolCall
           ? await onToolCall(tc.name, args)
           : `Tool "${tc.name}" called`;
@@ -606,12 +672,13 @@ export async function streamAgent(
         messages.push({ role: "tool", tool_call_id: tc.id, content });
         options.onContextUpdate?.(messages, { compressionState, microCompactState });
       }
+      lastTurnHadToolResults = true;
     }
   } finally {
     await hooks?.onSessionEnd?.();
   }
 
-  return fullText;
+  return finalText;
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -626,7 +693,17 @@ async function handleToolCalls(
 ): Promise<void> {
   const toolCalls = extractToolCalls(message);
   for (const tc of toolCalls) {
-    const args = JSON.parse(tc.arguments) as Record<string, unknown>;
+    let args: Record<string, unknown>;
+    try {
+      args = JSON.parse(tc.arguments) as Record<string, unknown>;
+    } catch {
+      messages.push({
+        role: "tool",
+        tool_call_id: tc.id,
+        content: `[Error: could not parse tool arguments — ${tc.arguments.slice(0, 200)}]`,
+      });
+      continue;
+    }
     const rawResult = onToolCall
       ? await onToolCall(tc.name, args)
       : `Tool "${tc.name}" called with ${JSON.stringify(args)}`;
