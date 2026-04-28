@@ -5,6 +5,14 @@ import { providerCommand } from "./provider.js";
 import { sessionsCommand } from "./sessions.js";
 import { resumeCommand } from "./resume.js";
 import { titleCommand } from "./title.js";
+import { branchCommand } from "./branch.js";
+import { branchesCommand } from "./branches.js";
+import { switchCommand } from "./switch.js";
+import { dropCommand } from "./drop.js";
+import { adoptCommand } from "./adopt.js";
+import { tryCommand } from "./try.js";
+import { mergeCommand } from "./merge.js";
+import { subCommand, transcriptCommand } from "./transcript.js";
 
 type CommandFn = (args: string[], ctx: ReplContext) => Promise<void>;
 
@@ -15,6 +23,15 @@ const COMMANDS: Record<string, CommandFn> = {
   sessions: sessionsCommand,
   resume: resumeCommand,
   title: titleCommand,
+  branch: branchCommand,
+  branches: branchesCommand,
+  switch: switchCommand,
+  drop: dropCommand,
+  adopt: adoptCommand,
+  try: tryCommand,
+  merge: mergeCommand,
+  sub: subCommand,
+  transcript: transcriptCommand,
 };
 
 export async function handleCommand(

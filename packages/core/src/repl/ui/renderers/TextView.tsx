@@ -1,15 +1,16 @@
 import { Box, Text } from "ink";
 
-const MAX_LINES = 50;
+const MAX_LINES = 3;
 
 interface TextViewProps {
   content: string;
   width: number;
+  expanded?: boolean;
 }
 
-export function TextView({ content, width }: TextViewProps) {
+export function TextView({ content, width, expanded }: TextViewProps) {
   const lines = content.split("\n");
-  const truncated = lines.length > MAX_LINES;
+  const truncated = !expanded && lines.length > MAX_LINES;
   const visible = truncated ? lines.slice(0, MAX_LINES) : lines;
   const remaining = lines.length - MAX_LINES;
 
@@ -19,7 +20,7 @@ export function TextView({ content, width }: TextViewProps) {
         <Text key={i} wrap="wrap">{line}</Text>
       ))}
       {truncated && (
-        <Text color="gray">[... {remaining} more lines]</Text>
+        <Text color="gray">[... +{remaining} lines]</Text>
       )}
     </Box>
   );

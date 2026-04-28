@@ -41,7 +41,7 @@ export async function runReplCommand(args: ReplRunArgs): Promise<void> {
   const model = args.model ?? defaultModel;
 
   const sessionStore = new SessionStore({ cwd });
-  const { registry: toolRegistry, security } = createToolRegistry({ cwd, sessionStore });
+  const { registry: toolRegistry, security } = createToolRegistry({ cwd });
   const toolProvider = new RegistryToolProvider(toolRegistry, cwd, sessionStore.sessionId);
   const promptStore = new PromptStore();
 
@@ -64,6 +64,7 @@ export async function runReplCommand(args: ReplRunArgs): Promise<void> {
 
   await startRepl(
     {
+      cwd,
       config,
       adapter,
       model,

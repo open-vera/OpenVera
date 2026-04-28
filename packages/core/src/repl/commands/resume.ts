@@ -15,7 +15,7 @@ export async function resumeCommand(
       return;
     }
     // Fallback: list sessions as hint
-    const sessions = SessionStore.listSessions(process.cwd());
+    const sessions = SessionStore.listSessions(ctx.cwd);
     if (sessions.length === 0) {
       console.log("No sessions found. Nothing to resume.");
       return;
@@ -29,7 +29,7 @@ export async function resumeCommand(
     return;
   }
 
-  const sessions = SessionStore.listSessions(process.cwd());
+  const sessions = SessionStore.listSessions(ctx.cwd);
   const matches = sessions.filter((s) => s.sessionId.startsWith(prefix));
 
   if (matches.length === 0) {
@@ -44,7 +44,7 @@ export async function resumeCommand(
 
   const target = matches[0]!;
   try {
-    const loaded = SessionStore.loadSession(target.sessionId, process.cwd());
+    const loaded = SessionStore.loadSession(target.sessionId, ctx.cwd);
     if (!ctx.onResume) {
       console.log("Resume is not available in this context.");
       return;

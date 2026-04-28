@@ -59,6 +59,7 @@ function gradientColor(t: number): string {
 }
 
 interface WelcomeScreenProps {
+  cwd: string;
   routing: RoutingInfo;
   columns: number;
   value: string;
@@ -69,6 +70,7 @@ interface WelcomeScreenProps {
 }
 
 export function WelcomeScreen({
+  cwd,
   routing,
   columns,
   value,
@@ -77,7 +79,7 @@ export function WelcomeScreen({
   onExit,
   showInput = true,
 }: WelcomeScreenProps) {
-  const workingDir = "~" + process.cwd().replace(process.env.HOME ?? "", "");
+  const workingDir = "~" + cwd.replace(process.env.HOME ?? "", "");
   const tip = useMemo(() => TIPS[Math.floor(Math.random() * TIPS.length)] ?? TIPS[0], []);
 
   return (

@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 
-const MAX_LINES = 50;
+const MAX_LINES = 3;
 
 // Keywords to highlight per language family
 const TS_KEYWORDS = new Set([
@@ -15,11 +15,12 @@ interface CodeViewProps {
   content: string;
   lang?: string;
   width: number;
+  expanded?: boolean;
 }
 
-export function CodeView({ content, width }: CodeViewProps) {
+export function CodeView({ content, width, expanded }: CodeViewProps) {
   const lines = content.split("\n");
-  const truncated = lines.length > MAX_LINES;
+  const truncated = !expanded && lines.length > MAX_LINES;
   const visible = truncated ? lines.slice(0, MAX_LINES) : lines;
   const remaining = lines.length - MAX_LINES;
 
@@ -29,7 +30,7 @@ export function CodeView({ content, width }: CodeViewProps) {
         <CodeLine key={i} line={line} />
       ))}
       {truncated && (
-        <Text color="gray">[... {remaining} more lines]</Text>
+        <Text color="gray">[... +{remaining} lines]</Text>
       )}
     </Box>
   );

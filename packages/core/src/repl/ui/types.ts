@@ -24,6 +24,7 @@ export interface ToolUse {
   name: string;
   args: Record<string, unknown>;
   result: ToolResult;
+  preface?: string;
 }
 
 export interface ChatMessage {

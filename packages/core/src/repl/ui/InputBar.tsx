@@ -118,6 +118,7 @@ interface InputBarProps {
   history?: string[];
   onScrollUp?: () => void;
   onScrollDown?: () => void;
+  onToggleToolOutput?: () => void;
 }
 
 export function InputBar({
@@ -130,6 +131,7 @@ export function InputBar({
   history = [],
   onScrollUp,
   onScrollDown,
+  onToggleToolOutput,
 }: InputBarProps) {
   const valueRef = useRef(value);
   valueRef.current = value;
@@ -306,6 +308,12 @@ export function InputBar({
     // ── Home / End ──
     if (key.ctrl && input === "a") { setPos(0); return; }
     if (key.ctrl && input === "e") { setPos(valueRef.current.length); return; }
+
+    // ── Tool output expand/collapse (Option/Alt+O) ──
+    if ((key.meta && input.toLowerCase() === "o") || input === "ø" || input === "Ø") {
+      onToggleToolOutput?.();
+      return;
+    }
 
     // ── Ctrl shortcuts ──
     if (key.ctrl) {

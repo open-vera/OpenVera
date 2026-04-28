@@ -40,6 +40,7 @@ export interface PlanRunContext {
   runDir?: string;
   /** Model-facing history to continue from before the plan starts. */
   history?: Message[];
+  maxTurns?: AgentOptions["maxTurns"];
   contextOptions?: AgentOptions["contextOptions"];
   compressionOptions?: AgentOptions["compressionOptions"];
   microCompactOptions?: AgentOptions["microCompactOptions"];
@@ -108,6 +109,7 @@ export const defaultPlanExecutor: PlanExecutor = async (
           tools: ctx.tools,
           system: ctx.system,
           history,
+          maxTurns: ctx.maxTurns,
           onUsage,
           signal: ctx.signal,
           runDir: ctx.runDir,

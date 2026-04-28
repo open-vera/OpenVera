@@ -3,17 +3,29 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { streamAgent } from "../../agent/loop.js";
+import {
+  SUBAGENT_TOOL_NAME,
+  buildSubagentToolSchema,
+  loadAgentDefinitions,
+  runSubagentTool,
+} from "../../agent/subagent.js";
 import { resolveModel, shouldPlan } from "../../intent/classifier.js";
+import type { IntentResult } from "../../intent/classifier.js";
 import { defaultPlanExecutor } from "../../plan/index.js";
 import type { PlanEvent, PlanStepUI } from "../../plan/index.js";
 import { handleCommand } from "../commands/index.js";
-import { accumulateCost, emptyAccumulatedCost, SessionStore } from "../../session/index.js";
+import { accumulateCost, emptyAccumulatedCost, generateSessionTitle, SessionStore } from "../../session/index.js";
 import type { AccumulatedCost } from "../../session/index.js";
 import type { ReplContext } from "../context.js";
 import type { Usage, Message } from "../../types/index.js";
 import type { ToolResult } from "../../tools/types.js";
 import { MemoryTracker } from "../../memory/index.js";
 import type { MemoryFile } from "../../memory/index.js";
+import {
+  loadNestedProjectContext,
+  loadProjectContext,
+} from "../../project-context/index.js";
+import type { ProjectContext } from "../../project-context/index.js";
 import {
   createCompressionState,
   createMicroCompactState,
@@ -29,6 +41,7 @@ import { InputBar } from "./InputBar.js";
 import { SessionPicker } from "./SessionPicker.js";
 import { StatusBar } from "./StatusBar.js";
 import { WelcomeScreen } from "./WelcomeScreen.js";
+import { resolveResumeWorkspace } from "../workspace.js";
 import type { ChatMessage, RoutingInfo, StreamStatus, TokenUsage, ToolUse } from "./types.js";
 
 function formatError(err: unknown): string {
@@ -112,6 +125,51 @@ function buildMemoryPreamble(memories: MemoryFile[]): string {
   ].join("\n");
 }
 
+function mergeSystemPrompts(...parts: Array<string | undefined>): string {
+  return parts.map((p) => p?.trim()).filter(Boolean).join("\n\n");
+}
+
+function maybeWriteGitBranch(store: SessionStore, cwd: string): void {
+  try {
+    const branch = readFileSync(join(cwd, ".git", "HEAD"), "utf8")
+      .trim()
+      .replace(/^ref: refs\/heads\//, "");
+    if (branch) store.writeGitBranch(branch);
+  } catch {
+    // Git metadata is opportunistic; keep session startup fast and quiet.
+  }
+}
+
+function previewToChatMessages(preview: ReturnType<typeof SessionStore.loadTranscriptPreview>): ChatMessage[] {
+  return preview.messages.map((message) => ({
+    role: message.role,
+    content: message.content,
+    ...(message.toolUses?.length
+      ? {
+          toolUses: message.toolUses.map((toolUse) => ({
+            name: toolUse.name,
+            args: toolUse.args,
+            result: {
+              ok: toolUse.result.ok,
+              content: toolUse.result.content,
+            },
+          })),
+        }
+      : {}),
+  }));
+}
+
+function resumedVisibleMessages(sessionId: string, preview: ReturnType<typeof SessionStore.loadTranscriptPreview>, loaded: { turnCount: number; totalCostUsd: number }): ChatMessage[] {
+  const recentMessages = previewToChatMessages(preview).slice(-12);
+  return [
+    {
+      role: "assistant",
+      content: `Resumed session ${sessionId.slice(0, 8)} — showing the last ${recentMessages.length} messages from ${loaded.turnCount} turns, $${loaded.totalCostUsd.toFixed(4)} spent.`,
+    },
+    ...recentMessages,
+  ];
+}
+
 interface AppProps {
   ctx: ReplContext;
   resumeSessionId?: string;
@@ -144,6 +202,11 @@ export function App({ ctx, resumeSessionId }: AppProps) {
   const frozenMemoryFilesRef = useRef<MemoryFile[]>([]);
   const frozenMemorySignatureRef = useRef("");
   const frozenMemoryTurnRef = useRef(-MEMORY_REFRESH_TURNS);
+  const projectContextRef = useRef<ProjectContext | null>(null);
+  const loadedVeraContextPathsRef = useRef<Set<string>>(new Set());
+  const hasCustomTitleRef = useRef(false);
+  const aiTitleGeneratedRef = useRef(false);
+  const aiTitleAttemptsRef = useRef(0);
   const inputHistoryRef = useRef<string[]>([]);
   const costRef = useRef<AccumulatedCost>(emptyAccumulatedCost());
   const turnCountRef = useRef(0);
@@ -160,6 +223,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streamStatus, setStreamStatus] = useState<StreamStatus>("idle");
   const [scrollOffset, setScrollOffset] = useState(0);
+  const [expandToolOutput, setExpandToolOutput] = useState(false);
   const isFollowingRef = useRef(true);
   const [diffOpen, setDiffOpen] = useState(false);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
@@ -188,12 +252,24 @@ export function App({ ctx, resumeSessionId }: AppProps) {
   useEffect(() => {
     // Expose onResume for /resume command
     ctxRef.current.onResume = (loaded) => {
+      const workspace = resolveResumeWorkspace(loaded, ctxRef.current.cwd);
+      const nextCwd = workspace.cwd;
+      const resumedStore = new SessionStore({
+        sessionId: loaded.sessionId,
+        cwd: loaded.cwd,
+      });
+      ctxRef.current.onSwitchWorkspace?.(nextCwd, resumedStore);
+      ctxRef.current.sessionStore = resumedStore;
       historyRef.current = loaded.history;
       compressionStateRef.current = createCompressionState();
       microCompactStateRef.current = createMicroCompactState();
+      memoryTrackerRef.current = null;
       frozenMemoryFilesRef.current = [];
       frozenMemorySignatureRef.current = "";
       frozenMemoryTurnRef.current = -MEMORY_REFRESH_TURNS;
+      loadedVeraContextPathsRef.current = new Set(
+        projectContextRef.current?.files.map((file) => file.path) ?? []
+      );
       costRef.current = {
         totalUsd: loaded.totalCostUsd,
         byModel: {},
@@ -209,28 +285,54 @@ export function App({ ctx, resumeSessionId }: AppProps) {
         costUsd: loaded.totalCostUsd,
       }));
       // Write a new session_start to mark re-entry
-      ctx.sessionStore.writeStart(loaded.model, loaded.provider);
+      resumedStore.writeStart(
+        loaded.model || ctxRef.current.model,
+        loaded.provider || (ctxRef.current.config.default_provider ?? "anthropic")
+      );
+      maybeWriteGitBranch(resumedStore, ctxRef.current.cwd);
+      if (workspace.warning) {
+        console.log(workspace.warning);
+      }
     };
 
     // Expose session picker for /resume command (no args)
     ctxRef.current.onShowSessionPicker = () => setSessionPickerOpen(true);
+    ctxRef.current.onSwitchWorkspace = (cwd, sessionStore) => {
+      ctxRef.current.cwd = cwd;
+      const bundle = ctxRef.current.createToolRegistry?.({ cwd, sessionStore });
+      if (bundle) {
+        ctxRef.current.registry = bundle.registry;
+        ctxRef.current.security = bundle.security;
+        ctxRef.current.tools = bundle.registry.getSchemas();
+      }
+      projectContextRef.current = null;
+      loadedVeraContextPathsRef.current = new Set();
+      memoryTrackerRef.current = null;
+    };
 
     // Resume from CLI flag
     if (resumeSessionId) {
       try {
-        const loaded = SessionStore.loadSession(resumeSessionId, process.cwd());
+        const loaded = SessionStore.loadSession(resumeSessionId, ctxRef.current.cwd);
+        const preview = SessionStore.loadTranscriptPreview(resumeSessionId, ctxRef.current.cwd);
         ctxRef.current.onResume!(loaded);
-        setMessages([{ role: "assistant", content: `Resumed session ${resumeSessionId.slice(0, 8)} — ${loaded.turnCount} turns.` }]);
+        setMessages(resumedVisibleMessages(resumeSessionId, preview, loaded));
       } catch (err) {
         setMessages([{ role: "assistant", content: `Failed to resume session: ${err instanceof Error ? err.message : String(err)}` }]);
       }
     } else {
       ctx.sessionStore.writeStart(ctx.model, ctx.config.default_provider ?? "anthropic");
+      maybeWriteGitBranch(ctx.sessionStore, ctx.cwd);
     }
 
     // Write session_end on process exit
     const handleExit = () => {
-      ctx.sessionStore.writeEnd(costRef.current.totalUsage, costRef.current.totalUsd, turnCountRef.current);
+      ctxRef.current.sessionStore.writeEnd(
+        costRef.current.totalUsage,
+        costRef.current.totalUsd,
+        turnCountRef.current,
+        inputHistoryRef.current.at(-1)
+      );
     };
     process.on("exit", handleExit);
     process.on("SIGINT", handleExit);
@@ -330,7 +432,8 @@ export function App({ ctx, resumeSessionId }: AppProps) {
         ctxRef.current.sessionStore.writeEnd(
           costRef.current.totalUsage,
           costRef.current.totalUsd,
-          turnCountRef.current
+          turnCountRef.current,
+          inputHistoryRef.current.at(-1)
         );
         exit();
         return;
@@ -339,6 +442,10 @@ export function App({ ctx, resumeSessionId }: AppProps) {
       if (cmd === "diff") {
         setDiffOpen(true);
         return;
+      }
+
+      if (cmd === "title") {
+        hasCustomTitleRef.current = true;
       }
 
       setMessages((prev) => [...prev, { role: "user", content: line }]);
@@ -380,6 +487,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     let activeModel = ctxRef.current.model;
     let activeProvider = ctxRef.current.config.default_provider ?? "anthropic";
     let routingFailed = false;
+    let activeIntent: IntentResult | null = null;
     const routingCfg = ctxRef.current.config.routing;
     if (routingCfg?.enabled) {
       setStreamStatus("thinking");
@@ -399,6 +507,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
           activeProvider = routedProvider;
         }
         activeModel = routed;
+        activeIntent = intent;
         routingFailed = intent === null;
         setRouting({
           provider: routedProvider ?? ctxRef.current.config.default_provider ?? "anthropic",
@@ -434,6 +543,12 @@ export function App({ ctx, resumeSessionId }: AppProps) {
 
     const store = ctxRef.current.sessionStore;
     const runDir = dirname(store.filePath);
+    if (projectContextRef.current === null) {
+      projectContextRef.current = loadProjectContext({ cwd: ctxRef.current.cwd });
+      loadedVeraContextPathsRef.current = new Set(
+        projectContextRef.current.files.map((file) => file.path)
+      );
+    }
     if (memoryTrackerRef.current === null) {
       memoryTrackerRef.current = new MemoryTracker({
         memoryDir: join(runDir, "memory"),
@@ -488,24 +603,29 @@ export function App({ ctx, resumeSessionId }: AppProps) {
 
     // Resolve skill bundle if available (augments tools + system prompt)
     const skillBundle = ctxRef.current.resolveSkillBundle?.({
-      domain: routing.intent?.domain ?? "chat",
-      level: routing.intent?.level ?? 0,
-      needs_tools: routing.intent?.needs_tools ?? false,
+      domain: activeIntent?.domain ?? "chat",
+      level: activeIntent?.level ?? 0,
+      needs_tools: activeIntent?.needs_tools ?? false,
     });
     // Merge registry tools (always available) + any skill-specific extras (e.g. MCP tools)
     const registryTools = ctxRef.current.tools;
     const skillExtras = (skillBundle?.tools ?? []).filter(
       (t) => !registryTools.some((r) => r.name === t.name)
     );
-    const activeTools = skillExtras.length ? [...registryTools, ...skillExtras] : registryTools;
+    const activeToolsWithoutAgent = skillExtras.length ? [...registryTools, ...skillExtras] : registryTools;
+    const agentDefinitions = loadAgentDefinitions({ cwd: ctxRef.current.cwd });
+    const agentToolSchema = buildSubagentToolSchema(agentDefinitions);
+    const activeTools = activeToolsWithoutAgent.some((tool) => tool.name === SUBAGENT_TOOL_NAME)
+      ? activeToolsWithoutAgent
+      : [...activeToolsWithoutAgent, agentToolSchema];
     // Base system prompt from PromptStore (templated + profile-matched), overridden by skill bundle if present
     const resolvedPrompt = ctxRef.current.promptStore.resolve({
-      domain: routing.intent?.domain ?? "chat",
-      level: routing.intent?.level ?? 0,
-      needs_tools: routing.intent?.needs_tools ?? false,
+      domain: activeIntent?.domain ?? "chat",
+      level: activeIntent?.level ?? 0,
+      needs_tools: activeIntent?.needs_tools ?? false,
     });
     const baseSystem = resolvedPrompt?.system ?? "You are Vera, a helpful assistant.";
-    const activeSystem = skillBundle?.system ?? baseSystem;
+    const activeSystem = mergeSystemPrompts(skillBundle?.system ?? baseSystem, projectContextRef.current?.system);
     const activeExecutors = skillBundle?.executors;
 
     // Shared tool call handler — used by both stream mode and plan mode
@@ -519,38 +639,141 @@ export function App({ ctx, resumeSessionId }: AppProps) {
       });
 
       const executeOnce = async (n: string, a: Record<string, unknown>): Promise<ToolResult> => {
+        if (n === SUBAGENT_TOOL_NAME) {
+          const result = await runSubagentTool({
+            args: a,
+            adapter: activeAdapter,
+            model: activeModel,
+            tools: activeTools,
+            system: activeSystem,
+            runDir,
+            signal: controller.signal,
+            onUsage: captureUsage,
+            cwd: ctxRef.current.cwd,
+            provider: activeProvider,
+            parentSessionId: store.sessionId,
+            definitions: agentDefinitions,
+            createToolHandlerForCwd: ({ cwd, sessionStore }) => {
+              const bundle = ctxRef.current.createToolRegistry?.({ cwd, sessionStore });
+              return async (childName, childArgs) => {
+                if (activeExecutors?.has(childName)) {
+                  return activeExecutors.get(childName)!(childArgs);
+                }
+                if (!bundle) {
+                  const result = await executeOnce(childName, childArgs);
+                  return result.content;
+                }
+                const result = await bundle.registry.execute(childName, childArgs, {
+                  cwd,
+                  sessionId: sessionStore?.sessionId ?? store.sessionId,
+                });
+                return result.content;
+              };
+            },
+            onToolCall: async (childName, childArgs) => {
+              const childResult = await finalizeToolResult(
+                childName,
+                childArgs,
+                await executeOnce(childName, childArgs),
+              );
+              return childResult.content;
+            },
+          });
+          return result.ok
+            ? { ok: true, content: result.content, metadata: { renderHint: { type: "text" } } }
+            : {
+                ok: false,
+                content: result.content,
+                error: { code: "UNKNOWN", message: result.content, retryable: false },
+              };
+        }
         if (activeExecutors?.has(n)) {
           const content = await activeExecutors.get(n)!(a);
           return { ok: true, content };
         }
         const registry = ctxRef.current.registry;
         if (registry) {
-          return registry.execute(n, a, { cwd: process.cwd(), sessionId: store.sessionId });
+          return registry.execute(n, a, { cwd: ctxRef.current.cwd, sessionId: store.sessionId });
         }
         return { ok: false, content: `Tool "${n}" is not implemented yet.`, error: { code: "UNKNOWN", message: `Tool "${n}" is not implemented yet.`, retryable: false } };
       };
 
-      let toolResult = await executeOnce(name, args);
+      async function finalizeToolResult(
+        n: string,
+        a: Record<string, unknown>,
+        initialResult: ToolResult,
+      ): Promise<ToolResult> {
+        let result = initialResult;
 
-      // Path confirmation: suspend agent, prompt user, retry once if approved
-      if (toolResult.needsConfirm) {
-        const confirm = toolResult.needsConfirm;
-        const approved = await new Promise<boolean>((res) => {
-          setPathConfirm({ message: confirm.message, allowDir: confirm.allowDir, resolve: res });
-        });
-        setPathConfirm(null);
-        if (approved) {
-          ctxRef.current.security?.allowPath(confirm.allowDir);
-          toolResult = await executeOnce(confirm.retry.name, confirm.retry.args);
+        // Path confirmation: suspend agent, prompt user, retry once if approved.
+        if (result.needsConfirm) {
+          const confirm = result.needsConfirm;
+          const approved = await new Promise<boolean>((res) => {
+            setPathConfirm({ message: confirm.message, allowDir: confirm.allowDir, resolve: res });
+          });
+          setPathConfirm(null);
+          if (approved) {
+            ctxRef.current.security?.allowPath(confirm.allowDir);
+            result = await executeOnce(confirm.retry.name, confirm.retry.args);
+          }
+          // If denied, fall through with the original error result.
         }
-        // If denied, fall through with the original error result (needsConfirm stripped)
+
+        if (result.ok && n === "read_file") {
+          const pathArg = a.path;
+          if (typeof pathArg === "string") {
+            const nested = loadNestedProjectContext({
+              cwd: ctxRef.current.cwd,
+              targetPath: pathArg,
+              loadedPaths: loadedVeraContextPathsRef.current,
+            });
+            if (nested.system) {
+              for (const file of nested.files) loadedVeraContextPathsRef.current.add(file.path);
+              result = {
+                ...result,
+                content: [
+                  result.content,
+                  `<nested-vera-context>\n${nested.system}\n</nested-vera-context>`,
+                ].join("\n\n"),
+              };
+            }
+          }
+        }
+
+        return result;
       }
+
+      let toolResult = await finalizeToolResult(name, args, await executeOnce(name, args));
 
       store.writeToolResult({ parentUuid: toolCallUuid, toolCallId: name, content: toolResult.content });
       return toolResult;
     };
 
-    const usePlanMode = routing.intent !== null && shouldPlan(routing.intent);
+    const usePlanMode = activeIntent !== null && shouldPlan(activeIntent);
+    const writeAiTitleIfNeeded = (assistantText: string) => {
+      const aiTitleConfig = ctxRef.current.config.session?.ai_title;
+      if (aiTitleConfig?.enabled === false) return;
+      if (hasCustomTitleRef.current || aiTitleGeneratedRef.current || aiTitleAttemptsRef.current >= 2) return;
+      if (turnCountRef.current > 1) return;
+      aiTitleGeneratedRef.current = true;
+      aiTitleAttemptsRef.current += 1;
+      const toolsSummary = turnToolCalls.length
+        ? `Tools used: ${[...new Set(turnToolCalls)].slice(0, 8).join(", ")}`
+        : undefined;
+      void generateSessionTitle({
+        adapter: aiTitleConfig?.provider ? ctxRef.current.buildAdapter(aiTitleConfig.provider) : activeAdapter,
+        model: aiTitleConfig?.model ?? activeModel,
+        userPrompt: line,
+        assistantText: assistantText.trim() || toolsSummary,
+      })
+        .then((title) => {
+          if (title && !hasCustomTitleRef.current) store.writeAiTitle(title);
+          if (!title) aiTitleGeneratedRef.current = false;
+        })
+        .catch(() => {
+          aiTitleGeneratedRef.current = false;
+        });
+    };
 
     // ── Plan Mode ────────────────────────────────────────────────────────────
 
@@ -694,6 +917,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
             model: activeModel,
             tools: activeTools,
             system: activeSystem,
+            maxTurns: resolvedPrompt?.maxTurns,
             signal: controller.signal,
             onToolCall: sharedOnToolCall,
             runDir,
@@ -728,6 +952,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
           { role: "user", content: line } satisfies Message,
           { role: "assistant", content: fullText } satisfies Message,
         ];
+        writeAiTitleIfNeeded(fullText);
         turnCountRef.current += 1;
       } catch (err) {
         if (planRafRef.current !== null) { clearTimeout(planRafRef.current); planRafRef.current = null; }
@@ -772,15 +997,32 @@ export function App({ ctx, resumeSessionId }: AppProps) {
           model: activeModel,
           tools: activeTools,
           system: activeSystem,
+          maxTurns: resolvedPrompt?.maxTurns,
           history: historyRef.current,
           onUsage: captureUsage,
           signal: controller.signal,
           runDir,
           ...dynamicContext,
           onToolCall: async (name, args) => {
+            if (rafRef.current !== null) {
+              clearTimeout(rafRef.current);
+              rafRef.current = null;
+            }
+            const preface = streamingBufferRef.current.trim();
+            streamingBufferRef.current = "";
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (!last?.streaming || !last.content) return prev;
+              return [...prev.slice(0, -1), { ...last, content: "" }];
+            });
             const toolResult = await sharedOnToolCall(name, args as Record<string, unknown>);
             // Append to toolUses on the current streaming message
-            const toolUse: ToolUse = { name, args: args as Record<string, unknown>, result: toolResult };
+            const toolUse: ToolUse = {
+              name,
+              args: args as Record<string, unknown>,
+              result: toolResult,
+              ...(preface ? { preface } : {}),
+            };
             setMessages((prev) => {
               const last = prev[prev.length - 1];
               if (!last?.streaming) return prev;
@@ -806,6 +1048,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
         return [...prev.slice(0, -1), { ...last, content: fullText, streaming: false }];
       });
 
+      writeAiTitleIfNeeded(fullText);
       // Write assistant entry
       store.writeAssistant({
         parentUuid: userUuid,
@@ -852,7 +1095,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
           status: "error",
         });
       }
-      store.writeEnd(costRef.current.totalUsage, costRef.current.totalUsd, turnCountRef.current);
+      store.writeEnd(costRef.current.totalUsage, costRef.current.totalUsd, turnCountRef.current, line);
     } finally {
       abortRef.current = null;
       setStreamStatus("idle");
@@ -875,7 +1118,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
   if (diffOpen) {
     return (
       <DiffDialog
-        cwd={process.cwd()}
+        cwd={ctx.cwd}
         width={columns}
         height={dimensions.rows}
         onClose={() => setDiffOpen(false)}
@@ -884,20 +1127,23 @@ export function App({ ctx, resumeSessionId }: AppProps) {
   }
 
   if (sessionPickerOpen) {
-    const sessions = SessionStore.listSessions(process.cwd());
+    const sessionPage = SessionStore.listSessionsPaged({ cwd: ctx.cwd, limit: 30 });
     return (
       <Box flexDirection="column">
         <SessionPicker
-          sessions={sessions}
+          cwd={ctx.cwd}
+          initialSessions={sessionPage.sessions}
+          initialNextOffset={sessionPage.nextOffset}
           width={columns}
           onSelect={(sessionId) => {
             setSessionPickerOpen(false);
             try {
-              const loaded = SessionStore.loadSession(sessionId, process.cwd());
+              const loaded = SessionStore.loadSession(sessionId, ctx.cwd);
+              const preview = SessionStore.loadTranscriptPreview(sessionId, ctx.cwd);
               ctxRef.current.onResume!(loaded);
               setMessages((prev) => [
                 ...prev,
-                { role: "assistant", content: `Resumed session ${sessionId.slice(0, 8)} — ${loaded.turnCount} turns, $${loaded.totalCostUsd.toFixed(4)} spent.` },
+                ...resumedVisibleMessages(sessionId, preview, loaded),
               ]);
             } catch (err) {
               setMessages((prev) => [
@@ -915,6 +1161,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
   return (
     <Box flexDirection="column">
       <WelcomeScreen
+        cwd={ctx.cwd}
         routing={routing}
         columns={columns}
         value={inputValue}
@@ -930,11 +1177,18 @@ export function App({ ctx, resumeSessionId }: AppProps) {
             width={columns}
             availableHeight={availableHeight}
             scrollOffset={scrollOffset}
+            expandToolOutput={expandToolOutput}
           />
           <Box>
             <Text color="gray">{"─".repeat(columns)}</Text>
           </Box>
-          <StatusBar status={streamStatus} outputTokens={currentOutputTokens} pendingCount={pendingQueue.length} scrollOffset={scrollOffset} />
+          <StatusBar
+            status={streamStatus}
+            outputTokens={currentOutputTokens}
+            pendingCount={pendingQueue.length}
+            scrollOffset={scrollOffset}
+            expandToolOutput={expandToolOutput}
+          />
           {pendingQueue.map((msg, i) => (
             <Box key={i}>
               <Text color="yellow">{"⏎ "}</Text>
@@ -959,6 +1213,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
                 history={[]}
                 onScrollUp={handleScrollUp}
                 onScrollDown={handleScrollDown}
+                onToggleToolOutput={() => setExpandToolOutput((v) => !v)}
               />
             </Box>
           ) : (
@@ -972,6 +1227,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
               history={inputHistoryRef.current}
               onScrollUp={handleScrollUp}
               onScrollDown={handleScrollDown}
+              onToggleToolOutput={() => setExpandToolOutput((v) => !v)}
             />
           )}
         </>

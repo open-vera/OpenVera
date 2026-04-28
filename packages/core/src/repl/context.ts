@@ -2,7 +2,7 @@ import type { LLMAdapter } from "../adapters/base.js";
 import type { VeraConfig } from "../config/types.js";
 import type { SessionStore, LoadedSession } from "../session/index.js";
 import type { Tool } from "../types/index.js";
-import type { ToolRegistry } from "../tools/index.js";
+import type { SecurityConfig, ToolRegistry, ToolRegistryBundle } from "../tools/index.js";
 import type { SecurityPlugin } from "../tools/security.js";
 import type { PlanExecutor } from "../plan/index.js";
 import type { PromptStore } from "../prompt/index.js";
@@ -20,6 +20,8 @@ export interface SkillBundleLike {
 }
 
 export interface ReplContext {
+  /** Logical project working directory for tools, sessions, and project context. */
+  cwd: string;
   config: VeraConfig;
   adapter: LLMAdapter;
   model: string;
@@ -27,6 +29,11 @@ export interface ReplContext {
   buildAdapter: (provider: string) => LLMAdapter;
   sessionStore: SessionStore;
   registry?: ToolRegistry;
+  createToolRegistry?: (opts: {
+    cwd: string;
+    security?: SecurityConfig;
+    sessionStore?: SessionStore;
+  }) => ToolRegistryBundle;
   /** PromptStore for templated system prompts and domain profiles. */
   promptStore: PromptStore;
   /** SecurityPlugin instance — exposed so App can call allowPath() after user confirms. */
@@ -40,6 +47,7 @@ export interface ReplContext {
    */
   planExecutor?: PlanExecutor;
   onResume?: (loaded: LoadedSession) => void;
+  onSwitchWorkspace?: (cwd: string, sessionStore: SessionStore) => void;
   onShowSessionPicker?: () => void;
 }
 

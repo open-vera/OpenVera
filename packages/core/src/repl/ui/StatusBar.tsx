@@ -20,9 +20,16 @@ interface StatusBarProps {
   outputTokens: number;
   pendingCount: number;
   scrollOffset?: number;
+  expandToolOutput?: boolean;
 }
 
-export function StatusBar({ status, outputTokens, pendingCount, scrollOffset = 0 }: StatusBarProps) {
+export function StatusBar({
+  status,
+  outputTokens,
+  pendingCount,
+  scrollOffset = 0,
+  expandToolOutput,
+}: StatusBarProps) {
   const [elapsedSec, setElapsedSec] = useState(0);
   const [breathFrame, setBreathFrame] = useState(0);
 
@@ -54,11 +61,17 @@ export function StatusBar({ status, outputTokens, pendingCount, scrollOffset = 0
       return (
         <Box gap={1}>
           <Text color="yellow">↑</Text>
-          <Text color="gray">滚动中  PageDown 向下  PageUp 继续上滚</Text>
+          <Text color="gray">
+            滚动中  PageDown 向下  PageUp 继续上滚  ⌥O {expandToolOutput ? "折叠工具输出" : "展开工具输出"}
+          </Text>
         </Box>
       );
     }
-    return null;
+    return (
+      <Box gap={1}>
+        <Text color="gray">⌥O {expandToolOutput ? "折叠工具输出" : "展开工具输出"}</Text>
+      </Box>
+    );
   }
 
   const frame = BREATH_FRAMES[breathFrame]!;
@@ -71,6 +84,7 @@ export function StatusBar({ status, outputTokens, pendingCount, scrollOffset = 0
     `${elapsedSec}s`,
     statusLabel,
     "esc to cancel",
+    `⌥O ${expandToolOutput ? "collapse tools" : "expand tools"}`,
   ];
   if (pendingCount > 0) parts.push(`${pendingCount} queued`);
 

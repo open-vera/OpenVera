@@ -1,16 +1,26 @@
 import { Box, Text } from "ink";
 
+const MAX_LINES = 5;
+
 interface FileListViewProps {
   content: string;
+  expanded?: boolean;
 }
 
-export function FileListView({ content }: FileListViewProps) {
+export function FileListView({ content, expanded }: FileListViewProps) {
   const lines = content.split("\n");
+  const truncated = !expanded && lines.length > MAX_LINES;
+  const visible = truncated ? lines.slice(0, MAX_LINES) : lines;
+  const remaining = lines.length - MAX_LINES;
+
   return (
     <Box flexDirection="column">
-      {lines.map((line, i) => (
+      {visible.map((line, i) => (
         <Text key={i} color={line.startsWith("📁") ? "cyan" : undefined}>{line}</Text>
       ))}
+      {truncated && (
+        <Text color="gray">[... +{remaining} items]</Text>
+      )}
     </Box>
   );
 }
