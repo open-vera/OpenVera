@@ -45,7 +45,7 @@ export class StreamAgentRunner implements AgentRunner {
     const prompt = buildAssignmentPrompt(assignment);
     const toolCalls: StepResult["toolCalls"] = [];
 
-    const output = await streamAgent(
+    const agentPromise = streamAgent(
       prompt,
       {
         adapter: this.adapter,
@@ -68,6 +68,26 @@ export class StreamAgentRunner implements AgentRunner {
       },
       () => {}
     );
+
+    const deadlineMs = assignment.scope.deadlineMs;
+    let output: string;
+
+    if (deadlineMs && deadlineMs > 0) {
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Step "${assignment.stepId}" exceeded deadline of ${deadlineMs}ms`
+              )
+            ),
+          deadlineMs
+        )
+      );
+      output = await Promise.race([agentPromise, timeoutPromise]);
+    } else {
+      output = await agentPromise;
+    }
 
     return {
       flowId: assignment.flowId,

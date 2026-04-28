@@ -84,9 +84,9 @@ function validatePlan(raw: unknown): ExecutionPlan {
 
   return {
     planId:
-      typeof plan.planId === "string"
+      typeof plan.planId === "string" && plan.planId.length > 0
         ? plan.planId
-        : `plan-${Date.now()}`,
+        : crypto.randomUUID(),
     goal: plan.goal,
     assumptions: Array.isArray(plan.assumptions)
       ? (plan.assumptions as string[])

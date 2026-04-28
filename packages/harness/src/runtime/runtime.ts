@@ -84,6 +84,35 @@ function getPendingStepId(plan: ExecutionPlan | undefined): string | undefined {
   return plan?.steps.find((step) => step.status === "pending")?.id;
 }
 
+/**
+ * Detect cycles in step dependency graph via DFS.
+ * Returns the cycle path as a string if found, or null if the graph is acyclic.
+ */
+function detectDependencyCycle(steps: ExecutionPlan["steps"]): string | null {
+  const deps = new Map(steps.map((s) => [s.id, s.dependsOn ?? []]));
+  const visited = new Set<string>();
+  const stack = new Set<string>();
+
+  function dfs(id: string, path: string[]): string | null {
+    if (stack.has(id)) return [...path, id].join(" → ");
+    if (visited.has(id)) return null;
+    visited.add(id);
+    stack.add(id);
+    for (const dep of deps.get(id) ?? []) {
+      const cycle = dfs(dep, [...path, id]);
+      if (cycle) return cycle;
+    }
+    stack.delete(id);
+    return null;
+  }
+
+  for (const step of steps) {
+    const cycle = dfs(step.id, []);
+    if (cycle) return cycle;
+  }
+  return null;
+}
+
 function mergeReplannedFlow(
   handle: FlowHandle,
   plan: ExecutionPlan
@@ -172,6 +201,9 @@ export class HarnessRuntime {
     const plan = handle.flow.plan;
     if (!plan) throw new Error("Cannot dispatch step without plan");
 
+    const cycle = detectDependencyCycle(plan.steps);
+    if (cycle) throw new Error(`Circular dependency detected in plan steps: ${cycle}`);
+
     const doneIds = new Set(
       plan.steps.filter((s) => s.status === "done").map((s) => s.id)
     );
@@ -196,15 +228,17 @@ export class HarnessRuntime {
       assignedAgent: step.assignedAgent,
     };
 
-    const flow = {
-      ...handle.flow,
-      state: "executing" as const,
-      activeStepId: step.id,
-      assignedAgents: step.assignedAgent
-        ? [step.assignedAgent]
-        : handle.flow.assignedAgents,
-      plan: clonePlanWithStepStatus(handle.flow.plan, step.id, "running"),
-    };
+    const flow = updateFlowState(
+      {
+        ...handle.flow,
+        activeStepId: step.id,
+        assignedAgents: step.assignedAgent
+          ? [step.assignedAgent]
+          : handle.flow.assignedAgents,
+        plan: clonePlanWithStepStatus(handle.flow.plan, step.id, "running"),
+      },
+      "executing"
+    );
 
     void appendTimeline(handle.store, {
       ts: now(),
@@ -239,15 +273,17 @@ export class HarnessRuntime {
     );
 
     const flow = attachArtifacts(
-      {
-        ...handle.flow,
-        state: "critiquing",
-        plan: clonePlanWithStepStatus(
-          handle.flow.plan,
-          assignment.stepId,
-          "done"
-        ),
-      },
+      updateFlowState(
+        {
+          ...handle.flow,
+          plan: clonePlanWithStepStatus(
+            handle.flow.plan,
+            assignment.stepId,
+            "done"
+          ),
+        },
+        "critiquing"
+      ),
       [artifact]
     );
 
