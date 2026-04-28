@@ -301,9 +301,10 @@ P1 的目标是让 Vera 从受控执行器，升级为能自己推进复杂 Flow
 
 详见 [capability-gaps.md](./core/capability-gaps.md)。
 
-- 权限与授权体验：持久化工具规则、bash 风险确认、命令 allow/deny pattern
-- 项目上下文：规则优先级、mtime 缓存、按路径激活 scoped rules
-- UI 展示：read/search/list grouped collapsed summary，子 agent summary + transcript
+- 状态基线（2026-04-28）详见：[p0-alignment-checklist.md](./core/p0-alignment-checklist.md)
+- 权限与授权体验：✅ 已完成（持久化工具规则、bash 风险确认、命令 allow/deny pattern）
+- 项目上下文：✅ 已完成（规则优先级、mtime 缓存、按路径激活 scoped rules）
+- UI 展示：✅ 已完成（read/search/list grouped collapsed summary，子 agent summary + transcript）
 - 子 agent（Claude Code 对齐）：
   - ✅ 已实现：`agent` tool 入参对齐 `description` / `prompt` / `subagent_type`
   - ✅ 已实现：内置 `general-purpose` / `explore` / `plan`，支持工具策略、sidechain session 和 summary 回传
@@ -314,7 +315,7 @@ P1 的目标是让 Vera 从受控执行器，升级为能自己推进复杂 Flow
   - ✅ 已实现：`agent` tool 支持 `isolation: "try"`，子 agent 在独立 git worktree 中执行工具调用
   - ✅ 已实现：try-isolated 子 agent sidechain session 记录 `worktreePath` / `worktreeBranch` / `baseCommit`，可通过 `/merge <id-prefix>` 采纳
   - 说明：`/sub` 只查看子 agent 的 sidechain 记录；`/try` 会创建隔离 git worktree 并切换 REPL 到该工作区，`agent isolation: "try"` 则让子 agent 在隔离工作区内实验
-  - 计划：后台子 agent、resume subagent、remote isolation
+  - ⏳ 待实现：后台子 agent、resume subagent、remote isolation
 - Session UX（Claude Code 对齐）：
   - ✅ 已实现：session 列表按项目/worktree 扫描，支持 `--all`、`--limit`、`--offset`
   - ✅ 已实现：轻量 head/tail metadata 读取，过滤 metadata-only session
@@ -333,8 +334,15 @@ P1 的目标是让 Vera 从受控执行器，升级为能自己推进复杂 Flow
   - ✅ 已实现：搜索触发 debounce + 分批可取消的分页扫描，支持文本高亮和 `branch:` / `tag:` / `cost>` / `cost<` / `after:` / `before:` 过滤
   - ✅ 已实现：字段级 JSONL extractor、session_end 数字字段 fallback、canonical path/worktree fallback，提高大文件、截断行和 symlink 兼容性
   - ✅ 已实现：子 agent worktree isolation 与 `/merge` branch 生命周期打通
-  - 计划：子 agent remote isolation、多分支结果比较 UI
-- 可靠性：session 隔离测试、权限/上下文/UI/子 agent 组合 smoke
+  - ⏳ 待实现：子 agent remote isolation、多分支结果比较 UI
+- 可靠性：🟡 部分完成（session 隔离测试已覆盖；权限/上下文/UI/子 agent 组合 smoke 尚未形成统一套件入口）
+- CLI 色彩主题：
+  - ✅ 已实现：`repl/ui/theme.ts` — 统一语义 token（brand / success / error / warning / suggestion / diff 系列）
+  - ✅ 已实现：所有 UI 组件（StatusBar、ConversationPanel、DiffView、ToolResultView、InputBar、WelcomeScreen、App 等）改用 `theme.*`，不再散落 inline 颜色字面量
+  - ✅ 已实现：配色基准来自 Claude Code dark 主题，truecolor `rgb(r,g,b)` 替代 ANSI 名称
+- 开发工具：
+  - ✅ 已实现：`.hooks/pre-commit` 预提交密钥扫描器，检测 API Key 格式、credential 关键词
+  - ✅ 已实现：公司内部标识符（敏感词）通过 `git config hooks.companyPatterns` 本地注入，扫描脚本不硬编码，不进 git 历史
 
 **P1 验收标准**
 

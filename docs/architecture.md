@@ -23,12 +23,19 @@
 |------|------|
 | **LLM Adapter** | 封装 Anthropic / OpenAI / Gemini API，统一为 `LLMAdapter` 接口 |
 | **Agent Loop** | `runAgent` / `streamAgent` — 消息循环、工具调用、多轮对话 |
+| **Subagent** | `agent/subagent.ts` — `agent` tool 实现：sidechain session、isolation worktree、自定义 agent 定义加载 |
 | **Context 管理** | 滑动窗口裁剪、token 估算、tool result 预算（防止单次结果撑爆上下文） |
 | **Intent 分类** | `classifyIntent`、`routeTarget` — L0~L3 分级，domain 识别 |
 | **Config Schema** | `VeraConfig`、`MCPServerConfig` 等配置类型及加载逻辑 |
 | **协议类型** | `Message`、`Tool`、`CompletionRequest`、`ContentPart`、`Usage` |
 | **运行时协议类型** | `HarnessState`、`ExecutionPlan`、`TaskFlow` 等 —— 类型定义在 core，实现在 harness |
-| **REPL** | 交互式终端 UI（Ink）、session 存储 |
+| **Permission Rules** | `tools/permission-rules.ts` — 持久化工具规则、bash allow/deny pattern，补充 SecurityPlugin 的静态检查 |
+| **Project Context** | `project-context/` — 加载 `.vera/rules.md`、`CLAUDE.md` 等项目级 prompt 规则，按路径范围激活 |
+| **Memory Tracking** | `memory/` — 跨轮次记忆检测（detector）、scanner、tracker，为 agent 提供短期记忆锚点 |
+| **Session 管理** | `session/` — JSONL 存储、cost tracking、AI 自动标题（`title.ts`）、session picker 分页扫描 |
+| **REPL & Workspace** | `repl/` — 交互式终端 UI（Ink）、session 存储、`workspace.ts` 管理当前 cwd / ToolRegistry / worktree 状态 |
+| **REPL 命令** | `/branch` `/branches` `/switch` `/drop` conversation 分支；`/try` 创建隔离 git worktree；`/merge` 采纳 diff；`/adopt` 标记分支；`/sub` (`/transcript`) 查看子 agent sidechain |
+| **CLI Color Theme** | `repl/ui/theme.ts` — 统一语义色彩 token，基于 Claude Code 配色，所有 UI 组件通过 `theme.*` 引用 |
 
 ### 1.2 不负责
 
@@ -125,21 +132,25 @@ harness 读 `settings.json` 的 `mcp_servers`，core 定义 schema。
 
 ## 4. 当前需要厘清的边界问题
 
-### 4.1 `core/src/index.ts` 做了太多
+### 4.1 `core/src/index.ts` 做了太多（待解决）
 
 现在 `core/src/index.ts` 里有：适配器初始化、routing 逻辑、工具硬编码、REPL 启动——这是**应用入口**的职责，不是 core 库的职责。
 
 应该迁移到 `apps/` 下的入口文件，core 只导出库接口。
 
-### 4.2 REPL 是否属于 core
+### 4.2 REPL 是否属于 core（短期可接受）
 
 REPL 目前在 core，但 REPL 依赖 `SessionStore`，而 session 存储是有状态的应用级能力。
-短期可留在 core，长期考虑拆到 `apps/repl`，core 只提供无状态的 agent loop。
+短期可留在 core（workspace.ts 已做 session/worktree 状态封装），长期考虑拆到 `apps/repl`，core 只提供无状态的 agent loop。
 
-### 4.3 `harness/types.ts` 与 `core/types/runtime.ts` 的重复
+### 4.3 `harness/types.ts` 与 `core/types/runtime.ts` 的重复（待清理）
 
 harness 有自己的 `ToolCallRecord`（`packages/harness/src/types.ts`），core 也有（`core/types/runtime.ts`）。
 应统一用 core 的定义，harness 直接 re-export 或直接导入。
+
+### 4.4 Memory 模块边界（已实现，边界清晰）
+
+`memory/` 当前实现为跨轮次记忆检测（scanner / tracker / detector），属于 agent loop 的感知层，放在 core 合理。长期若 memory 需要 LLM 摘要写入或向量检索，摘要生成逻辑应留在 core（无状态 LLM 调用），持久化策略迁移到 harness。
 
 ---
 
@@ -172,3 +183,8 @@ packages/
 | 新协议类型（如 ACP 消息体） | core/types | 类型约定归 core |
 | ACP 分发逻辑 | harness/runtime | 流程编排归 harness |
 | context window 策略调整 | core/context | 上下文管理归 core |
+| 新 REPL 命令 | core/repl/commands | 命令生命周期在 REPL 层 |
+| 子 agent 类型/行为 | core/agent/subagent | sidechain + worktree 隔离在 core |
+| 持久化工具权限规则 | core/tools/permission-rules | 规则读写是 tool 层能力，非流程编排 |
+| 项目级 prompt 规则 | core/project-context | 无状态加载，供 loop 注入 system prompt |
+| UI 色彩 / 组件样式 | core/repl/ui/theme.ts | 集中管理所有语义 token，组件 import 引用 |
