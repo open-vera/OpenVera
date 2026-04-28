@@ -1,4 +1,4 @@
-# @open-vera/harness
+# @open-vera/openvera
 
 Stateful orchestration kernel for the Vera framework.
 
@@ -7,7 +7,7 @@ Drives multi-step autonomous tasks through a principled `Plan → Act → Critiq
 ## Install
 
 ```bash
-npm install @open-vera/harness
+npm install @open-vera/openvera
 ```
 
 Requires `@open-vera/core` as a peer dependency.
@@ -60,7 +60,7 @@ After every run the Challenger appends discovered failure patterns to `.flow/cha
 ## Quick Start
 
 ```typescript
-import { HarnessRuntime } from "@open-vera/harness";
+import { HarnessRuntime } from "@open-vera/openvera";
 import { AnthropicAdapter } from "@open-vera/core/adapters";
 
 const runtime = new HarnessRuntime({
@@ -75,16 +75,16 @@ await runtime.run("Refactor the authentication module and add unit tests");
 
 ```bash
 # Run a flow
-vera-harness flow run
+openvera flow run
 
 # Launch REPL with Harness
-vera-harness repl --dir .
+openvera repl --dir .
 ```
 
 ## Architecture
 
 ```
-@open-vera/harness → @open-vera/core
+@open-vera/openvera → @open-vera/core
 ```
 
 Harness owns flow orchestration. Core handles single LLM call execution. Dependency is strictly one-way — Core is usable standalone.

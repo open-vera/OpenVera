@@ -16,7 +16,7 @@ interface SpawnBody {
 
 /**
  * POST /api/runs
- * Spawns `vera-harness flow run` as a detached child process.
+ * Spawns `openvera flow run` as a detached child process.
  * Returns immediately with the expected runId (iter-<timestamp>).
  * Client can then open GET /api/runs/:runId/stream for live updates.
  */
@@ -46,13 +46,13 @@ export async function handleSpawnRun(
   if (body.skipPlanCritique) args.push("--skip-plan-critique");
   if (body.maxSteps != null) args.push("--max-steps", String(body.maxSteps));
 
-  // Predict the runId that vera-harness will use (iter-<ISO>)
+  // Predict the runId that openvera will use (iter-<ISO>)
   const startedAt = new Date();
   const predictedId = `iter-${startedAt.toISOString().replace(/[:.]/g, "-")}`;
 
-  // Resolve vera-harness binary
-  const harnessbin = resolve("node_modules/.bin/vera-harness");
-  const cmd = existsSync(harnessbin) ? harnessbin : "vera-harness";
+  // Resolve openvera binary
+  const harnessbin = resolve("node_modules/.bin/openvera");
+  const cmd = existsSync(harnessbin) ? harnessbin : "openvera";
 
   const child = spawn(cmd, args, {
     cwd: resolve("."),
@@ -62,7 +62,7 @@ export async function handleSpawnRun(
   child.unref();
 
   child.on("error", (err) => {
-    console.error("[spawn] vera-harness error:", err.message);
+    console.error("[spawn] openvera error:", err.message);
   });
 
   json(res, { runId: predictedId, startedAt: startedAt.toISOString() }, 202);

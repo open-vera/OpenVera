@@ -83,10 +83,10 @@ for await (const event of streamAgent({
 
 ## Architecture
 
-`@open-vera/core` is a strict dependency of `@open-vera/harness`. Core never imports from Harness — the stateless loop is usable standalone.
+`@open-vera/core` is a strict dependency of `@open-vera/openvera`. Core never imports from Harness — the stateless loop is usable standalone.
 
 ```
-@open-vera/harness → @open-vera/core
+@open-vera/openvera → @open-vera/core
 ```
 
 ## License

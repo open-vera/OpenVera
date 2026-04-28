@@ -35,7 +35,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 function printHelp() {
-  console.log("Usage: vera-harness <command> [options]");
+  console.log("Usage: openvera <command> [options]");
   console.log("");
   console.log("Commands:");
   console.log("  repl                  Start REPL with full skill support");
@@ -58,11 +58,11 @@ function printHelp() {
   console.log("  --skip-plan-critique    Skip plan-level critique");
   console.log("");
   console.log("Examples:");
-  console.log("  vera-harness flow run");
-  console.log("  vera-harness flow run --dir flow-examples/software-dev");
-  console.log("  vera-harness flow run --dir flow-examples/travel-planning");
-  console.log("  vera-harness flow run --dir flow-examples/financial-research");
-  console.log("  vera-harness flow run --dir flow-examples/annotation-qa");
+  console.log("  openvera flow run");
+  console.log("  openvera flow run --dir flow-examples/software-dev");
+  console.log("  openvera flow run --dir flow-examples/travel-planning");
+  console.log("  openvera flow run --dir flow-examples/financial-research");
+  console.log("  openvera flow run --dir flow-examples/annotation-qa");
   console.log("");
 }
 

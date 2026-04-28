@@ -53,7 +53,7 @@ importers:
       '@open-vera/core':
         specifier: workspace:*
         version: link:../core
-      '@open-vera/harness':
+      '@open-vera/openvera':
         specifier: workspace:*
         version: link:../harness
     devDependencies:
