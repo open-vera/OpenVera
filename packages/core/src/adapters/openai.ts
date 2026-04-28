@@ -47,31 +47,35 @@ export class OpenAIAdapter implements LLMAdapter {
     let finishReason: string | null = null;
     let usage: { input_tokens: number; output_tokens: number } | undefined;
 
-    for await (const chunk of apiStream) {
-      const delta = chunk.choices[0]?.delta;
-      finishReason = chunk.choices[0]?.finish_reason ?? finishReason;
+    try {
+      for await (const chunk of apiStream) {
+        const delta = chunk.choices[0]?.delta;
+        finishReason = chunk.choices[0]?.finish_reason ?? finishReason;
 
-      if (chunk.usage) {
-        usage = {
-          input_tokens: chunk.usage.prompt_tokens,
-          output_tokens: chunk.usage.completion_tokens,
-        };
-      }
-
-      if (delta?.content) {
-        yield { type: "text", text: delta.content };
-      }
-
-      for (const tc of delta?.tool_calls ?? []) {
-        if (!toolCalls[tc.index]) {
-          toolCalls[tc.index] = {
-            id: tc.id ?? "",
-            name: tc.function?.name ?? "",
-            arguments: "",
+        if (chunk.usage) {
+          usage = {
+            input_tokens: chunk.usage.prompt_tokens,
+            output_tokens: chunk.usage.completion_tokens,
           };
         }
-        toolCalls[tc.index].arguments += tc.function?.arguments ?? "";
+
+        if (delta?.content) {
+          yield { type: "text", text: delta.content };
+        }
+
+        for (const tc of delta?.tool_calls ?? []) {
+          if (!toolCalls[tc.index]) {
+            toolCalls[tc.index] = {
+              id: tc.id ?? "",
+              name: tc.function?.name ?? "",
+              arguments: "",
+            };
+          }
+          toolCalls[tc.index].arguments += tc.function?.arguments ?? "";
+        }
       }
+    } catch (err) {
+      throw err;
     }
 
     for (const tc of Object.values(toolCalls)) {

@@ -62,9 +62,20 @@ export class GeminiAdapter implements LLMAdapter {
       }
     }
 
+    // Extract usage from the aggregated final response (available after stream ends).
+    const finalResponse = await result.response;
+    const usageMeta = finalResponse.usageMetadata;
+    const usage = usageMeta
+      ? {
+          input_tokens: usageMeta.promptTokenCount ?? 0,
+          output_tokens: usageMeta.candidatesTokenCount ?? 0,
+        }
+      : undefined;
+
     yield {
       type: "done",
       stop_reason: toolCalls.length > 0 ? "tool_use" : "end_turn",
+      usage,
     };
   }
 

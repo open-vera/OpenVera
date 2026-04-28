@@ -45,24 +45,30 @@ export class AnthropicAdapter implements LLMAdapter {
       tools: this.toAnthropicTools(request),
     }, { signal: request.signal });
 
-    for await (const event of apiStream) {
-      if (
-        event.type === "content_block_start" &&
-        event.content_block.type === "tool_use"
-      ) {
-        toolCalls[event.index] = {
-          id: event.content_block.id,
-          name: event.content_block.name,
-          arguments: "",
-        };
-      } else if (event.type === "content_block_delta") {
-        if (event.delta.type === "text_delta") {
-          yield { type: "text", text: event.delta.text };
-        } else if (event.delta.type === "input_json_delta") {
-          const tc = toolCalls[event.index];
-          if (tc) tc.arguments += event.delta.partial_json;
+    try {
+      for await (const event of apiStream) {
+        if (
+          event.type === "content_block_start" &&
+          event.content_block.type === "tool_use"
+        ) {
+          toolCalls[event.index] = {
+            id: event.content_block.id,
+            name: event.content_block.name,
+            arguments: "",
+          };
+        } else if (event.type === "content_block_delta") {
+          if (event.delta.type === "text_delta") {
+            yield { type: "text", text: event.delta.text };
+          } else if (event.delta.type === "input_json_delta") {
+            const tc = toolCalls[event.index];
+            if (tc) tc.arguments += event.delta.partial_json;
+          }
         }
       }
+    } catch (err) {
+      // Surface stream errors cleanly; the agent loop's reactive-compact
+      // catches prompt-too-long; other errors terminate the turn.
+      throw err;
     }
 
     // 发出完整 tool_call 事件
