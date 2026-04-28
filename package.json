@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r --filter=!claude-code-source build",
-    "release": "pnpm --filter @open-vera/core run release && pnpm --filter @open-vera/openvera run release",
+    "release": "bash scripts/release.sh",
     "dev": "pnpm --filter @open-vera/core build && pnpm --filter @open-vera/openvera dev",
     "dev:core": "VERA_CONFIG_DIR=../../.vera pnpm --filter @open-vera/core dev",
     "dev:watch": "VERA_CONFIG_DIR=../../.vera pnpm --filter @open-vera/core dev:watch",
