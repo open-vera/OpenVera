@@ -104,6 +104,26 @@ Session 路径计算公式：
 | `marble-origami-commit` / `marble-origami-snapshot` | Context Collapse 提交和快照 |
 | `pr-link` | PR 链接信息 |
 
+### 2.2.1 Vera Session 配置
+
+Vera 在 `.vera/settings.json` 中提供 session 级配置，当前用于控制自动标题：
+
+```json
+{
+  "session": {
+    "ai_title": {
+      "enabled": true,
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001"
+    }
+  }
+}
+```
+
+- `enabled: false`：关闭首轮后的自动 `ai-title` 生成。
+- `provider`：可选，指定标题生成使用的 provider；不配置时复用当前对话 provider。
+- `model`：可选，指定标题模型；不配置时复用当前对话模型。
+
 ### 2.3 消息链（parentUuid）
 
 消息通过 `parentUuid` 形成链式结构：

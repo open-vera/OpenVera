@@ -32,6 +32,7 @@ pnpm repl
 | 文档 | 说明 |
 |---|---|
 | [roadmap.md](./roadmap.md) | 阶段路线图——P0 核心 runtime → P1 自循环 → P2 自进化 → P3 平台扩展 |
+| [roadmap.md#已知缺陷与技术债](./roadmap.md#已知缺陷与技术债) | 2026-04-28 架构诊断——5 个 Critical、6 个 High、6 个 Medium 问题 |
 
 ---
 
@@ -48,6 +49,7 @@ pnpm repl
 | [intent-routing.md](./core/intent-routing.md) | 意图识别与模型路由——L0/L1/L2/L3 分级 |
 | [runtime-design.md](./core/runtime-design.md) | Core runtime 设计——adapter 抽象、loop、streaming |
 | [tool-rendering.md](./core/tool-rendering.md) | Tool 输出渲染——RenderHint、ToolResultView、各渲染组件 ✅ |
+| [capability-gaps.md](./core/capability-gaps.md) | 当前能力差距与近期实现路线——权限、上下文、UI、可靠性 |
 | [plan-mode-implementation.md](./core/plan-mode-implementation.md) | **[P0 已完成]** Plan Mode——planner、parser、state machine、REPL 接入 ✅ |
 | [infinite-context-implementation.md](./core/infinite-context-implementation.md) | **[P0 已完成]** 无限上下文——progressive compression、micro-compact、reactive compact ✅ |
 

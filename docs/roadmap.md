@@ -125,7 +125,112 @@ P0 的目标不是做一个会调工具的 assistant，而是建立最小可用�
 - 遇到超出目录、域名、预算的操作会停止并解释原因
 - 每次运行都能留下可回放 trace
 
-### P1 — 补齐“自循环和自我修正”的能力
+---
+
+## 已知缺陷与技术债
+
+> P0 全部实现完毕，但 2026-04-28 架构诊断发现若干已实现路径存在运行时缺陷或薄弱点，需在 P1 开工前修复。
+
+### 🔴 Critical — 立即修复
+
+**C1. Micro-compact 时间戳 bug（P0.6 无限上下文实际不工作）**
+
+`compression.ts` 中 `lastAssistantTs = Date.now()` 在**每次调用**时重置，导致时间差永远趋近 0，基于时间间隙的清理条件永远不触发。微压缩功能已实现但运行时失效。
+
+**C2. Tool 调用参数 `JSON.parse` 裸调用（`loop.ts`）**
+
+```ts
+const args = JSON.parse(tc.arguments)  // 无 try/catch
+```
+
+LLM 返回 malformed JSON → 整个 agent loop crash。LLM 输出是系统边界，必须防守。
+
+**C3. Empty-after-tool-result 只有 1 次 retry**
+
+`emptyAfterToolRetries < 1` 判断导致第二次空响应时静默 break loop 并返回空字符串，调用侧无任何通知。
+
+**C4. Streaming 无错误恢复**
+
+三个 adapter 的流式迭代无 try/catch，流中断直接 throw，无内置 retry，生产环境网络抖动必现。
+
+**C5. Harness Step 依赖无环检测**
+
+`dependsOn` 只做存在性校验，无拓扑排序，无循环依赖检测。Step A 依赖 B、B 依赖 A 可触发无限 dispatch 循环。
+
+---
+
+### 🟠 High — P1 开工前完成
+
+**H1. 测试覆盖：~8.5%，核心路径全无保障**
+
+| 未覆盖模块 | 风险 |
+|---|---|
+| Adapters（Anthropic / OpenAI / Gemini） | 接口变更无感知 |
+| 内置 Tools（bash / read / write / edit） | 工具行为未验证 |
+| Tool Registry / Executor | hook 调度正确性未验证 |
+| Harness dispatch / replan 循环 | 状态机核心路径零测试 |
+| Memory tracking | 功能存在但完全无测试 |
+| Skill resolver | intent 路由最终落点未测试 |
+
+**H2. Compression 状态变更非原子**
+
+压缩 LLM 调用失败时异常已 catch，但 `messages` 可能已部分变更，下一轮使用被污染的 state，静默失败。
+
+**H3. Gemini streaming 无 usage 上报**
+
+`stream()` 返回 `{ type: “done”, usage: undefined }`，cost tracking 和 token budget 计算对 Gemini 完全失效。
+
+**H4. Critique 无内部 retry 闭环**
+
+Critique 结果返回外部调用方，由调用方决定是否 replan；Harness 不自我修正。Critique JSON 解析失败亦静默。
+
+**H5. 审批流程（`waiting_approval`）不完整**
+
+`shouldPauseForApproval` 返回 bool，但 flow state 未明确进入 `waiting_approval`，human-in-the-loop 路径存在竞态，未覆盖测试。
+
+**H6. Step 级别无超时与预算强制**
+
+`TaskScope` 有 `deadlineMs` / `budgetTokens`，但均未在 step 执行中检查，单个 step 可消耗整个 flow 的预算。
+
+---
+
+### 修复计划
+
+| 编号 | 状态 | 改动点 |
+|---|---|---|
+| C1 | ✅ 已修 | `compression.ts`：移除扫描历史消息时的 `Date.now()` 调用；`loop.ts`：assistant 响应后即更新 `lastAssistantTs` |
+| C2 | ✅ 已修 | `loop.ts`：`JSON.parse(tc.arguments)` 加 try/catch，malformed 时返回工具错误消息而非 crash |
+| C3 | ✅ 已修 | `loop.ts`：引入 `MAX_EMPTY_AFTER_TOOL_RETRIES = 3`，替换原来硬编码的 `< 1` 判断 |
+| C4 | ✅ 已修 | `adapters/anthropic.ts` / `openai.ts` / `gemini.ts`：stream 迭代加 try/catch 确保错误干净传播（SDK 层已有内置 retry） |
+| C5 | ✅ 已修 | `harness/runtime/runtime.ts`：新增 `detectDependencyCycle` DFS 函数，`dispatchStep` 入口调用，发现环立即抛错 |
+| H1 | ✅ 已修 | 新增核心路径测试（164 通过）：token 估算、window trimming、ToolRegistry、bashTool、loop 防御行为（C2/C3/M4） |
+| H2 | ✅ 已验 | 代码复查确认 `compressMessages` 已在副本上操作（`slice` + spread），LLM 失败时返回原始对象，无需额外改动 |
+| H3 | ✅ 已修 | `adapters/gemini.ts`：流结束后 `await result.response` 提取 `usageMetadata`，填入 `done` 事件 |
+| H4 | ✅ 已修 | `runtime/json.ts`：`completeJson` 加 markdown fence 剥离 + JSON 提取 + 最多 2 次修正 retry |
+| H5 | ✅ 已修 | `runtime/runtime.ts`：`dispatchStep` 和 `runAgentAssignment` 改用 `updateFlowState`，转换经状态机合法性校验 |
+| H6 | ✅ 已修 | `agent/stream-runner.ts`：`deadlineMs > 0` 时用 `Promise.race` 强制超时，超时抛含 stepId 的 Error |
+| M6 | ✅ 已修 | `runtime/planner.ts`：`planId` 降级时改用 `crypto.randomUUID()` 替代 `Date.now()` |
+
+### 🟡 Medium — 技术债，计划改进
+
+| 编号 | 状态 | 问题 | 影响 |
+|---|---|---|---|
+| M1 | ✅ 已修 | Token 估算粗糙（±10%，不计 role/tool_call 结构 overhead） | 压缩触发阈值不可靠 |
+| M2 | ✅ 已修 | Window trimming 无信号感知，丢失首条用户消息（原始任务定义） | 压缩后 agent 失去任务定义锚点 |
+| M3 | 待定 | Tool 结果在执行**后**才裁剪，大输出工具资源浪费 | bash 生成 GB 级输出仍完整运行 |
+| M4 | ✅ 已修 | 压缩本身的 LLM 调用成本未计入 cost tracking | 高频压缩场景成本失控 |
+| M5 | ✅ 已验 | AgentRunner 接口当前只有一个实现（过早抽象） | 已有 `external-cli-runner.ts`，多实现并存，抽象合理 |
+| M6 | ✅ 已修 | `planId: \`plan-${Date.now()}\`` 同毫秒可碰撞 | 测试并发场景下会失效 |
+
+**M1 修复**：`tokens.ts` 引入 role-specific overhead（user/assistant: 5，tool: 10）+ `TOOL_CALL_STRUCT_OVERHEAD = 12` + `DEFAULT_IMAGE_TOKENS = 1_000`，替换原来的平均 4 token/message。
+
+**M2 修复**：`window.ts` `trimToWindow` 始终保留 `messages[0]`（原始任务定义），从第 2 条消息起才做丢弃。
+
+**M4 修复**：`compression.ts` 返回类型追加 `usage?: Usage`，捕获压缩 LLM 响应的 usage；`loop.ts` 两个主循环在压缩后立即调用 `onUsage(compressed.usage)`。
+
+---
+
+### P1 — 补齐”自循环和自我修正”的能力
 
 P1 的目标是让 Vera 从受控执行器，升级为能自己推进复杂 Flow 的 agent。
 
@@ -191,6 +296,45 @@ P1 的目标是让 Vera 从受控执行器，升级为能自己推进复杂 Flow
 - 失败任务自动记录 root cause
 - 常见失败模式分类：模型、工具、权限、上下文、计划偏差
 - 支持选定失败 case 的自动回放
+
+### P0 后对齐项（当前进行中）
+
+详见 [capability-gaps.md](./core/capability-gaps.md)。
+
+- 权限与授权体验：持久化工具规则、bash 风险确认、命令 allow/deny pattern
+- 项目上下文：规则优先级、mtime 缓存、按路径激活 scoped rules
+- UI 展示：read/search/list grouped collapsed summary，子 agent summary + transcript
+- 子 agent（Claude Code 对齐）：
+  - ✅ 已实现：`agent` tool 入参对齐 `description` / `prompt` / `subagent_type`
+  - ✅ 已实现：内置 `general-purpose` / `explore` / `plan`，支持工具策略、sidechain session 和 summary 回传
+  - ✅ 已实现：自定义 agent definitions，从 `~/.vera/agents/*.md` 与 `<project>/.vera/agents/*.md` 加载
+  - ✅ 已实现：frontmatter 支持 `name` / `description` / `tools` / `disallowedTools` / `permissionMode` / `maxTurns`
+  - ✅ 已实现：项目级 agent 覆盖用户级 agent，动态更新 `subagent_type` enum
+  - ✅ 已实现：`/sub <id-prefix>` 通过 transcript id 查看子 agent sidechain transcript（`/transcript` 保留为兼容别名）
+  - ✅ 已实现：`agent` tool 支持 `isolation: "try"`，子 agent 在独立 git worktree 中执行工具调用
+  - ✅ 已实现：try-isolated 子 agent sidechain session 记录 `worktreePath` / `worktreeBranch` / `baseCommit`，可通过 `/merge <id-prefix>` 采纳
+  - 说明：`/sub` 只查看子 agent 的 sidechain 记录；`/try` 会创建隔离 git worktree 并切换 REPL 到该工作区，`agent isolation: "try"` 则让子 agent 在隔离工作区内实验
+  - 计划：后台子 agent、resume subagent、remote isolation
+- Session UX（Claude Code 对齐）：
+  - ✅ 已实现：session 列表按项目/worktree 扫描，支持 `--all`、`--limit`、`--offset`
+  - ✅ 已实现：轻量 head/tail metadata 读取，过滤 metadata-only session
+  - ✅ 已实现：`custom-title` / `ai-title` / `last-prompt` / `summary` / `tag` / `git-branch` / `pr-link` JSONL metadata
+  - ✅ 已实现：summary 优先级 `customTitle > aiTitle > lastPrompt > summary > firstPrompt`
+  - ✅ 已实现：自动生成 `aiTitle`、SessionPicker 搜索、分页加载、preview、恢复提示
+  - ✅ 已实现：`/branch` / `/branches` / `/switch` / `/adopt` / `/drop` conversation branch 生命周期
+  - ✅ 已实现：`/try [name]` 创建隔离 git worktree，并切换 REPL 的 cwd / ToolRegistry / SecurityPlugin
+  - ✅ 已实现：branch metadata 记录 `worktreePath` / `worktreeBranch` / `baseCommit`，支持 `active` / `adopted` / `merged` / `discarded`
+  - ✅ 已实现：`/merge [--check] [--drop] [id-prefix]` 将 try worktree diff 安全应用回原工作区，不自动提交
+  - ✅ 已实现：`/merge` dirty target 检查、重复 merge 保护、clean worktree drop 清理、真实 git repo 单测覆盖
+  - ✅ 已实现：SessionPreview 复用 `ConversationPanel` 完整渲染 transcript，支持滚动与工具输出展开
+  - ✅ 已实现：恢复后把最近 N 条 transcript 注入可见消息列表，避免 UI history 与模型 history 分离
+  - ✅ 已实现：resume / switch try branch 时校验 worktree 是否存在；缺失时回退原 cwd 并提示
+  - ✅ 已实现：AI title 失败最多补试一次，首轮 assistant 为空时用工具摘要 fallback，并支持配置开关/标题模型
+  - ✅ 已实现：搜索触发 debounce + 分批可取消的分页扫描，支持文本高亮和 `branch:` / `tag:` / `cost>` / `cost<` / `after:` / `before:` 过滤
+  - ✅ 已实现：字段级 JSONL extractor、session_end 数字字段 fallback、canonical path/worktree fallback，提高大文件、截断行和 symlink 兼容性
+  - ✅ 已实现：子 agent worktree isolation 与 `/merge` branch 生命周期打通
+  - 计划：子 agent remote isolation、多分支结果比较 UI
+- 可靠性：session 隔离测试、权限/上下文/UI/子 agent 组合 smoke
 
 **P1 验收标准**
 

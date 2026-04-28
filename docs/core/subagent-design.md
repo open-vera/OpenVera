@@ -22,6 +22,7 @@ Subagent 是主 agent(Orchestrator)创建的独立执行单元,用于:
 | **独立生命周期** | 每个 subagent 是独立的 `runAgent` 调用 |
 | **结果汇总** | Worker 完成后返回结构化结果,Orchestrator 负责整合 |
 | **权限继承** | Subagent 继承父 agent 的 harness 约束,不能越权 |
+| **可选工作区隔离** | 写代码类实验可用 `isolation: "try"` 在独立 git worktree 中执行 |
 
 ---
 
@@ -152,6 +153,9 @@ interface AgentTask {
   
   /** 期望输出格式 */
   expectedOutputFormat?: 'text' | 'json' | 'structured';
+
+  /** 执行隔离模式: none 使用父工作区; try 创建可 merge/drop 的 git worktree */
+  isolation?: 'none' | 'try';
 }
 ```
 
@@ -905,7 +909,13 @@ interface SubagentAuditLog {
 
 ### P1 阶段(当前)
 
-- [ ] `AgentTask` / `AgentResult` 消息协议定义
+- [x] `agent` tool 基础协议：`description` / `prompt` / `subagent_type` / `allowedTools` / `maxTurns`
+- [x] sidechain session：子 agent transcript 独立记录,父 agent 只接收 summary
+- [x] 自定义 agent definitions：用户级与项目级 `.vera/agents/*.md`
+- [x] 工具策略：内置 `general-purpose` / `explore` / `plan`,支持 readonly 与 allow/disallow tools
+- [x] try worktree isolation：`isolation: "try"` 创建独立 worktree,工具调用在 worktree cwd 执行
+- [x] 采纳路径：try-isolated 子 agent 记录 branch metadata,可通过 `/merge <id-prefix>` 应用回原工作区
+- [ ] `AgentTask` / `AgentResult` 完整消息协议定义
 - [ ] `AgentOrchestrator` 基础实现
 - [ ] 并行扇出 (`parallelFanOut`)
 - [ ] 串行流水线 (`serialPipeline`)
