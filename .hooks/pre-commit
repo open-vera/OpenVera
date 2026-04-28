@@ -34,7 +34,13 @@ check() {
   done <<< "$STAGED"
 }
 
-# ── 公司 / 项目内部标识 ──────────────────────────────────────────────────────
+# ── 公司 / 项目内部标识（从本地 git config 读取，不硬编码在此文件中） ──────────
+# 配置方式（只写入 .git/config，不提交）：
+#   git config hooks.companyPatterns "pattern1|pattern2|..."
+COMPANY_PATTERNS=$(git config hooks.companyPatterns 2>/dev/null || true)
+if [[ -n "$COMPANY_PATTERNS" ]]; then
+  check "COMPANY-ID" "$COMPANY_PATTERNS"
+fi
 
 # ── 通用凭证关键字（赋值形式） ───────────────────────────────────────────────
 check "CREDENTIALS"  "(password|passwd|secret|private_key|api_key|access_key)\s*[=:]\s*['\"][^'\"]{6,}"
