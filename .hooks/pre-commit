@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Pre-commit secret / sensitive-info scanner
+# Blocks commits that contain credentials, company-internal identifiers,
+# or common secret patterns.
+set -euo pipefail
+
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null)
+[[ -z "$STAGED" ]] && exit 0
+
+VIOLATIONS=()
+
+check() {
+  local label="$1"
+  local pattern="$2"
+  while IFS= read -r file; do
+    # skip binary files
+    if git show ":$file" 2>/dev/null | file - | grep -q "binary"; then
+      continue
+    fi
+    local hits
+    hits=$(git show ":$file" 2>/dev/null \
+      | grep -inE "$pattern" \
+      | head -3 \
+      | sed "s/^/    /")
+    if [[ -n "$hits" ]]; then
+      VIOLATIONS+=("[$label] $file")
+      VIOLATIONS+=("$hits")
+    fi
+  done <<< "$STAGED"
+}
+
+# ── 公司 / 项目内部标识 ──────────────────────────────────────────────────────
+
+# ── 通用凭证关键字（赋值形式） ───────────────────────────────────────────────
+check "CREDENTIALS"  "(password|passwd|secret|private_key|api_key|access_key)\s*[=:]\s*['\"][^'\"]{6,}"
+check "TOKEN"        "(token|access_token|refresh_token|auth_token|bearer)\s*[=:]\s*['\"][^'\"]{10,}"
+
+# ── 已知格式的 API Key ──────────────────────────────────────────────────────
+check "OPENAI-KEY"      "sk-[a-zA-Z0-9]{20,}"
+check "ANTHROPIC-KEY"   "sk-ant-[a-zA-Z0-9\-]{20,}"
+check "ANTHROPIC-ADMIN" "sk-ant-admin[a-zA-Z0-9\-]{10,}"
+check "AWS-KEY"         "AKIA[0-9A-Z]{16}"
+check "AWS-SECRET"      "aws_secret_access_key\s*[=:]\s*[A-Za-z0-9/+=]{20,}"
+check "GCP-KEY"         "AIza[0-9A-Za-z\\-_]{35}"
+check "GITHUB-TOKEN"    "gh[pousr]_[A-Za-z0-9]{36,}"
+check "GEMINI-KEY"      "AIzaSy[a-zA-Z0-9_\-]{30,}"
+check "QWEN-KEY"        "sk-[a-zA-Z0-9]{32,}"   # DashScope / Qwen 格式与 OpenAI 相同
+
+# ── 私钥 PEM 块 ─────────────────────────────────────────────────────────────
+check "PRIVATE-KEY-PEM" "BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY"
+
+# ── .env 类文件中的实际赋值（非占位符） ─────────────────────────────────────
+# 允许 <placeholder>、your_xxx、example、changeme 等占位符
+if echo "$STAGED" | grep -qE "(\.env|settings\.json|config\.json)$"; then
+  while IFS= read -r file; do
+    case "$file" in *.env|*settings.json|*config.json) ;; *) continue ;; esac
+    local_hits=$(git show ":$file" 2>/dev/null \
+      | grep -inE "[A-Z_]+=.{8,}" \
+      | grep -ivE "(placeholder|your_|example|changeme|xxx|<|>|\*)" \
+      | head -3 \
+      | sed "s/^/    /")
+    if [[ -n "$local_hits" ]]; then
+      VIOLATIONS+=("[ENV-VALUE] $file")
+      VIOLATIONS+=("$local_hits")
+    fi
+  done <<< "$STAGED"
+fi
+
+# ── 报告 ────────────────────────────────────────────────────────────────────
+if [[ ${#VIOLATIONS[@]} -gt 0 ]]; then
+  echo ""
+  echo -e "${RED}✖  Commit blocked — potential secrets detected:${NC}"
+  echo ""
+  for line in "${VIOLATIONS[@]}"; do
+    echo -e "  ${YELLOW}${line}${NC}"
+  done
+  echo ""
+  echo "  If this is a false positive, use:  git commit --no-verify"
+  echo "  But first make sure no real credentials are included."
+  echo ""
+  exit 1
+fi
+
+exit 0
