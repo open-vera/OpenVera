@@ -30,7 +30,7 @@
     "build:watch": "tsc --watch --preserveWatchOutput",
     "dev": "tsx src/index.ts",
     "dev:watch": "tsx watch --clear-screen=false src/index.ts",
-    "deploy": "pnpm build && npm publish",
+    "release": "pnpm build && npm publish",
     "test": "vitest run",
     "test:smoke": "vitest run tests/p0-alignment-smoke.test.ts",
     "test:coverage": "vitest run --coverage",

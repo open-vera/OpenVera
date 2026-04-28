@@ -17,7 +17,7 @@
     "dev": "VERA_CONFIG_DIR=../../.vera tsx src/cli/index.ts repl --dir ../..",
     "build": "tsc",
     "postbuild": "chmod +x dist/cli/index.js",
-    "deploy": "pnpm build && npm publish",
+    "release": "pnpm build && npm publish",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
