@@ -43,17 +43,24 @@
 - [x] `agent` tool 参数对齐、内置类型、自定义 definitions、project override、`isolation: "try"`
   - 代码：`packages/core/src/agent/subagent.ts`
   - 测试：`packages/core/tests/agent-context.test.ts`
-- [ ] 后台子 agent（background subagent）
-- [ ] resume subagent
-- [ ] remote isolation
+- [x] 后台子 agent（`run_mode: "background"` + `/subjobs`）
+  - 代码：`packages/core/src/agent/subagent.ts`、`packages/core/src/repl/commands/subjobs.ts`
+  - 测试：`packages/core/tests/agent-context.test.ts`
+- [x] resume subagent（`resume_session_id` / `resumeSessionId`）
+  - 代码：`packages/core/src/agent/subagent.ts`
+  - 测试：`packages/core/tests/agent-context.test.ts`
+- [x] remote isolation（`isolation: "remote"`，支持 external runner + local fallback）
+  - 代码：`packages/core/src/agent/subagent.ts`
+  - 测试：`packages/core/tests/agent-context.test.ts`
 
 ## 5. Session UX（Claude Code 对齐）
 
 - [x] session 列表/分页/过滤、title metadata、SessionPicker、branch/try/merge 生命周期
   - 代码：`packages/core/src/session/store.ts`、`packages/core/src/repl/commands/*.ts`、`packages/core/src/repl/ui/SessionPicker.tsx`
   - 测试：`packages/core/tests/session.test.ts`、`packages/core/tests/session-picker.test.ts`、`packages/core/tests/merge-command.test.ts`、`packages/core/tests/worktree.test.ts`
-- [ ] 子 agent remote isolation
-- [ ] 多分支结果比较 UI
+- [x] 子 agent remote isolation
+- [x] 多分支结果比较 UI（SessionPicker 分支比较面板，`b` 键开关）
+  - 代码：`packages/core/src/repl/ui/SessionPicker.tsx`
 
 ## 6. 可靠性与测试
 
@@ -67,7 +74,6 @@
 
 ## 汇总
 
-- 已完成：16
+- 已完成：21
 - 部分完成：1
-- 未完成：5
-
+- 未完成：0

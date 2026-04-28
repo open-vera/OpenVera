@@ -315,7 +315,13 @@ P1 的目标是让 Vera 从受控执行器，升级为能自己推进复杂 Flow
   - ✅ 已实现：`agent` tool 支持 `isolation: "try"`，子 agent 在独立 git worktree 中执行工具调用
   - ✅ 已实现：try-isolated 子 agent sidechain session 记录 `worktreePath` / `worktreeBranch` / `baseCommit`，可通过 `/merge <id-prefix>` 采纳
   - 说明：`/sub` 只查看子 agent 的 sidechain 记录；`/try` 会创建隔离 git worktree 并切换 REPL 到该工作区，`agent isolation: "try"` 则让子 agent 在隔离工作区内实验
-  - ⏳ 待实现：后台子 agent、resume subagent、remote isolation
+  - ✅ 已实现：后台子 agent（`run_mode: "background"` + `/subjobs` 状态查询）
+  - ✅ 已实现：resume subagent（`resume_session_id` / `resumeSessionId`）
+  - ✅ 已实现：remote isolation（`isolation: "remote"`，支持 `remoteExecutor` 注入、external runner 和 local fallback）
+  - 远程 runner 配置：
+    - `VERA_SUBAGENT_REMOTE_RUNNER`：执行程序
+    - `VERA_SUBAGENT_REMOTE_RUNNER_ARGS`：JSON 数组参数（可选）
+    - stdin 输入任务 JSON，stdout 输出 result JSON（`content`、可选 `transcriptId`/`toolCalls`/`location`）
 - Session UX（Claude Code 对齐）：
   - ✅ 已实现：session 列表按项目/worktree 扫描，支持 `--all`、`--limit`、`--offset`
   - ✅ 已实现：轻量 head/tail metadata 读取，过滤 metadata-only session
@@ -334,7 +340,8 @@ P1 的目标是让 Vera 从受控执行器，升级为能自己推进复杂 Flow
   - ✅ 已实现：搜索触发 debounce + 分批可取消的分页扫描，支持文本高亮和 `branch:` / `tag:` / `cost>` / `cost<` / `after:` / `before:` 过滤
   - ✅ 已实现：字段级 JSONL extractor、session_end 数字字段 fallback、canonical path/worktree fallback，提高大文件、截断行和 symlink 兼容性
   - ✅ 已实现：子 agent worktree isolation 与 `/merge` branch 生命周期打通
-  - ⏳ 待实现：子 agent remote isolation、多分支结果比较 UI
+  - ✅ 已实现：子 agent remote isolation（结果输出包含 `Isolation: remote:<location>`）
+  - ✅ 已实现：多分支结果比较 UI（SessionPicker 分支比较面板，`b` 键开关）
 - 可靠性：🟡 部分完成（session 隔离测试已覆盖；权限/上下文/UI/子 agent 组合 smoke 尚未形成统一套件入口）
 - CLI 色彩主题：
   - ✅ 已实现：`repl/ui/theme.ts` — 统一语义 token（brand / success / error / warning / suggestion / diff 系列）

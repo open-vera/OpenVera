@@ -40,9 +40,23 @@
 - 覆盖 nested project context 与规则优先级
 - 增加 REPL smoke 级测试入口，验证工具循环不会静默停在空 assistant
 
+### 5. 子 agent 远程隔离（Remote Isolation）
+
+目标：让 `agent` tool 在 `isolation: "remote"` 下可接外部执行后端，并保留本地 fallback。
+
+- 执行模式：`remoteExecutor` 注入 > external runner > local-default fallback
+- external runner 环境变量：
+  - `VERA_SUBAGENT_REMOTE_RUNNER`：可执行程序路径
+  - `VERA_SUBAGENT_REMOTE_RUNNER_ARGS`：JSON 数组参数（可选）
+- runner 协议：
+  - stdin：JSON payload（task/prompt/model/toolNames 等）
+  - stdout：JSON result（`content`、可选 `transcriptId` / `toolCalls` / `location`）
+- UI/输出：最终结果含 `Isolation: remote:<location>`，用于排障
+
 ## 当前实现状态
 
 - 子 agent：已有 `general` / `explore` / `plan` 内置定义，支持工具策略、sidechain session 和 summary 回传。
+- 子 agent：已支持 `run_mode: background`、`resume_session_id`、`isolation: remote`（含 external runner + fallback）。
 - 主 loop：默认不设 `maxTurns`，仅调用方显式设置时限制。
 - 工具展示：基础 compact 已完成，仍需 grouped collapsed summary。
 - session 测试：已改为临时 cwd，避免固定 `/test/project` 污染。
