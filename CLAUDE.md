@@ -47,3 +47,14 @@ Vera = Harness 为内核的 agent runtime。两层结构：
 - 入口：`docs/README.md`
 - 路线图：`docs/roadmap.md`
 - 当前 P0 进度：全部完成 ✅（intent routing / tool runtime / rendering / session / infinite context / plan mode / critique / flow control）
+
+## Skills 维护规则
+
+项目 skills 位于 `.claude/skills/`，索引文档为 `.claude/skills/README.md`。
+
+**每次新增或修改 skill 后，必须同步更新 `.claude/skills/README.md`**，包括：
+- 新增：在对应分类下追加条目（名称、描述、数据源、输出路径、用法示例）
+- 修改：更新受影响的描述或参数说明
+- 删除：移除对应条目并标注废弃原因（若有替代品）
+
+当前 skills：`agent-changes-report` · `claude-session-review` · `cursor-session-review` · `quality-scan`
