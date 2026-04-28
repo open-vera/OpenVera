@@ -511,6 +511,63 @@ describe("streamAgent context updates", () => {
     expect(result.content).toContain("Isolation: remote:local-default");
   });
 
+  it("prefers configured external remote runner when environment is set", async () => {
+    const runnerDir = mkdtempSync(join(tmpdir(), "vera-remote-runner-"));
+    const runnerScript = join(runnerDir, "remote-runner.js");
+    writeFileSync(
+      runnerScript,
+      [
+        "process.stdin.setEncoding('utf8');",
+        "let data='';",
+        "process.stdin.on('data', (c) => data += c);",
+        "process.stdin.on('end', () => {",
+        "  const input = JSON.parse(data || '{}');",
+        "  process.stdout.write(JSON.stringify({",
+        "    content: `external:${input.task || ''}`.trim(),",
+        "    transcriptId: 'ext-session-1',",
+        "    toolCalls: ['grep'],",
+        "    location: 'external-runner-test'",
+        "  }));",
+        "});",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const prevRunner = process.env.VERA_SUBAGENT_REMOTE_RUNNER;
+    const prevRunnerArgs = process.env.VERA_SUBAGENT_REMOTE_RUNNER_ARGS;
+    process.env.VERA_SUBAGENT_REMOTE_RUNNER = process.execPath;
+    process.env.VERA_SUBAGENT_REMOTE_RUNNER_ARGS = JSON.stringify([runnerScript]);
+    try {
+      const adapter: LLMAdapter = {
+        complete: vi.fn(),
+        stream: () => events([
+          { type: "text", text: "unused local fallback" },
+          { type: "done", stop_reason: "end_turn" },
+        ]),
+      };
+
+      const result = await runSubagentTool({
+        args: { prompt: "通过外部 runner", isolation: "remote" },
+        adapter,
+        model: "claude-sonnet-4-6",
+        tools: [],
+        onToolCall: () => "unused",
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.content).toContain("external:通过外部 runner");
+      expect(result.content).toContain("Isolation: remote:external-runner-test");
+      expect(result.content).toContain("Transcript: ext-session-1");
+      expect(result.content).toContain("Tools used: grep");
+    } finally {
+      if (prevRunner === undefined) delete process.env.VERA_SUBAGENT_REMOTE_RUNNER;
+      else process.env.VERA_SUBAGENT_REMOTE_RUNNER = prevRunner;
+      if (prevRunnerArgs === undefined) delete process.env.VERA_SUBAGENT_REMOTE_RUNNER_ARGS;
+      else process.env.VERA_SUBAGENT_REMOTE_RUNNER_ARGS = prevRunnerArgs;
+      rmSync(runnerDir, { recursive: true, force: true });
+    }
+  });
+
   it("resumes a previous subagent transcript when resume_session_id is provided", async () => {
     const tempHome = mkdtempSync(join(tmpdir(), "vera-subagent-resume-home-"));
     const repo = mkdtempSync(join(tmpdir(), "vera-subagent-resume-repo-"));
