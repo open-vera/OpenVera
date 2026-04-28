@@ -4,9 +4,13 @@ import { resolve } from "node:path";
 import type { ToolLifecycleHook, ToolResult, ToolContext } from "./types.js";
 import { errorResult } from "./types.js";
 import { isInsideCwd } from "./utils/path.js";
+import { matchesPattern } from "./permission-rules.js";
 
 export interface SecurityConfig {
   allowedTools?: string[];          // 白名单，空表示全部允许
+  deniedTools?: string[];           // 黑名单，优先级高于白名单
+  allowedBashCommands?: string[];   // glob-like bash allow rules
+  deniedBashCommands?: string[];    // glob-like bash deny rules
   workdir?: string;                 // 限制文件操作路径
   allowedDomains?: string[];        // web 工具域名白名单
   readonlyMode?: boolean;           // 禁止所有写操作
@@ -21,7 +25,7 @@ const WRITE_TOOLS = new Set([
 
 // Tools that take a file path argument
 const FILE_PATH_TOOLS = new Set([
-  "read_file", "write_file", "edit_file",
+  "read_file", "write_file", "edit_file", "list_dir",
 ]);
 
 // Tools that take a URL/domain argument
@@ -35,6 +39,15 @@ const INJECTION_PATTERNS = [
   /new system prompt/i,
   /\bSYSTEM:\s/,
   /\bINSTRUCTION:\s/,
+];
+
+const DANGEROUS_BASH_PATTERNS = [
+  /\brm\s+(-[^\s]*[rf][^\s]*|-[^\s]*[fr][^\s]*)\b/,
+  /\bsudo\b/,
+  /\bchmod\s+(-R\s+)?777\b/,
+  /\bmkfs\b/,
+  /\bdd\s+.*\bof=/,
+  /\bgit\s+(reset\s+--hard|clean\s+-[^\s]*f|push\s+--force)/,
 ];
 
 export class SecurityPlugin implements ToolLifecycleHook {
@@ -59,6 +72,11 @@ export class SecurityPlugin implements ToolLifecycleHook {
     args: Record<string, unknown>,
     ctx: ToolContext
   ): Promise<ToolResult | null> {
+    // 0. Explicit deny list wins over allow list.
+    if (this.config.deniedTools?.includes(name)) {
+      return errorResult("PERMISSION_DENIED", `Tool "${name}" is denied by permission rules.`);
+    }
+
     // 1. Tool whitelist
     if (
       this.config.allowedTools &&
@@ -66,6 +84,29 @@ export class SecurityPlugin implements ToolLifecycleHook {
       !this.config.allowedTools.includes(name)
     ) {
       return errorResult("PERMISSION_DENIED", `Tool "${name}" is not in the allowed tools list.`);
+    }
+
+    if (name === "bash") {
+      const command = args.command;
+      if (typeof command === "string") {
+        if (matchesPattern(command, this.config.deniedBashCommands)) {
+          return errorResult("PERMISSION_DENIED", `Bash command is denied by permission rules: ${command}`);
+        }
+        const explicitlyAllowed = matchesPattern(command, this.config.allowedBashCommands);
+        const confirmed = args.__confirmedRisk === true;
+        if (!explicitlyAllowed && !confirmed && DANGEROUS_BASH_PATTERNS.some((pattern) => pattern.test(command))) {
+          return {
+            ok: false,
+            content: `Bash command requires confirmation:\n${command}`,
+            error: { code: "PERMISSION_DENIED", message: "Bash command requires confirmation.", retryable: true },
+            needsConfirm: {
+              message: `Agent wants to run a potentially dangerous bash command:\n  ${command}\n\nAllow this command once?`,
+              allowDir: ctx.cwd,
+              retry: { name, args: { ...args, __confirmedRisk: true } },
+            },
+          };
+        }
+      }
     }
 
     // 2. Readonly mode
@@ -87,6 +128,7 @@ export class SecurityPlugin implements ToolLifecycleHook {
 
     // 4. Path boundary check
     const workdir = this.config.workdir ?? ctx.cwd;
+    ctx.allowedPaths = [...new Set([workdir, ...(ctx.allowedPaths ?? []), ...this.allowedPaths])];
     if (FILE_PATH_TOOLS.has(name)) {
       const pathArg = args.path ?? args.file_path ?? args.filepath;
       if (typeof pathArg === "string") {

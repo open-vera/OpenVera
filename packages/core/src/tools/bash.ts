@@ -8,6 +8,7 @@ import { truncateChars } from "./utils/truncate.js";
 interface BashArgs {
   command: string;
   timeout?: number;  // ms, defaults to 30000
+  __confirmedRisk?: boolean;
 }
 
 export const bashTool: ToolDef<BashArgs> = {

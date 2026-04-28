@@ -20,6 +20,14 @@ export interface RoutingConfig {
   l3?: RoutingTarget;
 }
 
+export interface SessionConfig {
+  ai_title?: {
+    enabled?: boolean;
+    provider?: string;
+    model?: string;
+  };
+}
+
 export interface MCPServerConfig {
   command: string;
   args?: string[];
@@ -31,5 +39,6 @@ export interface VeraConfig {
   default_provider?: string;
   default_model?: string;
   routing?: RoutingConfig;
+  session?: SessionConfig;
   mcp_servers?: Record<string, MCPServerConfig>;
 }

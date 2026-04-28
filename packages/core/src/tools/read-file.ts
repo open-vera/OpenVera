@@ -32,11 +32,28 @@ export const readFileTool: ToolDef<ReadFileArgs> = {
   options: { timeoutMs: 10_000, riskLevel: "low", idempotent: true },
 
   async execute(args: ReadFileArgs, ctx: ToolContext): Promise<ToolResult> {
-    const check = safePath(args.path, ctx.cwd);
+    const check = safePath(args.path, ctx.cwd, ctx.allowedPaths);
     if ("error" in check) {
       return errorResult("PATH_OUTSIDE_CWD", check.error);
     }
     const { resolved } = check;
+
+    let stat;
+    try {
+      stat = statSync(resolved);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("ENOENT")) return errorResult("NOT_FOUND", `File not found: ${args.path}`);
+      if (msg.includes("EACCES")) return errorResult("PERMISSION_DENIED", `Permission denied: ${args.path}`);
+      return errorResult("UNKNOWN", msg);
+    }
+
+    if (stat.isDirectory()) {
+      return errorResult(
+        "UNKNOWN",
+        `${args.path} is a directory. Use list_dir to inspect directory contents.`
+      );
+    }
 
     // Binary check
     if (isBinaryPath(resolved)) {

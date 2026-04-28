@@ -1,10 +1,12 @@
 // Tool Runtime 入口 — 构建完整注册表
 
+import { execFileSync } from "node:child_process";
 import { ToolRegistry } from "./registry.js";
 import { SecurityPlugin } from "./security.js";
 import type { SecurityConfig } from "./security.js";
 import { AnalyticsPlugin } from "./analytics.js";
 import type { SessionStore } from "../session/index.js";
+import { loadPermissionRules } from "./permission-rules.js";
 
 import { readFileTool } from "./read-file.js";
 import { writeFileTool } from "./write-file.js";
@@ -32,6 +34,19 @@ export interface ToolRegistryBundle {
   security: SecurityPlugin;
 }
 
+function detectWorkspaceRoot(cwd: string): string {
+  try {
+    const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return root || cwd;
+  } catch {
+    return cwd;
+  }
+}
+
 export function createToolRegistry(opts: CreateToolRegistryOptions): ToolRegistryBundle {
   const registry = new ToolRegistry();
 
@@ -45,7 +60,12 @@ export function createToolRegistry(opts: CreateToolRegistryOptions): ToolRegistr
   registry.register(grepTool);
 
   // Register SecurityPlugin (runs first — short-circuits on denial)
-  const security = new SecurityPlugin({ workdir: opts.cwd, ...opts.security });
+  const permissionRules = loadPermissionRules(opts.cwd);
+  const security = new SecurityPlugin({
+    ...permissionRules,
+    ...opts.security,
+    workdir: opts.security?.workdir ?? detectWorkspaceRoot(opts.cwd),
+  });
   registry.use(security);
 
   // Register AnalyticsPlugin (session JSONL writing)

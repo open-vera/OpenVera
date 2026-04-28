@@ -72,4 +72,5 @@ export interface RenderedPrompt {
   templateId: string;
   templateVersion: number;
   profileId: string;
+  maxTurns?: number;
 }

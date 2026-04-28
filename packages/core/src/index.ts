@@ -11,7 +11,15 @@ import { SessionStore } from "./session/index.js";
 import { createToolRegistry } from "./tools/index.js";
 import { PromptStore, loadTemplates } from "./prompt/index.js";
 import { getModelContextLimit } from "./context/index.js";
+import { loadNestedProjectContext, loadProjectContext } from "./project-context/index.js";
+import {
+  SUBAGENT_TOOL_NAME,
+  buildSubagentToolSchema,
+  loadAgentDefinitions,
+  runSubagentTool,
+} from "./agent/subagent.js";
 export { MemoryTracker } from "./memory/index.js";
+export * from "./project-context/index.js";
 export type {
   MemoryFile,
   MemoryType,
@@ -125,8 +133,15 @@ if (process.argv[2]) {
   const cwd = process.cwd();
   const sessionStore = new SessionStore({ cwd });
   const { registry } = createToolRegistry({ cwd, sessionStore });
+  const agentDefinitions = loadAgentDefinitions({ cwd });
+  const tools = [...registry.getSchemas(), buildSubagentToolSchema(agentDefinitions)];
   const resolved = promptStore.resolve({ domain: "chat", level: 0, needs_tools: true });
-  const system = resolved?.system ?? "You are Vera, a helpful assistant.";
+  const projectContext = loadProjectContext({ cwd });
+  const loadedVeraContextPaths = new Set(projectContext.files.map((file) => file.path));
+  const system = [resolved?.system ?? "You are Vera, a helpful assistant.", projectContext.system]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join("\n\n");
   const runDir = dirname(sessionStore.filePath);
   const modelContextLimit = getModelContextLimit(model);
   const answer = await streamAgent(
@@ -134,7 +149,7 @@ if (process.argv[2]) {
     {
       adapter,
       model,
-      tools: registry.getSchemas(),
+      tools,
       system,
       runDir,
       compressionOptions: {
@@ -148,9 +163,46 @@ if (process.argv[2]) {
         gapThresholdMinutes: 60,
         keepRecent: 5,
       },
-      onToolCall: (name, args) =>
-        registry.execute(name, args as Record<string, unknown>, { cwd, sessionId: sessionStore.sessionId })
-          .then((r) => r.content),
+      onToolCall: async (name, args) => {
+        const parsedArgs = args as Record<string, unknown>;
+        if (name === SUBAGENT_TOOL_NAME) {
+          const result = await runSubagentTool({
+            args: parsedArgs,
+            adapter,
+            model,
+            tools,
+            system,
+            runDir,
+            cwd,
+            parentSessionId: sessionStore.sessionId,
+            onToolCall: async (childName, childArgs) => {
+              const childResult = await registry.execute(childName, childArgs, {
+                cwd,
+                sessionId: sessionStore.sessionId,
+              });
+              return childResult.content;
+            },
+            definitions: agentDefinitions,
+          });
+          return result.content;
+        }
+        const result = await registry.execute(name, parsedArgs, { cwd, sessionId: sessionStore.sessionId });
+        if (result.ok && name === "read_file" && typeof parsedArgs.path === "string") {
+          const nested = loadNestedProjectContext({
+            cwd,
+            targetPath: parsedArgs.path,
+            loadedPaths: loadedVeraContextPaths,
+          });
+          if (nested.system) {
+            for (const file of nested.files) loadedVeraContextPaths.add(file.path);
+            return [
+              result.content,
+              `<nested-vera-context>\n${nested.system}\n</nested-vera-context>`,
+            ].join("\n\n");
+          }
+        }
+        return result.content;
+      },
     },
     (delta) => process.stdout.write(delta)
   );
@@ -164,6 +216,17 @@ if (process.argv[2]) {
 
   const cwd = process.cwd();
   const sessionStore = new SessionStore({ cwd });
-  const { registry } = createToolRegistry({ cwd, sessionStore });
-  await startRepl({ config, adapter, model, tools: registry.getSchemas(), buildAdapter, sessionStore, registry, promptStore }, resumeSessionId);
+  const { registry } = createToolRegistry({ cwd });
+  await startRepl({
+    cwd,
+    config,
+    adapter,
+    model,
+    tools: registry.getSchemas(),
+    buildAdapter,
+    sessionStore,
+    registry,
+    promptStore,
+    createToolRegistry,
+  }, resumeSessionId);
 }

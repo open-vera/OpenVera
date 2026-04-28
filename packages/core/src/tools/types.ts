@@ -65,6 +65,8 @@ export interface ToolResult {
 export interface ToolContext {
   cwd: string;
   sessionId: string;
+  /** Directories explicitly approved by the user for this session. */
+  allowedPaths?: string[];
   env?: Record<string, string>;
   signal?: AbortSignal;
   dryRun?: boolean;

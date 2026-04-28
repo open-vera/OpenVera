@@ -31,7 +31,7 @@ export const editFileTool: ToolDef<EditFileArgs> = {
   options: { timeoutMs: 10_000, riskLevel: "medium" },
 
   async execute(args: EditFileArgs, ctx: ToolContext): Promise<ToolResult> {
-    const check = safePath(args.path, ctx.cwd);
+    const check = safePath(args.path, ctx.cwd, ctx.allowedPaths);
     if ("error" in check) return errorResult("PATH_OUTSIDE_CWD", check.error);
     const { resolved } = check;
 

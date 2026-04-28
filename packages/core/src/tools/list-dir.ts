@@ -25,7 +25,7 @@ export const listDirTool: ToolDef<ListDirArgs> = {
 
   async execute(args: ListDirArgs, ctx: ToolContext): Promise<ToolResult> {
     const target = args.path ?? ".";
-    const check = safePath(target, ctx.cwd);
+    const check = safePath(target, ctx.cwd, ctx.allowedPaths);
     if ("error" in check) return errorResult("PATH_OUTSIDE_CWD", check.error);
     const { resolved } = check;
 

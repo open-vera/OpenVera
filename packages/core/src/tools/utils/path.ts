@@ -17,12 +17,15 @@ export function isInsideCwd(target: string, baseDir: string): boolean {
  */
 export function safePath(
   target: string,
-  cwd: string
+  cwd: string,
+  allowedPaths: string[] = []
 ): { resolved: string } | { error: string } {
   const resolved = resolve(cwd, target);
   const base = normalize(cwd).replace(/\/?$/, "/");
   const normalResolved = normalize(resolved);
-  if (normalResolved !== normalize(cwd) && !(normalResolved + "/").startsWith(base)) {
+  const inCwd = normalResolved === normalize(cwd) || (normalResolved + "/").startsWith(base);
+  const inAllowedPath = allowedPaths.some((allowedPath) => isInsideCwd(normalResolved, allowedPath));
+  if (!inCwd && !inAllowedPath) {
     return {
       error: `Path is outside allowed workdir.\n  Allowed: ${cwd}\n  Got:     ${resolved}`,
     };

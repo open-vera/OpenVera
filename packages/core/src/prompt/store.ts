@@ -169,6 +169,7 @@ export class PromptStore {
       templateId: template.id,
       templateVersion: template.version,
       profileId: profile.id,
+      ...(profile.maxTurns !== undefined ? { maxTurns: profile.maxTurns } : {}),
     };
   }
 
