@@ -1,0 +1,30 @@
+node_modules
+dist
+build
+coverage
+.next
+.turbo
+*.min.js
+pnpm-lock.yaml
+package-lock.json
+packages/claude-code-source
+
+# 虚拟环境与 Python
+**/.venv/**
+**/site-packages/**
+
+# 文档（体积大、非代码主路径）
+**/*.md
+docs/
+
+# 生成数据 / 大 JSON
+packages/learn-claude-code/web/src/data/generated/**
+
+# i18n 文案 JSON 保持仓库原有排版
+packages/learn-claude-code/web/src/i18n/messages/*.json
+
+# 子项目依赖目录（若存在）
+**/node_modules/**
+
+# Rust / Tauri 构建产物
+**/target/**

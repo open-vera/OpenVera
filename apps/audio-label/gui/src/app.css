@@ -1,0 +1,22 @@
+/* Pico CSS light theme overrides for VeraLabel */
+:root {
+  --pico-font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --pico-font-size: 14px;
+  --pico-border-radius: 8px;
+  color-scheme: light;
+}
+
+html {
+  height: 100%;
+}
+
+body {
+  min-height: 100%;
+  margin: 0;
+  background: #f2f3f5;
+}
+
+#app {
+  min-height: 100vh;
+}

@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+gui/node_modules/
+gui/dist/
+gui/src-tauri/target/
+gui/src-tauri/binaries/audio-label-*
+logs/
+.app_state.json

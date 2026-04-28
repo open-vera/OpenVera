@@ -1,0 +1,861 @@
+import { useApp, useStdout, Box, Text } from "ink";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { dirname } from "node:path";
+import { streamAgent } from "../../agent/loop.js";
+import { resolveModel, shouldPlan } from "../../intent/classifier.js";
+import { defaultPlanExecutor } from "../../plan/index.js";
+import type { PlanEvent, PlanStepUI } from "../../plan/index.js";
+import { handleCommand } from "../commands/index.js";
+import { accumulateCost, emptyAccumulatedCost, SessionStore } from "../../session/index.js";
+import type { AccumulatedCost } from "../../session/index.js";
+import type { ReplContext } from "../context.js";
+import type { Usage, Message } from "../../types/index.js";
+import type { ToolResult } from "../../tools/types.js";
+import { ConversationPanel } from "./ConversationPanel.js";
+import { DiffDialog } from "./DiffDialog.js";
+import { InputBar } from "./InputBar.js";
+import { SessionPicker } from "./SessionPicker.js";
+import { StatusBar } from "./StatusBar.js";
+import { WelcomeScreen } from "./WelcomeScreen.js";
+import type { ChatMessage, RoutingInfo, StreamStatus, TokenUsage, ToolUse } from "./types.js";
+
+function formatError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes("apiKey") || msg.includes("authToken") || msg.includes("authentication") || msg.includes("API key")) {
+    return [
+      "No API key configured.",
+      "  → Set it in .vera/settings.json:  providers.<name>.api_key",
+      "  → Or via env var:                 ANTHROPIC_API_KEY=sk-...",
+    ].join("\n");
+  }
+  if (msg.includes("rate_limit") || msg.includes("429")) {
+    return "Rate limited — wait a moment and try again.";
+  }
+  if (msg.includes("ECONNREFUSED") || msg.includes("ENOTFOUND") || msg.includes("fetch")) {
+    return "Network error — check your connection or base_url in .vera/settings.json.";
+  }
+  return `Error: ${msg}`;
+}
+
+async function captureCommand(cmd: string, args: string[], ctx: ReplContext): Promise<string> {
+  const lines: string[] = [];
+  const origLog = console.log;
+  const origErr = console.error;
+  console.log = (...a: unknown[]) => lines.push(a.map(String).join(" "));
+  console.error = (...a: unknown[]) => lines.push(a.map(String).join(" "));
+  try {
+    await handleCommand(cmd, args, ctx);
+  } finally {
+    console.log = origLog;
+    console.error = origErr;
+  }
+  return lines.join("\n") || `Unknown command: /${cmd}`;
+}
+
+interface AppProps {
+  ctx: ReplContext;
+  resumeSessionId?: string;
+}
+
+export function App({ ctx, resumeSessionId }: AppProps) {
+  const { exit } = useApp();
+  const { stdout } = useStdout();
+
+  const [dimensions, setDimensions] = useState({
+    columns: stdout.columns ?? 80,
+    rows: stdout.rows ?? 24,
+  });
+
+  useEffect(() => {
+    const onResize = () =>
+      setDimensions({ columns: stdout.columns ?? 80, rows: stdout.rows ?? 24 });
+    stdout.on("resize", onResize);
+    return () => { stdout.off("resize", onResize); };
+  }, [stdout]);
+
+  const ctxRef = useRef<ReplContext>(ctx);
+  const streamingBufferRef = useRef("");
+  const rafRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const historyRef = useRef<Message[]>([]);
+  const inputHistoryRef = useRef<string[]>([]);
+  const costRef = useRef<AccumulatedCost>(emptyAccumulatedCost());
+  const turnCountRef = useRef(0);
+  const pendingQueueRef = useRef<string[]>([]);
+  const [pendingQueue, setPendingQueue] = useState<string[]>([]);
+  // Plan mode refs
+  const planStepTextRef = useRef("");
+  const planRafRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const planStepsRef = useRef<PlanStepUI[]>([]);
+
+  const syncQueue = useCallback(() => setPendingQueue([...pendingQueueRef.current]), []);
+
+  const [inputValue, setInputValue] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [streamStatus, setStreamStatus] = useState<StreamStatus>("idle");
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const isFollowingRef = useRef(true);
+  const [diffOpen, setDiffOpen] = useState(false);
+  const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
+  // Pending path-confirm request — blocks agent until user responds y/n
+  const [pathConfirm, setPathConfirm] = useState<{
+    message: string;
+    allowDir: string;
+    resolve: (approved: boolean) => void;
+  } | null>(null);
+  const [usage, setUsage] = useState<TokenUsage>({
+    inputTotal: 0,
+    outputTotal: 0,
+    cacheWriteTotal: 0,
+    cacheReadTotal: 0,
+    costUsd: 0,
+  });
+  const [currentOutputTokens, setCurrentOutputTokens] = useState(0);
+  const [routing, setRouting] = useState<RoutingInfo>({
+    provider: ctx.config.default_provider ?? "anthropic",
+    model: ctx.model,
+    intent: null,
+  });
+
+  // ── Session init ────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    // Expose onResume for /resume command
+    ctxRef.current.onResume = (loaded) => {
+      historyRef.current = loaded.history;
+      costRef.current = {
+        totalUsd: loaded.totalCostUsd,
+        byModel: {},
+        totalUsage: loaded.totalUsage,
+      };
+      turnCountRef.current = loaded.turnCount;
+      setUsage((prev) => ({
+        ...prev,
+        inputTotal: loaded.totalUsage.input_tokens,
+        outputTotal: loaded.totalUsage.output_tokens,
+        cacheWriteTotal: loaded.totalUsage.cache_creation_input_tokens ?? 0,
+        cacheReadTotal: loaded.totalUsage.cache_read_input_tokens ?? 0,
+        costUsd: loaded.totalCostUsd,
+      }));
+      // Write a new session_start to mark re-entry
+      ctx.sessionStore.writeStart(loaded.model, loaded.provider);
+    };
+
+    // Expose session picker for /resume command (no args)
+    ctxRef.current.onShowSessionPicker = () => setSessionPickerOpen(true);
+
+    // Resume from CLI flag
+    if (resumeSessionId) {
+      try {
+        const loaded = SessionStore.loadSession(resumeSessionId, process.cwd());
+        ctxRef.current.onResume!(loaded);
+        setMessages([{ role: "assistant", content: `Resumed session ${resumeSessionId.slice(0, 8)} — ${loaded.turnCount} turns.` }]);
+      } catch (err) {
+        setMessages([{ role: "assistant", content: `Failed to resume session: ${err instanceof Error ? err.message : String(err)}` }]);
+      }
+    } else {
+      ctx.sessionStore.writeStart(ctx.model, ctx.config.default_provider ?? "anthropic");
+    }
+
+    // Write session_end on process exit
+    const handleExit = () => {
+      ctx.sessionStore.writeEnd(costRef.current.totalUsage, costRef.current.totalUsd, turnCountRef.current);
+    };
+    process.on("exit", handleExit);
+    process.on("SIGINT", handleExit);
+    return () => {
+      process.off("exit", handleExit);
+      process.off("SIGINT", handleExit);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Streaming helpers ───────────────────────────────────────────────────────
+
+  const flushBuffer = useCallback(() => {
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (!last?.streaming) return prev;
+      return [...prev.slice(0, -1), { ...last, content: streamingBufferRef.current }];
+    });
+  }, []);
+
+  const onTextDelta = useCallback((delta: string) => {
+    streamingBufferRef.current += delta;
+    if (rafRef.current === null) {
+      rafRef.current = setTimeout(() => {
+        flushBuffer();
+        rafRef.current = null;
+      }, 16);
+    }
+  }, [flushBuffer]);
+
+  const onUsage = useCallback((u: Usage) => {
+    // Accumulate into session cost
+    const updated = accumulateCost(costRef.current, u, routing.model, routing.provider);
+    costRef.current = updated;
+
+    setUsage((prev) => ({
+      inputTotal: prev.inputTotal + (u.input_tokens ?? 0),
+      outputTotal: prev.outputTotal + (u.output_tokens ?? 0),
+      cacheWriteTotal: prev.cacheWriteTotal + (u.cache_creation_input_tokens ?? 0),
+      cacheReadTotal: prev.cacheReadTotal + (u.cache_read_input_tokens ?? 0),
+      costUsd: updated.totalUsd,
+    }));
+    setCurrentOutputTokens((prev) => prev + (u.output_tokens ?? 0));
+  }, [routing.model, routing.provider]);
+
+  const handleCancel = useCallback(() => {
+    if (streamStatus !== "idle") {
+      const pending = inputValue.trim();
+      if (pending) {
+        pendingQueueRef.current.unshift(pending);
+        syncQueue();
+        setInputValue("");
+      }
+      abortRef.current?.abort();
+    } else {
+      if (inputValue.length > 0) setInputValue("");
+    }
+  }, [inputValue, streamStatus]);
+
+  const SCROLL_STEP = Math.max(5, Math.floor((dimensions.rows - 4) / 2));
+
+  const handleScrollUp = useCallback(() => {
+    isFollowingRef.current = false;
+    setScrollOffset((prev) => prev + SCROLL_STEP);
+  }, [SCROLL_STEP]);
+
+  const handleScrollDown = useCallback(() => {
+    setScrollOffset((prev) => {
+      const next = Math.max(0, prev - SCROLL_STEP);
+      if (next === 0) isFollowingRef.current = true;
+      return next;
+    });
+  }, [SCROLL_STEP]);
+
+  const handleSubmit = useCallback(async (line: string) => {
+    if (streamStatus !== "idle") {
+      const trimmed = line.trim();
+      if (trimmed) {
+        pendingQueueRef.current.push(trimmed);
+        syncQueue();
+      }
+      return;
+    }
+
+    if (!line.startsWith("/")) {
+      setMessages((prev) => [...prev, { role: "user", content: line }]);
+      inputHistoryRef.current = [...inputHistoryRef.current, line];
+      // Reset scroll to bottom on new user message
+      isFollowingRef.current = true;
+      setScrollOffset(0);
+    }
+
+    // --- Commands ---
+    if (line.startsWith("/")) {
+      const [cmd, ...args] = line.slice(1).split(/\s+/);
+      if (cmd === "exit" || cmd === "quit") {
+        ctxRef.current.sessionStore.writeEnd(
+          costRef.current.totalUsage,
+          costRef.current.totalUsd,
+          turnCountRef.current
+        );
+        exit();
+        return;
+      }
+
+      if (cmd === "diff") {
+        setDiffOpen(true);
+        return;
+      }
+
+      setMessages((prev) => [...prev, { role: "user", content: line }]);
+      if (cmd === "status") {
+        setMessages((prev) => {
+          const r = routing;
+          const u = usage;
+          const byModel = Object.entries(costRef.current.byModel)
+            .map(([m, rec]) => `  ${m}: $${rec.costUsd.toFixed(4)}`)
+            .join("\n");
+          const parts = [
+            `Provider: ${r.provider}`,
+            `Model:    ${r.model}`,
+            `Tokens:   in ${u.inputTotal.toLocaleString()} / out ${u.outputTotal.toLocaleString()}`,
+            ...(u.cacheWriteTotal || u.cacheReadTotal
+              ? [`Cache:    write ${u.cacheWriteTotal.toLocaleString()} / read ${u.cacheReadTotal.toLocaleString()}`]
+              : []),
+            `Cost:     $${u.costUsd.toFixed(4)}`,
+            ...(byModel ? [`\nBy model:\n${byModel}`] : []),
+          ];
+          if (r.intent) {
+            parts.push(`Intent:   L${r.intent.level} · ${r.intent.domain} → ${r.provider}`);
+          }
+          return [...prev, { role: "assistant", content: parts.join("\n") }];
+        });
+        return;
+      }
+
+      const output = await captureCommand(cmd!, args, ctxRef.current);
+      setMessages((prev) => [...prev, { role: "assistant", content: output }]);
+      return;
+    }
+
+    // --- Write user entry to session ---
+    const userUuid = ctxRef.current.sessionStore.writeUser(line);
+
+    // --- Intent routing ---
+    let activeAdapter = ctxRef.current.adapter;
+    let activeModel = ctxRef.current.model;
+    let activeProvider = ctxRef.current.config.default_provider ?? "anthropic";
+    let routingFailed = false;
+    const routingCfg = ctxRef.current.config.routing;
+    if (routingCfg?.enabled) {
+      setStreamStatus("thinking");
+      const classifierTarget = routingCfg.classifier;
+      const classifierAdapter = classifierTarget
+        ? ctxRef.current.buildAdapter(classifierTarget.provider)
+        : activeAdapter;
+      const classifierModel = classifierTarget?.model ?? "claude-haiku-4-5";
+      try {
+        const { model: routed, provider: routedProvider, intent } = await resolveModel(
+          line, classifierAdapter, classifierModel, routingCfg,
+          ctxRef.current.config.default_provider ?? "anthropic",
+          ctxRef.current.model,
+        );
+        if (routedProvider) {
+          activeAdapter = ctxRef.current.buildAdapter(routedProvider);
+          activeProvider = routedProvider;
+        }
+        activeModel = routed;
+        routingFailed = intent === null;
+        setRouting({
+          provider: routedProvider ?? ctxRef.current.config.default_provider ?? "anthropic",
+          model: routed,
+          intent,
+        });
+      } catch (err) {
+        routingFailed = true;
+        console.error("[routing]", err instanceof Error ? err.message : String(err));
+      }
+    }
+
+    setCurrentOutputTokens(0);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    // Per-turn usage accumulator + timing + tool names (for writeAssistant)
+    let turnUsage: Usage = { input_tokens: 0, output_tokens: 0 };
+    const turnToolCalls: string[] = [];
+    const turnStart = Date.now();
+    const captureUsage = (u: Usage) => {
+      turnUsage = {
+        input_tokens: turnUsage.input_tokens + u.input_tokens,
+        output_tokens: turnUsage.output_tokens + u.output_tokens,
+        cache_creation_input_tokens:
+          (turnUsage.cache_creation_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0),
+        cache_read_input_tokens:
+          (turnUsage.cache_read_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0),
+      };
+      onUsage(u);
+    };
+
+    const store = ctxRef.current.sessionStore;
+    const runDir = dirname(store.filePath);
+
+    // Resolve skill bundle if available (augments tools + system prompt)
+    const skillBundle = ctxRef.current.resolveSkillBundle?.({
+      domain: routing.intent?.domain ?? "chat",
+      level: routing.intent?.level ?? 0,
+      needs_tools: routing.intent?.needs_tools ?? false,
+    });
+    // Merge registry tools (always available) + any skill-specific extras (e.g. MCP tools)
+    const registryTools = ctxRef.current.tools;
+    const skillExtras = (skillBundle?.tools ?? []).filter(
+      (t) => !registryTools.some((r) => r.name === t.name)
+    );
+    const activeTools = skillExtras.length ? [...registryTools, ...skillExtras] : registryTools;
+    // Base system prompt from PromptStore (templated + profile-matched), overridden by skill bundle if present
+    const resolvedPrompt = ctxRef.current.promptStore.resolve({
+      domain: routing.intent?.domain ?? "chat",
+      level: routing.intent?.level ?? 0,
+      needs_tools: routing.intent?.needs_tools ?? false,
+    });
+    const baseSystem = resolvedPrompt?.system ?? "You are Vera, a helpful assistant.";
+    const activeSystem = skillBundle?.system ?? baseSystem;
+    const activeExecutors = skillBundle?.executors;
+
+    // Shared tool call handler — used by both stream mode and plan mode
+    const sharedOnToolCall = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
+      turnToolCalls.push(name);
+      const toolCallUuid = store.writeToolCall({
+        parentUuid: userUuid,
+        toolName: name,
+        toolCallId: name,
+        arguments: args,
+      });
+
+      const executeOnce = async (n: string, a: Record<string, unknown>): Promise<ToolResult> => {
+        if (activeExecutors?.has(n)) {
+          const content = await activeExecutors.get(n)!(a);
+          return { ok: true, content };
+        }
+        const registry = ctxRef.current.registry;
+        if (registry) {
+          return registry.execute(n, a, { cwd: process.cwd(), sessionId: store.sessionId });
+        }
+        return { ok: false, content: `Tool "${n}" is not implemented yet.`, error: { code: "UNKNOWN", message: `Tool "${n}" is not implemented yet.`, retryable: false } };
+      };
+
+      let toolResult = await executeOnce(name, args);
+
+      // Path confirmation: suspend agent, prompt user, retry once if approved
+      if (toolResult.needsConfirm) {
+        const confirm = toolResult.needsConfirm;
+        const approved = await new Promise<boolean>((res) => {
+          setPathConfirm({ message: confirm.message, allowDir: confirm.allowDir, resolve: res });
+        });
+        setPathConfirm(null);
+        if (approved) {
+          ctxRef.current.security?.allowPath(confirm.allowDir);
+          toolResult = await executeOnce(confirm.retry.name, confirm.retry.args);
+        }
+        // If denied, fall through with the original error result (needsConfirm stripped)
+      }
+
+      store.writeToolResult({ parentUuid: toolCallUuid, toolCallId: name, content: toolResult.content });
+      return toolResult;
+    };
+
+    const usePlanMode = routing.intent !== null && shouldPlan(routing.intent);
+
+    // ── Plan Mode ────────────────────────────────────────────────────────────
+
+    if (usePlanMode) {
+      planStepsRef.current = [];
+      planStepTextRef.current = "";
+
+      setMessages((prev) => {
+        const prefix: ChatMessage[] = routingFailed
+          ? [{ role: "assistant", content: "⚠ routing failed — using default model" }]
+          : [];
+        return [...prev, ...prefix, {
+          role: "assistant",
+          content: "",
+          streaming: true,
+          planMode: true,
+          planSteps: [],
+          activeStepIndex: -1,
+        }];
+      });
+      setStreamStatus("planning");
+
+      const handlePlanEvent = (event: PlanEvent) => {
+        switch (event.type) {
+          case "plan_ready": {
+            // Preserve already-done steps (handles replan events)
+            const doneById = new Map(
+              planStepsRef.current
+                .filter((s) => s.status === "done")
+                .map((s) => [s.id, s])
+            );
+            const steps: PlanStepUI[] = event.steps.map((s) =>
+              doneById.get(s.id) ?? {
+                id: s.id,
+                description: s.description,
+                status: "pending" as const,
+                content: "",
+                toolUses: [],
+              }
+            );
+            planStepsRef.current = steps;
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (!last?.planMode) return prev;
+              return [...prev.slice(0, -1), { ...last, planSteps: steps }];
+            });
+            setStreamStatus("streaming");
+            break;
+          }
+          case "step_start": {
+            planStepTextRef.current = "";
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (!last?.planMode) return prev;
+              const steps = (last.planSteps ?? []).map((s, i) =>
+                i === event.stepIndex ? { ...s, status: "running" as const } : s
+              );
+              return [...prev.slice(0, -1), { ...last, planSteps: steps, activeStepIndex: event.stepIndex }];
+            });
+            break;
+          }
+          case "step_text": {
+            planStepTextRef.current += event.delta;
+            if (planRafRef.current === null) {
+              planRafRef.current = setTimeout(() => {
+                const text = planStepTextRef.current;
+                setMessages((prev) => {
+                  const last = prev[prev.length - 1];
+                  if (!last?.planMode || last.activeStepIndex == null || last.activeStepIndex < 0) return prev;
+                  const idx = last.activeStepIndex;
+                  const steps = (last.planSteps ?? []).map((s, i) =>
+                    i === idx ? { ...s, content: text } : s
+                  );
+                  return [...prev.slice(0, -1), { ...last, planSteps: steps }];
+                });
+                planRafRef.current = null;
+              }, 16);
+            }
+            break;
+          }
+          case "step_tool": {
+            const toolUse: ToolUse = { name: event.name, args: event.args, result: event.result };
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (!last?.planMode || last.activeStepIndex == null) return prev;
+              const idx = last.activeStepIndex;
+              const steps = (last.planSteps ?? []).map((s, i) =>
+                i === idx ? { ...s, toolUses: [...s.toolUses, toolUse] } : s
+              );
+              return [...prev.slice(0, -1), { ...last, planSteps: steps }];
+            });
+            // Sync ref for history building
+            const runningIdx = planStepsRef.current.findIndex((s) => s.status === "running");
+            if (runningIdx >= 0) planStepsRef.current[runningIdx]!.toolUses.push(toolUse);
+            break;
+          }
+          case "step_done": {
+            if (planRafRef.current !== null) { clearTimeout(planRafRef.current); planRafRef.current = null; }
+            const finalText = planStepTextRef.current;
+            if (planStepsRef.current[event.stepIndex]) {
+              planStepsRef.current[event.stepIndex]!.status = "done";
+              planStepsRef.current[event.stepIndex]!.content = finalText;
+            }
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (!last?.planMode) return prev;
+              const steps = (last.planSteps ?? []).map((s, i) =>
+                i === event.stepIndex ? { ...s, status: "done" as const, content: finalText } : s
+              );
+              return [...prev.slice(0, -1), { ...last, planSteps: steps }];
+            });
+            break;
+          }
+          case "plan_done": {
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (!last?.planMode) return prev;
+              return [...prev.slice(0, -1), { ...last, streaming: false, activeStepIndex: undefined }];
+            });
+            break;
+          }
+          case "plan_error": {
+            if (planRafRef.current !== null) { clearTimeout(planRafRef.current); planRafRef.current = null; }
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (!last?.planMode) return prev;
+              return [...prev.slice(0, -1), { ...last, content: `Error: ${event.error}`, streaming: false, planMode: false }];
+            });
+            break;
+          }
+        }
+      };
+
+      const planExec = ctxRef.current.planExecutor ?? defaultPlanExecutor;
+
+      try {
+        await planExec(
+          line,
+          {
+            adapter: activeAdapter,
+            model: activeModel,
+            tools: activeTools,
+            system: activeSystem,
+            signal: controller.signal,
+            onToolCall: sharedOnToolCall,
+            runDir,
+          },
+          handlePlanEvent,
+          captureUsage,
+        );
+
+        // Build summary text for session + history
+        const summaryLines = planStepsRef.current.map((s, i) =>
+          `步骤 ${i + 1}：${s.description}\n${s.content}`
+        );
+        const fullText = summaryLines.join("\n\n");
+
+        store.writeAssistant({
+          parentUuid: userUuid,
+          content: fullText,
+          model: activeModel,
+          provider: activeProvider,
+          stopReason: "end_turn",
+          usage: turnUsage,
+          turn: turnCountRef.current + 1,
+          latencyMs: Date.now() - turnStart,
+          toolCalls: turnToolCalls,
+          status: "ok",
+        });
+
+        historyRef.current = [
+          ...historyRef.current,
+          { role: "user", content: line } satisfies Message,
+          { role: "assistant", content: fullText } satisfies Message,
+        ];
+        turnCountRef.current += 1;
+      } catch (err) {
+        if (planRafRef.current !== null) { clearTimeout(planRafRef.current); planRafRef.current = null; }
+        const isAbort = err instanceof Error && (err.name === "AbortError" || err.message.includes("aborted"));
+        if (!isAbort) {
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (!last?.planMode) return prev;
+            return [...prev.slice(0, -1), { ...last, content: formatError(err), streaming: false, planMode: false }];
+          });
+        } else {
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (!last?.planMode) return prev;
+            return [...prev.slice(0, -1), { ...last, streaming: false }];
+          });
+        }
+      } finally {
+        abortRef.current = null;
+        setStreamStatus("idle");
+      }
+      return;
+    }
+
+    // ── Stream Mode (regular ReAct) ──────────────────────────────────────────
+
+    setMessages((prev) => {
+      const base: ChatMessage = { role: "assistant", content: "", streaming: true };
+      const prefix: ChatMessage[] = routingFailed
+        ? [{ role: "assistant", content: "⚠ routing failed — using default model" }]
+        : [];
+      return [...prev, ...prefix, base];
+    });
+    setStreamStatus("streaming");
+    streamingBufferRef.current = "";
+
+    try {
+      const fullText = await streamAgent(
+        line,
+        {
+          adapter: activeAdapter,
+          model: activeModel,
+          tools: activeTools,
+          system: activeSystem,
+          history: historyRef.current,
+          onUsage: captureUsage,
+          signal: controller.signal,
+          runDir,
+          onToolCall: async (name, args) => {
+            const toolResult = await sharedOnToolCall(name, args as Record<string, unknown>);
+            // Append to toolUses on the current streaming message
+            const toolUse: ToolUse = { name, args: args as Record<string, unknown>, result: toolResult };
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (!last?.streaming) return prev;
+              return [
+                ...prev.slice(0, -1),
+                { ...last, toolUses: [...(last.toolUses ?? []), toolUse] },
+              ];
+            });
+            return toolResult.content;
+          },
+        },
+        onTextDelta,
+      );
+
+      if (rafRef.current !== null) {
+        clearTimeout(rafRef.current);
+        rafRef.current = null;
+      }
+      streamingBufferRef.current = fullText;
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (!last?.streaming) return prev;
+        return [...prev.slice(0, -1), { ...last, content: fullText, streaming: false }];
+      });
+
+      // Write assistant entry
+      store.writeAssistant({
+        parentUuid: userUuid,
+        content: fullText,
+        model: activeModel,
+        provider: activeProvider,
+        stopReason: "end_turn",
+        usage: turnUsage,
+        turn: turnCountRef.current + 1,
+        latencyMs: Date.now() - turnStart,
+        toolCalls: turnToolCalls,
+        status: "ok",
+      });
+
+      historyRef.current = [
+        ...historyRef.current,
+        { role: "user", content: line } satisfies Message,
+        { role: "assistant", content: fullText } satisfies Message,
+      ];
+      turnCountRef.current += 1;
+    } catch (err) {
+      if (rafRef.current !== null) {
+        clearTimeout(rafRef.current);
+        rafRef.current = null;
+      }
+      const isAbort =
+        err instanceof Error &&
+        (err.name === "AbortError" || err.message.includes("aborted"));
+      const errMsg = isAbort ? "Cancelled." : formatError(err);
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.streaming) {
+          const content = last.content || errMsg;
+          return [...prev.slice(0, -1), { role: "assistant", content, streaming: false }];
+        }
+        return [...prev, { role: "assistant", content: errMsg }];
+      });
+      if (!isAbort) {
+        store.writeAssistant({
+          parentUuid: userUuid,
+          content: errMsg,
+          model: activeModel,
+          provider: activeProvider,
+          stopReason: "end_turn",
+          usage: turnUsage,
+          turn: turnCountRef.current + 1,
+          latencyMs: Date.now() - turnStart,
+          toolCalls: turnToolCalls,
+          status: "error",
+        });
+      }
+      store.writeEnd(costRef.current.totalUsage, costRef.current.totalUsd, turnCountRef.current);
+    } finally {
+      abortRef.current = null;
+      setStreamStatus("idle");
+    }
+  }, [onTextDelta, onUsage, exit, routing, usage, streamStatus]);
+
+  useEffect(() => {
+    if (streamStatus === "idle" && pendingQueueRef.current.length > 0) {
+      const next = pendingQueueRef.current.shift()!;
+      syncQueue();
+      handleSubmit(next);
+    }
+  }, [streamStatus, handleSubmit]);
+
+  const { columns, rows } = dimensions;
+  // Reserve rows for: separator(1) + statusbar(1) + pendingQueue + inputbar(1) + buffer(1)
+  const reservedRows = 4 + pendingQueue.length;
+  const availableHeight = Math.max(5, rows - reservedRows);
+
+  if (diffOpen) {
+    return (
+      <DiffDialog
+        cwd={process.cwd()}
+        width={columns}
+        height={dimensions.rows}
+        onClose={() => setDiffOpen(false)}
+      />
+    );
+  }
+
+  if (sessionPickerOpen) {
+    const sessions = SessionStore.listSessions(process.cwd());
+    return (
+      <Box flexDirection="column">
+        <SessionPicker
+          sessions={sessions}
+          width={columns}
+          onSelect={(sessionId) => {
+            setSessionPickerOpen(false);
+            try {
+              const loaded = SessionStore.loadSession(sessionId, process.cwd());
+              ctxRef.current.onResume!(loaded);
+              setMessages((prev) => [
+                ...prev,
+                { role: "assistant", content: `Resumed session ${sessionId.slice(0, 8)} — ${loaded.turnCount} turns, $${loaded.totalCostUsd.toFixed(4)} spent.` },
+              ]);
+            } catch (err) {
+              setMessages((prev) => [
+                ...prev,
+                { role: "assistant", content: `Failed to load session: ${err instanceof Error ? err.message : String(err)}` },
+              ]);
+            }
+          }}
+          onClose={() => setSessionPickerOpen(false)}
+        />
+      </Box>
+    );
+  }
+
+  return (
+    <Box flexDirection="column">
+      <WelcomeScreen
+        routing={routing}
+        columns={columns}
+        value={inputValue}
+        onChange={setInputValue}
+        onSubmit={handleSubmit}
+        onExit={exit}
+        showInput={messages.length === 0}
+      />
+      {messages.length > 0 && (
+        <>
+          <ConversationPanel
+            messages={messages}
+            width={columns}
+            availableHeight={availableHeight}
+            scrollOffset={scrollOffset}
+          />
+          <Box>
+            <Text color="gray">{"─".repeat(columns)}</Text>
+          </Box>
+          <StatusBar status={streamStatus} outputTokens={currentOutputTokens} pendingCount={pendingQueue.length} scrollOffset={scrollOffset} />
+          {pendingQueue.map((msg, i) => (
+            <Box key={i}>
+              <Text color="yellow">{"⏎ "}</Text>
+              <Text color="#b8860b" wrap="truncate-end">{msg}</Text>
+            </Box>
+          ))}
+          {pathConfirm ? (
+            <Box flexDirection="column">
+              <Text color="yellow">⚠ {pathConfirm.message}</Text>
+              <Text color="yellow">Allow? [y/N] </Text>
+              <InputBar
+                value={inputValue}
+                onChange={setInputValue}
+                onSubmit={(line) => {
+                  const approved = line.trim().toLowerCase() === "y";
+                  setInputValue("");
+                  pathConfirm.resolve(approved);
+                }}
+                onExit={exit}
+                onCancel={() => { setInputValue(""); pathConfirm.resolve(false); }}
+                isStreaming={false}
+                history={[]}
+                onScrollUp={handleScrollUp}
+                onScrollDown={handleScrollDown}
+              />
+            </Box>
+          ) : (
+            <InputBar
+              value={inputValue}
+              onChange={setInputValue}
+              onSubmit={handleSubmit}
+              onExit={exit}
+              onCancel={handleCancel}
+              isStreaming={streamStatus !== "idle"}
+              history={inputHistoryRef.current}
+              onScrollUp={handleScrollUp}
+              onScrollDown={handleScrollDown}
+            />
+          )}
+        </>
+      )}
+    </Box>
+  );
+}

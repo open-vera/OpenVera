@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "veralabel"
+version = "0.1.4"
+description = "本地音频批量标注工具（预检 Ollama / MLX / 模型）"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Vera Desktop" }]
+dependencies = [
+    "typer>=0.12.0",
+    "rich>=13.0.0",
+    "soundfile>=0.12.0",
+    "jieba>=0.42.0",
+    "psutil>=5.9.0",
+]
+
+[project.optional-dependencies]
+mlx = ["mlx>=0.21.0", "mlx-lm>=0.18.0", "mlx-qwen3-asr>=0.1.0"]
+parakeet = ["parakeet-mlx>=0.1.0"]
+vibevoice = ["transformers>=4.50.0", "torch>=2.0.0", "accelerate>=0.30.0"]
+gemma = ["transformers>=4.50.0", "torch>=2.0.0", "librosa>=0.10.0", "accelerate>=0.30.0"]
+all = ["veralabel[mlx,parakeet,vibevoice,gemma]"]
+server = ["fastapi>=0.115.0", "uvicorn>=0.30.0"]
+dev = ["pytest>=8.0", "httpx>=0.27", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+veralabel = "audio_label.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/audio_label"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/audio_label"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

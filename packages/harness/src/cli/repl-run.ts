@@ -1,0 +1,93 @@
+import { resolve, join } from "node:path";
+import { homedir } from "node:os";
+import { execSync } from "node:child_process";
+import { startRepl } from "@vera/core/repl";
+import { SessionStore } from "@vera/core/session";
+import { createToolRegistry } from "@vera/core/tools";
+import { PromptStore } from "@vera/core/prompt";
+import { AnthropicAdapter, OpenAIAdapter, GeminiAdapter } from "@vera/core/adapters";
+import type { LLMAdapter } from "@vera/core/adapters";
+import { loadConfig } from "@vera/core/config";
+import type { ProviderConfig } from "@vera/core/config";
+import { createSkillResolver, RegistryToolProvider } from "../skill/index.js";
+import { buildCliAdapter } from "./adapter.js";
+import { createHarnessPlanExecutor } from "./repl-plan-executor.js";
+
+export interface ReplRunArgs {
+  dir?: string;
+  model?: string;
+  provider?: string;
+  apiKey?: string;
+  resume?: string;
+}
+
+function findGitRoot(): string | null {
+  try {
+    return execSync("git rev-parse --show-toplevel", { encoding: "utf8" }).trim();
+  } catch {
+    return null;
+  }
+}
+
+export async function runReplCommand(args: ReplRunArgs): Promise<void> {
+  const cwd = resolve(args.dir ?? findGitRoot() ?? ".");
+
+  const config = loadConfig();
+
+  const { adapter, model: defaultModel } = buildCliAdapter(
+    args.provider ?? config.default_provider,
+    args.apiKey
+  );
+  const model = args.model ?? defaultModel;
+
+  const sessionStore = new SessionStore({ cwd });
+  const { registry: toolRegistry, security } = createToolRegistry({ cwd, sessionStore });
+  const toolProvider = new RegistryToolProvider(toolRegistry, cwd, sessionStore.sessionId);
+  const promptStore = new PromptStore();
+
+  const projectSkillsDir = join(cwd, ".vera", "skills");
+  const userSkillsDir = join(homedir(), ".vera", "skills");
+  const skillResolver = createSkillResolver(toolProvider, projectSkillsDir, userSkillsDir);
+
+  function buildAdapter(providerName: string): LLMAdapter {
+    const pc: ProviderConfig = config.providers?.[providerName] ?? { adapter: "anthropic" };
+    const apiKey = pc.api_key ??
+      (pc.adapter === "openai" ? process.env.OPENAI_API_KEY :
+       pc.adapter === "gemini" ? process.env.GEMINI_API_KEY :
+       process.env.ANTHROPIC_API_KEY);
+    switch (pc.adapter) {
+      case "openai": return new OpenAIAdapter(apiKey, pc.base_url);
+      case "gemini": return new GeminiAdapter(apiKey);
+      default: return new AnthropicAdapter(apiKey, pc.base_url);
+    }
+  }
+
+  await startRepl(
+    {
+      config,
+      adapter,
+      model,
+      tools: toolRegistry.getSchemas(),
+      buildAdapter,
+      sessionStore,
+      registry: toolRegistry,
+      promptStore,
+      security,
+      resolveSkillBundle: (intent) => {
+        const resolved = promptStore.resolve({
+          domain: intent.domain as import("../skill/types.js").IntentDomain,
+          level: intent.level as 0 | 1 | 2 | 3,
+          needs_tools: intent.needs_tools,
+        });
+        const baseSystem = resolved?.system ?? "You are Vera, a helpful assistant.";
+        return skillResolver.resolve(
+          { domain: intent.domain as import("../skill/types.js").IntentDomain, level: intent.level as 0|1|2|3, needs_tools: intent.needs_tools },
+          baseSystem
+        );
+      },
+      planExecutor: createHarnessPlanExecutor(adapter, model),
+    },
+    args.resume
+  );
+  process.exit(0);
+}
