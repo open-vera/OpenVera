@@ -6,10 +6,14 @@ import {
   createCompressionState,
   findRelevantSegments,
   expandSegment,
+  microCompact,
+  createMicroCompactState,
+  isPromptTooLongError,
 } from "../src/context/compression.js";
 import type {
   CompressionOptions,
   CompressionState,
+  MicroCompactState,
 } from "../src/context/compression.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -353,5 +357,134 @@ describe("createCompressionState", () => {
   it("returns empty state", () => {
     const state = createCompressionState();
     expect(state.segments).toEqual([]);
+  });
+});
+
+// ── Micro-compact ─────────────────────────────────────────────────────────
+
+describe("microCompact", () => {
+  it("does nothing when disabled", () => {
+    const messages: Message[] = [
+      { role: "assistant", content: "did things" },
+      { role: "tool", tool_call_id: "1", content: "large result" },
+    ];
+    const state = createMicroCompactState();
+    const result = microCompact(messages, state, { enabled: false });
+    expect(result.messages).toBe(messages);
+  });
+
+  it("does nothing when gap is below threshold", () => {
+    const messages: Message[] = [
+      { role: "assistant", content: "just happened" },
+      { role: "tool", tool_call_id: "1", content: "result" },
+    ];
+    const state: MicroCompactState = {
+      toolUseIds: ["1"],
+      lastAssistantTs: Date.now(), // just now
+    };
+    const result = microCompact(messages, state, {
+      enabled: true,
+      gapThresholdMinutes: 60,
+      keepRecent: 5,
+    });
+    expect(result.messages[1]!.content).toBe("result");
+  });
+
+  it("clears old tool results when gap exceeds threshold", () => {
+    const messages: Message[] = [
+      { role: "assistant", content: "old turn" },
+      { role: "tool", tool_call_id: "old-1", content: "old result" },
+      { role: "tool", tool_call_id: "old-2", content: "another old" },
+    ];
+    const state: MicroCompactState = {
+      toolUseIds: ["old-1", "old-2"],
+      // Timestamp from 90 minutes ago
+      lastAssistantTs: Date.now() - 90 * 60 * 1000,
+    };
+    const result = microCompact(messages, state, {
+      enabled: true,
+      gapThresholdMinutes: 60,
+      keepRecent: 0, // keep none
+    });
+
+    expect(result.messages[1]!.content).toBe("[Old tool result content cleared]");
+    expect(result.messages[2]!.content).toBe("[Old tool result content cleared]");
+  });
+
+  it("keeps recent tool results", () => {
+    const messages: Message[] = [
+      { role: "assistant", content: "turn" },
+      { role: "tool", tool_call_id: "old", content: "old" },
+      { role: "tool", tool_call_id: "recent", content: "recent" },
+    ];
+    const state: MicroCompactState = {
+      toolUseIds: ["old", "recent"],
+      lastAssistantTs: Date.now() - 90 * 60 * 1000,
+    };
+    const result = microCompact(messages, state, {
+      enabled: true,
+      gapThresholdMinutes: 60,
+      keepRecent: 1,
+    });
+
+    expect(result.messages[1]!.content).toBe("[Old tool result content cleared]");
+    expect(result.messages[2]!.content).toBe("recent");
+  });
+
+  it("does not double-clear already cleared results", () => {
+    const messages: Message[] = [
+      { role: "assistant", content: "turn" },
+      { role: "tool", tool_call_id: "a", content: "[Old tool result content cleared]" },
+    ];
+    const state: MicroCompactState = {
+      toolUseIds: ["a"],
+      lastAssistantTs: Date.now() - 90 * 60 * 1000,
+    };
+    const result = microCompact(messages, state, {
+      enabled: true,
+      gapThresholdMinutes: 60,
+      keepRecent: 0,
+    });
+    // Should not have double-applied sentinel
+    expect(result.messages[1]!.content).toBe("[Old tool result content cleared]");
+  });
+});
+
+// ── Reactive compact ──────────────────────────────────────────────────────
+
+describe("isPromptTooLongError", () => {
+  it("matches Anthropic API error", () => {
+    expect(isPromptTooLongError(new Error("Prompt is too long"))).toBe(true);
+  });
+
+  it("matches Vertex API error", () => {
+    expect(isPromptTooLongError(new Error("PROMPT IS TOO LONG"))).toBe(true);
+  });
+
+  it("matches token count error", () => {
+    expect(isPromptTooLongError(new Error("prompt is too long: 250000 tokens > 200000"))).toBe(true);
+  });
+
+  it("matches context length error", () => {
+    expect(isPromptTooLongError(new Error("context length exceeds limit"))).toBe(true);
+  });
+
+  it("rejects unrelated errors", () => {
+    expect(isPromptTooLongError(new Error("rate limit exceeded"))).toBe(false);
+    expect(isPromptTooLongError(new Error("invalid API key"))).toBe(false);
+  });
+
+  it("rejects non-Error values", () => {
+    expect(isPromptTooLongError("string error")).toBe(false);
+    expect(isPromptTooLongError(null)).toBe(false);
+    expect(isPromptTooLongError(undefined)).toBe(false);
+  });
+});
+
+describe("createMicroCompactState", () => {
+  it("returns empty state", () => {
+    const state = createMicroCompactState();
+    expect(state.toolUseIds).toEqual([]);
+    expect(state.lastAssistantTs).toBe(0);
   });
 });

@@ -25,8 +25,13 @@ import {
   type CompressionOptions,
   type CompressionState,
   type CompressedSegment,
+  type MicroCompactOptions,
+  type MicroCompactState,
   compressMessages,
   createCompressionState,
+  microCompact,
+  createMicroCompactState,
+  isPromptTooLongError,
 } from "../context/compression.js";
 
 export type ToolHandler = (
@@ -87,6 +92,12 @@ export interface AgentOptions {
    * Default: disabled.
    */
   compressionOptions?: CompressionOptions;
+  /**
+   * Time-based micro-compact: clears old tool results when the gap since
+   * the last assistant message exceeds the threshold. Pure heuristic,
+   * no LLM call. Default: disabled.
+   */
+  microCompactOptions?: MicroCompactOptions;
 }
 
 // Claude Code uses 200 as the default agent loop limit.
@@ -121,22 +132,30 @@ async function prepareMessages(
   messages: Message[],
   budgetState: ToolResultBudgetState | null,
   windowOpts: ContextWindowOptions | null,
-  runDir: string | undefined
-): Promise<Message[]> {
+  runDir: string | undefined,
+  microCompactState: MicroCompactState | null,
+  microCompactOpts: MicroCompactOptions | undefined,
+): Promise<{ messages: Message[]; microCompactState: MicroCompactState | null }> {
   let msgs = messages;
+  let mcState = microCompactState;
 
   if (budgetState) {
-    // Re-apply frozen replacements (byte-identical, prompt-cache stable)
     msgs = reapplyReplacements(msgs, budgetState);
-    // Enforce per-turn aggregate budget
     msgs = await enforcePerTurnBudget(msgs, budgetState, runDir);
+  }
+
+  // Micro-compact: clear old tool results (before window trim)
+  if (mcState && microCompactOpts) {
+    const result = microCompact(msgs, mcState, microCompactOpts);
+    msgs = result.messages;
+    mcState = result.state;
   }
 
   if (windowOpts) {
     msgs = trimToWindow(msgs, windowOpts);
   }
 
-  return msgs;
+  return { messages: msgs, microCompactState: mcState };
 }
 
 /** Resolve the maxResultSizeChars for a named tool. */
@@ -173,9 +192,16 @@ export async function runAgent(
   const budgetState = runDir ? createToolBudgetState() : null;
   let compressionState =
     options.compressionOptions?.enabled ? createCompressionState() : null;
+  let microCompactState =
+    options.microCompactOptions?.enabled ? createMicroCompactState() : null;
   let messages: Message[] = [{ role: "user", content: userMessage }];
 
+  // Circuit breaker: stop reactive compact retries after N consecutive failures
+  const MAX_REACTIVE_RETRIES = 3;
+  let reactiveRetries = 0;
+
   for (let turn = 0; turn < maxTurns; turn++) {
+    // ── Auto-compact: proactive compression when over threshold ──────────
     if (compressionState && options.compressionOptions) {
       const result = await compressMessages(
         messages,
@@ -188,9 +214,44 @@ export async function runAgent(
       compressionState = result.state;
     }
 
-    const apiMessages = await prepareMessages(messages, budgetState, windowOpts, runDir);
+    // ── Prepare messages (budget → micro-compact → window trim) ─────────
+    const prepResult = await prepareMessages(
+      messages, budgetState, windowOpts, runDir,
+      microCompactState, options.microCompactOptions,
+    );
+    const apiMessages = prepResult.messages;
+    microCompactState = prepResult.microCompactState;
+
     const request: CompletionRequest = { model, messages: apiMessages, tools, system: activeSystem, signal };
-    const response = await adapter.complete(request);
+
+    // ── API call with reactive compact ───────────────────────────────────
+    let response;
+    try {
+      response = await adapter.complete(request);
+      reactiveRetries = 0; // reset on success
+    } catch (err) {
+      if (
+        isPromptTooLongError(err) &&
+        reactiveRetries < MAX_REACTIVE_RETRIES &&
+        options.compressionOptions?.enabled
+      ) {
+        // Reactive compact: aggressive compression then retry
+        const result = await compressMessages(
+          messages,
+          compressionState ?? createCompressionState(),
+          options.compressionOptions,
+          adapter,
+          model,
+          true, // isReactive
+        );
+        messages = result.messages;
+        compressionState = result.state;
+        reactiveRetries++;
+        continue; // retry this turn
+      }
+      throw err;
+    }
+
     messages.push(response.message);
 
     if (response.stop_reason !== "tool_use") {
@@ -260,11 +321,16 @@ export async function streamAgent(
   const budgetState = runDir ? createToolBudgetState() : null;
   let compressionState =
     options.compressionOptions?.enabled ? createCompressionState() : null;
+  let microCompactState =
+    options.microCompactOptions?.enabled ? createMicroCompactState() : null;
   let messages: Message[] = [...history, { role: "user", content: userMessage }];
   let fullText = "";
 
+  const MAX_REACTIVE_RETRIES = 3;
+  let reactiveRetries = 0;
+
   for (let turn = 0; turn < maxTurns; turn++) {
-    // ── Compression: progressive summarization of old turns ──────────────
+    // ── Auto-compact: proactive compression when over threshold ──────────
     if (compressionState && options.compressionOptions) {
       const result = await compressMessages(
         messages,
@@ -287,7 +353,14 @@ export async function streamAgent(
       ? system + memoryPreamble
       : memoryPreamble.trim() || undefined;
 
-    const apiMessages = await prepareMessages(messages, budgetState, windowOpts, runDir);
+    // ── Prepare messages (budget → micro-compact → window trim) ─────────
+    const prepResult = await prepareMessages(
+      messages, budgetState, windowOpts, runDir,
+      microCompactState, options.microCompactOptions,
+    );
+    const apiMessages = prepResult.messages;
+    microCompactState = prepResult.microCompactState;
+
     const request: CompletionRequest = { model, messages: apiMessages, tools, system: turnSystem, signal };
 
     const collectedToolCalls: Array<{
@@ -298,16 +371,40 @@ export async function streamAgent(
     let turnText = "";
     let stopReason = "end_turn";
 
-    for await (const event of adapter.stream(request)) {
-      if (event.type === "text") {
-        onText(event.text);
-        turnText += event.text;
-      } else if (event.type === "tool_call") {
-        collectedToolCalls.push(event);
-      } else if (event.type === "done") {
-        stopReason = event.stop_reason;
-        if (event.usage) onUsage?.(event.usage);
+    // ── Stream with reactive compact ─────────────────────────────────────
+    try {
+      for await (const event of adapter.stream(request)) {
+        if (event.type === "text") {
+          onText(event.text);
+          turnText += event.text;
+        } else if (event.type === "tool_call") {
+          collectedToolCalls.push(event);
+        } else if (event.type === "done") {
+          stopReason = event.stop_reason;
+          if (event.usage) onUsage?.(event.usage);
+        }
       }
+      reactiveRetries = 0; // reset on success
+    } catch (err) {
+      if (
+        isPromptTooLongError(err) &&
+        reactiveRetries < MAX_REACTIVE_RETRIES &&
+        options.compressionOptions?.enabled
+      ) {
+        const result = await compressMessages(
+          messages,
+          compressionState ?? createCompressionState(),
+          options.compressionOptions,
+          adapter,
+          model,
+          true, // isReactive
+        );
+        messages = result.messages;
+        compressionState = result.state;
+        reactiveRetries++;
+        continue;
+      }
+      throw err;
     }
 
     // ── Memory: detect usage from this turn's response ──────────────────
@@ -406,4 +503,6 @@ export type {
   CompressionOptions,
   CompressionState,
   CompressedSegment,
+  MicroCompactOptions,
+  MicroCompactState,
 };

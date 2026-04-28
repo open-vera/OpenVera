@@ -25,6 +25,9 @@ export type { ToolResultBudgetState } from "./tool-budget.js";
 export {
   compressMessages,
   createCompressionState,
+  microCompact,
+  createMicroCompactState,
+  isPromptTooLongError,
   findRelevantSegments,
   expandSegment,
 } from "./compression.js";
@@ -32,4 +35,6 @@ export type {
   CompressionOptions,
   CompressedSegment,
   CompressionState,
+  MicroCompactOptions,
+  MicroCompactState,
 } from "./compression.js";
