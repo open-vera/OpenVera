@@ -10,6 +10,12 @@ import type { ReplContext } from "../../context.js";
 import type { ToolResult } from "../../../tools/types.js";
 import type { Usage, Tool } from "../../../types/index.js";
 import type { SessionStore } from "../../../session/index.js";
+import {
+  ASK_USER_QUESTION_TOOL_NAME,
+  type AskUserQuestionArgs,
+  type QuestionAnswers,
+} from "../../../tools/ask-user-question.js";
+import type { AskUserQuestionState } from "../AskUserQuestion/index.js";
 
 export interface ToolCallHandlerParams {
   ctxRef: MutableRefObject<ReplContext>;
@@ -31,6 +37,7 @@ export interface ToolCallHandlerParams {
     allowDir: string;
     resolve: (approved: boolean) => void;
   } | null>>;
+  setAskUserQuestion: React.Dispatch<React.SetStateAction<AskUserQuestionState | null>>;
 }
 
 export function buildToolCallHandler(params: ToolCallHandlerParams) {
@@ -39,7 +46,7 @@ export function buildToolCallHandler(params: ToolCallHandlerParams) {
     activeAdapter, activeModel, activeProvider,
     activeTools, activeSystem, activeExecutors,
     agentDefinitions, loadedVeraContextPathsRef,
-    turnToolCalls, captureUsage, setPathConfirm,
+    turnToolCalls, captureUsage, setPathConfirm, setAskUserQuestion,
   } = params;
 
   const runDir = dirname(store.filePath);
@@ -80,6 +87,20 @@ export function buildToolCallHandler(params: ToolCallHandlerParams) {
         ? { ok: true, content: result.content, metadata: { renderHint: { type: "text" } } }
         : { ok: false, content: result.content, error: { code: "UNKNOWN", message: result.content, retryable: false } };
     }
+
+    if (n === ASK_USER_QUESTION_TOOL_NAME) {
+      const args = a as unknown as AskUserQuestionArgs;
+      const answers = await new Promise<QuestionAnswers>((res) => {
+        setAskUserQuestion({ questions: args.questions, resolve: res });
+      });
+      setAskUserQuestion(null);
+      const resultContent = JSON.stringify({
+        questions: args.questions.map((q) => q.question),
+        answers,
+      });
+      return { ok: true, content: resultContent, metadata: { renderHint: { type: "text" } } };
+    }
+
 
     const registry = ctxRef.current.registry;
     // Registry tools must always go through registry.execute so security hooks

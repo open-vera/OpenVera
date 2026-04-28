@@ -1,4 +1,4 @@
-import { useApp, useStdout, useInput, Box, Text } from "ink";
+import { useApp, useStdout, Box, Text } from "ink";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -31,9 +31,16 @@ import type { CompressionState, MicroCompactState } from "../../context/index.js
 import { ConversationPanel } from "./ConversationPanel.js";
 import { DiffDialog } from "./DiffDialog.js";
 import { InputBar } from "./InputBar.js";
+import { SelectPrompt } from "./SelectPrompt.js";
 import { SessionPicker } from "./SessionPicker.js";
 import { StatusBar } from "./StatusBar.js";
 import { WelcomeScreen } from "./WelcomeScreen.js";
+import { AskUserQuestion } from "./AskUserQuestion/index.js";
+import type { AskUserQuestionState } from "./AskUserQuestion/index.js";
+import {
+  ASK_USER_QUESTION_TOOL_NAME,
+  buildAskUserQuestionSchema,
+} from "../../tools/ask-user-question.js";
 import type { ChatMessage, RoutingInfo, StreamStatus, TokenUsage, ToolUse } from "./types.js";
 import { theme } from "./theme.js";
 import { resumedVisibleMessages } from "./utils.js";
@@ -176,6 +183,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     allowDir: string;
     resolve: (approved: boolean) => void;
   } | null>(null);
+  const [askUserQuestion, setAskUserQuestion] = useState<AskUserQuestionState | null>(null);
   const [usage, setUsage] = useState<TokenUsage>({
     inputTotal: 0, outputTotal: 0, cacheWriteTotal: 0, cacheReadTotal: 0, costUsd: 0,
   });
@@ -379,9 +387,12 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     const activeToolsWithoutAgent = skillExtras.length ? [...registryTools, ...skillExtras] : registryTools;
     const agentDefinitions = loadAgentDefinitions({ cwd: ctxRef.current.cwd });
     const agentToolSchema = buildSubagentToolSchema(agentDefinitions);
-    const activeTools = activeToolsWithoutAgent.some((t) => t.name === SUBAGENT_TOOL_NAME)
+    const withAgent = activeToolsWithoutAgent.some((t) => t.name === SUBAGENT_TOOL_NAME)
       ? activeToolsWithoutAgent
       : [...activeToolsWithoutAgent, agentToolSchema];
+    const activeTools = withAgent.some((t) => t.name === ASK_USER_QUESTION_TOOL_NAME)
+      ? withAgent
+      : [...withAgent, buildAskUserQuestionSchema()];
     const resolvedPrompt = ctxRef.current.promptStore.resolve({ domain: activeIntent?.domain ?? "chat", level: activeIntent?.level ?? 0, needs_tools: activeIntent?.needs_tools ?? false });
     const baseSystem = resolvedPrompt?.system ?? "You are Vera, a helpful assistant.";
     const activeSystem = mergeSystemPrompts(skillBundle?.system ?? baseSystem, projectContextRef.current?.system);
@@ -392,7 +403,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
       activeAdapter, activeModel, activeProvider,
       activeTools, activeSystem, activeExecutors,
       agentDefinitions, loadedVeraContextPathsRef,
-      turnToolCalls, captureUsage, setPathConfirm,
+      turnToolCalls, captureUsage, setPathConfirm, setAskUserQuestion,
     });
 
     const usePlanMode = activeIntent !== null && shouldPlan(activeIntent);
@@ -534,20 +545,6 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     }
   }, [onTextDelta, onUsage, exit, routing, usage, streamStatus]);
 
-  useInput((input, key) => {
-    if (!pathConfirm) return;
-    const ch = input.toLowerCase();
-    if (ch === "y") {
-      const confirm = pathConfirm;
-      setPathConfirm(null);
-      confirm.resolve(true);
-    } else if (ch === "n" || key.escape || (key.ctrl && input === "c")) {
-      const confirm = pathConfirm;
-      setPathConfirm(null);
-      confirm.resolve(false);
-    }
-  });
-
   useEffect(() => {
     if (streamStatus === "idle" && pendingQueueRef.current.length > 0) {
       const next = pendingQueueRef.current.shift()!;
@@ -611,15 +608,26 @@ export function App({ ctx, resumeSessionId }: AppProps) {
               <Text color={theme.brandShimmer} wrap="truncate-end">{msg}</Text>
             </Box>
           ))}
-          {pathConfirm ? (
-            <Box flexDirection="column" marginTop={1}>
-              <Text color={theme.warning}>⚠  {pathConfirm.message}</Text>
-              <Box marginTop={1} gap={3}>
-                <Text color={theme.warning}>Allow access?</Text>
-                <Text color="green" bold>[y] Allow</Text>
-                <Text color="red" bold>[n] Deny</Text>
-              </Box>
-            </Box>
+          {askUserQuestion ? (
+            <AskUserQuestion state={askUserQuestion} columns={columns} />
+          ) : pathConfirm ? (
+            <SelectPrompt
+              message={pathConfirm.message}
+              options={[
+                { value: true as boolean, label: "Allow", description: pathConfirm.allowDir },
+                { value: false as boolean, label: "Deny" },
+              ]}
+              onConfirm={([selected]) => {
+                const confirm = pathConfirm;
+                setPathConfirm(null);
+                confirm.resolve(selected ?? false);
+              }}
+              onCancel={() => {
+                const confirm = pathConfirm;
+                setPathConfirm(null);
+                confirm.resolve(false);
+              }}
+            />
           ) : (
             <InputBar
               value={inputValue} onChange={setInputValue} onSubmit={handleSubmit} onExit={exit} onCancel={handleCancel}
