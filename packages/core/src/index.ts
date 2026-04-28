@@ -1,5 +1,6 @@
 import { loadConfig } from "./config/index.js";
 import { dirname } from "node:path";
+import { createInterface } from "node:readline";
 import { AnthropicAdapter } from "./adapters/anthropic.js";
 import { OpenAIAdapter } from "./adapters/openai.js";
 import { GeminiAdapter } from "./adapters/gemini.js";
@@ -132,8 +133,29 @@ if (process.argv[2]) {
   const { streamAgent } = await import("./agent/loop.js");
   const cwd = process.cwd();
   const sessionStore = new SessionStore({ cwd });
-  const { registry } = createToolRegistry({ cwd, sessionStore });
+  const { registry, security } = createToolRegistry({ cwd, sessionStore });
   const agentDefinitions = loadAgentDefinitions({ cwd });
+
+  const promptCliConfirm = async (message: string): Promise<boolean> => {
+    if (!process.stdin.isTTY) return false;
+    process.stderr.write(`\n⚠ ${message}\nAllow? [y/N] `);
+    return new Promise<boolean>((resolve) => {
+      const rl = createInterface({ input: process.stdin, output: process.stderr });
+      rl.question("", (answer) => { rl.close(); resolve(answer.trim().toLowerCase() === "y"); });
+    });
+  };
+
+  const executeToolWithConfirm = async (name: string, args: Record<string, unknown>) => {
+    const result = await registry.execute(name, args, { cwd, sessionId: sessionStore.sessionId });
+    if (result.needsConfirm) {
+      const approved = await promptCliConfirm(result.needsConfirm.message);
+      if (approved) {
+        security.allowPath(result.needsConfirm.allowDir);
+        return registry.execute(result.needsConfirm.retry.name, result.needsConfirm.retry.args, { cwd, sessionId: sessionStore.sessionId });
+      }
+    }
+    return result;
+  };
   const tools = [...registry.getSchemas(), buildSubagentToolSchema(agentDefinitions)];
   const resolved = promptStore.resolve({ domain: "chat", level: 0, needs_tools: true });
   const projectContext = loadProjectContext({ cwd });
@@ -176,17 +198,14 @@ if (process.argv[2]) {
             cwd,
             parentSessionId: sessionStore.sessionId,
             onToolCall: async (childName, childArgs) => {
-              const childResult = await registry.execute(childName, childArgs, {
-                cwd,
-                sessionId: sessionStore.sessionId,
-              });
+              const childResult = await executeToolWithConfirm(childName, childArgs as Record<string, unknown>);
               return childResult.content;
             },
             definitions: agentDefinitions,
           });
           return result.content;
         }
-        const result = await registry.execute(name, parsedArgs, { cwd, sessionId: sessionStore.sessionId });
+        const result = await executeToolWithConfirm(name, parsedArgs);
         if (result.ok && name === "read_file" && typeof parsedArgs.path === "string") {
           const nested = loadNestedProjectContext({
             cwd,
