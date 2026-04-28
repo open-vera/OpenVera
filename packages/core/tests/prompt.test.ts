@@ -213,6 +213,7 @@ describe("PromptStore", () => {
     );
     expect(result).not.toBeNull();
     expect(result!.profileId).toBe("planning");
+    expect(result!.maxTurns).toBe(5);
   });
 
   it("explicit profile override takes precedence", () => {
@@ -222,6 +223,7 @@ describe("PromptStore", () => {
     });
     expect(result).not.toBeNull();
     expect(result!.profileId).toBe("debug");
+    expect(result!.maxTurns).toBe(20);
   });
 
   it("falls back to general when no profile matches", () => {

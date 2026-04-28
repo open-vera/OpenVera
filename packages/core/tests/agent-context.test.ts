@@ -1,11 +1,46 @@
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { LLMAdapter } from "../src/adapters/base.js";
 import { streamAgent } from "../src/agent/loop.js";
+import {
+  buildSubagentToolSchema,
+  loadAgentDefinitions,
+  runSubagentTool,
+  subagentToolSchema,
+  SUBAGENT_TOOL_NAME,
+} from "../src/agent/subagent.js";
 import { MemoryTracker } from "../src/memory/index.js";
+import { SessionStore } from "../src/session/store.js";
 import type { Message, StreamEvent } from "../src/types/index.js";
 
 async function* events(items: StreamEvent[]): AsyncIterable<StreamEvent> {
   for (const item of items) yield item;
+}
+
+function withTempDir<T>(fn: (dir: string) => T): T {
+  const dir = mkdtempSync(join(tmpdir(), "vera-agent-test-"));
+  try {
+    return fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function writeAgent(root: string, relativePath: string, content: string): void {
+  const path = join(root, relativePath);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, content);
+}
+
+function git(cwd: string, args: string[]): string {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 }
 
 describe("streamAgent context updates", () => {
@@ -15,7 +50,7 @@ describe("streamAgent context updates", () => {
     const adapter: LLMAdapter = {
       complete: vi.fn(),
       stream: (request) => {
-        requests.push(request.messages);
+        requests.push([...request.messages]);
         call++;
         if (call === 1) {
           return events([
@@ -64,6 +99,51 @@ describe("streamAgent context updates", () => {
     expect(managed[managed.length - 1]).toMatchObject({ role: "assistant", content: "done" });
   });
 
+  it("returns only the final no-tool assistant text from a tool loop", async () => {
+    let call = 0;
+    const adapter: LLMAdapter = {
+      complete: vi.fn(),
+      stream: () => {
+        call++;
+        if (call === 1) {
+          return events([
+            { type: "text", text: "我先检查项目状态。" },
+            {
+              type: "tool_call",
+              id: "tool-1",
+              name: "list_dir",
+              arguments: JSON.stringify({ path: "." }),
+            },
+            { type: "done", stop_reason: "end_turn" },
+          ]);
+        }
+        return events([
+          { type: "text", text: "当前状态已明确。" },
+          { type: "done", stop_reason: "end_turn" },
+        ]);
+      },
+    };
+
+    const output = await streamAgent(
+      "看下状态",
+      {
+        adapter,
+        model: "claude-sonnet-4-6",
+        tools: [
+          {
+            name: "list_dir",
+            description: "list files",
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+        onToolCall: () => "files",
+      },
+      () => {},
+    );
+
+    expect(output).toBe("当前状态已明确。");
+  });
+
   it("injects selected memory as a stable message instead of changing system", async () => {
     const requests: Array<{ system: string | undefined; messages: Message[] }> = [];
     const adapter: LLMAdapter = {
@@ -103,10 +183,786 @@ describe("streamAgent context updates", () => {
       () => {},
     );
 
-    expect(requests[0]!.system).toBe("base system");
+    expect(requests[0]!.system).toContain("base system");
+    expect(requests[0]!.system).toContain("Use them continuously until the task is fully complete");
+    expect(requests[0]!.system).toContain("inspect the current workspace with read-only tools first");
+    expect(requests[0]!.system).not.toContain("stable memory block");
     expect(requests[0]!.messages[0]!.role).toBe("user");
     expect(String(requests[0]!.messages[0]!.content)).toContain("<dynamic-memory-context>");
     expect(String(requests[0]!.messages[0]!.content)).toContain("stable memory block");
     expect(managed[0]!.content).toBe("check project rules");
+  });
+
+  it("continues when tool calls are present even if stop_reason is end_turn", async () => {
+    const requests: Message[][] = [];
+    let call = 0;
+    const adapter: LLMAdapter = {
+      complete: vi.fn(),
+      stream: (request) => {
+        requests.push([...request.messages]);
+        call++;
+        if (call === 1) {
+          return events([
+            {
+              type: "tool_call",
+              id: "tool-1",
+              name: "list_dir",
+              arguments: JSON.stringify({ path: "." }),
+            },
+            { type: "done", stop_reason: "end_turn" },
+          ]);
+        }
+        return events([
+          { type: "text", text: "当前状态清楚，下一步应该提交改动。" },
+          { type: "done", stop_reason: "end_turn" },
+        ]);
+      },
+    };
+
+    const output = await streamAgent(
+      "接下来做什么",
+      {
+        adapter,
+        model: "claude-sonnet-4-6",
+        tools: [
+          {
+            name: "list_dir",
+            description: "list files",
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+        onToolCall: () => "files",
+      },
+      () => {},
+    );
+
+    expect(requests).toHaveLength(2);
+    expect(requests[1]!.some((m) => m.role === "tool" && m.content === "files")).toBe(true);
+    expect(output).toContain("当前状态清楚");
+  });
+
+  it("does not stop after ten consecutive tool turns by default", async () => {
+    const requests: Message[][] = [];
+    let call = 0;
+    const adapter: LLMAdapter = {
+      complete: vi.fn(),
+      stream: (request) => {
+        requests.push([...request.messages]);
+        call++;
+        if (call <= 11) {
+          return events([
+            {
+              type: "tool_call",
+              id: `tool-${call}`,
+              name: "lookup",
+              arguments: JSON.stringify({ n: call }),
+            },
+            { type: "done", stop_reason: "tool_use" },
+          ]);
+        }
+        return events([
+          { type: "text", text: "已经完成连续检查。" },
+          { type: "done", stop_reason: "end_turn" },
+        ]);
+      },
+    };
+
+    const output = await streamAgent(
+      "连续检查",
+      {
+        adapter,
+        model: "claude-sonnet-4-6",
+        tools: [
+          {
+            name: "lookup",
+            description: "lookup",
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+        onToolCall: () => "ok",
+      },
+      () => {},
+    );
+
+    expect(requests).toHaveLength(12);
+    expect(output).toBe("已经完成连续检查。");
+  });
+
+  it("stops when no tool calls are present even if stop_reason is tool_use", async () => {
+    const requests: Message[][] = [];
+    const adapter: LLMAdapter = {
+      complete: vi.fn(),
+      stream: (request) => {
+        requests.push([...request.messages]);
+        return events([
+          { type: "text", text: "没有工具调用，直接结束。" },
+          { type: "done", stop_reason: "tool_use" },
+        ]);
+      },
+    };
+
+    const output = await streamAgent(
+      "检查状态",
+      {
+        adapter,
+        model: "claude-sonnet-4-6",
+        tools: [
+          {
+            name: "list_dir",
+            description: "list files",
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+        onToolCall: () => "should not run",
+      },
+      () => {},
+    );
+
+    expect(requests).toHaveLength(1);
+    expect(output).toContain("没有工具调用");
+  });
+
+  it("continues once when a tool result is followed by an empty assistant response", async () => {
+    const requests: Message[][] = [];
+    let call = 0;
+    const adapter: LLMAdapter = {
+      complete: vi.fn(),
+      stream: (request) => {
+        requests.push([...request.messages]);
+        call++;
+        if (call === 1) {
+          return events([
+            {
+              type: "tool_call",
+              id: "tool-1",
+              name: "read_file",
+              arguments: JSON.stringify({ path: "../docs/roadmap.md" }),
+            },
+            { type: "done", stop_reason: "tool_use" },
+          ]);
+        }
+        if (call === 2) {
+          return events([
+            { type: "done", stop_reason: "end_turn" },
+          ]);
+        }
+        return events([
+          { type: "text", text: "路径读取失败，需要改用正确路径继续检查。" },
+          { type: "done", stop_reason: "end_turn" },
+        ]);
+      },
+    };
+
+    const output = await streamAgent(
+      "查看 roadmap",
+      {
+        adapter,
+        model: "claude-sonnet-4-6",
+        tools: [
+          {
+            name: "read_file",
+            description: "read file",
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+        onToolCall: () => "NOT_FOUND\nFile not found: ../docs/roadmap.md",
+      },
+      () => {},
+    );
+
+    expect(requests).toHaveLength(3);
+    expect(requests[2]!.at(-1)).toMatchObject({
+      role: "user",
+      content: expect.stringContaining("last response was empty"),
+    });
+    expect(output).toContain("路径读取失败");
+  });
+
+  it("runs a focused subagent with inherited non-agent tools", async () => {
+    const seenToolCalls: string[] = [];
+    let call = 0;
+    const adapter: LLMAdapter = {
+      complete: vi.fn(),
+      stream: () => {
+        call++;
+        if (call === 1) {
+          return events([
+            {
+              type: "tool_call",
+              id: "tool-1",
+              name: "lookup",
+              arguments: JSON.stringify({ q: "status" }),
+            },
+            { type: "done", stop_reason: "tool_use" },
+          ]);
+        }
+        return events([
+          { type: "text", text: "子任务完成。" },
+          { type: "done", stop_reason: "end_turn" },
+        ]);
+      },
+    };
+
+    const result = await runSubagentTool({
+      args: { task: "检查状态" },
+      adapter,
+      model: "claude-sonnet-4-6",
+      tools: [
+        {
+          name: "lookup",
+          description: "lookup",
+          parameters: { type: "object", properties: {} },
+        },
+        {
+          name: SUBAGENT_TOOL_NAME,
+          description: "agent",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+      onToolCall: (name) => {
+        seenToolCalls.push(name);
+        return "status ok";
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.content).toContain("Subagent (general-purpose) result");
+    expect(result.content).toContain("子任务完成");
+    expect(result.content).toContain("Tools used: lookup");
+    expect(seenToolCalls).toEqual(["lookup"]);
+  });
+
+  it("exposes Claude Code style agent tool parameters while keeping aliases", () => {
+    const properties = subagentToolSchema.parameters.properties ?? {};
+
+    expect(subagentToolSchema.name).toBe("agent");
+    expect(subagentToolSchema.parameters.required).toEqual(["prompt"]);
+    expect(Object.keys(properties)).toEqual(expect.arrayContaining([
+      "description",
+      "prompt",
+      "subagent_type",
+      "task",
+      "subagentType",
+      "allowedTools",
+      "maxTurns",
+      "isolation",
+    ]));
+    expect(properties.subagent_type).toMatchObject({
+      enum: expect.arrayContaining(["general-purpose", "explore", "plan"]),
+    });
+    expect(properties.isolation).toMatchObject({ enum: ["none", "try"] });
+  });
+
+  it("accepts Claude Code style subagent arguments and builds scoped child context", async () => {
+    const captured: Array<{ system?: string; prompt: string; toolNames: string[] }> = [];
+    const adapter: LLMAdapter = {
+      complete: vi.fn(),
+      stream: (request) => {
+        captured.push({
+          system: request.system,
+          prompt: String(request.messages.at(-1)?.content ?? ""),
+          toolNames: request.tools?.map((tool) => tool.name) ?? [],
+        });
+        return events([
+          { type: "text", text: "探索完成。" },
+          { type: "done", stop_reason: "end_turn" },
+        ]);
+      },
+    };
+
+    const result = await runSubagentTool({
+      args: {
+        description: "scan auth",
+        prompt: "检查认证相关文件",
+        context: "只看 packages/core",
+        subagent_type: "Explore",
+        allowedTools: ["read_file", "bash"],
+      },
+      adapter,
+      model: "claude-sonnet-4-6",
+      tools: [
+        {
+          name: "read_file",
+          description: "read",
+          parameters: { type: "object", properties: {} },
+        },
+        {
+          name: "bash",
+          description: "bash",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+      onToolCall: () => "should not run",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.content).toContain("Subagent (explore) result");
+    expect(captured[0]!.toolNames).toEqual(["read_file"]);
+    expect(captured[0]!.prompt).toContain("Description:\nscan auth");
+    expect(captured[0]!.prompt).toContain("Task:\n检查认证相关文件");
+    expect(captured[0]!.prompt).toContain("Context:\n只看 packages/core");
+    expect(captured[0]!.system).toContain("read-only exploration subagent");
+    expect(captured[0]!.system).toContain("Vera subagent running inside a parent agent turn");
+  });
+
+  it("runs a subagent in a try worktree when requested", async () => {
+    const tempHome = mkdtempSync(join(tmpdir(), "vera-subagent-home-"));
+    const repo = mkdtempSync(join(tmpdir(), "vera-subagent-repo-"));
+    const originalVeraHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = tempHome;
+    try {
+      git(repo, ["init"]);
+      git(repo, ["config", "user.email", "test@example.com"]);
+      git(repo, ["config", "user.name", "Test User"]);
+      writeFileSync(join(repo, "README.md"), "hello\n");
+      git(repo, ["add", "README.md"]);
+      git(repo, ["commit", "-m", "initial"]);
+
+      let call = 0;
+      const adapter: LLMAdapter = {
+        complete: vi.fn(),
+        stream: () => {
+          call++;
+          if (call === 1) {
+            return events([
+              {
+                type: "tool_call",
+                id: "tool-1",
+                name: "write_marker",
+                arguments: JSON.stringify({ file: "MARKER.txt" }),
+              },
+              { type: "done", stop_reason: "tool_use" },
+            ]);
+          }
+          return events([
+            { type: "text", text: "isolated work done" },
+            { type: "done", stop_reason: "end_turn" },
+          ]);
+        },
+      };
+      const parent = new SessionStore({ cwd: repo });
+      parent.writeStart("claude-sonnet-4-6", "anthropic");
+      let isolatedCwd = "";
+      let isolatedSessionId = "";
+
+      const result = await runSubagentTool({
+        args: { prompt: "修改文件", isolation: "try" },
+        adapter,
+        model: "claude-sonnet-4-6",
+        tools: [
+          {
+            name: "write_marker",
+            description: "write marker",
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+        cwd: repo,
+        provider: "anthropic",
+        parentSessionId: parent.sessionId,
+        onToolCall: () => "should not use parent cwd",
+        createToolHandlerForCwd: ({ cwd, sessionStore }) => {
+          isolatedCwd = cwd;
+          isolatedSessionId = sessionStore?.sessionId ?? "";
+          return (_name, args) => {
+            writeFileSync(join(cwd, String(args.file)), "from isolated subagent\n");
+            return "written";
+          };
+        },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.content).toContain("Isolation: try worktree");
+      expect(result.content).toContain(`Transcript: ${isolatedSessionId}`);
+      expect(isolatedCwd).toContain(join(repo, ".vera", "worktrees"));
+      expect(existsSync(join(isolatedCwd, "MARKER.txt"))).toBe(true);
+      expect(existsSync(join(repo, "MARKER.txt"))).toBe(false);
+
+      const summary = SessionStore.listSessions(repo).find((session) => session.sessionId === isolatedSessionId);
+      expect(summary?.branch?.parentSessionId).toBe(parent.sessionId);
+      expect(summary?.branch?.worktreePath).toBe(isolatedCwd);
+      expect(summary?.branch?.baseCommit).toBeTruthy();
+    } finally {
+      process.env.VERA_HOME = originalVeraHome;
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps legacy subagent argument aliases compatible", async () => {
+    const adapter: LLMAdapter = {
+      complete: vi.fn(),
+      stream: () => events([
+        { type: "text", text: "旧参数仍可用。" },
+        { type: "done", stop_reason: "end_turn" },
+      ]),
+    };
+
+    const result = await runSubagentTool({
+      args: { task: "检查状态", subagentType: "general" },
+      adapter,
+      model: "claude-sonnet-4-6",
+      tools: [],
+      onToolCall: () => "should not run",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.content).toContain("Subagent (general-purpose) result");
+    expect(result.content).toContain("旧参数仍可用");
+  });
+
+  it("returns clear validation errors for missing prompt and unknown agent type", async () => {
+    const adapter: LLMAdapter = {
+      complete: vi.fn(),
+      stream: () => events([
+        { type: "text", text: "should not run" },
+        { type: "done", stop_reason: "end_turn" },
+      ]),
+    };
+    const baseOptions = {
+      adapter,
+      model: "claude-sonnet-4-6",
+      tools: [],
+      onToolCall: () => "should not run",
+    };
+
+    await expect(runSubagentTool({ ...baseOptions, args: {} })).resolves.toEqual({
+      ok: false,
+      content: "agent requires a non-empty prompt string.",
+    });
+    await expect(runSubagentTool({
+      ...baseOptions,
+      args: { prompt: "检查", subagent_type: "missing-agent" },
+    })).resolves.toEqual({
+      ok: false,
+      content: 'Unknown subagent_type "missing-agent".',
+    });
+    await expect(runSubagentTool({
+      ...baseOptions,
+      args: { prompt: "检查", isolation: "remote" },
+    })).resolves.toEqual({
+      ok: false,
+      content: 'Unknown subagent isolation "remote".',
+    });
+    await expect(runSubagentTool({
+      ...baseOptions,
+      args: { prompt: "检查", isolation: "try" },
+    })).resolves.toEqual({
+      ok: false,
+      content: "agent isolation 'try' requires a cwd.",
+    });
+  });
+
+  it("honors subagent maxTurns override before continuing a tool loop", async () => {
+    const seenToolCalls: string[] = [];
+    let call = 0;
+    const adapter: LLMAdapter = {
+      complete: vi.fn(),
+      stream: () => {
+        call++;
+        return events([
+          {
+            type: "tool_call",
+            id: `tool-${call}`,
+            name: "lookup",
+            arguments: JSON.stringify({ call }),
+          },
+          { type: "done", stop_reason: "tool_use" },
+        ]);
+      },
+    };
+
+    const result = await runSubagentTool({
+      args: { prompt: "只允许一轮", maxTurns: 1 },
+      adapter,
+      model: "claude-sonnet-4-6",
+      tools: [
+        {
+          name: "lookup",
+          description: "lookup",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+      onToolCall: (name) => {
+        seenToolCalls.push(name);
+        return "ok";
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(call).toBe(1);
+    expect(seenToolCalls).toEqual(["lookup"]);
+    expect(result.content).toContain("(no final text)");
+    expect(result.content).toContain("Tools used: lookup");
+  });
+
+  it("loads custom subagents from user and project agent directories with project override", () => {
+    withTempDir((root) => {
+      const home = join(root, "home");
+      const cwd = join(root, "repo");
+      writeAgent(home, ".vera/agents/reviewer.md", [
+        "---",
+        "description: User reviewer",
+        "tools: read_file, grep",
+        "maxTurns: 7",
+        "---",
+        "Use the user reviewer prompt.",
+      ].join("\n"));
+      writeAgent(cwd, ".vera/agents/reviewer.md", [
+        "---",
+        "description: Project reviewer",
+        "tools: read_file",
+        "disallowedTools: grep",
+        "permissionMode: readonly",
+        "maxTurns: 3",
+        "---",
+        "Use the project reviewer prompt.",
+      ].join("\n"));
+      writeAgent(cwd, ".vera/agents/debugger.md", [
+        "---",
+        "name: custom_debugger",
+        "description: Project debugger",
+        "tools: '*'",
+        "---",
+        "Debug project failures.",
+      ].join("\n"));
+
+      const definitions = loadAgentDefinitions({ cwd, homeDir: home });
+      const reviewer = definitions.find((agent) => agent.agentType === "reviewer");
+      const debuggerAgent = definitions.find((agent) => agent.agentType === "custom_debugger");
+
+      expect(reviewer).toMatchObject({
+        source: "project",
+        description: "Project reviewer",
+        tools: ["read_file"],
+        disallowedTools: ["grep"],
+        permissionMode: "readonly",
+        maxTurns: 3,
+        systemPrompt: "Use the project reviewer prompt.",
+      });
+      expect(debuggerAgent).toMatchObject({
+        source: "project",
+        agentType: "custom_debugger",
+        tools: "*",
+      });
+      expect(definitions.some((agent) => agent.agentType === "general-purpose")).toBe(true);
+    });
+  });
+
+  it("parses custom agent frontmatter aliases and can skip user agents", () => {
+    withTempDir((root) => {
+      const home = join(root, "home");
+      const cwd = join(root, "repo");
+      writeAgent(home, ".vera/agents/user-only.md", "User scoped agent");
+      writeAgent(cwd, ".vera/agents/ignored-empty.md", [
+        "---",
+        "description: ignored",
+        "---",
+        "   ",
+      ].join("\n"));
+      writeAgent(cwd, ".vera/agents/security.md", [
+        "---",
+        "agent_type: security-review",
+        "whenToUse: Review security-sensitive changes",
+        "tools: [read_file, grep, bash]",
+        "disallowed_tools: [bash]",
+        "permission_mode: readonly",
+        "max_turns: 6",
+        "---",
+        "Review for auth and secret handling issues.",
+      ].join("\n"));
+
+      const definitions = loadAgentDefinitions({ cwd, homeDir: home, includeUser: false });
+      const security = definitions.find((agent) => agent.agentType === "security-review");
+
+      expect(definitions.some((agent) => agent.agentType === "user-only")).toBe(false);
+      expect(definitions.some((agent) => agent.agentType === "ignored-empty")).toBe(false);
+      expect(security).toMatchObject({
+        description: "Review security-sensitive changes",
+        tools: ["read_file", "grep", "bash"],
+        disallowedTools: ["bash"],
+        permissionMode: "readonly",
+        maxTurns: 6,
+        source: "project",
+      });
+    });
+  });
+
+  it("builds the agent tool schema with custom subagent types", () => {
+    const schema = buildSubagentToolSchema([
+      {
+        agentType: "reviewer",
+        description: "Review code",
+        systemPrompt: "review",
+        tools: ["read_file"],
+        permissionMode: "readonly",
+      },
+    ]);
+
+    expect(schema.parameters.properties.subagent_type).toMatchObject({
+      enum: ["reviewer"],
+    });
+    expect(schema.parameters.properties.subagentType).toMatchObject({
+      enum: ["reviewer"],
+    });
+    expect(subagentToolSchema.parameters.properties.subagent_type).toMatchObject({
+      enum: expect.arrayContaining(["general-purpose", "explore", "plan"]),
+    });
+  });
+
+  it("runs a custom subagent definition and enforces readonly permission mode", async () => {
+    const captured: Array<{ system?: string; toolNames: string[] }> = [];
+    const adapter: LLMAdapter = {
+      complete: vi.fn(),
+      stream: (request) => {
+        captured.push({
+          system: request.system,
+          toolNames: request.tools?.map((tool) => tool.name) ?? [],
+        });
+        return events([
+          { type: "text", text: "自定义 agent 完成。" },
+          { type: "done", stop_reason: "end_turn" },
+        ]);
+      },
+    };
+
+    const result = await runSubagentTool({
+      args: { prompt: "审查代码", subagent_type: "reviewer" },
+      adapter,
+      model: "claude-sonnet-4-6",
+      tools: [
+        {
+          name: "read_file",
+          description: "read",
+          parameters: { type: "object", properties: {} },
+        },
+        {
+          name: "bash",
+          description: "bash",
+          parameters: { type: "object", properties: {} },
+        },
+        {
+          name: "write_file",
+          description: "write",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+      definitions: [
+        {
+          agentType: "reviewer",
+          description: "Review code",
+          systemPrompt: "You are the project reviewer.",
+          tools: "*",
+          permissionMode: "readonly",
+        },
+      ],
+      onToolCall: () => "should not run",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.content).toContain("Subagent (reviewer) result");
+    expect(captured[0]!.toolNames).toEqual(["read_file"]);
+    expect(captured[0]!.system).toContain("You are the project reviewer.");
+  });
+
+  it("does not let allowedTools re-enable disallowed custom-agent tools", async () => {
+    const capturedToolNames: string[][] = [];
+    const adapter: LLMAdapter = {
+      complete: vi.fn(),
+      stream: (request) => {
+        capturedToolNames.push(request.tools?.map((tool) => tool.name) ?? []);
+        return events([
+          { type: "text", text: "done" },
+          { type: "done", stop_reason: "end_turn" },
+        ]);
+      },
+    };
+
+    const result = await runSubagentTool({
+      args: {
+        prompt: "检查",
+        subagent_type: "custom",
+        allowedTools: ["read_file", "bash"],
+      },
+      adapter,
+      model: "claude-sonnet-4-6",
+      tools: [
+        {
+          name: "read_file",
+          description: "read",
+          parameters: { type: "object", properties: {} },
+        },
+        {
+          name: "bash",
+          description: "bash",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+      definitions: [
+        {
+          agentType: "custom",
+          description: "custom",
+          systemPrompt: "custom prompt",
+          tools: "*",
+          disallowedTools: ["bash"],
+          permissionMode: "default",
+        },
+      ],
+      onToolCall: () => "should not run",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(capturedToolNames[0]).toEqual(["read_file"]);
+  });
+
+  it("applies built-in subagent tool policies", async () => {
+    const requestedTools: string[] = [];
+    let call = 0;
+    const adapter: LLMAdapter = {
+      complete: vi.fn(),
+      stream: () => {
+        call++;
+        if (call === 1) {
+          return events([
+            {
+              type: "tool_call",
+              id: "tool-1",
+              name: "bash",
+              arguments: JSON.stringify({ command: "git status" }),
+            },
+            { type: "done", stop_reason: "tool_use" },
+          ]);
+        }
+        return events([
+          { type: "text", text: "探索结束。" },
+          { type: "done", stop_reason: "end_turn" },
+        ]);
+      },
+    };
+
+    const result = await runSubagentTool({
+      args: { task: "只读探索", subagentType: "explore" },
+      adapter,
+      model: "claude-sonnet-4-6",
+      tools: [
+        {
+          name: "read_file",
+          description: "read",
+          parameters: { type: "object", properties: {} },
+        },
+        {
+          name: "bash",
+          description: "bash",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+      onToolCall: (name) => {
+        requestedTools.push(name);
+        return "should not run";
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.content).toContain("Subagent (explore) result");
+    expect(requestedTools).toEqual([]);
   });
 });
