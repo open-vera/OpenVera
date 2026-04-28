@@ -1,0 +1,44 @@
+{
+  "providers": {
+    "anthropic": {
+      "adapter": "anthropic",
+      "api_key": "<your-anthropic-api-key>"
+    },
+    "openai": {
+      "adapter": "openai",
+      "api_key": "<your-openai-api-key>"
+    },
+    "gemini": {
+      "adapter": "gemini",
+      "api_key": "<your-gemini-api-key>"
+    },
+    "deepseek": {
+      "adapter": "openai",
+      "api_key": "<your-deepseek-api-key>",
+      "base_url": "https://api.deepseek.com/v1"
+    },
+    "groq": {
+      "adapter": "openai",
+      "api_key": "<your-groq-api-key>",
+      "base_url": "https://api.groq.com/openai/v1"
+    },
+    "azure": {
+      "adapter": "openai",
+      "api_key": "<your-azure-api-key>",
+      "base_url": "https://YOUR_RESOURCE.openai.azure.com/openai/deployments/YOUR_DEPLOYMENT"
+    }
+  },
+  "default_provider": "anthropic",
+  "default_model": "claude-sonnet-4-6",
+  "routing": {
+    "enabled": true,
+    "classifier": {
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001"
+    },
+    "l0": { "provider": "anthropic", "model": "claude-haiku-4-5-20251001" },
+    "l1": { "provider": "anthropic", "model": "claude-sonnet-4-6" },
+    "l2": { "provider": "anthropic", "model": "claude-sonnet-4-6" },
+    "l3": { "provider": "anthropic", "model": "claude-opus-4-6" }
+  }
+}
