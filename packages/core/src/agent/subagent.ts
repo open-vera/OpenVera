@@ -722,11 +722,14 @@ function normalizeAgentType(value: string): string {
   return normalized === "general" ? "general-purpose" : normalized;
 }
 
-function summarizeHistoryForResume(history: Array<{ role: string; content: string }>): string {
+function summarizeHistoryForResume(history: Array<{ role: string; content: string | unknown }>): string {
   const tail = history.slice(-12);
   if (tail.length === 0) return "(no prior messages)";
   return tail
-    .map((msg) => `${msg.role}: ${msg.content.replace(/\s+/g, " ").trim().slice(0, 280)}`)
+    .map((msg) => {
+      const contentStr = typeof msg.content === "string" ? msg.content : String(msg.content);
+      return `${msg.role}: ${contentStr.replace(/\s+/g, " ").trim().slice(0, 280)}`;
+    })
     .join("\n");
 }
 
