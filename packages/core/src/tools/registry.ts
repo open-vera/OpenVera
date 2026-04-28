@@ -15,6 +15,10 @@ export class ToolRegistry {
     this.tools.set(tool.name, tool);
   }
 
+  has(name: string): boolean {
+    return this.tools.has(name);
+  }
+
   use(hook: ToolLifecycleHook): void {
     this.hooks.push(hook);
   }

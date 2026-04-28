@@ -81,12 +81,17 @@ export function buildToolCallHandler(params: ToolCallHandlerParams) {
         : { ok: false, content: result.content, error: { code: "UNKNOWN", message: result.content, retryable: false } };
     }
 
+    const registry = ctxRef.current.registry;
+    // Registry tools must always go through registry.execute so security hooks
+    // (including needsConfirm) run. activeExecutors wraps registry tools via
+    // RegistryToolProvider but drops ToolResult metadata — skip it for known tools.
+    if (registry?.has(n)) return registry.execute(n, a, { cwd: ctxRef.current.cwd, sessionId: store.sessionId });
+
     if (activeExecutors?.has(n)) {
       const content = await activeExecutors.get(n)!(a);
       return { ok: true, content };
     }
 
-    const registry = ctxRef.current.registry;
     if (registry) return registry.execute(n, a, { cwd: ctxRef.current.cwd, sessionId: store.sessionId });
     return { ok: false, content: `Tool "${n}" is not implemented yet.`, error: { code: "UNKNOWN", message: `Tool "${n}" is not implemented yet.`, retryable: false } };
   };

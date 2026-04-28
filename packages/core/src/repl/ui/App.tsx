@@ -216,7 +216,12 @@ export function App({ ctx, resumeSessionId }: AppProps) {
       return;
     }
 
-    if (!line.startsWith("/")) {
+    // A slash command is /word — the token after / must not contain another /
+    // (file paths like /Users/foo/bar start with / but are not commands).
+    const firstToken = line.startsWith("/") ? (line.slice(1).split(/\s+/)[0] ?? "") : "";
+    const isSlashCommand = firstToken.length > 0 && !firstToken.includes("/");
+
+    if (!isSlashCommand) {
       setMessages((prev) => [...prev, { role: "user", content: line }]);
       inputHistoryRef.current = [...inputHistoryRef.current, line];
       isFollowingRef.current = true;
@@ -225,7 +230,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
 
     // ── Commands ──────────────────────────────────────────────────────────────
 
-    if (line.startsWith("/")) {
+    if (isSlashCommand) {
       const [cmd, ...args] = line.slice(1).split(/\s+/);
       if (cmd === "exit" || cmd === "quit") {
         ctxRef.current.sessionStore.writeEnd(
