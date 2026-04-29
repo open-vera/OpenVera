@@ -226,6 +226,8 @@ Critique 结果返回外部调用方，由调用方决定是否 replan；Harness
 
 **M2 修复**：`window.ts` `trimToWindow` 始终保留 `messages[0]`（原始任务定义），从第 2 条消息起才做丢弃。
 
+**M3 修复**：`bash.ts` 将 `spawnSync` 替换为异步 `spawn` + 流式输出收集。stdout/stderr 各自独立累积，任一超过 512KB 阈值时通过进程组 kill（`detached: true` + `process.kill(-pid)`）立即终止 shell 及其所有子进程。`truncateChars(80K)` 保留为最终安全网。超时和 AbortSignal 同样走进程组 kill。
+
 **M4 修复**：`compression.ts` 返回类型追加 `usage?: Usage`，捕获压缩 LLM 响应的 usage；`loop.ts` 两个主循环在压缩后立即调用 `onUsage(compressed.usage)`。
 
 ---
