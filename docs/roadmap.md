@@ -217,7 +217,7 @@ Critique 结果返回外部调用方，由调用方决定是否 replan；Harness
 |---|---|---|---|
 | M1 | ✅ 已修 | Token 估算粗糙（±10%，不计 role/tool_call 结构 overhead） | 压缩触发阈值不可靠 |
 | M2 | ✅ 已修 | Window trimming 无信号感知，丢失首条用户消息（原始任务定义） | 压缩后 agent 失去任务定义锚点 |
-| M3 | 待定 | Tool 结果在执行**后**才裁剪，大输出工具资源浪费 | bash 生成 GB 级输出仍完整运行 |
+| M3 | ✅ 已修 | Tool 结果在执行**后**才裁剪，大输出工具资源浪费 | bash 流式收集 + 512KB 阈值提前 kill 进程组 |
 | M4 | ✅ 已修 | 压缩本身的 LLM 调用成本未计入 cost tracking | 高频压缩场景成本失控 |
 | M5 | ✅ 已验 | AgentRunner 接口当前只有一个实现（过早抽象） | 已有 `external-cli-runner.ts`，多实现并存，抽象合理 |
 | M6 | ✅ 已修 | `planId: \`plan-${Date.now()}\`` 同毫秒可碰撞 | 测试并发场景下会失效 |
@@ -342,7 +342,7 @@ P1 的目标是让 Vera 从受控执行器，升级为能自己推进复杂 Flow
   - ✅ 已实现：子 agent worktree isolation 与 `/merge` branch 生命周期打通
   - ✅ 已实现：子 agent remote isolation（结果输出包含 `Isolation: remote:<location>`）
   - ✅ 已实现：多分支结果比较 UI（SessionPicker 分支比较面板，`b` 键开关）
-- 可靠性：🟡 部分完成（session 隔离测试已覆盖；权限/上下文/UI/子 agent 组合 smoke 尚未形成统一套件入口）
+- 可靠性：✅ 已完成（session 隔离测试已覆盖；权限/上下文/UI/子 agent 组合 smoke + REPL loop smoke 已统一到 `test:smoke:suite` 入口）
 - CLI 色彩主题：
   - ✅ 已实现：`repl/ui/theme.ts` — 统一语义 token（brand / success / error / warning / suggestion / diff 系列）
   - ✅ 已实现：所有 UI 组件（StatusBar、ConversationPanel、DiffView、ToolResultView、InputBar、WelcomeScreen、App 等）改用 `theme.*`，不再散落 inline 颜色字面量

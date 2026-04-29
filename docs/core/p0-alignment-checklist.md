@@ -66,14 +66,16 @@
 
 - [x] session 隔离相关测试（临时 cwd/worktree）
   - 测试：`packages/core/tests/session.test.ts`、`packages/core/tests/repl-workspace.test.ts`、`packages/core/tests/merge-command.test.ts`
-- [~] 权限/上下文/UI/子 agent 组合 smoke（部分覆盖，未形成统一 smoke 套件入口）
+- [x] 权限/上下文/UI/子 agent 组合 smoke（统一 smoke 套件入口）
   - 已有：`intent-tool-runtime.test.ts`、`project-context.test.ts`、`agent-context.test.ts`
-  - 缺口：端到端组合 smoke 编排（单入口）
+  - 组合 smoke：`p0-alignment-smoke.test.ts`（权限确认 + 作用域上下文 + 子 agent try + merge）
+  - REPL loop smoke：`repl-loop-smoke.test.ts`（工具循环空回复恢复、重试耗尽退出）
+  - 统一入口：`pnpm --filter @open-vera/core run test:smoke:suite`
 
 ---
 
 ## 汇总
 
-- 已完成：21
-- 部分完成：1
+- 已完成：22
+- 部分完成：0
 - 未完成：0

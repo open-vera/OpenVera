@@ -34,6 +34,7 @@
     "release": "pnpm build && pnpm publish --no-git-checks",
     "test": "vitest run",
     "test:smoke": "vitest run tests/p0-alignment-smoke.test.ts",
+    "test:smoke:suite": "vitest run tests/p0-alignment-smoke.test.ts tests/repl-loop-smoke.test.ts",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },

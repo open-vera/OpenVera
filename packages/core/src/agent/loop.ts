@@ -428,7 +428,6 @@ export async function runAgent(
         ) {
           messages.push({ role: "user", content: EMPTY_AFTER_TOOL_RESULT_PROMPT });
           emptyAfterToolRetries++;
-          lastTurnHadToolResults = false;
           options.onContextUpdate?.(messages, { compressionState, microCompactState });
           continue;
         }
@@ -636,7 +635,6 @@ export async function streamAgent(
         ) {
           messages.push({ role: "user", content: EMPTY_AFTER_TOOL_RESULT_PROMPT });
           emptyAfterToolRetries++;
-          lastTurnHadToolResults = false;
           options.onContextUpdate?.(messages, { compressionState, microCompactState });
           continue;
         }

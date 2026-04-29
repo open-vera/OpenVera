@@ -38,7 +38,7 @@
 - session 测试使用隔离临时 cwd，避免本地历史污染
 - 覆盖权限确认、bash 风险确认、子 agent tool policy
 - 覆盖 nested project context 与规则优先级
-- 增加 REPL smoke 级测试入口，验证工具循环不会静默停在空 assistant
+- ✅ 增加 REPL smoke 级测试入口，验证工具循环不会静默停在空 assistant（`repl-loop-smoke.test.ts`）
 
 ### 5. 子 agent 远程隔离（Remote Isolation）
 
