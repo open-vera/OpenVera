@@ -209,7 +209,7 @@ Ink TUI / OpenTUI TUI / Web UI / Desktop Client
 - `state/queueState.ts`、`state/reverseSearch.ts`、`state/externalEditor.ts`：pending queue、reverse search、external editor roundtrip 的纯状态/协议层已建立；reverse search、path completion、external editor trigger 已接入 `InputBar`。
 - `controller/pathCompletion.ts`：已接入受限深度/数量的文件系统候选扫描，忽略 `.git`、`node_modules`、构建产物等高成本目录，并通过挂载后懒调度向 `WelcomeScreen`/主输入栏提供真实 path candidates，避免首帧 render 同步扫目录。
 - `controller/externalEditorRuntime.ts`：已接入 `$VISUAL`/`$EDITOR` 临时文件 roundtrip，`Ctrl+X` 可打开外部编辑器并把结果回写 composer。
-- `controller/useReplController.ts`：已建立聚合 view model、overlay、queue 的 controller 壳层，并暴露 queue enqueue/prepend/dequeue/update/remove/clear。
+- `controller/useReplController.ts`：已建立聚合 view model、overlay、queue 的 controller 壳层，并暴露 queue enqueue/prepend/dequeue/update/remove/clear；queue controller 已使用内部同步状态，避免依赖 React state updater 返回值处理 dequeue。
 - `hooks/usePlanRunner.ts`：plan step text flush 调度已可注入，便于后续统一 streaming/plan 的高频 UI 更新调度。
 - `/queue` UI command：已支持 `/queue`、`/queue drop <n>`、`/queue edit <n> <new input>`、`/queue clear`，pending queue 显示编号，便于流式期间管理排队输入。
 - 已补充 TUI/REPL 相关单测：event projector、turn store、activity lane、blocking prompt、overlay store、composer state、input keys、slash commands、command capture、error formatting、turn context、turn context runtime、turn setup、turn lifecycle、turn runner、routing、session title、turn persistence、turn usage、runtime bridge、tool projection、transcript layout、queue state、reverse search、external editor、path completion、command metadata。

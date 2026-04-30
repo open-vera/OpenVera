@@ -7,6 +7,7 @@ import {
   removeQueuedInput,
   updateQueuedInput,
 } from "../src/repl/ui/state/queueState.js";
+import { createQueueController } from "../src/repl/ui/controller/useReplController.js";
 
 describe("queueState", () => {
   it("enqueues trimmed non-empty input", () => {
@@ -27,5 +28,19 @@ describe("queueState", () => {
     expect(updateQueuedInput(queued, 1, " updated ")).toEqual({ items: ["one", "updated"] });
     expect(updateQueuedInput(queued, 0, " ")).toEqual({ items: ["two"] });
     expect(removeQueuedInput(queued, 0)).toEqual({ items: ["two"] });
+  });
+
+  it("controller dequeue returns synchronously from its internal queue state", () => {
+    const controller = createQueueController();
+
+    controller.enqueue("one");
+    controller.enqueue("two");
+
+    expect(controller.dequeue()).toEqual({ state: { items: ["two"] }, next: "one" });
+    expect(controller.getState()).toEqual({ items: ["two"] });
+    expect(controller.prepend("zero")).toEqual({ items: ["zero", "two"] });
+    expect(controller.updateQueued(1, "updated")).toEqual({ items: ["zero", "updated"] });
+    expect(controller.removeQueued(0)).toEqual({ items: ["updated"] });
+    expect(controller.clearQueue()).toEqual({ items: [] });
   });
 });
