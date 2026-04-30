@@ -199,7 +199,7 @@ Ink TUI / OpenTUI TUI / Web UI / Desktop Client
 - `state/composerState.ts`：`InputBar` 的 grapheme 光标、word 移动、history、slash completion、Ctrl 快捷键、submit/cancel/scroll effects、基础 multiline/paste、path completion 算法已进入纯状态机。
 - `inputKeys.ts`：`InputBar` 和 `SessionPicker` 已共享 raw terminal input parser。
 - `commands/metadata.ts`：slash command 元数据已独立，completion 和 App command 分发表面可共享。
-- `controller/slashCommands.ts`、`controller/commandCapture.ts`、`controller/errorFormatting.ts`、`controller/turnContext.ts`、`controller/turnContextRuntime.ts`、`controller/turnSetup.ts`、`controller/runtimeBridge.ts`：App 中的 slash command、runtime command capture、错误格式化、memory/project context 准备、memory/context options、turn tool/system setup、stream/plan runtime bridge 已拆成可测试 helper。
+- `controller/slashCommands.ts`、`controller/commandSubmission.ts`、`controller/commandCapture.ts`、`controller/errorFormatting.ts`、`controller/turnContext.ts`、`controller/turnContextRuntime.ts`、`controller/turnSetup.ts`、`controller/runtimeBridge.ts`：App 中的 slash command parsing/submission、runtime command capture、错误格式化、memory/project context 准备、memory/context options、turn tool/system setup、stream/plan runtime bridge 已拆成可测试 helper。
 - `controller/routing.ts`：routing/classifier provider/model 选择、classifier usage 回调、失败 fallback 已从 `App.tsx` 抽成 controller helper。
 - `controller/sessionTitle.ts`、`controller/turnPersistence.ts`、`controller/turnUsage.ts`：AI title 状态机、assistant turn/session end 持久化、turn usage 累加已从 `App.tsx` 抽成可测试 helper。
 - `controller/turnLifecycle.ts`：routing fallback UI、plan placeholder、plan summary、plan error/abort message reduction 已从 `App.tsx` 抽成纯 helper。
@@ -212,10 +212,10 @@ Ink TUI / OpenTUI TUI / Web UI / Desktop Client
 - `controller/useReplController.ts`：已建立聚合 view model、overlay、queue 的 controller 壳层，并暴露 queue enqueue/prepend/dequeue/update/remove/clear；queue controller 已使用内部同步状态，避免依赖 React state updater 返回值处理 dequeue。
 - `hooks/usePlanRunner.ts`：plan step text flush 调度已可注入，便于后续统一 streaming/plan 的高频 UI 更新调度。
 - `/queue` UI command：已支持 `/queue`、`/queue drop <n>`、`/queue edit <n> <new input>`、`/queue clear`，pending queue 显示编号，便于流式期间管理排队输入。
-- 已补充 TUI/REPL 相关单测：event projector、turn store、activity lane、blocking prompt、overlay store、composer state、input keys、slash commands、command capture、error formatting、turn context、turn context runtime、turn setup、turn lifecycle、turn runner、routing、session title、turn persistence、turn usage、runtime bridge、tool projection、transcript layout、queue state、reverse search、external editor、path completion、command metadata。
+- 已补充 TUI/REPL 相关单测：event projector、turn store、activity lane、blocking prompt、overlay store、composer state、input keys、slash commands、command submission、command capture、error formatting、turn context、turn context runtime、turn setup、turn lifecycle、turn runner、routing、session title、turn persistence、turn usage、runtime bridge、tool projection、transcript layout、queue state、reverse search、external editor、path completion、command metadata。
 
 仍未完成：
 
-- `App.tsx` 尚未完全切到 `useReplController`，仍直接编排 submit command flow、routing/context/tool setup wiring 和部分 session lifecycle。
+- `App.tsx` 尚未完全切到 `useReplController`，仍直接编排 routing/context/tool setup wiring 和部分 session lifecycle。
 - composer 仍是单行显示模型叠加换行符展示，尚未实现完整 textarea、多行光标定位和选择区域。
 - transcript 还缺 ANSI/markdown/diff snapshot render tests，以及更完整的虚拟化策略。

@@ -26,14 +26,8 @@ import { WelcomeScreen } from "./WelcomeScreen.js";
 import type { RoutingInfo } from "./types.js";
 import { theme } from "./theme.js";
 import { useReplController } from "./controller/useReplController.js";
-import {
-  formatStatusMessage,
-  handleQueueCommand,
-  isProcessCommand,
-  isUiCommand,
-  parseSlashCommand,
-} from "./controller/slashCommands.js";
-import { captureCommandOutput } from "./controller/commandCapture.js";
+import { parseSlashCommand } from "./controller/slashCommands.js";
+import { handleSlashCommandSubmission } from "./controller/commandSubmission.js";
 import { formatRuntimeError } from "./controller/errorFormatting.js";
 import { runExternalEditorRuntime } from "./controller/externalEditorRuntime.js";
 import { schedulePathCandidateRefresh } from "./controller/pathCompletion.js";
@@ -44,7 +38,6 @@ import { prepareTurnContext } from "./controller/turnContextRuntime.js";
 import { normalizePromptIntent, prepareTurnSetup } from "./controller/turnSetup.js";
 import { resolveTurnRouting } from "./controller/routing.js";
 import {
-  markCustomTitle,
   maybeGenerateAiTitle,
   type AiTitleState,
 } from "./controller/sessionTitle.js";
@@ -184,48 +177,27 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     // ── Commands ──────────────────────────────────────────────────────────────
 
     if (slashCommand) {
-      const { cmd, args } = slashCommand;
-      if (isProcessCommand(cmd)) {
-        ctxRef.current.sessionStore.writeEnd(
-          costRef.current.totalUsage, costRef.current.totalUsd,
-          turnCountRef.current, inputHistoryRef.current.at(-1),
-        );
-        exit();
-        return;
-      }
-      if (isUiCommand(cmd, "diff")) {
-        dispatchOverlay({ type: "open.diff" });
-        return;
-      }
-      if (cmd === "title") { markCustomTitle(aiTitleStateRef.current); }
-
-      setMessages((prev) => [...prev, { role: "user", content: line }]);
-      if (isUiCommand(cmd, "status")) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: formatStatusMessage(
-              routing,
-              usage,
-              latestInputTokensRef.current,
-              turnCountRef.current,
-              costRef.current,
-            ),
-          },
-        ]);
-        return;
-      }
-      if (isUiCommand(cmd, "queue")) {
-        const result = handleQueueCommand(args, queue.items);
-        if (result.type === "clear") clearQueue();
-        if (result.type === "remove") removeQueued(result.index);
-        if (result.type === "update") updateQueued(result.index, result.input);
-        setMessages((prev) => [...prev, { role: "assistant", content: result.content }]);
-        return;
-      }
-      const output = await captureCommandOutput(cmd, args, ctxRef.current);
-      setMessages((prev) => [...prev, { role: "assistant", content: output }]);
+      await handleSlashCommandSubmission({
+        line,
+        slashCommand,
+        ctx: ctxRef.current,
+        routing,
+        usage,
+        latestInputTokens: latestInputTokensRef.current,
+        turnCount: turnCountRef.current,
+        cost: costRef.current,
+        lastInput: inputHistoryRef.current.at(-1),
+        aiTitleState: aiTitleStateRef.current,
+        queue: {
+          items: queue.items,
+          clearQueue,
+          removeQueued,
+          updateQueued,
+        },
+        setMessages,
+        dispatchOverlay,
+        exit,
+      });
       return;
     }
 
