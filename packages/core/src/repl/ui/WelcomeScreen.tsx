@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import figlet from "figlet";
 import type { RoutingInfo } from "./types.js";
 import { InputBar } from "./InputBar.js";
+import type { ExternalEditorResult } from "./state/externalEditor.js";
 import { theme } from "./theme.js";
 
 // Generated once at module load — figlet handles all alignment automatically
@@ -68,6 +69,8 @@ interface WelcomeScreenProps {
   onSubmit: (line: string) => void;
   onExit: () => void;
   showInput?: boolean;
+  pathCandidates?: string[];
+  onOpenExternalEditor?: (request: { initialValue: string; cursor: number }) => void | Promise<ExternalEditorResult | null>;
 }
 
 export function WelcomeScreen({
@@ -79,6 +82,8 @@ export function WelcomeScreen({
   onSubmit,
   onExit,
   showInput = true,
+  pathCandidates,
+  onOpenExternalEditor,
 }: WelcomeScreenProps) {
   const workingDir = "~" + cwd.replace(process.env.HOME ?? "", "");
   const tip = useMemo(() => TIPS[Math.floor(Math.random() * TIPS.length)] ?? TIPS[0], []);
@@ -135,6 +140,8 @@ export function WelcomeScreen({
           onChange={onChange}
           onSubmit={onSubmit}
           onExit={onExit}
+          pathCandidates={pathCandidates}
+          onOpenExternalEditor={onOpenExternalEditor}
         />
       )}
     </Box>

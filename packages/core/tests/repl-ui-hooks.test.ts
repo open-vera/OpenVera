@@ -8,6 +8,7 @@ describe("usePlanRunner", () => {
   describe("buildPlanEventHandler", () => {
     let setMessages: ReturnType<typeof vi.fn>;
     let setStreamStatus: ReturnType<typeof vi.fn>;
+    let dispatchUiEvent: ReturnType<typeof vi.fn>;
     let planStepsRef: MutableRefObject<PlanStepUI[]>;
     let planStepTextRef: MutableRefObject<string>;
     let planRafRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
@@ -22,6 +23,7 @@ describe("usePlanRunner", () => {
       });
 
       setStreamStatus = vi.fn();
+      dispatchUiEvent = vi.fn();
 
       planStepsRef = { current: [] };
       planStepTextRef = { current: "" };
@@ -31,7 +33,7 @@ describe("usePlanRunner", () => {
     it("handles plan_ready event by initializing steps", () => {
       const handler = buildPlanEventHandler({
         setMessages,
-        setStreamStatus,
+        dispatchUiEvent,
         planStepsRef,
         planStepTextRef,
         planRafRef,
@@ -51,7 +53,7 @@ describe("usePlanRunner", () => {
       expect(planStepsRef.current[0]?.id).toBe("1");
       expect(planStepsRef.current[0]?.description).toBe("First step");
       expect(planStepsRef.current[0]?.status).toBe("pending");
-      expect(setStreamStatus).toHaveBeenCalledWith("streaming");
+      expect(dispatchUiEvent).toHaveBeenCalledWith({ type: "status.changed", status: "streaming" });
     });
 
     it("preserves done steps when ready is called again", () => {
@@ -126,6 +128,35 @@ describe("usePlanRunner", () => {
       expect(planStepTextRef.current).toBe("Hello World");
       // RAF timer should be set
       expect(planRafRef.current).not.toBeNull();
+    });
+
+    it("uses injected frame scheduler for step text flushes", () => {
+      const scheduled: Array<() => void> = [];
+      const cancelFrame = vi.fn();
+      planStepsRef.current = [
+        { id: "1", description: "First", status: "running", content: "", toolUses: [] },
+      ];
+
+      const handler = buildPlanEventHandler({
+        setMessages,
+        setStreamStatus,
+        planStepsRef,
+        planStepTextRef,
+        planRafRef,
+        scheduleFrame: (fn) => {
+          scheduled.push(fn);
+          return 7 as unknown as ReturnType<typeof setTimeout>;
+        },
+        cancelFrame,
+      });
+
+      handler({ type: "step_text", delta: "Hello" });
+      expect(planRafRef.current).toBe(7);
+      expect(scheduled).toHaveLength(1);
+
+      handler({ type: "step_done", stepIndex: 0 });
+      expect(cancelFrame).toHaveBeenCalledWith(7);
+      expect(planRafRef.current).toBeNull();
     });
 
     it("handles step_tool event", () => {

@@ -35,7 +35,7 @@ export interface SessionLifecycleProps {
   inputHistoryRef: MutableRefObject<string[]>;
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   setUsage: React.Dispatch<React.SetStateAction<TokenUsage>>;
-  setSessionPickerOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  setSessionPickerOpen: (open: boolean) => void;
 }
 
 export function useSessionLifecycle(props: SessionLifecycleProps): void {

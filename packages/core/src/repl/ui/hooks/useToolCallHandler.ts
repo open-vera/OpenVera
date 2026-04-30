@@ -15,7 +15,8 @@ import {
   type AskUserQuestionArgs,
   type QuestionAnswers,
 } from "../../../tools/ask-user-question.js";
-import type { AskUserQuestionState } from "../AskUserQuestion/index.js";
+import type { BlockingPrompt } from "../state/blockingPrompt.js";
+import { pathApprovalPrompt, questionPrompt } from "../state/blockingPrompt.js";
 
 export interface ToolCallHandlerParams {
   ctxRef: MutableRefObject<ReplContext>;
@@ -32,12 +33,7 @@ export interface ToolCallHandlerParams {
   loadedVeraContextPathsRef: MutableRefObject<Set<string>>;
   turnToolCalls: string[];
   captureUsage: (u: Usage) => void;
-  setPathConfirm: React.Dispatch<React.SetStateAction<{
-    message: string;
-    allowDir: string;
-    resolve: (approved: boolean) => void;
-  } | null>>;
-  setAskUserQuestion: React.Dispatch<React.SetStateAction<AskUserQuestionState | null>>;
+  setBlockingPrompt: (prompt: BlockingPrompt | null) => void;
 }
 
 export function buildToolCallHandler(params: ToolCallHandlerParams) {
@@ -46,7 +42,7 @@ export function buildToolCallHandler(params: ToolCallHandlerParams) {
     activeAdapter, activeModel, activeProvider,
     activeTools, activeSystem, activeExecutors,
     agentDefinitions, loadedVeraContextPathsRef,
-    turnToolCalls, captureUsage, setPathConfirm, setAskUserQuestion,
+    turnToolCalls, captureUsage, setBlockingPrompt,
   } = params;
 
   const runDir = dirname(store.filePath);
@@ -91,9 +87,9 @@ export function buildToolCallHandler(params: ToolCallHandlerParams) {
     if (n === ASK_USER_QUESTION_TOOL_NAME) {
       const args = a as unknown as AskUserQuestionArgs;
       const answers = await new Promise<QuestionAnswers>((res) => {
-        setAskUserQuestion({ questions: args.questions, resolve: res });
+        setBlockingPrompt(questionPrompt({ questions: args.questions, resolve: res }));
       });
-      setAskUserQuestion(null);
+      setBlockingPrompt(null);
       const resultContent = JSON.stringify({
         questions: args.questions.map((q) => q.question),
         answers,
@@ -123,9 +119,13 @@ export function buildToolCallHandler(params: ToolCallHandlerParams) {
     if (result.needsConfirm) {
       const confirm = result.needsConfirm;
       const approved = await new Promise<boolean>((res) => {
-        setPathConfirm({ message: confirm.message, allowDir: confirm.allowDir, resolve: res });
+        setBlockingPrompt(pathApprovalPrompt({
+          message: confirm.message,
+          allowDir: confirm.allowDir,
+          resolve: res,
+        }));
       });
-      setPathConfirm(null);
+      setBlockingPrompt(null);
       if (approved) {
         ctxRef.current.security?.allowPath(confirm.allowDir);
         result = await executeOnce(confirm.retry.name, confirm.retry.args);

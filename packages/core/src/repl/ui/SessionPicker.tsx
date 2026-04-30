@@ -1,38 +1,10 @@
 import { Box, Text, useStdin } from "ink";
 import { useState, useRef, useLayoutEffect, useCallback, useEffect } from "react";
-import type { Key } from "ink";
 import { SessionStore } from "../../session/index.js";
 import type { SessionSummary, SessionTranscriptPreview } from "../../session/index.js";
 import { ConversationPanel } from "./ConversationPanel.js";
+import { parseInputKey } from "./inputKeys.js";
 import type { ChatMessage } from "./types.js";
-
-// Minimal key parser (reuse same escape-sequence logic as InputBar)
-const ANSI_ARROW: Record<string, keyof Key> = {
-  "\x1b[A": "upArrow", "\x1b[B": "downArrow",
-  "\x1bOA": "upArrow", "\x1bOB": "downArrow",
-};
-const ANSI_PAGE: Record<string, "pageUp" | "pageDown"> = {
-  "\x1b[5~": "pageUp",
-  "\x1b[6~": "pageDown",
-};
-function parseKey(s: string): Key {
-  const key: Key = {
-    upArrow: false, downArrow: false, leftArrow: false, rightArrow: false,
-    pageDown: false, pageUp: false, return: false, escape: false,
-    ctrl: false, shift: false, tab: false, backspace: false, delete: false, meta: false,
-  };
-  if (s === "\r") { key.return = true; return key; }
-  if (s === "\x1b" || s === "\x1b\x1b") { key.escape = true; return key; }
-  const pageKey = ANSI_PAGE[s];
-  if (pageKey) { (key as Record<string, boolean>)[pageKey] = true; return key; }
-  const arrowKey = ANSI_ARROW[s];
-  if (arrowKey) { (key as Record<string, boolean>)[arrowKey] = true; return key; }
-  if (s.length === 1 && s >= "\x01" && s <= "\x1a") {
-    key.ctrl = true;
-    return key;
-  }
-  return key;
-}
 
 const VISIBLE_LIMIT = 12;
 const PREVIEW_HEIGHT = 12;
@@ -267,7 +239,7 @@ export function SessionPicker({
   }, [cwd, search, nextOffset]);
 
   const handleKey = useCallback((chunk: string) => {
-    const key = parseKey(chunk);
+    const key = parseInputKey(chunk);
     if (key.escape) {
       if (searchMode) {
         setSearchMode(false);

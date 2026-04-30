@@ -3,17 +3,11 @@ import { Box, Text } from "ink";
 import type { ChatMessage, PlanStepUI } from "./types.js";
 import { ToolResultView } from "./ToolResultView.js";
 import { theme } from "./theme.js";
-
-const TOOL_RESULT_ESTIMATED_LINES = 6;
-
-type RenderableToolUse = {
-  name: string;
-  args: Record<string, unknown>;
-  result: {
-    ok: boolean;
-    content: string;
-  };
-};
+import {
+  toolUsesForDisplay,
+  type RenderableToolUse,
+} from "./controller/toolProjection.js";
+import { getEstimatedMessageLines } from "./controller/transcriptLayout.js";
 
 interface ConversationPanelProps {
   messages: ChatMessage[];
@@ -105,73 +99,6 @@ function getToolPreface(toolUse: unknown): string | undefined {
     : undefined;
 }
 
-function isLowSignalToolUse(toolUse: RenderableToolUse): boolean {
-  if (!toolUse.result.ok) return false;
-  const content = toolUse.result.content.trim();
-  return content === "" || content === "(no output)";
-}
-
-function compactLowSignalToolUses<T extends RenderableToolUse>(toolUses: T[]): T[] {
-  const display: T[] = [];
-  let pendingLowSignal: T | undefined;
-
-  for (const toolUse of toolUses) {
-    if (isLowSignalToolUse(toolUse)) {
-      pendingLowSignal = toolUse;
-      continue;
-    }
-    pendingLowSignal = undefined;
-    display.push(toolUse);
-  }
-
-  if (pendingLowSignal) display.push(pendingLowSignal);
-  return display;
-}
-
-const GROUPABLE_TOOL_NAMES = new Set(["read_file", "list_dir", "grep", "glob"]);
-
-function compactGroupedToolUses<T extends RenderableToolUse>(toolUses: T[]): T[] {
-  const result: T[] = [];
-  let group: T[] = [];
-
-  function flushGroup(): void {
-    if (group.length === 0) return;
-    if (group.length === 1) {
-      result.push(group[0]!);
-    } else {
-      const counts = new Map<string, number>();
-      for (const item of group) counts.set(item.name, (counts.get(item.name) ?? 0) + 1);
-      const summary = [...counts.entries()]
-        .map(([name, count]) => `${count} ${name}`)
-        .join(", ");
-      result.push({
-        name: "tool_group",
-        args: {},
-        result: {
-          ok: true,
-          content: `Grouped ${group.length} read/search/list tool calls: ${summary}`,
-        },
-      } as T);
-    }
-    group = [];
-  }
-
-  for (const toolUse of toolUses) {
-    if (toolUse.result.ok && GROUPABLE_TOOL_NAMES.has(toolUse.name)) {
-      group.push(toolUse);
-    } else {
-      flushGroup();
-      result.push(toolUse);
-    }
-  }
-  flushGroup();
-  return result;
-}
-
-function toolUsesForDisplay<T extends RenderableToolUse>(toolUses: T[], expanded?: boolean): T[] {
-  return expanded ? toolUses : compactGroupedToolUses(compactLowSignalToolUses(toolUses));
-}
-
 function PlanMessageView({
   msg,
   width,
@@ -215,47 +142,6 @@ function PlanMessageView({
   );
 }
 
-// ── Line count estimation ─────────────────────────────────────────────────────
-
-function estimateToolUseLines(
-  toolUses: RenderableToolUse[],
-  expanded?: boolean,
-): number {
-  const displayed = toolUsesForDisplay(toolUses, expanded);
-  if (!expanded) return displayed.length * TOOL_RESULT_ESTIMATED_LINES;
-  return displayed.reduce((sum, toolUse) => {
-    return sum + 3 + toolUse.result.content.split("\n").length;
-  }, 0);
-}
-
-function estimateMessageLines(msg: ChatMessage, wrapWidth: number, expandToolOutput?: boolean): number {
-  if (msg.planMode || msg.planSteps !== undefined) {
-    let lines = 2; // header + marginBottom
-    for (const step of (msg.planSteps ?? [])) {
-      lines += 1; // step header line
-      if (step.content) {
-        const n = step.content.split("\n").length;
-        lines += Math.min(n, 20);
-        if (n > 20) lines += 1; // truncation indicator
-      }
-      lines += estimateToolUseLines(step.toolUses, expandToolOutput);
-      if (step.status === "running" || (step.status === "done" && step.content)) lines += 1; // marginBottom
-    }
-    return lines;
-  }
-
-  const raw = msg.content + (msg.streaming ? "▌" : "");
-  const rawLines = raw.split("\n");
-  let lineCount = 0;
-  for (const rawLine of rawLines) {
-    if (!rawLine) { lineCount++; continue; }
-    lineCount += Math.ceil(rawLine.length / wrapWidth) || 1;
-  }
-  lineCount += estimateToolUseLines(msg.toolUses ?? [], expandToolOutput);
-  lineCount += 1; // marginBottom
-  return lineCount;
-}
-
 // ── Main panel ────────────────────────────────────────────────────────────────
 
 export function ConversationPanel({
@@ -267,9 +153,10 @@ export function ConversationPanel({
   onScrollAdjust,
 }: ConversationPanelProps) {
   const wrapWidth = Math.max(1, width - 3);
+  const heightCacheRef = useRef(new Map<string, number>());
 
   // Compute per-message line estimates
-  const lineCounts = messages.map((m) => estimateMessageLines(m, wrapWidth, expandToolOutput));
+  const lineCounts = messages.map((m, i) => getEstimatedMessageLines(heightCacheRef.current, m, i, wrapWidth, expandToolOutput));
   const totalLines = lineCounts.reduce((a, b) => a + b, 0);
 
   // Scroll anchor: when user has scrolled up and new content arrives, compensate

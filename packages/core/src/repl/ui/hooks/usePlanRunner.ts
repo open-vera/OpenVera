@@ -1,17 +1,35 @@
 import type { MutableRefObject } from "react";
 import type { PlanEvent, PlanStepUI } from "../../../plan/index.js";
 import type { ChatMessage, StreamStatus, ToolUse } from "../types.js";
+import type { UiEvent } from "../events.js";
 
 export interface PlanRunnerProps {
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  setStreamStatus: React.Dispatch<React.SetStateAction<StreamStatus>>;
+  setStreamStatus?: React.Dispatch<React.SetStateAction<StreamStatus>>;
+  dispatchUiEvent?: (event: UiEvent) => void;
   planStepsRef: MutableRefObject<PlanStepUI[]>;
   planStepTextRef: MutableRefObject<string>;
   planRafRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
+  scheduleFrame?: (fn: () => void) => ReturnType<typeof setTimeout>;
+  cancelFrame?: (handle: ReturnType<typeof setTimeout>) => void;
 }
 
 export function buildPlanEventHandler(props: PlanRunnerProps) {
-  const { setMessages, setStreamStatus, planStepsRef, planStepTextRef, planRafRef } = props;
+  const {
+    setMessages,
+    setStreamStatus,
+    dispatchUiEvent,
+    planStepsRef,
+    planStepTextRef,
+    planRafRef,
+    scheduleFrame = (fn) => setTimeout(fn, 16),
+    cancelFrame = (handle) => clearTimeout(handle),
+  } = props;
+
+  const setStatus = (status: StreamStatus) => {
+    if (dispatchUiEvent) dispatchUiEvent({ type: "status.changed", status });
+    else setStreamStatus?.(status);
+  };
 
   return function handlePlanEvent(event: PlanEvent): void {
     switch (event.type) {
@@ -28,7 +46,7 @@ export function buildPlanEventHandler(props: PlanRunnerProps) {
           if (!last?.planMode) return prev;
           return [...prev.slice(0, -1), { ...last, planSteps: steps }];
         });
-        setStreamStatus("streaming");
+        setStatus("streaming");
         break;
       }
       case "step_start": {
@@ -46,7 +64,7 @@ export function buildPlanEventHandler(props: PlanRunnerProps) {
       case "step_text": {
         planStepTextRef.current += event.delta;
         if (planRafRef.current === null) {
-          planRafRef.current = setTimeout(() => {
+          planRafRef.current = scheduleFrame(() => {
             const text = planStepTextRef.current;
             setMessages((prev) => {
               const last = prev[prev.length - 1];
@@ -56,7 +74,7 @@ export function buildPlanEventHandler(props: PlanRunnerProps) {
               return [...prev.slice(0, -1), { ...last, planSteps: steps }];
             });
             planRafRef.current = null;
-          }, 16);
+          });
         }
         break;
       }
@@ -76,7 +94,7 @@ export function buildPlanEventHandler(props: PlanRunnerProps) {
         break;
       }
       case "step_done": {
-        if (planRafRef.current !== null) { clearTimeout(planRafRef.current); planRafRef.current = null; }
+        if (planRafRef.current !== null) { cancelFrame(planRafRef.current); planRafRef.current = null; }
         const finalText = planStepTextRef.current;
         if (planStepsRef.current[event.stepIndex]) {
           planStepsRef.current[event.stepIndex]!.status = "done";
@@ -101,7 +119,7 @@ export function buildPlanEventHandler(props: PlanRunnerProps) {
         break;
       }
       case "plan_error": {
-        if (planRafRef.current !== null) { clearTimeout(planRafRef.current); planRafRef.current = null; }
+        if (planRafRef.current !== null) { cancelFrame(planRafRef.current); planRafRef.current = null; }
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           if (!last?.planMode) return prev;

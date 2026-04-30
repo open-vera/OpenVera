@@ -82,6 +82,18 @@ pnpm repl
 
 ---
 
+### TUI / Web UI 接入
+
+Terminal UI 改造、OpenTUI 备选方案，以及未来 Web UI/客户端的统一事件协议路线。
+
+| 文档 | 说明 |
+|---|---|
+| [tui/README.md](./tui/README.md) | TUI 方案调研与推荐路线——Hermes/OpenCode/Codex 对比、决策矩阵 |
+| [tui/ink-evolution.md](./tui/ink-evolution.md) | 基于现有 Ink 的渐进改造方案——事件协议、状态拆分、composer、性能优化 |
+| [tui/opentui-rewrite.md](./tui/opentui-rewrite.md) | 彻底切换 OpenTUI 的方案——能力、成本、风险、PoC 与迁移阶段 |
+
+---
+
 ### Eval — `@vera/benchmark` + 评测体系
 
 量化 Vera 的任务完成率、工具准确率和稳定性。

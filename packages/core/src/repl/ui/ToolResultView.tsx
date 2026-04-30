@@ -8,6 +8,7 @@ import { TextView } from "./renderers/TextView.js";
 import { CodeView } from "./renderers/CodeView.js";
 import { BashOutputView } from "./renderers/BashOutputView.js";
 import { FileListView } from "./renderers/FileListView.js";
+import { compactToolSummary, toolArgsLabel } from "./controller/toolProjection.js";
 
 interface ToolResultViewProps {
   toolName: string;
@@ -18,21 +19,8 @@ interface ToolResultViewProps {
   expanded?: boolean;
 }
 
-// Summarise args into a short label for the header line
-function argsLabel(toolName: string, args: Record<string, unknown>): string {
-  const path = args.path ?? args.command ?? args.pattern ?? args.query;
-  if (typeof path === "string") return path.length > 50 ? path.slice(0, 50) + "…" : path;
-  return "";
-}
-
-function readFileSummary(content: string): string {
-  const firstLine = content.split("\n")[0] ?? "";
-  const match = firstLine.match(/\((\d+) lines?\)/);
-  return match ? `Read ${match[1]} ${match[1] === "1" ? "line" : "lines"}` : firstLine;
-}
-
 export function ToolResultView({ toolName, args, result, width, preface, expanded }: ToolResultViewProps) {
-  const label = argsLabel(toolName, args);
+  const label = toolArgsLabel(toolName, args);
 
   const header = (
     <Box>
@@ -53,8 +41,9 @@ export function ToolResultView({ toolName, args, result, width, preface, expande
   } else {
     const hint = result.metadata?.renderHint;
     const diffMeta = result.metadata?.diff;
-    if (!expanded && toolName === "read_file") {
-      body = <Text>{readFileSummary(result.content)}</Text>;
+    const compactSummary = compactToolSummary(toolName, result);
+    if (!expanded && compactSummary) {
+      body = <Text>{compactSummary}</Text>;
     } else switch (hint?.type) {
       case "diff":
         body = diffMeta ? (
