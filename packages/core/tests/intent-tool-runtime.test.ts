@@ -97,9 +97,9 @@ describe("intent routing", () => {
     ).rejects.toThrow("classifier down");
   });
 
-  it("plans for explicit planning signals or L3 tasks", () => {
+  it("plans for L3 tasks only", () => {
     expect(shouldPlan({
-      level: 2,
+      level: 3,
       needs_tools: true,
       needs_planning: true,
       domain: "analysis",
@@ -112,6 +112,13 @@ describe("intent routing", () => {
       domain: "code",
       reason: "complex",
     })).toBe(true);
+    expect(shouldPlan({
+      level: 2,
+      needs_tools: true,
+      needs_planning: true,
+      domain: "analysis",
+      reason: "needs a plan",
+    })).toBe(false);
     expect(shouldPlan({
       level: 1,
       needs_tools: true,

@@ -3,6 +3,7 @@
 process.on("SIGINT", () => process.exit(0));
 process.on("SIGTERM", () => process.exit(0));
 
+import { readFileSync } from "node:fs";
 import { runFlowCommand } from "./flow-run.js";
 import { runReplCommand } from "./repl-run.js";
 
@@ -20,7 +21,16 @@ function parseArgs(argv: string[]): ParsedArgs {
     if (arg.startsWith("--")) {
       const key = arg.slice(2);
       const next = argv[i + 1];
-      if (next !== undefined && !next.startsWith("--")) {
+      if (next !== undefined && !next.startsWith("-")) {
+        flags[key] = next;
+        i++;
+      } else {
+        flags[key] = true;
+      }
+    } else if (arg.startsWith("-")) {
+      const key = arg.slice(1);
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith("-")) {
         flags[key] = next;
         i++;
       } else {
@@ -40,6 +50,10 @@ function printHelp() {
   console.log("Commands:");
   console.log("  repl                  Start REPL with full skill support");
   console.log("  flow run              Run the flow defined in .flow/");
+  console.log("");
+  console.log("Options (global):");
+  console.log("  -v, --version           Show version number");
+  console.log("  -h, --help              Show help");
   console.log("");
   console.log("Options (repl):");
   console.log("  --dir <path>            Working directory  (default: .)");
@@ -67,6 +81,19 @@ function printHelp() {
 }
 
 const { command, flags } = parseArgs(process.argv.slice(2));
+
+if (flags["version"] || flags["v"]) {
+  const pkg = JSON.parse(
+    readFileSync(new URL("../../package.json", import.meta.url), "utf-8")
+  );
+  console.log(pkg.version);
+  process.exit(0);
+}
+
+if (flags["help"] || flags["h"]) {
+  printHelp();
+  process.exit(0);
+}
 
 if (command[0] === "flow" && command[1] === "run") {
   await runFlowCommand({
