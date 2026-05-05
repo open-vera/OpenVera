@@ -345,3 +345,14 @@ Vera 的架构为这个拐点而设计：
 终态是一个 agent runtime：人类提供创意方向，系统可靠地、自主地、可验证地将这个方向转化为工作现实——以任何人工流程都无法企及的速度和质量。
 
 **这就是我们加速人类创意落地的方式。这就是我们追求 SOTA AGI 的路径。**
+
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=open-vera%2FOpenVera&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=open-vera/OpenVera&type=date&theme=dark&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=open-vera/OpenVera&type=date&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=open-vera/OpenVera&type=date&legend=bottom-right" />
+ </picture>
+</a>

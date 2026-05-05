@@ -345,3 +345,13 @@ Vera's architecture is designed for that inflection point:
 The end state is an agent runtime where a human provides creative direction and the system reliably, autonomously, and verifiably turns that direction into working reality — at a pace and quality level that no manual process can match.
 
 **That is how we accelerate human creativity. That is how we pursue SOTA AGI.**
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=open-vera%2FOpenVera&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=open-vera/OpenVera&type=date&theme=dark&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=open-vera/OpenVera&type=date&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=open-vera/OpenVera&type=date&legend=bottom-right" />
+ </picture>
+</a>
