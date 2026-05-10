@@ -181,6 +181,62 @@ describe("AgentRunnerRegistry", () => {
     });
   });
 
+  // ─── Extended Fallback Chain ────────────────────────────────────────────
+
+  describe("getAvailable (extended)", () => {
+    it("skips multiple unavailable runners in chain", async () => {
+      const registry = new AgentRunnerRegistry();
+      registry.register("a", makeRunner({ ready: { ready: false, reason: "down" } }));
+      registry.register("b", makeRunner({ ready: { ready: false, reason: "busy" } }));
+      registry.register("c", makeRunner({ ready: { ready: true } }));
+
+      const result = await registry.getAvailable("a", ["b", "c"]);
+      expect(result).toBe(registry.get("c"));
+    });
+
+    it("handles fallback to non-existent runner gracefully", async () => {
+      const registry = new AgentRunnerRegistry();
+      registry.register("a", makeRunner({ ready: { ready: false } }));
+
+      const result = await registry.getAvailable("a", ["ghost", "also-ghost"]);
+      expect(result).toBeUndefined();
+    });
+
+    it("mixed: some ready, some missing, first available wins", async () => {
+      const registry = new AgentRunnerRegistry();
+      registry.register("a", makeRunner({ ready: { ready: false } }));
+      // "b" not registered
+      registry.register("c", makeRunner({ ready: { ready: true }, name: "runner-c" }));
+      registry.register("d", makeRunner({ ready: { ready: true }, name: "runner-d" }));
+
+      const result = await registry.getAvailable("a", ["b", "c", "d"]);
+      expect(result).toBe(registry.get("c"));
+    });
+
+    it("empty fallback list returns undefined when primary not ready", async () => {
+      const registry = new AgentRunnerRegistry();
+      registry.register("a", makeRunner({ ready: { ready: false } }));
+
+      const result = await registry.getAvailable("a", []);
+      expect(result).toBeUndefined();
+    });
+
+    it("isReady throwing error treated as not ready", async () => {
+      const registry = new AgentRunnerRegistry();
+      const broken: AgentRunner = {
+        isReady: async () => { throw new Error("connection failed"); },
+        run: async (a) => ({ flowId: a.flowId, stepId: a.stepId, output: "", toolCalls: [] }),
+      };
+      const good = makeRunner({ ready: { ready: true } });
+      registry.register("broken", broken);
+      registry.register("good", good);
+
+      // Should skip broken and use good
+      const result = await registry.getAvailable("broken", ["good"]);
+      expect(result).toBe(good);
+    });
+  });
+
   // ─── Hooks ────────────────────────────────────────────────────────────
 
   describe("AgentRunnerHooks", () => {
