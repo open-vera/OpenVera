@@ -22,6 +22,7 @@
     "./repl": "./dist/repl/index.js",
     "./context": "./dist/context/index.js",
     "./tools": "./dist/tools/index.js",
+    "./memory": "./dist/memory/index.js",
     "./session": "./dist/session/index.js",
     "./project-context": "./dist/project-context/index.js",
     "./prompt": "./dist/prompt/index.js"

@@ -50,7 +50,7 @@ describe("SubagentPool", () => {
       const pool = new SubagentPool({ maxConcurrent: 1, maxQueue: 1 });
       pool.submit("j1", "coder", "task 1");
       pool.submit("j2", "coder", "task 2"); // queued
-      expect(() => pool.submit("j3", "coder", "task 3")).toThrow("Pool full");
+      expect(() => pool.submit("j3", "coder", "task 3")).toThrow("Queue is full");
     });
 
     it("should allow submitting when maxConcurrent is 0 and queue has room", () => {

@@ -121,8 +121,12 @@ export class AgentRunnerRegistry {
       const runner = this.runners.get(n);
       if (!runner) continue;
       if (runner.isReady) {
-        const readiness = await runner.isReady();
-        if (readiness.ready) return runner;
+        try {
+          const readiness = await runner.isReady();
+          if (readiness.ready) return runner;
+        } catch {
+          // isReady throwing → treat as not ready, skip
+        }
       } else {
         return runner; // No readiness check = always ready
       }
