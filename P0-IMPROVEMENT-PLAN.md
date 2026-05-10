@@ -35,7 +35,7 @@
 | # | 项目 | 说明 | 状态 |
 |---|------|------|------|
 | B1 | Memory Search 性能 | 当前 O(n) 扫描，大数据量下可能慢，考虑索引或限制 | ✅ |
-| B2 | Checkpoint 压缩 | checkpoint JSONL 可能无限增长，需要定期 compaction | ❌ |
+| B2 | Checkpoint 压缩 | checkpoint JSONL 可能无限增长，需要定期 compaction | ✅ |
 | B3 | Tool Stats 内存控制 | ToolStatsCollector 已有 maxRecords，确认默认值合理 | ❌ |
 
 ### C. 架构改进
@@ -86,6 +86,7 @@
 | 2026-05-10 16:48 | A5 | +21 tests (Checkpoint Edge Cases: 空文件/空白文件、corrupted JSONL跳过、超大checkpoint、filesystem边界值、duplicate IDs、rapid sequential saves) |
 | 2026-05-10 16:51 | A6 | +4 tests (Tool Middleware Isolation: before错误隔离、onError首次恢复优先、skip跳过仍执行after、中间件顺序保持) |
 | 2026-05-10 17:10 | B1 | 修复 memory-search-perf 测试中的 off-by-one bug (i<50→i<=50)，确认 InvertedIndex 性能正确 |
+| 2026-05-10 17:20 | B2 | +33 tests (Checkpoint Compaction: dedup, prune to N, auto-compact on save, atomic write safety, lineCount/needsCompaction) |
 
 ---
 
