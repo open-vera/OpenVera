@@ -27,7 +27,7 @@
 | A2 | Subagent Pool 测试 | 为 `subagent-pool.ts` 编写完整测试 | ✅ |
 | A3 | Subagent Orchestrator 测试 | 为 `subagent-orchestrator.ts` 编写完整测试 | ✅ |
 | A4 | Memory Store 持久化验证 | 验证 Episodic/Semantic JSONL 文件读写在并发场景下的安全性 | ✅ |
-| A5 | Checkpoint Store 边界测试 | 空 checkpoint、损坏 JSONL、超大 checkpoint 的处理 | ❌ |
+| A5 | Checkpoint Store 边界测试 | 空 checkpoint、损坏 JSONL、超大 checkpoint 的处理 | ✅ |
 | A6 | Tool Registry 中间件错误隔离 | 一个 middleware 抛异常不影响其他 middleware | ❌ |
 
 ### B. 性能优化
@@ -83,6 +83,7 @@
 | 2026-05-10 16:21 | A2 | +34 tests (SubagentPool: submit/complete/fail/cancel/status/edge cases) |
 | 2026-05-10 16:30 | A3 | +28 tests (SubagentOrchestrator: run, dependencies, errors, abort, etc.) |
 | 2026-05-10 16:42 | A4 | +21 tests (Memory Persistence: 并发写入安全、损坏JSONL跳过、边界case、原子写入crash safety) |
+| 2026-05-10 16:48 | A5 | +21 tests (Checkpoint Edge Cases: 空文件/空白文件、corrupted JSONL跳过、超大checkpoint、filesystem边界值、duplicate IDs、rapid sequential saves) |
 
 ---
 
