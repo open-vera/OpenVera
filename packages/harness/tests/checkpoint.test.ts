@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -177,11 +177,275 @@ describe("CheckpointStore", () => {
   });
 });
 
+describe("CheckpointStore edge cases", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = makeTmpDir();
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  describe("empty / blank files", () => {
+    it("returns null when checkpoint file is completely empty", () => {
+      const store = new CheckpointStore({ checkpointsDir: dir });
+      // Pre-create an empty file
+      writeFileSync(join(dir, "test-flow.checkpoints.jsonl"), "");
+      expect(store.loadLatest("test-flow")).toBeNull();
+      expect(store.load("test-flow", "anything")).toBeNull();
+      expect(store.list("test-flow")).toEqual([]);
+      expect(store.count("test-flow")).toBe(0);
+    });
+
+    it("returns null when checkpoint file contains only whitespace", () => {
+      const store = new CheckpointStore({ checkpointsDir: dir });
+      writeFileSync(join(dir, "test-flow.checkpoints.jsonl"), "   \n  \n  ");
+      expect(store.loadLatest("test-flow")).toBeNull();
+      expect(store.list("test-flow")).toEqual([]);
+    });
+
+    it("handles save to empty file followed by load", () => {
+      const store = new CheckpointStore({ checkpointsDir: dir });
+      writeFileSync(join(dir, "test-flow.checkpoints.jsonl"), "");
+      store.save(makeCheckpoint({ checkpointId: "cp-after-empty" }));
+      expect(store.loadLatest("test-flow")!.checkpointId).toBe("cp-after-empty");
+    });
+  });
+
+  describe("corrupted JSONL", () => {
+    it("loadLatest skips corrupt last line and returns previous valid entry", () => {
+      const store = new CheckpointStore({ checkpointsDir: dir });
+      store.save(makeCheckpoint({ checkpointId: "cp-valid" }));
+      // Append garbage
+      const filePath = join(dir, "test-flow.checkpoints.jsonl");
+      writeFileSync(filePath, "{not valid json!!\n", { flag: "a" });
+
+      const latest = store.loadLatest("test-flow");
+      expect(latest).not.toBeNull();
+      expect(latest!.checkpointId).toBe("cp-valid");
+    });
+
+    it("loadLatest returns null when all lines are corrupt", () => {
+      const store = new CheckpointStore({ checkpointsDir: dir });
+      const filePath = join(dir, "test-flow.checkpoints.jsonl");
+      writeFileSync(filePath, "{bad1\n{bad2\n{bad3\n");
+
+      expect(store.loadLatest("test-flow")).toBeNull();
+    });
+
+    it("list skips corrupt lines and returns valid entries", () => {
+      const store = new CheckpointStore({ checkpointsDir: dir });
+      store.save(makeCheckpoint({ checkpointId: "cp-1" }));
+      const filePath = join(dir, "test-flow.checkpoints.jsonl");
+      writeFileSync(filePath, "{garbage\n", { flag: "a" });
+      store.save(makeCheckpoint({ checkpointId: "cp-2" }));
+
+      const entries = store.list("test-flow");
+      expect(entries).toHaveLength(2);
+      expect(entries.map((e) => e.checkpointId)).toEqual(["cp-1", "cp-2"]);
+    });
+
+    it("handles partial/truncated JSON line", () => {
+      const store = new CheckpointStore({ checkpointsDir: dir });
+      store.save(makeCheckpoint({ checkpointId: "cp-ok" }));
+      const filePath = join(dir, "test-flow.checkpoints.jsonl");
+      // Truncated JSON (missing closing brace)
+      writeFileSync(filePath, "{\"checkpointId\":\"cp-trunc\",\"flowId\":\"test-flow\",\"state\":\"e", { flag: "a" });
+
+      const latest = store.loadLatest("test-flow");
+      expect(latest).not.toBeNull();
+      expect(latest!.checkpointId).toBe("cp-ok");
+    });
+
+    it("handles JSON that parses but is not a valid checkpoint (missing fields)", () => {
+      const store = new CheckpointStore({ checkpointsDir: dir });
+      store.save(makeCheckpoint({ checkpointId: "cp-real" }));
+      const filePath = join(dir, "test-flow.checkpoints.jsonl");
+      // Valid JSON but missing required checkpoint fields
+      writeFileSync(filePath, JSON.stringify({ foo: "bar" }) + "\n", { flag: "a" });
+
+      // loadLatest returns whatever parses — it doesn't validate structure
+      // This is expected behavior (type assertion), but load by ID still works
+      const byId = store.load("test-flow", "cp-real");
+      expect(byId).not.toBeNull();
+      expect(byId!.checkpointId).toBe("cp-real");
+    });
+  });
+
+  describe("oversized checkpoints", () => {
+    it("handles checkpoint with large messages array", () => {
+      const store = new CheckpointStore({ checkpointsDir: dir });
+      const largeMessages = Array.from({ length: 500 }, (_, i) => ({
+        role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
+        content: `Message ${i}: ${"x".repeat(200)}`,
+      }));
+      const cp: FlowCheckpoint = {
+        ...makeCheckpoint({ checkpointId: "cp-big" }),
+        messages: largeMessages,
+      };
+      store.save(cp);
+
+      const loaded = store.loadLatest("test-flow");
+      expect(loaded).not.toBeNull();
+      expect(loaded!.checkpointId).toBe("cp-big");
+      expect(loaded!.messages).toHaveLength(500);
+    });
+
+    it("handles checkpoint with many artifacts", () => {
+      const store = new CheckpointStore({ checkpointsDir: dir });
+      const manyArtifacts = Array.from({ length: 100 }, (_, i) => ({
+        artifactId: `art-${i}`,
+        type: "file" as const,
+        name: `file-${i}.txt`,
+        content: "x".repeat(1000),
+      }));
+      const cp = makeCheckpoint({ checkpointId: "cp-artifacts", artifacts: manyArtifacts as any });
+      store.save(cp);
+
+      const loaded = store.loadLatest("test-flow");
+      expect(loaded).not.toBeNull();
+      expect(loaded!.checkpointId).toBe("cp-artifacts");
+      expect(loaded!.artifacts).toHaveLength(100);
+    });
+
+    it("handles checkpoint with large plan steps array", () => {
+      const store = new CheckpointStore({ checkpointsDir: dir });
+      const manySteps = Array.from({ length: 200 }, (_, i) => ({
+        id: `step-${i}`,
+        type: "tool" as const,
+        action: `Action step ${i}`,
+        status: i < 150 ? ("done" as const) : ("pending" as const),
+      }));
+      const cp = makeCheckpoint({
+        checkpointId: "cp-bigplan",
+        plan: { planId: "plan-big", goal: "Big goal", assumptions: [], steps: manySteps as any, risk: "low" },
+      });
+      store.save(cp);
+
+      const loaded = store.loadLatest("test-flow");
+      expect(loaded).not.toBeNull();
+      expect(loaded!.plan!.steps).toHaveLength(200);
+    });
+  });
+
+  describe("boundary values", () => {
+    it("handles flowId with special filesystem characters (sanitized)", () => {
+      const store = new CheckpointStore({ checkpointsDir: dir });
+      const cp = makeCheckpoint({ flowId: "flow/id:with*special?chars" });
+      store.save(cp);
+
+      const loaded = store.loadLatest("flow/id:with*special?chars");
+      expect(loaded).not.toBeNull();
+      // Verify the file was created with sanitized name
+      expect(existsSync(join(dir, "flow_id_with_special_chars.checkpoints.jsonl"))).toBe(true);
+    });
+
+    it("handles very long flowId (truncated by OS limits)", () => {
+      const store = new CheckpointStore({ checkpointsDir: dir });
+      const longFlowId = "a".repeat(300);
+      // This should not throw — the filePath method sanitizes it
+      const cp = makeCheckpoint({ flowId: longFlowId });
+      // May fail on some OS due to filename length, but shouldn't crash the store
+      try {
+        store.save(cp);
+        const loaded = store.loadLatest(longFlowId);
+        if (loaded) expect(loaded.flowId).toBe(longFlowId);
+      } catch (e: any) {
+        // ENAMETOOLONG is acceptable — the store doesn't guard against it
+        expect(e.code).toMatch(/ENAMETOOLONG|EINVAL/);
+      }
+    });
+
+    it("handles empty flowId gracefully", () => {
+      const store = new CheckpointStore({ checkpointsDir: dir });
+      const cp = makeCheckpoint({ flowId: "" });
+      store.save(cp);
+      // Empty flowId sanitizes to empty string → file ".checkpoints.jsonl"
+      const loaded = store.loadLatest("");
+      expect(loaded).not.toBeNull();
+      expect(loaded!.flowId).toBe("");
+    });
+
+    it("handles duplicate checkpoint IDs (last one wins)", () => {
+      const store = new CheckpointStore({ checkpointsDir: dir });
+      store.save(makeCheckpoint({ checkpointId: "cp-dup", activeStepId: "first" }));
+      store.save(makeCheckpoint({ checkpointId: "cp-dup", activeStepId: "second" }));
+
+      // load returns the last matching entry (scans from end)
+      const loaded = store.load("test-flow", "cp-dup");
+      expect(loaded).not.toBeNull();
+      expect(loaded!.activeStepId).toBe("second");
+
+      // Both entries exist in the file (append-only)
+      expect(store.count("test-flow")).toBe(2);
+    });
+
+    it("handles checkpoint with all optional fields undefined", () => {
+      const store = new CheckpointStore({ checkpointsDir: dir });
+      const minimal: FlowCheckpoint = {
+        checkpointId: "cp-minimal",
+        flowId: "test-flow",
+        state: "executing",
+        loopCount: 0,
+        budget: { tokensUsed: 0 },
+        scope: {},
+        artifacts: [],
+      };
+      store.save(minimal);
+
+      const loaded = store.loadLatest("test-flow");
+      expect(loaded).not.toBeNull();
+      expect(loaded!.plan).toBeUndefined();
+      expect(loaded!.activeStepId).toBeUndefined();
+      expect(loaded!.messages).toBeUndefined();
+    });
+
+    it("handles rapid sequential saves (no data loss)", () => {
+      const store = new CheckpointStore({ checkpointsDir: dir });
+      const count = 50;
+      for (let i = 0; i < count; i++) {
+        store.save(makeCheckpoint({ checkpointId: `cp-${i}`, activeStepId: `step-${i}` }));
+      }
+
+      expect(store.count("test-flow")).toBe(count);
+      const latest = store.loadLatest("test-flow");
+      expect(latest!.checkpointId).toBe(`cp-${count - 1}`);
+
+      // Verify a mid-range entry is still accessible
+      const mid = store.load("test-flow", "cp-25");
+      expect(mid).not.toBeNull();
+      expect(mid!.activeStepId).toBe("step-25");
+    });
+
+    it("clear does not break subsequent save operations", () => {
+      const store = new CheckpointStore({ checkpointsDir: dir });
+      store.save(makeCheckpoint({ checkpointId: "cp-before" }));
+      store.clear("test-flow");
+      expect(store.count("test-flow")).toBe(0);
+
+      store.save(makeCheckpoint({ checkpointId: "cp-after" }));
+      expect(store.count("test-flow")).toBe(1);
+      expect(store.loadLatest("test-flow")!.checkpointId).toBe("cp-after");
+    });
+  });
+});
+
 describe("makeCheckpointId", () => {
   it("generates unique IDs with timestamp prefix", () => {
     const id1 = makeCheckpointId();
     const id2 = makeCheckpointId();
     expect(id1).toMatch(/^cp-[a-z0-9]+-[a-z0-9]{4}$/);
     expect(id1).not.toBe(id2);
+  });
+
+  it("generates many unique IDs without collision", () => {
+    const ids = new Set<string>();
+    for (let i = 0; i < 1000; i++) {
+      ids.add(makeCheckpointId());
+    }
+    // With 4 random chars and timestamp, collisions are extremely unlikely
+    expect(ids.size).toBe(1000);
   });
 });
