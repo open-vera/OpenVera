@@ -23,7 +23,7 @@ export class ToolRegistry {
   private readonly statsCollector: ToolStatsCollector;
 
   constructor(opts?: { statsMaxRecords?: number }) {
-    this.statsCollector = new ToolStatsCollector(opts?.statsMaxRecords ?? 10_000);
+    this.statsCollector = new ToolStatsCollector(opts?.statsMaxRecords ?? 1_000);
   }
 
   // ── Registration ─────────────────────────────────────────────────────

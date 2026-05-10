@@ -278,6 +278,30 @@ describe("ToolRegistry — Versioning", () => {
   });
 });
 
+describe("ToolStatsCollector — Memory Control", () => {
+  it("default maxRecords is 1000 (reasonable memory bound)", () => {
+    const collector = new ToolStatsCollector();
+    // Record 1500 entries — only 1000 should remain
+    for (let i = 0; i < 1500; i++) {
+      collector.record("t", { i }, { ok: true, content: "ok" }, i, "s");
+    }
+    expect(collector.size).toBe(1000);
+    // Oldest 500 were evicted
+    const records = collector.getRecords();
+    expect(records[0]!.durationMs).toBe(500);
+    expect(records[999]!.durationMs).toBe(1499);
+  });
+
+  it("registry uses same default maxRecords", () => {
+    const registry = new ToolRegistry();
+    // Registry stats collector should use 1000 as default
+    for (let i = 0; i < 1500; i++) {
+      registry.stats.record("t", {}, { ok: true, content: "" }, i, "s");
+    }
+    expect(registry.stats.size).toBe(1000);
+  });
+});
+
 describe("ToolRegistry — Stats Integration", () => {
   it("records stats after execution", async () => {
     const registry = new ToolRegistry();

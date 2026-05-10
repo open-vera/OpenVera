@@ -11,7 +11,7 @@ export class ToolStatsCollector {
   private readonly records: ToolCallRecord[] = [];
   private readonly maxRecords: number;
 
-  constructor(maxRecords = 10_000) {
+  constructor(maxRecords = 1_000) {
     this.maxRecords = maxRecords;
   }
 
