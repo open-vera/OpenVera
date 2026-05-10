@@ -24,7 +24,7 @@
 | # | 项目 | 说明 | 状态 |
 |---|------|------|------|
 | A1 | CLI flags 修复 | 修复 `-v`/`--version`/`-h` 使其通过测试 | ✅ |
-| A2 | Subagent Pool 测试 | 为 `subagent-pool.ts` 编写完整测试 | ❌ |
+| A2 | Subagent Pool 测试 | 为 `subagent-pool.ts` 编写完整测试 | ✅ |
 | A3 | Subagent Orchestrator 测试 | 为 `subagent-orchestrator.ts` 编写完整测试 | ❌ |
 | A4 | Memory Store 持久化验证 | 验证 Episodic/Semantic JSONL 文件读写在并发场景下的安全性 | ❌ |
 | A5 | Checkpoint Store 边界测试 | 空 checkpoint、损坏 JSONL、超大 checkpoint 的处理 | ❌ |
@@ -80,6 +80,7 @@
 | 时间 | 完成项 | 测试变化 |
 |------|--------|----------|
 | 2026-05-10 16:16 | A1 | 430/0 (CLI flags 修复: 延迟导入 flow-run/repl-run) |
+| 2026-05-10 16:21 | A2 | +34 tests (SubagentPool: submit/complete/fail/cancel/status/edge cases) |
 
 ---
 
