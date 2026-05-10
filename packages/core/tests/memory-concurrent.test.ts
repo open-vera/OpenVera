@@ -59,6 +59,7 @@ describe("D1: Memory Store 并发写入测试", () => {
       );
 
       await Promise.all(writers);
+      await store.flush();
 
       // 验证所有数据都在内存中
       const entries = store.getEpisodic();
@@ -89,6 +90,7 @@ describe("D1: Memory Store 并发写入测试", () => {
       );
 
       await Promise.all(writers);
+      await store.flush();
 
       const entries = store.getSemantic();
       expect(entries).toHaveLength(count);
@@ -126,6 +128,7 @@ describe("D1: Memory Store 并发写入测试", () => {
       );
 
       await Promise.all(tasks);
+      await store.flush();
 
       expect(epiCount).toBe(iterations);
       expect(semCount).toBe(iterations);
@@ -137,6 +140,9 @@ describe("D1: Memory Store 并发写入测试", () => {
     });
 
     it("快速 semantic 更新 + 新 episodic 写入交错不互相干扰", async () => {
+      // This test verifies that interleaving semantic updates (triggering persistAll
+      // which is async/locked) with episodic appends (persistEntry, sync) is safe.
+      // Strategy: flush() AFTER all operations are queued, not during them.
       const store = new MemoryStore({ storeDir: dir });
 
       // 先写入初始 semantic
@@ -170,17 +176,24 @@ describe("D1: Memory Store 并发写入测试", () => {
         );
       }
 
+      // First flush: ensure initial writes are on disk (before tasks fire)
+      await store.flush();
+
+      // Now schedule all tasks (their queueMicrotasks fire AFTER flush returns)
       await Promise.all(tasks);
+
+      // Second flush: wait for all 22 async persistAll calls to complete.
+      // persistEntry is sync so no need to flush for those.
+      await store.flush();
 
       // semantic: counter (updated) + config (original) = 2 entries
       const semantic = store.getSemantic();
       expect(semantic).toHaveLength(2);
       const counter = semantic.find((e) => e.key === "counter");
       expect(counter).toBeDefined();
-      // 最后一个更新的值应该是 20
       expect(counter!.value).toBe("20");
 
-      // episodic: 30 entries
+      // episodic: 30 entries (persistEntry is sync, guaranteed on disk)
       expect(store.getEpisodic()).toHaveLength(30);
 
       // Reload 验证
@@ -193,7 +206,7 @@ describe("D1: Memory Store 并发写入测试", () => {
   // ─── 多实例并发（模拟进程重启）───────────────────────────────────
 
   describe("多实例写入同一目录", () => {
-    it("两个 store 实例交替写入后 reload 数据完整", () => {
+    it("两个 store 实例交替写入后 reload 数据完整", async () => {
       const store1 = new MemoryStore({ storeDir: dir });
       const store2 = new MemoryStore({ storeDir: dir });
 
@@ -205,6 +218,10 @@ describe("D1: Memory Store 并发写入测试", () => {
           store2.addEpisodic(`S2-Task-${i}`, `S2-Done-${i}`, []);
         }
       }
+
+      // Flush both stores before store3 reloads
+      await store1.flush();
+      await store2.flush();
 
       // 创建第三个实例验证
       const store3 = new MemoryStore({ storeDir: dir });
@@ -221,7 +238,7 @@ describe("D1: Memory Store 并发写入测试", () => {
       }
     });
 
-    it("先写后 reload 再追加，数据累计不丢失", () => {
+    it("先写后 reload 再追加，数据累计不丢失", async () => {
       const count = 15;
 
       // 第一个 store 写入
@@ -230,11 +247,17 @@ describe("D1: Memory Store 并发写入测试", () => {
         store1.addEpisodic(`Batch1-${i}`, `Done-${i}`, []);
       }
 
+      // Flush store1 before store2 loads (avoid append vs rewrite race)
+      await store1.flush();
+
       // Reload 后追加
       const store2 = new MemoryStore({ storeDir: dir });
       for (let i = 0; i < count; i++) {
         store2.addEpisodic(`Batch2-${i}`, `Done-${i}`, []);
       }
+
+      // Flush store2 before final reload
+      await store2.flush();
 
       // 最终 reload
       const store3 = new MemoryStore({ storeDir: dir });
@@ -316,6 +339,7 @@ describe("D1: Memory Store 并发写入测试", () => {
       );
 
       await Promise.all(writers);
+      await store.flush();
 
       const epiCount = Math.ceil(count / 2); // 0,2,4,...,198 = 100
       const semCount = Math.floor(count / 2); // 1,3,5,...,199 = 100
@@ -329,7 +353,7 @@ describe("D1: Memory Store 并发写入测试", () => {
       expect(store2.getSemantic()).toHaveLength(semCount);
     });
 
-    it("500 个顺序写入 + reload + search 端到端", () => {
+    it("500 个顺序写入 + reload + search 端到端", async () => {
       const store = new MemoryStore({ storeDir: dir });
       const count = 500;
 
@@ -337,6 +361,8 @@ describe("D1: Memory Store 并发写入测试", () => {
         const content = `bulk-item-${i} ${i % 10 === 0 ? "special" : "normal"}`;
         store.addEpisodic(`Bulk-${i}`, content, [`lesson-${i % 5}`], [`group-${i % 10}`], undefined, i / count);
       }
+      await store.flush();
+      await store.flush();
 
       expect(store.getEpisodic()).toHaveLength(count);
 

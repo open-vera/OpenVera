@@ -52,6 +52,8 @@ export class CheckpointStore {
   private readonly dir: string;
   private readonly compactToKeep: number;
   private readonly compactAfter: number;
+  /** Cached entry count per flow (updated on save/compact/clear). */
+  private entryCountCache = new Map<string, number>();
 
   constructor(options: CheckpointStoreOptions) {
     this.dir = options.checkpointsDir;
@@ -64,12 +66,15 @@ export class CheckpointStore {
 
   /**
    * Persist a checkpoint to disk. Append-only write.
-   * Auto-compacts when the total line count exceeds `compactAfter`.
+   * Auto-compacts when the parsed entry count exceeds `compactAfter`.
    */
   save(checkpoint: FlowCheckpoint): void {
     const filePath = this.filePath(checkpoint.flowId);
     const line = JSON.stringify(checkpoint) + "\n";
     writeFileSync(filePath, line, { flag: "a" });
+
+    // Bump cached entry count (increments every save, reset by compact/clear)
+    this.entryCountCache.set(checkpoint.flowId, (this.entryCountCache.get(checkpoint.flowId) ?? 0) + 1);
 
     // Auto-compaction check (only when compactToKeep is configured)
     if (this.compactToKeep > 0) {
@@ -222,6 +227,7 @@ export class CheckpointStore {
     renameSync(tmpPath, filePath);
 
     const newCount = entries.length;
+    this.entryCountCache.set(flowId, newCount);
     return originalCount - newCount;
   }
 
@@ -259,11 +265,14 @@ export class CheckpointStore {
   }
 
   /**
-   * Auto-compact if the line count exceeds the threshold.
-   * Skipped silently if compactToKeep is 0 or if the threshold isn't exceeded.
+   * Auto-compact if the cached entry count exceeds the threshold.
+   * Uses in-memory entry count cache to avoid expensive full-file re-parse on every save.
+   * Fetches and bumps cache on first access, then increments on each save.
+   * Threshold uses strict `>` comparison (matches original line-count behavior).
    */
   private maybeAutoCompact(flowId: string): void {
-    if (this.lineCount(flowId) > this.compactAfter) {
+    const entryCount = this.entryCountCache.get(flowId);
+    if (entryCount !== undefined && entryCount > this.compactAfter) {
       this.compact(flowId);
     }
   }
@@ -278,6 +287,7 @@ export class CheckpointStore {
     } catch {
       // File may not exist; that's fine
     }
+    this.entryCountCache.delete(flowId);
   }
 
   /**

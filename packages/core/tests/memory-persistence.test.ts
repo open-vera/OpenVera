@@ -34,13 +34,14 @@ describe("A4: Memory Store 持久化验证", () => {
   // ─── 并发写入安全性 ────────────────────────────────────────────────────
 
   describe("并发写入安全性", () => {
-    it("多个顺序 addEpisodic 调用不丢失数据", () => {
+    it("多个顺序 addEpisodic 调用不丢失数据", async () => {
       const store = new MemoryStore({ storeDir: dir });
       const count = 50;
 
       for (let i = 0; i < count; i++) {
         store.addEpisodic(`Task ${i}`, `Outcome ${i}`, [`Lesson ${i}`], [`tag-${i}`]);
       }
+      await store.flush();
 
       // 重新加载验证
       const store2 = new MemoryStore({ storeDir: dir });
@@ -55,13 +56,14 @@ describe("A4: Memory Store 持久化验证", () => {
       }
     });
 
-    it("多个顺序 addSemantic 调用不丢失数据", () => {
+    it("多个顺序 addSemantic 调用不丢失数据", async () => {
       const store = new MemoryStore({ storeDir: dir });
       const count = 50;
 
       for (let i = 0; i < count; i++) {
         store.addSemantic(`key-${i}`, `value-${i}`, [`tag-${i}`]);
       }
+      await store.flush();
 
       // 重新加载验证
       const store2 = new MemoryStore({ storeDir: dir });
@@ -75,7 +77,7 @@ describe("A4: Memory Store 持久化验证", () => {
       }
     });
 
-    it("交替写入 episodic 和 semantic 不互相干扰", () => {
+    it("交替写入 episodic 和 semantic 不互相干扰", async () => {
       const store = new MemoryStore({ storeDir: dir });
       const count = 30;
 
@@ -83,6 +85,7 @@ describe("A4: Memory Store 持久化验证", () => {
         store.addEpisodic(`Epi-${i}`, `Done ${i}`, [`Lesson ${i}`]);
         store.addSemantic(`Sem-${i}`, `Fact ${i}`, [`tag-${i}`]);
       }
+      await store.flush();
 
       const store2 = new MemoryStore({ storeDir: dir });
       expect(store2.getEpisodic()).toHaveLength(count);
@@ -108,6 +111,7 @@ describe("A4: Memory Store 持久化验证", () => {
       }
 
       await Promise.all(promises);
+      await store.flush();
 
       // 验证所有数据都保存了
       const store2 = new MemoryStore({ storeDir: dir });
@@ -115,13 +119,14 @@ describe("A4: Memory Store 持久化验证", () => {
       expect(entries).toHaveLength(count);
     });
 
-    it("并发 addSemantic 去重 key 在 reload 后仍然正确", () => {
+    it("并发 addSemantic 去重 key 在 reload 后仍然正确", async () => {
       const store = new MemoryStore({ storeDir: dir });
 
       // 多次更新同一个 key
       for (let i = 0; i < 20; i++) {
         store.addSemantic("counter", `version-${i}`, ["updated"]);
       }
+      await store.flush();
 
       // 重新加载 — 应该只有最后一条 persistAll 的结果
       const store2 = new MemoryStore({ storeDir: dir });
@@ -258,21 +263,24 @@ describe("A4: Memory Store 持久化验证", () => {
       expect(store.getSemantic()).toHaveLength(0);
     });
 
-    it("storeDir 不存在时自动创建", () => {
+    it("storeDir 不存在时自动创建", async () => {
       const nestedDir = join(dir, "nested", "deep", "path");
       const store = new MemoryStore({ storeDir: nestedDir });
       store.addEpisodic("Test", "Done", []);
+      await store.flush();
 
       expect(existsSync(join(nestedDir, "episodic.jsonl"))).toBe(true);
     });
 
-    it("写入后再追加，新旧数据都在", () => {
+    it("写入后再追加，新旧数据都在", async () => {
       const store1 = new MemoryStore({ storeDir: dir });
       store1.addEpisodic("First task", "Done", ["Lesson 1"]);
+      await store1.flush();
 
       // 创建新 store 实例 — 它会 append 到已有文件
       const store2 = new MemoryStore({ storeDir: dir });
       store2.addEpisodic("Second task", "Done", ["Lesson 2"]);
+      await store2.flush();
 
       // 第三个实例验证完整数据
       const store3 = new MemoryStore({ storeDir: dir });
@@ -280,14 +288,16 @@ describe("A4: Memory Store 持久化验证", () => {
       expect(entries).toHaveLength(2);
     });
 
-    it("addSemantic update 通过 persistAll 保持一致性", () => {
+    it("addSemantic update 通过 persistAll 保持一致性", async () => {
       const store1 = new MemoryStore({ storeDir: dir });
       store1.addSemantic("config", "v1", ["meta"]);
       store1.addSemantic("other", "fact", ["meta"]);
+      await store1.flush();
 
       const store2 = new MemoryStore({ storeDir: dir });
       // 这会触发 persistAll（去重更新）
       store2.addSemantic("config", "v2", ["meta", "updated"]);
+      await store2.flush();
 
       // 验证文件状态一致
       const store3 = new MemoryStore({ storeDir: dir });
@@ -297,13 +307,15 @@ describe("A4: Memory Store 持久化验证", () => {
       expect(configEntry!.value).toBe("v2");
     });
 
-    it("removeSemantic 后 persistAll 保持一致", () => {
+    it("removeSemantic 后 persistAll 保持一致", async () => {
       const store1 = new MemoryStore({ storeDir: dir });
       store1.addSemantic("keep", "yes", []);
       store1.addSemantic("remove", "no", []);
+      await store1.flush();
 
       const store2 = new MemoryStore({ storeDir: dir });
       store2.removeSemantic("remove");
+      await store2.flush();
 
       const store3 = new MemoryStore({ storeDir: dir });
       expect(store3.getSemantic()).toHaveLength(1);
@@ -325,9 +337,10 @@ describe("A4: Memory Store 持久化验证", () => {
   // ─── 原子写入（crash safety）─────────────────────────────────────────
 
   describe("原子写入 crash safety", () => {
-    it("persistAll 使用 atomic write（先写 tmp 再 rename）", () => {
+    it("persistAll 使用 atomic write（先写 tmp 再 rename）", async () => {
       const store = new MemoryStore({ storeDir: dir });
       store.addEpisodic("Atomic test", "Success", []);
+      await store.flush();
 
       // 验证没有残留 .tmp 文件
       const episodicPath = join(dir, "episodic.jsonl");
@@ -365,7 +378,7 @@ describe("A4: Memory Store 持久化验证", () => {
       expect(existsSync(join(dir, "episodic.jsonl.tmp"))).toBe(false);
     });
 
-    it("大量数据写入后 reload 数据完整性", () => {
+    it("大量数据写入后 reload 数据完整性", async () => {
       const store = new MemoryStore({ storeDir: dir });
       const count = 100;
 
@@ -377,6 +390,7 @@ describe("A4: Memory Store 持久化验证", () => {
           Array.from({ length: 3 }, (_, j) => `tag-${i}-${j}`)
         );
       }
+      await store.flush();
 
       // Reload
       const store2 = new MemoryStore({ storeDir: dir });

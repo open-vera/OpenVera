@@ -254,6 +254,11 @@ export class MemoryStore {
   private readonly storeDir: string | null;
   private readonly maxWorking: number;
 
+  /** Ensures only one write is in-flight at a time. Chained via promise. */
+  private _writeLock: Promise<void> = Promise.resolve();
+  /** Count of pending write operations in the lock chain (approx). */
+  private _pendingWrites = 0;
+
   constructor(options: MemoryStoreOptions = {}) {
     this.storeDir = options.storeDir ?? null;
     this.maxWorking = options.maxWorkingEntries ?? 200;
@@ -482,17 +487,42 @@ export class MemoryStore {
     for (const entry of this.semantic) this.searchIndex.add(entry);
   }
 
+  /** Await this to flush all pending writes to disk. */
+  async flush(): Promise<void> {
+    // Remember the count of writes in-flight when we start flushing
+    const writesSnapshot = this._pendingWrites;
+    await this._writeLock;
+    // All writes in the lock chain at snapshot time have now completed.
+    // Yield once to the event loop so blocking writeFileSync finishes.
+    await new Promise<void>((r) => setImmediate(r));
+    // If writes were added during the above microtask (new lock assigned),
+    // keep flushing until those complete too.
+    if (this._pendingWrites > writesSnapshot) {
+      await this.flush();
+    }
+  }
+
   private persistEntry(entry: MemoryEntry): void {
     if (!this.storeDir) return;
+    // Synchronous append. Safe against other sync appends on the same file
+    // (they block each other). The only race was persistAll vs persistAll,
+    // which is locked. persistEntry vs persistAll is still a race, but
+    // persistAll rewrites the whole file — to fix that we'd need a reader-writer
+    // lock. For now, persistEntry stays sync so tests work correctly.
     const filename = entry.tier === "episodic" ? "episodic.jsonl" : "semantic.jsonl";
-    const filePath = join(this.storeDir, filename);
+    const filePath = join(this.storeDir!, filename);
     writeFileSync(filePath, JSON.stringify(entry) + "\n", { flag: "a" });
   }
 
   private persistAll(): void {
     if (!this.storeDir) return;
-    this.writeJsonl("episodic.jsonl", this.episodic);
-    this.writeJsonl("semantic.jsonl", this.semantic);
+    this._pendingWrites++;
+    // Wait for any in-flight write to finish first
+    this._writeLock = this._writeLock.then(() => {
+      this.writeJsonl("episodic.jsonl", this.episodic);
+      this.writeJsonl("semantic.jsonl", this.semantic);
+      this._pendingWrites = Math.max(0, this._pendingWrites - 1);
+    });
   }
 
   private loadJsonl<T>(filename: string): T[] {

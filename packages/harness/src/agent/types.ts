@@ -160,8 +160,11 @@ export class AgentRunnerRegistry {
     runner: AgentRunner,
     required: Partial<AgentRunnerCapabilities>
   ): boolean {
+    // Empty filter means "no requirements" — match any runner (including those with no caps)
+    if (Object.keys(required).length === 0) return true;
+
     const caps = runner.capabilities;
-    if (!caps) return Object.keys(required).length === 0; // No caps = matches nothing specific
+    if (!caps) return false; // No caps declared, can't satisfy any requirement
 
     if (required.supportsTools && !caps.supportsTools) return false;
     if (required.supportsStreaming && !caps.supportsStreaming) return false;

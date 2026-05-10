@@ -92,9 +92,10 @@ describe("MemoryStore", () => {
       expect(entry.tags).toEqual(["checkpoint", "storage"]);
     });
 
-    it("persists episodic entries to disk", () => {
+    it("persists episodic entries to disk", async () => {
       const store1 = new MemoryStore({ storeDir: dir });
       store1.addEpisodic("Task A", "Done", ["Lesson 1"]);
+      await store1.flush();
 
       // Verify the JSONL file exists
       expect(existsSync(join(dir, "episodic.jsonl"))).toBe(true);
@@ -134,10 +135,11 @@ describe("MemoryStore", () => {
       expect(semantic[0]!.tags).toContain("updated");
     });
 
-    it("persists semantic entries to disk", () => {
+    it("persists semantic entries to disk", async () => {
       const store1 = new MemoryStore({ storeDir: dir });
       store1.addSemantic("fact-1", "TypeScript is used", ["lang"]);
       store1.addSemantic("fact-2", "Vitest is the test runner", ["testing"]);
+      await store1.flush();
 
       const store2 = new MemoryStore({ storeDir: dir });
       const semantic = store2.getSemantic();

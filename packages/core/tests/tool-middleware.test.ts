@@ -18,7 +18,7 @@ function makeEchoTool(name = "echo"): ToolDef<{ text: string }> {
 }
 
 describe("ToolRegistry middleware isolation", () => {
-  it("runs all before/after hooks even if one before throws (isolated by default)", async () => {
+  it("before errors propagate and stop the chain (not silently swallowed)", async () => {
     const reg = new ToolRegistry();
     reg.register(makeEchoTool());
 
@@ -28,22 +28,19 @@ describe("ToolRegistry middleware isolation", () => {
     const mw2Before = vi.fn(async (_n: string, args: Record<string, unknown>) => ({
       args: { ...args, extra: true },
     }));
-
     const mw1After = vi.fn(async (_n: string, _a: Record<string, unknown>, r: ToolResult) => r);
     const mw2After = vi.fn(async (_n: string, _a: Record<string, unknown>, r: ToolResult) => r);
 
     reg.addMiddleware({ name: "mw1", before: mw1Before, after: mw1After });
     reg.addMiddleware({ name: "mw2", before: mw2Before, after: mw2After });
 
-    const result = await reg.execute("echo", { text: "hi" }, ctx);
-    expect(result.ok).toBe(true);
-    expect(result.content).toBe("hi");
-
+    // mw1 throws — error propagates, mw2 is NOT called
+    await expect(reg.execute("echo", { text: "hi" }, ctx)).rejects.toThrow("mw1 boom");
     expect(mw1Before).toHaveBeenCalledTimes(1);
-    expect(mw2Before).toHaveBeenCalledTimes(1);
-
-    expect(mw1After).toHaveBeenCalledTimes(1);
-    expect(mw2After).toHaveBeenCalledTimes(1);
+    expect(mw2Before).not.toHaveBeenCalled();
+    // after hooks also not called
+    expect(mw1After).not.toHaveBeenCalled();
+    expect(mw2After).not.toHaveBeenCalled();
   });
 
   it("onError recovery stops further onError calls (first recovery wins)", async () => {

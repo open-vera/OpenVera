@@ -154,8 +154,12 @@ export class ToolRegistry {
           }
           currentArgs = result.args;
         }
-      } catch {
+      } catch (err) {
         // Isolate: a failing before hook must not block other middlewares
+        // but surface the error so misconfiguration isn't silent
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[ToolRegistry] Middleware "${mw.name}" before hook failed: ${msg}`);
+        throw err;
       }
     }
 

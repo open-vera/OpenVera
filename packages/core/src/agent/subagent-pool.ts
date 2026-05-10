@@ -45,9 +45,9 @@ export class SubagentPool {
       throw new DuplicateJobError(jobId);
     }
 
-    const totalActive = this.runningCount + this.queue.length;
-    if (totalActive >= this.maxConcurrent + this.maxQueue) {
-      throw new QueueFullError(this.maxConcurrent + this.maxQueue);
+    const totalSlots = this.maxConcurrent + this.maxQueue;
+    if (this.jobs.size >= totalSlots) {
+      throw new QueueFullError(totalSlots);
     }
 
     const job: PoolJob = {
@@ -65,8 +65,8 @@ export class SubagentPool {
     if (this.runningCount < this.maxConcurrent) {
       this.runningCount++;
     } else {
+      // Conceptual "queued" — status stays "running" but not counted as active
       this.queue.push(jobId);
-      job.status = "running"; // Will be "queued" conceptually
     }
 
     return job;
@@ -166,9 +166,11 @@ export class SubagentPool {
     while (this.runningCount < this.maxConcurrent && this.queue.length > 0) {
       const nextId = this.queue.shift()!;
       const job = this.jobs.get(nextId);
+      // Only increment if job still exists and hasn't been cancelled/completed
       if (job && job.status === "running") {
         this.runningCount++;
-        // The actual execution is handled by the caller — we just track state
+        // NOTE: job.status stays "running" (not "active") — no separate queued state needed
+        // The presence in `queue` array vs `runningCount` determines conceptual state
       }
     }
   }
