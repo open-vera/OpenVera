@@ -1,7 +1,7 @@
 # OpenVera P0 完善方案 — 持续改进计划
 
 > 生成时间：2026-05-10 16:07 | 分支：feature/p1-checkpoint-resume
-> 当前状态：56 测试文件 | 430 passed / 0 failed | 225 源文件
+> 当前状态：59 测试文件 | 513 passed / 0 failed | 225 源文件
 
 ---
 
@@ -25,8 +25,8 @@
 |---|------|------|------|
 | A1 | CLI flags 修复 | 修复 `-v`/`--version`/`-h` 使其通过测试 | ✅ |
 | A2 | Subagent Pool 测试 | 为 `subagent-pool.ts` 编写完整测试 | ✅ |
-| A3 | Subagent Orchestrator 测试 | 为 `subagent-orchestrator.ts` 编写完整测试 | ❌ |
-| A4 | Memory Store 持久化验证 | 验证 Episodic/Semantic JSONL 文件读写在并发场景下的安全性 | ❌ |
+| A3 | Subagent Orchestrator 测试 | 为 `subagent-orchestrator.ts` 编写完整测试 | ✅ |
+| A4 | Memory Store 持久化验证 | 验证 Episodic/Semantic JSONL 文件读写在并发场景下的安全性 | ✅ |
 | A5 | Checkpoint Store 边界测试 | 空 checkpoint、损坏 JSONL、超大 checkpoint 的处理 | ❌ |
 | A6 | Tool Registry 中间件错误隔离 | 一个 middleware 抛异常不影响其他 middleware | ❌ |
 
@@ -81,6 +81,8 @@
 |------|--------|----------|
 | 2026-05-10 16:16 | A1 | 430/0 (CLI flags 修复: 延迟导入 flow-run/repl-run) |
 | 2026-05-10 16:21 | A2 | +34 tests (SubagentPool: submit/complete/fail/cancel/status/edge cases) |
+| 2026-05-10 16:30 | A3 | +28 tests (SubagentOrchestrator: run, dependencies, errors, abort, etc.) |
+| 2026-05-10 16:42 | A4 | +21 tests (Memory Persistence: 并发写入安全、损坏JSONL跳过、边界case、原子写入crash safety) |
 
 ---
 
