@@ -53,6 +53,8 @@ import type {
 import { StreamAgentRunner } from "../agent/index.js";
 import type { AgentRunner, AgentRunnerMap } from "../agent/index.js";
 import { planFromPrompt, type PlanFromPromptOptions } from "./planner.js";
+import { CheckpointStore, makeCheckpointId } from "./checkpoint-store.js";
+import type { ResumeOptions, ForkOptions } from "./internal.js";
 
 function now(): string {
   return new Date().toISOString();
@@ -132,6 +134,8 @@ export class HarnessRuntime {
   private readonly model: string;
   private readonly options: RuntimeOptions;
   private readonly agentRunners: AgentRunnerMap;
+  private readonly checkpointStore: import("./checkpoint-store.js").CheckpointStore | null;
+  private readonly autoCheckpoint: boolean;
 
   constructor(adapter: LLMAdapter, model: string, options: RuntimeOptions) {
     this.adapter = adapter;
@@ -141,6 +145,14 @@ export class HarnessRuntime {
     // Ensure a default runner exists
     if (!this.agentRunners.has("default")) {
       this.agentRunners.set("default", new StreamAgentRunner(adapter, model));
+    }
+    // Checkpoint store — only if checkpointsDir is provided
+    if (options.checkpointsDir) {
+      this.checkpointStore = new CheckpointStore({ checkpointsDir: options.checkpointsDir });
+      this.autoCheckpoint = options.autoCheckpoint !== false;
+    } else {
+      this.checkpointStore = null;
+      this.autoCheckpoint = false;
     }
   }
 
@@ -488,6 +500,7 @@ export class HarnessRuntime {
             activeStepId: undefined,
           },
         };
+        await this.autoCheckpointFlow(handle);
         continue;
       }
 
@@ -496,6 +509,7 @@ export class HarnessRuntime {
           ...handle,
           flow: updateFlowState(handle.flow, "waiting_approval"),
         };
+        await this.autoCheckpointFlow(handle);
         options.onEvent?.({ type: "flow_paused", pausedOnStepId: executed.assignment.stepId });
         return {
           handle,
@@ -518,6 +532,7 @@ export class HarnessRuntime {
             executed.assignment.instruction,
         });
         handle = replanned.handle;
+        await this.autoCheckpointFlow(handle);
         options.onEvent?.({ type: "replan", stepId: executed.assignment.stepId, diff: replanned.diff });
         continue;
       }
@@ -535,12 +550,15 @@ export class HarnessRuntime {
             ),
           },
         };
+        await this.autoCheckpointFlow(handle);
         continue;
       }
     }
 
+    const failedHandle = this.failFlow(handle);
+    await this.autoCheckpointFlow(failedHandle);
     return {
-      handle: this.failFlow(handle),
+      handle: failedHandle,
       completedSteps,
       failedStepId: handle.flow.activeStepId,
     };
@@ -599,7 +617,144 @@ export class HarnessRuntime {
       checkpoint
     );
 
+    // Persist to checkpoint store if available
+    if (this.checkpointStore) {
+      this.checkpointStore.save(checkpoint);
+    }
+
     return { checkpoint, artifact };
+  }
+
+  /**
+   * Auto-checkpoint: save current flow state if checkpoint store is configured.
+   * Called automatically at step boundaries during runFlowLoop.
+   * Returns the checkpointId if saved, null otherwise.
+   */
+  private async autoCheckpointFlow(handle: FlowHandle): Promise<string | null> {
+    if (!this.checkpointStore || !this.autoCheckpoint) return null;
+    const checkpointId = makeCheckpointId();
+    await this.checkpointFlow(handle, checkpointId);
+    return checkpointId;
+  }
+
+  /**
+   * Resume a flow from a persisted checkpoint.
+   * Creates a new FlowHandle with the checkpoint's state and plan.
+   * The caller can then call runFlowLoop() to continue execution.
+   *
+   * @param flowId - The flow ID to resume
+   * @param options - Resume options (fromStepId, skipCompleted)
+   * @returns A FlowHandle ready for continued execution, or null if no checkpoint found
+   */
+  async resumeFromCheckpoint(
+    flowId: string,
+    options: ResumeOptions = {}
+  ): Promise<FlowHandle | null> {
+    if (!this.checkpointStore) {
+      throw new Error("Cannot resume: checkpoint store not configured (set checkpointsDir in RuntimeOptions)");
+    }
+
+    const checkpoint = this.checkpointStore.loadLatest(flowId);
+    if (!checkpoint) return null;
+
+    const skipCompleted = options.skipCompleted !== false;
+
+    // Determine which step to resume from
+    let activeStepId = options.fromStepId ?? checkpoint.activeStepId;
+    if (!activeStepId && checkpoint.plan && skipCompleted) {
+      const nextPending = checkpoint.plan.steps.find((s) => s.status === "pending");
+      activeStepId = nextPending?.id;
+    }
+
+    // Reconstruct the TaskFlow from checkpoint
+    const flow: TaskFlow = {
+      flowId: checkpoint.flowId,
+      goal: checkpoint.plan?.goal ?? "",
+      state: checkpoint.state === "failed" ? "dispatching" : checkpoint.state,
+      plan: checkpoint.plan,
+      activeStepId,
+      loopCount: checkpoint.loopCount,
+      maxLoops: checkpoint.loopCount + 3, // Allow more loops on resume
+      budget: checkpoint.budget,
+      scope: checkpoint.scope,
+      assignedAgents: [],
+      artifacts: checkpoint.artifacts ?? [],
+    };
+
+    // Create a fresh artifact store pointing at the same directory
+    const store = await createArtifactStore(
+      this.options.artifactsRootDir,
+      flowId
+    );
+
+    await appendTimeline(store, {
+      ts: now(),
+      type: "flow_started",
+      flowId,
+      detail: `resumed from checkpoint ${checkpoint.checkpointId}`,
+    });
+
+    return { flow, store };
+  }
+
+  /**
+   * Fork a new flow from an existing checkpoint.
+   * The new flow shares the same plan but has a new flowId and can diverge.
+   *
+   * @param flowId - Source flow ID
+   * @param forkOptions - Fork options (newFlowId, newGoal, resetSteps)
+   * @returns A new FlowHandle for the forked flow, or null if no checkpoint found
+   */
+  async forkFromCheckpoint(
+    flowId: string,
+    forkOptions: ForkOptions
+  ): Promise<FlowHandle | null> {
+    if (!this.checkpointStore) {
+      throw new Error("Cannot fork: checkpoint store not configured (set checkpointsDir in RuntimeOptions)");
+    }
+
+    const checkpoint = this.checkpointStore.loadLatest(flowId);
+    if (!checkpoint || !checkpoint.plan) return null;
+
+    const resetSteps = new Set(forkOptions.resetSteps ?? []);
+
+    // Deep clone the plan and optionally reset steps
+    const forkedPlan: ExecutionPlan = {
+      ...checkpoint.plan,
+      goal: forkOptions.newGoal ?? checkpoint.plan.goal,
+      steps: checkpoint.plan.steps.map((step) => ({
+        ...step,
+        status: resetSteps.has(step.id) ? ("pending" as const) : step.status,
+      })),
+    };
+
+    const flow: TaskFlow = {
+      flowId: forkOptions.newFlowId,
+      goal: forkedPlan.goal,
+      state: "dispatching",
+      plan: forkedPlan,
+      activeStepId: forkedPlan.steps.find((s) => s.status === "pending")?.id,
+      loopCount: 0,
+      maxLoops: checkpoint.loopCount + 3,
+      budget: { ...checkpoint.budget, tokensUsed: 0, usdUsed: 0 },
+      scope: checkpoint.scope,
+      assignedAgents: [],
+      artifacts: [],
+    };
+
+    const store = await createArtifactStore(
+      this.options.artifactsRootDir,
+      forkOptions.newFlowId
+    );
+
+    await appendTimeline(store, {
+      ts: now(),
+      type: "flow_started",
+      flowId: forkOptions.newFlowId,
+      detail: `forked from ${flowId} (checkpoint ${checkpoint.checkpointId})`,
+    });
+
+    return { flow, store };
   }
 
   async createProposal(
@@ -629,27 +784,41 @@ export class HarnessRuntime {
   }
 
   completeFlow(handle: FlowHandle): FlowHandle {
+    const completed = {
+      ...handle,
+      flow: updateFlowState(handle.flow, "completed"),
+    };
     void appendTimeline(handle.store, {
       ts: now(),
       type: "flow_completed",
       flowId: handle.flow.flowId,
     });
-    return {
-      ...handle,
-      flow: updateFlowState(handle.flow, "completed"),
-    };
+    // Final checkpoint on completion
+    void this.autoCheckpointFlow(completed);
+    return completed;
   }
 
   failFlow(handle: FlowHandle): FlowHandle {
+    const failed = {
+      ...handle,
+      flow: updateFlowState(handle.flow, "failed"),
+    };
     void appendTimeline(handle.store, {
       ts: now(),
       type: "flow_completed",
       flowId: handle.flow.flowId,
       detail: "failed",
     });
-    return {
-      ...handle,
-      flow: updateFlowState(handle.flow, "failed"),
-    };
+    // Final checkpoint on failure
+    void this.autoCheckpointFlow(failed);
+    return failed;
+  }
+
+  /**
+   * Get the checkpoint store (if configured).
+   * Useful for listing checkpoints or querying flow history.
+   */
+  getCheckpointStore(): import("./checkpoint-store.js").CheckpointStore | null {
+    return this.checkpointStore;
   }
 }

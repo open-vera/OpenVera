@@ -70,6 +70,16 @@ export interface RuntimeOptions {
    * If omitted, HarnessRuntime uses StreamAgentRunner as the default.
    */
   agents?: import("../agent/index.js").AgentRunnerMap;
+  /**
+   * Directory for checkpoint persistence. If provided, checkpoints are
+   * saved as JSONL files and can be used for resume/fork.
+   */
+  checkpointsDir?: string;
+  /**
+   * Enable automatic checkpointing at each step boundary.
+   * Requires checkpointsDir to be set. Default: true when checkpointsDir is set.
+   */
+  autoCheckpoint?: boolean;
 }
 
 export interface FlowHandle {
@@ -158,6 +168,22 @@ export interface ProposalBundle {
 export interface CheckpointBundle {
   checkpoint: FlowCheckpoint;
   artifact: ArtifactRecord;
+}
+
+export interface ResumeOptions {
+  /** Which step to resume from. Defaults to checkpoint's activeStepId or first non-done step. */
+  fromStepId?: string;
+  /** Skip completed steps and resume from the next pending step. Default: true */
+  skipCompleted?: boolean;
+}
+
+export interface ForkOptions {
+  /** New flowId for the forked flow */
+  newFlowId: string;
+  /** Optional new goal. If omitted, keeps the original goal. */
+  newGoal?: string;
+  /** Optional step IDs to reset to pending (default: keep all status from checkpoint) */
+  resetSteps?: string[];
 }
 
 export interface AssignmentBundle {
