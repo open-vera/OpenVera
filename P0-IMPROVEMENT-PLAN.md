@@ -50,7 +50,7 @@
 
 | # | 项目 | 说明 | 状态 |
 |---|------|------|------|
-| D1 | Memory Store 并发写入测试 | 多个 async 写入不丢失数据 | ❌ |
+| D1 | Memory Store 并发写入测试 | 多个 async 写入不丢失数据 | ✅ |
 | D2 | Checkpoint resume 完整流程测试 | plan → checkpoint → resume → verify | ❌ |
 | D3 | AgentRunnerRegistry fallback 测试 | 多个 runner 的 fallback chain | ❌ |
 | D4 | Tool Middleware 完整管线测试 | before → execute → after → onError 全链路 | ❌ |
@@ -91,6 +91,7 @@
 | 2026-05-10 17:30 | C1 | 新建 agent/index.ts barrel export (loop + subagent + pool + orchestrator)，tsc + 563 tests all pass |
 | 2026-05-10 17:37 | C2 | 移除 ToolRegistry 中 3 处 `ToolDef<any>` → `ToolDef`（利用默认泛型 TArgs=Record<string,unknown>），563 tests all pass |
 | 2026-05-10 17:59 | C3 | session/store.ts 4 处 `throw new Error` → `SessionNotFoundError`/`SessionNotBranchError`，+7 tests (typed error verification)，570 tests all pass |
+| 2026-05-10 18:01 | D1 | +10 tests (Memory Concurrent: microtask并发写入episodic/semantic、交错读写、多实例同一目录、高频压力测试200/500条) |
 
 ---
 
