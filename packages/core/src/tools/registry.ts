@@ -143,38 +143,53 @@ export class ToolRegistry {
 
     // Middleware — before phase
     let currentArgs = { ...args };
+    let skipped = false;
+    let skipResult: ToolResult | undefined;
     for (const mw of this.middlewares) {
       if (!mw.before) continue;
-      const result = await mw.before(name, currentArgs, ctx);
-      if (result) {
-        if (result.skip && result.result) return result.result;
-        currentArgs = result.args;
+      try {
+        const result = await mw.before(name, currentArgs, ctx);
+        if (result) {
+          if (result.skip && result.result) {
+            skipped = true;
+            skipResult = result.result;
+            break;
+          }
+          currentArgs = result.args;
+        }
+      } catch {
+        // Isolate: a failing before hook must not block other middlewares
       }
     }
 
     // Execute with timeout + stats
     const startMs = Date.now();
     let result: ToolResult;
-    try {
-      result = await executeWithTimeout(
-        () => toolDef.execute(currentArgs as never, ctx),
-        toolDef.options?.timeoutMs ?? 30_000
-      );
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
 
-      // Middleware — onError phase
-      for (const mw of this.middlewares) {
-        if (!mw.onError) continue;
-        const recovered = await mw.onError(name, currentArgs, error, ctx);
-        if (recovered) {
-          result = recovered;
-          error.message = ""; // Mark as handled
-          break;
+    if (skipped && skipResult) {
+      result = skipResult;
+    } else {
+      try {
+        result = await executeWithTimeout(
+          () => toolDef.execute(currentArgs as never, ctx),
+          toolDef.options?.timeoutMs ?? 30_000
+        );
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+
+        // Middleware — onError phase
+        for (const mw of this.middlewares) {
+          if (!mw.onError) continue;
+          const recovered = await mw.onError(name, currentArgs, error, ctx);
+          if (recovered) {
+            result = recovered;
+            error.message = ""; // Mark as handled
+            break;
+          }
         }
-      }
-      if (!result!) {
-        result = errorResult("UNKNOWN", error.message, true);
+        if (!result!) {
+          result = errorResult("UNKNOWN", error.message, true);
+        }
       }
     }
 
