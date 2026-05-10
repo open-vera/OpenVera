@@ -11,7 +11,7 @@
  *   - Episodic/Semantic: JSONL files under a configurable directory
  */
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -58,6 +58,8 @@ export interface MemoryStoreOptions {
   storeDir?: string;
   /** Max working memory entries before auto-eviction. Default: 200 */
   maxWorkingEntries?: number;
+  /** Max entries to keep in the inverted index (prevents unbounded memory growth). Default: 5000 */
+  maxIndexEntries?: number;
 }
 
 export interface MemorySearchResult {
@@ -109,6 +111,133 @@ function keywordScore(queryTerms: string[], entryTerms: string[]): { score: numb
   return { score: matched.length / denominator, matched };
 }
 
+/** Validate that a parsed JSON object is a plausible memory entry. */
+function isValidMemoryEntry(obj: unknown): obj is MemoryEntry {
+  if (typeof obj !== "object" || obj === null) return false;
+  const e = obj as Record<string, unknown>;
+  return (
+    typeof e.id === "string" &&
+    typeof e.tier === "string" &&
+    ["working", "episodic", "semantic"].includes(e.tier as string) &&
+    typeof e.content === "string" &&
+    Array.isArray(e.tags) &&
+    typeof e.createdAt === "string" &&
+    typeof e.updatedAt === "string" &&
+    typeof e.importance === "number"
+  );
+}
+
+// ─── Inverted Index ──────────────────────────────────────────────────────────
+
+/**
+ * Lightweight inverted index: term → set of entry IDs.
+ * Enables O(1) lookup per query term instead of O(n) full scan.
+ */
+class InvertedIndex {
+  /** term → entry IDs */
+  private index = new Map<string, Set<string>>();
+  /** entry ID → set of indexed terms (for removal) */
+  private reverseIndex = new Map<string, Set<string>>();
+  /** entry ID → MemoryEntry (for fast lookup) */
+  private entryStore = new Map<string, MemoryEntry>();
+  /** FIFO queue for eviction */
+  private insertionOrder: string[] = [];
+
+  constructor(private readonly maxEntries: number = 5000) {}
+
+  /**
+   * Add an entry to the index.
+   * Indexes content + tags as searchable terms.
+   */
+  add(entry: MemoryEntry): void {
+    const terms = tokenize(entry.content + " " + entry.tags.join(" "));
+
+    // Evict oldest if at capacity
+    while (this.insertionOrder.length >= this.maxEntries) {
+      const evictId = this.insertionOrder.shift()!;
+      this.remove(evictId);
+    }
+
+    this.insertionOrder.push(entry.id);
+    this.entryStore.set(entry.id, entry);
+    const termSet = new Set<string>();
+
+    for (const term of terms) {
+      let ids = this.index.get(term);
+      if (!ids) {
+        ids = new Set<string>();
+        this.index.set(term, ids);
+      }
+      ids.add(entry.id);
+      termSet.add(term);
+    }
+
+    this.reverseIndex.set(entry.id, termSet);
+  }
+
+  /**
+   * Remove an entry from the index by ID.
+   */
+  remove(id: string): void {
+    const terms = this.reverseIndex.get(id);
+    if (!terms) return;
+
+    for (const term of terms) {
+      const ids = this.index.get(term);
+      if (ids) {
+        ids.delete(id);
+        if (ids.size === 0) this.index.delete(term);
+      }
+    }
+
+    this.reverseIndex.delete(id);
+    this.entryStore.delete(id);
+  }
+
+  /**
+   * Search the index for entries matching the query terms.
+   * Returns candidate entry IDs with the number of matching terms.
+   * Time: O(k) where k = total IDs across all matching terms.
+   */
+  search(queryTerms: string[]): Map<string, number> {
+    const matchCounts = new Map<string, number>();
+
+    for (const term of queryTerms) {
+      const ids = this.index.get(term);
+      if (!ids) continue;
+      for (const id of ids) {
+        matchCounts.set(id, (matchCounts.get(id) ?? 0) + 1);
+      }
+    }
+
+    return matchCounts;
+  }
+
+  /**
+   * Get a stored entry by ID.
+   */
+  getEntry(id: string): MemoryEntry | undefined {
+    return this.entryStore.get(id);
+  }
+
+  /**
+   * Number of indexed entries.
+   */
+  get size(): number {
+    return this.entryStore.size;
+  }
+
+  /**
+   * Clear the entire index.
+   */
+  clear(): void {
+    this.index.clear();
+    this.reverseIndex.clear();
+    this.entryStore.clear();
+    this.insertionOrder = [];
+  }
+}
+
 // ─── Store ───────────────────────────────────────────────────────────────────
 
 export class MemoryStore {
@@ -119,12 +248,16 @@ export class MemoryStore {
   /** Semantic memory — persisted */
   private semantic: SemanticEntry[] = [];
 
+  /** Inverted index for fast keyword search */
+  private readonly searchIndex: InvertedIndex;
+
   private readonly storeDir: string | null;
   private readonly maxWorking: number;
 
   constructor(options: MemoryStoreOptions = {}) {
     this.storeDir = options.storeDir ?? null;
     this.maxWorking = options.maxWorkingEntries ?? 200;
+    this.searchIndex = new InvertedIndex(options.maxIndexEntries ?? 5000);
 
     if (this.storeDir) {
       mkdirSync(this.storeDir, { recursive: true });
@@ -149,6 +282,7 @@ export class MemoryStore {
       importance,
     };
     this.working.push(entry);
+    this.searchIndex.add(entry);
     this.evictWorking();
     return entry;
   }
@@ -164,6 +298,10 @@ export class MemoryStore {
    * Clear working memory (e.g., on session end).
    */
   clearWorking(): void {
+    // Remove working entries from the search index
+    for (const entry of this.working) {
+      this.searchIndex.remove(entry.id);
+    }
     this.working = [];
   }
 
@@ -194,6 +332,7 @@ export class MemoryStore {
       lessons,
     };
     this.episodic.push(entry);
+    this.searchIndex.add(entry);
     this.persistEntry(entry);
     return entry;
   }
@@ -241,6 +380,7 @@ export class MemoryStore {
       value,
     };
     this.semantic.push(entry);
+    this.searchIndex.add(entry);
     this.persistEntry(entry);
     return entry;
   }
@@ -258,7 +398,8 @@ export class MemoryStore {
   removeSemantic(key: string): boolean {
     const idx = this.semantic.findIndex((e) => e.key === key);
     if (idx === -1) return false;
-    this.semantic.splice(idx, 1);
+    const removed = this.semantic.splice(idx, 1)[0]!;
+    this.searchIndex.remove(removed.id);
     this.persistAll();
     return true;
   }
@@ -267,6 +408,8 @@ export class MemoryStore {
 
   /**
    * Search across all memory tiers for relevant entries.
+   * Uses an inverted index for O(k) lookup where k = matching entries,
+   * instead of the previous O(n) full scan.
    * Returns results sorted by relevance (highest first).
    */
   search(query: string, options: { tiers?: MemoryTier[]; limit?: number } = {}): MemorySearchResult[] {
@@ -274,25 +417,39 @@ export class MemoryStore {
     const limit = options.limit ?? 10;
     const queryTerms = extractKeywords(query);
 
-    const allEntries: MemoryEntry[] = [
-      ...(tiers.includes("working") ? this.working : []),
-      ...(tiers.includes("episodic") ? this.episodic : []),
-      ...(tiers.includes("semantic") ? this.semantic : []),
-    ];
+    if (queryTerms.length === 0) return [];
+
+    // Use inverted index for O(k) candidate lookup
+    const matchCounts = this.searchIndex.search(queryTerms);
+
+    // Build a tier filter set for fast lookup
+    const tierSet = new Set(tiers);
 
     const results: MemorySearchResult[] = [];
 
-    for (const entry of allEntries) {
+    for (const [entryId, matchedCount] of matchCounts) {
+      const entry = this.searchIndex.getEntry(entryId);
+      if (!entry) continue;
+
+      // Filter by requested tiers
+      if (!tierSet.has(entry.tier)) continue;
+
+      // Score: proportion of query terms matched (like the old Jaccard)
+      // but computed from the index instead of re-tokenizing
+      const denominator = Math.min(queryTerms.length, matchedCount);
+      const baseScore = denominator > 0 ? matchedCount / denominator : 0;
+
+      if (baseScore === 0) continue;
+
+      // Boost by importance
+      const adjustedScore = baseScore * 0.7 + entry.importance * 0.3;
+
+      // Collect matched terms for reporting
       const entryTerms = tokenize(entry.content + " " + entry.tags.join(" "));
-      const { score, matched } = keywordScore(queryTerms, entryTerms);
+      const entryTermSet = new Set(entryTerms);
+      const matchedTerms = queryTerms.filter((t) => entryTermSet.has(t));
 
-      // Require at least some keyword overlap
-      if (score === 0) continue;
-
-      // Also boost by importance
-      const adjustedScore = score * 0.7 + entry.importance * 0.3;
-
-      results.push({ entry, score: adjustedScore, matchedTerms: matched });
+      results.push({ entry, score: adjustedScore, matchedTerms });
     }
 
     results.sort((a, b) => b.score - a.score);
@@ -315,8 +472,14 @@ export class MemoryStore {
 
   private loadFromDisk(): void {
     if (!this.storeDir) return;
-    this.episodic = this.loadJsonl<EpisodicEntry>("episodic.jsonl");
-    this.semantic = this.loadJsonl<SemanticEntry>("semantic.jsonl");
+    const loadedEpisodic = this.loadJsonl<EpisodicEntry>("episodic.jsonl");
+    const loadedSemantic = this.loadJsonl<SemanticEntry>("semantic.jsonl");
+    this.episodic = loadedEpisodic;
+    this.semantic = loadedSemantic;
+
+    // Rebuild the inverted index from persisted data
+    for (const entry of this.episodic) this.searchIndex.add(entry);
+    for (const entry of this.semantic) this.searchIndex.add(entry);
   }
 
   private persistEntry(entry: MemoryEntry): void {
@@ -336,13 +499,32 @@ export class MemoryStore {
     if (!this.storeDir) return [];
     const filePath = join(this.storeDir, filename);
     if (!existsSync(filePath)) return [];
+    // Clean up any leftover .tmp files from a crash during atomic write
+    const tmpPath = filePath + ".tmp";
+    if (existsSync(tmpPath)) {
+      try {
+        const tmpContent = readFileSync(tmpPath, "utf-8").trim();
+        if (tmpContent.length > 0) {
+          // tmp has data but wasn't renamed — likely a crash between write and rename
+          // The main file is still intact, so we can safely discard the tmp
+        }
+        unlinkSync(tmpPath);
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
     try {
       const raw = readFileSync(filePath, "utf-8");
       const lines = raw.trim().split("\n").filter(Boolean);
       const entries: T[] = [];
       for (const line of lines) {
         try {
-          entries.push(JSON.parse(line) as T);
+          const parsed = JSON.parse(line) as T;
+          // Validate required fields for memory entries
+          if (isValidMemoryEntry(parsed)) {
+            entries.push(parsed);
+          }
+          // Otherwise skip silently (malformed entry)
         } catch {
           // Skip corrupt lines
         }
@@ -356,8 +538,13 @@ export class MemoryStore {
   private writeJsonl<T>(filename: string, entries: T[]): void {
     if (!this.storeDir) return;
     const filePath = join(this.storeDir, filename);
+    const tmpPath = filePath + ".tmp";
     const content = entries.map((e) => JSON.stringify(e)).join("\n") + (entries.length > 0 ? "\n" : "");
-    writeFileSync(filePath, content);
+    // Atomic write: write to temp file first, then rename
+    // renameSync is atomic on the same filesystem, so a crash mid-write
+    // never corrupts the existing data file.
+    writeFileSync(tmpPath, content);
+    renameSync(tmpPath, filePath);
   }
 
   private evictWorking(): void {
