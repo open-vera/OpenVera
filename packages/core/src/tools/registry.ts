@@ -15,8 +15,7 @@ import { executeWithTimeout } from "./executor.js";
 import { ToolStatsCollector } from "./tool-stats.js";
 
 export class ToolRegistry {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private tools = new Map<string, ToolDef<any>>();
+  private tools = new Map<string, ToolDef>();
   private hooks: ToolLifecycleHook[] = [];
   private middlewares: ToolMiddleware[] = [];
   private groups = new Map<string, ToolGroup>();
@@ -28,13 +27,11 @@ export class ToolRegistry {
 
   // ── Registration ─────────────────────────────────────────────────────
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  register(tool: ToolDef<any>): void {
+  register(tool: ToolDef): void {
     this.tools.set(tool.name, tool);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  registerGroup(group: ToolGroup, tools: ToolDef<any>[]): void {
+  registerGroup(group: ToolGroup, tools: ToolDef[]): void {
     this.groups.set(group.name, group);
     for (const tool of tools) {
       tool.group = tool.group ?? group.name;
