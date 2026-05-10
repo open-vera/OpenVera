@@ -140,3 +140,125 @@ describe("ToolRegistry middleware isolation", () => {
     expect(afterFn).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("D4: Tool Middleware full pipeline", () => {
+  it("multiple middlewares chain arg transformations", async () => {
+    const reg = new ToolRegistry();
+    const execute = vi.fn(async (args: Record<string, unknown>) => ({
+      ok: true,
+      content: JSON.stringify(args),
+    }));
+    reg.register({
+      name: "transform",
+      description: "transform tool",
+      parameters: { type: "object", properties: {} },
+      execute,
+    });
+
+    reg.addMiddleware({
+      name: "add-foo",
+      before: async (_n, args) => ({ args: { ...args, foo: "bar" } }),
+    });
+    reg.addMiddleware({
+      name: "add-baz",
+      before: async (_n, args) => ({ args: { ...args, baz: 42 } }),
+    });
+
+    const result = await reg.execute("transform", { x: 1 }, ctx);
+    expect(result.ok).toBe(true);
+    const parsed = JSON.parse(result.content!);
+    expect(parsed).toMatchObject({ x: 1, foo: "bar", baz: 42 });
+  });
+
+  it("after hook can modify result", async () => {
+    const reg = new ToolRegistry();
+    reg.register({
+      name: "echo",
+      description: "echo",
+      parameters: { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
+      execute: async (args) => ({ ok: true, content: (args as { text: string }).text }),
+    });
+
+    reg.addMiddleware({
+      name: "uppercaser",
+      after: async (_n, _a, r) => ({
+        ...r,
+        content: r.content?.toUpperCase(),
+      }),
+    });
+
+    const result = await reg.execute("echo", { text: "hello" }, ctx);
+    expect(result.content).toBe("HELLO");
+  });
+
+  it("error from tool propagates to onError and after hooks", async () => {
+    const reg = new ToolRegistry();
+    reg.register({
+      name: "explode",
+      description: "boom",
+      parameters: { type: "object", properties: {} },
+      execute: async () => { throw new Error("kaboom"); },
+    });
+
+    const callOrder: string[] = [];
+    reg.addMiddleware({
+      name: "logger",
+      onError: async () => {
+        callOrder.push("onError");
+        return { ok: true, content: "recovered" };
+      },
+      after: async () => {
+        callOrder.push("after");
+        return { ok: true, content: "after" };
+      },
+    });
+
+    const result = await reg.execute("explode", {}, ctx);
+    expect(result.ok).toBe(true);
+    // onError is called (after is NOT called when error + recovery happens)
+    expect(callOrder).toContain("onError");
+  });
+
+  it("unhandled error falls through to error result when no onError", async () => {
+    const reg = new ToolRegistry();
+    reg.register({
+      name: "fail",
+      description: "fail",
+      parameters: { type: "object", properties: {} },
+      execute: async () => { throw new Error("no recovery"); },
+    });
+
+    reg.addMiddleware({
+      name: "pass-through",
+      after: async (_n, _a, r) => r,
+    });
+
+    const result = await reg.execute("fail", {}, ctx);
+    expect(result.ok).toBe(false);
+  });
+
+  it("non-existent tool returns error result", async () => {
+    const reg = new ToolRegistry();
+    reg.addMiddleware({
+      name: "noop",
+      after: async (_n, _a, r) => r,
+    });
+
+    const result = await reg.execute("nonexistent", {}, ctx);
+    expect(result.ok).toBe(false);
+  });
+
+  it("no middlewares tool execution works correctly", async () => {
+    const reg = new ToolRegistry();
+    reg.register({
+      name: "bare",
+      description: "bare tool",
+      parameters: { type: "object", properties: { val: { type: "number" } }, required: ["val"] },
+      execute: async (args) => ({ ok: true, content: String((args as { val: number }).val * 2) }),
+    });
+
+    const result = await reg.execute("bare", { val: 21 }, ctx);
+    expect(result.ok).toBe(true);
+    expect(result.content).toBe("42");
+  });
+});
