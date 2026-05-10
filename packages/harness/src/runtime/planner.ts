@@ -1,6 +1,8 @@
 import type { LLMAdapter } from "@open-vera/core/adapters";
 import type { ExecutionPlan, PlanStep } from "@open-vera/core/types";
 import { completeJson } from "./json.js";
+import { PlannerError } from "@open-vera/core";
+// Re-export for tests
 
 export interface PlanFromPromptOptions {
   /** Available tool names the agent can use (informational, for the LLM). */
@@ -64,19 +66,19 @@ function isValidPlanStep(s: unknown): s is PlanStep {
 
 function validatePlan(raw: unknown): ExecutionPlan {
   if (!raw || typeof raw !== "object") {
-    throw new Error("Planner returned non-object");
+    throw new PlannerError("Planner returned non-object");
   }
   const plan = raw as Record<string, unknown>;
 
   if (typeof plan.goal !== "string") {
-    throw new Error("Planner output missing 'goal' field");
+    throw new PlannerError("Planner output missing 'goal' field");
   }
   if (!Array.isArray(plan.steps) || plan.steps.length === 0) {
-    throw new Error("Planner output missing or empty 'steps' array");
+    throw new PlannerError("Planner output missing or empty 'steps' array");
   }
   for (const step of plan.steps) {
     if (!isValidPlanStep(step)) {
-      throw new Error(
+      throw new PlannerError(
         `Invalid step: each step must have id, type, and action. Got: ${JSON.stringify(step)}`,
       );
     }
@@ -142,7 +144,8 @@ export async function planFromPrompt(
     }
   }
 
-  throw new Error(
+  throw new PlannerError(
     `planFromPrompt failed after ${maxRetries + 1} attempts: ${lastError?.message}`,
+    { cause: lastError }
   );
 }

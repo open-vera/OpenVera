@@ -6,6 +6,7 @@
  */
 
 import type { SubagentJobStatus } from "./subagent.js";
+import { DuplicateJobError, QueueFullError } from "../errors.js";
 
 export interface PoolJob {
   jobId: string;
@@ -41,14 +42,12 @@ export class SubagentPool {
   /** Submit a job. Returns the jobId. Throws if queue is full. */
   submit(jobId: string, agentType: string, prompt: string): PoolJob {
     if (this.jobs.has(jobId)) {
-      throw new Error(`Job ${jobId} already exists`);
+      throw new DuplicateJobError(jobId);
     }
 
     const totalActive = this.runningCount + this.queue.length;
     if (totalActive >= this.maxConcurrent + this.maxQueue) {
-      throw new Error(
-        `Pool full: ${this.runningCount} running, ${this.queue.length} queued (max: ${this.maxConcurrent}+${this.maxQueue})`
-      );
+      throw new QueueFullError(this.maxConcurrent + this.maxQueue);
     }
 
     const job: PoolJob = {

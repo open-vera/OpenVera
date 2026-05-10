@@ -18,6 +18,10 @@ import { join, normalize } from "node:path";
 import type { StopReason, Usage } from "../types/index.js";
 import type { Message } from "../types/message.js";
 import { calculateCost } from "./cost.js";
+import {
+  SessionNotFoundError,
+  SessionNotBranchError,
+} from "../errors.js";
 import type {
   AssistantEntry,
   BranchEntry,
@@ -635,7 +639,7 @@ export class SessionStore {
     const sourceMessages = entries.filter(isReplayableSessionEntry);
 
     if (sourceMessages.length === 0) {
-      throw new Error(`No replayable session entries found for ${options.fromSessionId}`);
+      throw new SessionNotFoundError(options.fromSessionId);
     }
 
     const forkedFromUuid = options.atUuid ?? findLastMessageUuid(sourceMessages);
@@ -684,7 +688,7 @@ export class SessionStore {
   static discardBranch(sessionId: string, cwd?: string): void {
     const loaded = readBranchMetadata(resolveSessionFilePath(sessionId, cwd ?? process.cwd()));
     if (!loaded) {
-      throw new Error(`Session ${sessionId} is not a branch`);
+      throw new SessionNotBranchError(sessionId);
     }
     const store = new SessionStore({ sessionId, cwd });
     store.writeBranch({
@@ -701,7 +705,7 @@ export class SessionStore {
   static adoptBranch(sessionId: string, cwd?: string): void {
     const loaded = readBranchMetadata(resolveSessionFilePath(sessionId, cwd ?? process.cwd()));
     if (!loaded) {
-      throw new Error(`Session ${sessionId} is not a branch`);
+      throw new SessionNotBranchError(sessionId);
     }
     const store = new SessionStore({ sessionId, cwd });
     store.writeBranch({
@@ -718,7 +722,7 @@ export class SessionStore {
   static markBranchMerged(sessionId: string, cwd?: string): void {
     const loaded = readBranchMetadata(resolveSessionFilePath(sessionId, cwd ?? process.cwd()));
     if (!loaded) {
-      throw new Error(`Session ${sessionId} is not a branch`);
+      throw new SessionNotBranchError(sessionId);
     }
     const store = new SessionStore({ sessionId, cwd });
     store.writeBranch({

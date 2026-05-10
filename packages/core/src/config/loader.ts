@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import type { VeraConfig } from "./types.js";
+import { ConfigError } from "../errors.js";
 
 const CONFIG_FILENAME = "settings.json";
 
@@ -26,6 +27,6 @@ export function loadConfig(configPath?: string): VeraConfig {
     const raw = readFileSync(filePath, "utf-8");
     return JSON.parse(raw) as VeraConfig;
   } catch (err) {
-    throw new Error(`Failed to parse config at ${filePath}: ${String(err)}`);
+    throw new ConfigError(`Failed to parse config at ${filePath}: ${String(err)}`, { cause: err });
   }
 }

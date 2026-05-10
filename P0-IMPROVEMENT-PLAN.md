@@ -44,7 +44,7 @@
 |---|------|------|------|
 | C1 | Agent index 导出补全 | `packages/core/src/agent/index.ts` 需要导出 pool/orchestrator | ✅ |
 | C2 | 类型安全加强 | 全局搜索 `any` 类型使用，逐步替换为具体类型 | ✅ |
-| C3 | 错误处理统一 | 确保所有模块使用统一的错误类型，不混用 Error + string | ❌ |
+| C3 | 错误处理统一 | 确保所有模块使用统一的错误类型，不混用 Error + string | ✅ |
 
 ### D. 测试覆盖
 
@@ -90,6 +90,7 @@
 | 2026-05-10 17:24 | B3 | +2 tests (ToolStatsCollector default maxRecords=1000, registry also uses 1000; reduced from 10000 to limit memory usage) |
 | 2026-05-10 17:30 | C1 | 新建 agent/index.ts barrel export (loop + subagent + pool + orchestrator)，tsc + 563 tests all pass |
 | 2026-05-10 17:37 | C2 | 移除 ToolRegistry 中 3 处 `ToolDef<any>` → `ToolDef`（利用默认泛型 TArgs=Record<string,unknown>），563 tests all pass |
+| 2026-05-10 17:59 | C3 | session/store.ts 4 处 `throw new Error` → `SessionNotFoundError`/`SessionNotBranchError`，+7 tests (typed error verification)，570 tests all pass |
 
 ---
 

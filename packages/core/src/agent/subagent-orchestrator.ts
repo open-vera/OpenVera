@@ -6,6 +6,7 @@
  */
 
 import { SubagentPool } from "./subagent-pool.js";
+import { UnknownDependencyError, CircularDependencyError } from "../errors.js";
 
 export type OrchestratorStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
@@ -157,7 +158,7 @@ export class SubagentOrchestrator {
     for (const task of this.tasks) {
       for (const dep of task.dependsOn ?? []) {
         if (!taskIds.has(dep)) {
-          throw new Error(`Task "${task.id}" depends on unknown task "${dep}"`);
+          throw new UnknownDependencyError(task.id, dep);
         }
       }
     }
@@ -178,7 +179,7 @@ export class SubagentOrchestrator {
     };
     for (const task of this.tasks) {
       if (!visit(task.id)) {
-        throw new Error(`Circular dependency detected involving task "${task.id}"`);
+        throw new CircularDependencyError(task.id);
       }
     }
   }

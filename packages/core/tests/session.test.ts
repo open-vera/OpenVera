@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SessionStore } from '../src/session/store.js';
+import { VeraError, SessionNotFoundError, SessionNotBranchError } from '../src/errors.js';
 import { generateSessionTitle } from '../src/session/title.js';
 import { appendFileSync, rmSync, mkdtempSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
@@ -485,5 +486,65 @@ describe('SessionStore', () => {
 
     const [after] = SessionStore.listSessions(cwd);
     expect(after!.fileSize).toBeGreaterThan(sizeBefore);
+  });
+
+  // --- Typed error tests (C3) ---
+
+  it('forkSession throws SessionNotFoundError for session with no replayable entries', () => {
+    const cwd = makeCwd();
+    // Write a session file that only contains non-replayable entries (branch type)
+    const store = new SessionStore({ cwd });
+    // Manually write a file with only a branch entry (excluded by isReplayableSessionEntry)
+    appendFileSync(store.filePath, JSON.stringify({ type: 'branch', parentSessionId: 'x', forkedFromUuid: 'y', status: 'active', title: 'test' }) + '\n');
+
+    expect(() =>
+      SessionStore.forkSession({ fromSessionId: store.sessionId, cwd })
+    ).toThrow(SessionNotFoundError);
+  });
+
+  it('forkSession throws SessionNotFoundError for nonexistent session file', () => {
+    const cwd = makeCwd();
+    expect(() =>
+      SessionStore.forkSession({ fromSessionId: 'nonexistent-id', cwd })
+    ).toThrow();
+  });
+
+  it('discardBranch throws SessionNotBranchError for non-branch session', () => {
+    const cwd = makeCwd();
+    const store = new SessionStore({ cwd });
+    store.writeStart('gpt-4', 'openai');
+
+    expect(() =>
+      SessionStore.discardBranch(store.sessionId, cwd)
+    ).toThrow(SessionNotBranchError);
+  });
+
+  it('adoptBranch throws SessionNotBranchError for non-branch session', () => {
+    const cwd = makeCwd();
+    const store = new SessionStore({ cwd });
+    store.writeStart('gpt-4', 'openai');
+
+    expect(() =>
+      SessionStore.adoptBranch(store.sessionId, cwd)
+    ).toThrow(SessionNotBranchError);
+  });
+
+  it('markBranchMerged throws SessionNotBranchError for non-branch session', () => {
+    const cwd = makeCwd();
+    const store = new SessionStore({ cwd });
+    store.writeStart('gpt-4', 'openai');
+
+    expect(() =>
+      SessionStore.markBranchMerged(store.sessionId, cwd)
+    ).toThrow(SessionNotBranchError);
+  });
+
+  it('SessionNotFoundError and SessionNotBranchError are instances of VeraError', () => {
+    const notFound = new SessionNotFoundError('test-id');
+    const notBranch = new SessionNotBranchError('test-id');
+    expect(notFound).toBeInstanceOf(VeraError);
+    expect(notBranch).toBeInstanceOf(VeraError);
+    expect(notFound.code).toBe('SESSION_NOT_FOUND');
+    expect(notBranch.code).toBe('SESSION_NOT_BRANCH');
   });
 });

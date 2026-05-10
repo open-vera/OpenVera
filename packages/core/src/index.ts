@@ -28,6 +28,7 @@ export type {
   UsageDetectionResult,
 } from "./memory/index.js";
 import type { Tool } from "./types/index.js";
+export * from "./errors.js";
 
 const config = loadConfig();
 

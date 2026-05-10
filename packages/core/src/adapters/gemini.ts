@@ -13,6 +13,7 @@ import type {
   ContentPart,
 } from "../types/index.js";
 import type { ModelInfo } from "../types/model.js";
+import { AdapterRequestError } from "../errors.js";
 
 export class GeminiAdapter implements LLMAdapter {
   private genAI: GoogleGenerativeAI;
@@ -84,7 +85,7 @@ export class GeminiAdapter implements LLMAdapter {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models?key=${this.apiKey}&pageSize=100`
     );
-    if (!res.ok) throw new Error(`Gemini listModels failed: ${res.status}`);
+    if (!res.ok) throw new AdapterRequestError("Gemini", res.status);
     const json = (await res.json()) as {
       models?: Array<{
         name: string;

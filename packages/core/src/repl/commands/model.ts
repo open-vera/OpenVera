@@ -1,3 +1,4 @@
+import { AdapterError } from "../../errors.js";
 import type { ReplContext } from "../context.js";
 
 export async function modelCommand(
@@ -16,7 +17,7 @@ export async function modelCommand(
     providerNames.map(async (name) => {
       const adapter = ctx.buildAdapter(name);
       if (!adapter.listModels) {
-        throw new Error("listModels not supported for this adapter");
+        throw new AdapterError("ADAPTER_NO_LISTMODELS", "listModels not supported for this adapter");
       }
       const models = await adapter.listModels();
       return { name, models };

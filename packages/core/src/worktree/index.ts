@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { GitError, ValidationError } from "../errors.js";
 
 const VALID_WORKTREE_SEGMENT = /^[a-zA-Z0-9._-]+$/;
 const MAX_WORKTREE_SLUG_LENGTH = 64;
@@ -14,11 +15,11 @@ export interface BranchWorktree {
 
 export function validateWorktreeSlug(slug: string): void {
   if (slug.length === 0 || slug.length > MAX_WORKTREE_SLUG_LENGTH) {
-    throw new Error(`Invalid worktree name: must be 1-${MAX_WORKTREE_SLUG_LENGTH} characters`);
+    throw new ValidationError(`Invalid worktree name: must be 1-${MAX_WORKTREE_SLUG_LENGTH} characters`);
   }
   for (const segment of slug.split("/")) {
     if (segment === "." || segment === ".." || !VALID_WORKTREE_SEGMENT.test(segment)) {
-      throw new Error(
+      throw new ValidationError(
         `Invalid worktree name "${slug}": use letters, digits, dots, underscores, dashes, and safe "/" nesting`
       );
     }
@@ -57,7 +58,7 @@ export function createBranchWorktree(cwd: string, slug: string): BranchWorktree 
   validateWorktreeSlug(slug);
   const gitRoot = findGitRoot(cwd);
   if (!gitRoot) {
-    throw new Error("Cannot create a try worktree outside a git repository");
+    throw new GitError("Cannot create a try worktree outside a git repository");
   }
 
   const baseCommit = git(gitRoot, ["rev-parse", "HEAD"]);
@@ -87,7 +88,7 @@ export function hasWorktreeChanges(worktreePath: string, baseCommit: string): bo
 export function hasGitChanges(cwd: string): boolean {
   const gitRoot = findGitRoot(cwd);
   if (!gitRoot) {
-    throw new Error("Cannot inspect changes outside a git repository");
+    throw new GitError("Cannot inspect changes outside a git repository");
   }
   return git(gitRoot, ["status", "--porcelain", "--", ".", ":(exclude).vera/worktrees"]).length > 0;
 }
@@ -110,7 +111,7 @@ export function applyWorktreeDiff(targetCwd: string, diff: string): void {
   if (diff.trim().length === 0) return;
   const gitRoot = findGitRoot(targetCwd);
   if (!gitRoot) {
-    throw new Error("Cannot merge a try branch outside a git repository");
+    throw new GitError("Cannot merge a try branch outside a git repository");
   }
   execFileSync("git", ["apply", "--3way", "--binary", "--whitespace=nowarn", "-"], {
     cwd: gitRoot,
@@ -124,7 +125,7 @@ export function checkWorktreeDiff(targetCwd: string, diff: string): void {
   if (diff.trim().length === 0) return;
   const gitRoot = findGitRoot(targetCwd);
   if (!gitRoot) {
-    throw new Error("Cannot merge a try branch outside a git repository");
+    throw new GitError("Cannot merge a try branch outside a git repository");
   }
   execFileSync("git", ["apply", "--check", "--3way", "--binary", "--whitespace=nowarn", "-"], {
     cwd: gitRoot,
@@ -142,7 +143,7 @@ export function mergeWorktreeChanges(p: {
   requireCleanTarget?: boolean;
 }): { changed: boolean } {
   if (p.requireCleanTarget && hasGitChanges(p.targetCwd)) {
-    throw new Error("Target workspace has uncommitted changes; commit, stash, or clean them before merging");
+    throw new GitError("Target workspace has uncommitted changes; commit, stash, or clean them before merging");
   }
   const diff = collectWorktreeDiff(p.worktreePath, p.baseCommit);
   if (p.checkOnly) {

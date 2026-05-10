@@ -13,6 +13,7 @@ import {
   join,
   resolve,
 } from "node:path";
+import { RemoteRunnerError } from "../errors.js";
 import { randomUUID } from "node:crypto";
 import type { LLMAdapter } from "../adapters/base.js";
 import type { Tool, Usage } from "../types/index.js";
@@ -846,7 +847,7 @@ function tryRunExternalRemoteRunner(payload: {
     return { content, ...(transcriptId ? { transcriptId } : {}), ...(toolCalls ? { toolCalls } : {}), location };
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    throw new Error(`Remote runner failed (${runnerCmd}): ${detail}`);
+    throw new RemoteRunnerError(runnerCmd, detail);
   }
 }
 

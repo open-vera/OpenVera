@@ -1,5 +1,6 @@
 import type { LLMAdapter } from "../adapters/base.js";
 import type { ContentPart } from "../types/index.js";
+import { PlannerError } from "../errors.js";
 
 export interface PlanStepDef {
   id: string;
@@ -52,7 +53,7 @@ export async function generatePlan(
 
   const parsed = JSON.parse(extractJsonArray(text)) as PlanStepDef[];
   if (!Array.isArray(parsed) || parsed.length === 0) {
-    throw new Error("Invalid plan format returned by model");
+    throw new PlannerError("Invalid plan format returned by model");
   }
   return parsed;
 }
