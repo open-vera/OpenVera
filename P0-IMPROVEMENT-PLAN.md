@@ -94,3 +94,5 @@
 | 2026-05-10 20:58 | D3 | +21 tests (AgentRunnerRegistry fallback chain deep dive: primary always ready, long chain, no isReady, capability separation, register overwrite/edge, get/has edge, findByCapabilities edge, toMap empty/non-empty); 43 tests total, all pass |
 
 *本文档由自动改进流程维护，每轮更新。*
+
+| 2026-05-10 21:42 | D5 | +5 tests (E2E smoke: plan→checkpoint→tool→agent→state machine pipeline; 605 total tests pass) |

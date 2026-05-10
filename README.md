@@ -255,7 +255,7 @@ This is **not** "agent rewrites itself." This is a principled evolution pipeline
 | Phase | Goal | Status |
 |---|---|---|
 | **P0** | Harness-driven execution runtime | ✅ Complete |
-| **P1** | Self-loop & self-correction (checkpoint/resume, memory, critic agent, self-loop runtime) | 🔄 In Progress |
+| **P1** | Self-loop & self-correction (checkpoint/resume, memory, critic agent, self-loop runtime) | ✅ Complete |
 | **P2** | Self-evolution (Dreaming, Proposal Pipeline, benchmark-gated Rollout) | 📋 Planned |
 | **P3** | Universal agent platform (Computer Use, MCP, multi-agent networks, adaptive strategy) | 📋 Planned |
 
@@ -276,6 +276,17 @@ This is **not** "agent rewrites itself." This is a principled evolution pipeline
 - ✅ CLI color theme (semantic tokens, Claude Code-aligned dark theme)
 - ✅ Pre-commit security scanner (API key detection, credential pattern matching)
 - ✅ Project context system (`.vera/rules.md`, path-scoped rule activation)
+
+### P1 Completed Features
+
+- ✅ **Checkpoint & Resume** — `CheckpointStore` (JSONL, auto-compact, dedup) + `checkpointFromFlow` + flow state machine (`canTransition`, `isFlowDone`)
+- ✅ **Memory Persistence** — thread-safe concurrent writes, atomic crash-safety, corrupted JSONL auto-skip, tier separation (semantic/episodic/working)
+- ✅ **Subagent Orchestrator** — dependency DAG, parallel execution, abort/timeout, graceful error propagation
+- ✅ **Subagent Pool** — queue with concurrency limits, submit/complete/fail/cancel/status tracking
+- ✅ **Tool Middleware** — multi-layer `before`/`after`/`onError`/`skip` pipeline, error isolation per layer
+- ✅ **Checkpoint Compression** — InvertedIndex compression, memory-bounded stats, configurable compaction thresholds
+- ✅ **Type Safety** — Agent barrel exports, typed session errors, unified error hierarchy
+- ✅ **Agent Runner Registry** — multi-level fallback chains, capability-based routing, `isReady` resilience
 
 ---
 
