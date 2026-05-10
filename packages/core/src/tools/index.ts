@@ -23,8 +23,9 @@ export { ToolRegistry } from "./registry.js";
 export { SecurityPlugin } from "./security.js";
 export type { SecurityConfig } from "./security.js";
 export { AnalyticsPlugin } from "./analytics.js";
-export type { ToolDef, ToolResult, ToolContext, ToolLifecycleHook, RenderHint, ToolErrorCode } from "./types.js";
+export type { ToolDef, ToolResult, ToolContext, ToolLifecycleHook, RenderHint, ToolErrorCode, ToolMiddleware, ToolGroup, ToolVersion, ToolCallRecord, ToolStats } from "./types.js";
 export { errorResult } from "./types.js";
+export { ToolStatsCollector } from "./tool-stats.js";
 export { createMemoryWriteTool } from "./memory-write.js";
 export { createMemorySearchTool } from "./memory-search.js";
 

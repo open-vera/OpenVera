@@ -74,12 +74,79 @@ export interface ToolContext {
   memoryStore?: import("../memory/store.js").MemoryStore;
 }
 
+// ── ToolVersion ─────────────────────────────────────────────────────────────
+
+export interface ToolVersion {
+  version: string;
+  deprecated?: boolean;
+  deprecatedReason?: string;
+  replacedBy?: string;
+}
+
+// ── ToolMiddleware ──────────────────────────────────────────────────────────
+
+export interface ToolMiddleware {
+  name: string;
+  /** Before: can modify args or short-circuit with a result. */
+  before?: (
+    name: string,
+    args: Record<string, unknown>,
+    ctx: ToolContext
+  ) => Promise<{ args: Record<string, unknown>; skip?: boolean; result?: ToolResult } | null>;
+  /** After: can transform the result. */
+  after?: (
+    name: string,
+    args: Record<string, unknown>,
+    result: ToolResult,
+    ctx: ToolContext
+  ) => Promise<ToolResult>;
+  /** On error: can recover (return ToolResult) or re-throw (return null). */
+  onError?: (
+    name: string,
+    args: Record<string, unknown>,
+    error: Error,
+    ctx: ToolContext
+  ) => Promise<ToolResult | null>;
+}
+
+// ── ToolGroup ───────────────────────────────────────────────────────────────
+
+export interface ToolGroup {
+  name: string;
+  description?: string;
+  defaults?: Partial<ToolDef["options"]>;
+  version?: string;
+  tags?: string[];
+}
+
+// ── ToolExecutionStats ──────────────────────────────────────────────────────
+
+export interface ToolCallRecord {
+  toolName: string;
+  args: Record<string, unknown>;
+  result: ToolResult;
+  durationMs: number;
+  timestamp: number;
+  sessionId: string;
+}
+
+export interface ToolStats {
+  totalCalls: number;
+  successCount: number;
+  errorCount: number;
+  avgDurationMs: number;
+  p50DurationMs: number;
+  p95DurationMs: number;
+  p99DurationMs: number;
+  errorRate: number;
+  lastCalledAt: number | null;
+}
+
 // ── ToolDef ───────────────────────────────────────────────────────────────────
 
 export type JSONSchema = Record<string, unknown>;
 
 export interface ToolDef<TArgs = Record<string, unknown>> {
-  // Schema exposed to the model
   name: string;
   description: string;
   parameters: JSONSchema;
@@ -91,15 +158,17 @@ export interface ToolDef<TArgs = Record<string, unknown>> {
     riskLevel?: "low" | "medium" | "high";
   };
 
+  /** Version info for this tool. */
+  version?: ToolVersion;
+  /** Tool group this tool belongs to. */
+  group?: string;
+
   execute(args: TArgs, ctx: ToolContext): Promise<ToolResult>;
 }
 
 // ── ToolLifecycleHook ─────────────────────────────────────────────────────────
-// Tier 3 hook: per-tool interception for ToolRegistry plugins (SecurityPlugin,
-// AnalyticsPlugin). Turn/session lifecycle belongs in AgentHooks (agent/loop.ts).
 
 export interface ToolLifecycleHook {
-  /** Return non-null to short-circuit execution (harness denial). */
   onBeforeToolCall?(
     name: string,
     args: Record<string, unknown>,
