@@ -51,8 +51,8 @@
 | # | 项目 | 说明 | 状态 |
 |---|------|------|------|
 | D1 | Memory Store 并发写入测试 | 多个 async 写入不丢失数据 | ✅ |
-| D2 | Checkpoint resume 完整流程测试 | plan → checkpoint → resume → verify | ❌ |
-| D3 | AgentRunnerRegistry fallback 测试 | 多个 runner 的 fallback chain | ❌ |
+| D2 | Checkpoint resume 完整流程测试 | plan → checkpoint → resume → verify | ✅ |
+| D3 | AgentRunnerRegistry fallback 测试 | 多个 runner 的 fallback chain | ✅ |
 | D4 | Tool Middleware 完整管线测试 | before → execute → after → onError 全链路 | ❌ |
 | D5 | 端到端冒烟测试 | 模拟完整 agent 循环：plan → dispatch → execute → checkpoint | ❌ |
 
@@ -91,8 +91,6 @@
 | 2026-05-10 17:30 | C1 | 新建 agent/index.ts barrel export (loop + subagent + pool + orchestrator)，tsc + 563 tests all pass |
 | 2026-05-10 17:37 | C2 | 移除 ToolRegistry 中 3 处 `ToolDef<any>` → `ToolDef`（利用默认泛型 TArgs=Record<string,unknown>），563 tests all pass |
 | 2026-05-10 17:59 | C3 | session/store.ts 4 处 `throw new Error` → `SessionNotFoundError`/`SessionNotBranchError`，+7 tests (typed error verification)，570 tests all pass |
-| 2026-05-10 18:01 | D1 | +10 tests (Memory Concurrent: microtask并发写入episodic/semantic、交错读写、多实例同一目录、高频压力测试200/500条) |
-
----
+| 2026-05-10 20:58 | D3 | +21 tests (AgentRunnerRegistry fallback chain deep dive: primary always ready, long chain, no isReady, capability separation, register overwrite/edge, get/has edge, findByCapabilities edge, toMap empty/non-empty); 43 tests total, all pass |
 
 *本文档由自动改进流程维护，每轮更新。*
