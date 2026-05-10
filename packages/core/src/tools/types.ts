@@ -70,6 +70,8 @@ export interface ToolContext {
   env?: Record<string, string>;
   signal?: AbortSignal;
   dryRun?: boolean;
+  /** Optional memory store for memory_write / memory_search tools. */
+  memoryStore?: import("../memory/store.js").MemoryStore;
 }
 
 // ── ToolDef ───────────────────────────────────────────────────────────────────

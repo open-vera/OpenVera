@@ -15,6 +15,9 @@ import { listDirTool } from "./list-dir.js";
 import { globTool } from "./glob.js";
 import { bashTool } from "./bash.js";
 import { grepTool } from "./grep.js";
+import { createMemoryWriteTool } from "./memory-write.js";
+import { createMemorySearchTool } from "./memory-search.js";
+import type { MemoryStore } from "../memory/store.js";
 
 export { ToolRegistry } from "./registry.js";
 export { SecurityPlugin } from "./security.js";
@@ -22,11 +25,15 @@ export type { SecurityConfig } from "./security.js";
 export { AnalyticsPlugin } from "./analytics.js";
 export type { ToolDef, ToolResult, ToolContext, ToolLifecycleHook, RenderHint, ToolErrorCode } from "./types.js";
 export { errorResult } from "./types.js";
+export { createMemoryWriteTool } from "./memory-write.js";
+export { createMemorySearchTool } from "./memory-search.js";
 
 export interface CreateToolRegistryOptions {
   cwd: string;
   security?: SecurityConfig;
   sessionStore?: SessionStore;
+  /** If provided, registers memory_write and memory_search tools. */
+  memoryStore?: MemoryStore;
 }
 
 export interface ToolRegistryBundle {
@@ -71,6 +78,12 @@ export function createToolRegistry(opts: CreateToolRegistryOptions): ToolRegistr
   // Register AnalyticsPlugin (session JSONL writing)
   if (opts.sessionStore) {
     registry.use(new AnalyticsPlugin(opts.sessionStore));
+  }
+
+  // Register memory tools (optional)
+  if (opts.memoryStore) {
+    registry.register(createMemoryWriteTool());
+    registry.register(createMemorySearchTool());
   }
 
   return { registry, security };

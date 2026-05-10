@@ -13,3 +13,13 @@ export type {
   DetectorConfig,
 } from "./types.js";
 export { DEFAULT_DETECTOR_CONFIG } from "./types.js";
+
+export { MemoryStore } from "./store.js";
+export type {
+  MemoryEntry,
+  EpisodicEntry,
+  SemanticEntry,
+  MemoryStoreOptions,
+  MemorySearchResult,
+  MemoryTier,
+} from "./store.js";
