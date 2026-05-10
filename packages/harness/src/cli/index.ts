@@ -4,8 +4,6 @@ process.on("SIGINT", () => process.exit(0));
 process.on("SIGTERM", () => process.exit(0));
 
 import { readFileSync } from "node:fs";
-import { runFlowCommand } from "./flow-run.js";
-import { runReplCommand } from "./repl-run.js";
 
 interface ParsedArgs {
   command: string[];
@@ -96,6 +94,7 @@ if (flags["help"] || flags["h"]) {
 }
 
 if (command[0] === "flow" && command[1] === "run") {
+  const { runFlowCommand } = await import("./flow-run.js");
   await runFlowCommand({
     dir: flags["dir"] as string | undefined,
     model: flags["model"] as string | undefined,
@@ -106,6 +105,7 @@ if (command[0] === "flow" && command[1] === "run") {
     skipPlanCritique: Boolean(flags["skip-plan-critique"]),
   });
 } else if (command[0] === undefined || command[0] === "repl") {
+  const { runReplCommand } = await import("./repl-run.js");
   await runReplCommand({
     dir: flags["dir"] as string | undefined,
     model: flags["model"] as string | undefined,
