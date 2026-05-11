@@ -27,11 +27,11 @@ export class ToolRegistry {
 
   // ── Registration ─────────────────────────────────────────────────────
 
-  register(tool: ToolDef): void {
-    this.tools.set(tool.name, tool);
+  register<TArgs extends object>(tool: ToolDef<TArgs>): void {
+    this.tools.set(tool.name, tool as ToolDef);
   }
 
-  registerGroup(group: ToolGroup, tools: ToolDef[]): void {
+  registerGroup<TArgs extends object>(group: ToolGroup, tools: ToolDef<TArgs>[]): void {
     this.groups.set(group.name, group);
     for (const tool of tools) {
       tool.group = tool.group ?? group.name;

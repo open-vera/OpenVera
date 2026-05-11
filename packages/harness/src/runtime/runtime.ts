@@ -7,6 +7,7 @@ import type {
   PolicyProposal,
   RetrospectiveResult,
   StepResult,
+  TaskFlow,
   TaskScope,
 } from "@open-vera/core/types";
 import { writeArtifact } from "./artifacts.js";

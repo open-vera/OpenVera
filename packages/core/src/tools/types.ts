@@ -146,7 +146,7 @@ export interface ToolStats {
 
 export type JSONSchema = Record<string, unknown>;
 
-export interface ToolDef<TArgs = Record<string, unknown>> {
+export interface ToolDef<TArgs = object> {
   name: string;
   description: string;
   parameters: JSONSchema;
@@ -185,7 +185,7 @@ export interface ToolLifecycleHook {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-export function toolDefToSchema(def: ToolDef): Tool {
+export function toolDefToSchema<TArgs = Record<string, unknown>>(def: ToolDef<TArgs>): Tool {
   return {
     name: def.name,
     description: def.description,
