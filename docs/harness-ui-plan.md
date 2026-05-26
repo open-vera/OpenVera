@@ -28,9 +28,9 @@
 
 ## Phase 4：管理端 UI — 空间列表 & 详情
 
-- [ ] **4.1** 实现 `apps/admin-ui/web/src/views/SpacesView.vue`：表格展示所有空间（scope_id 列、类型 badge 列 — group/user、状态列 busy/idle、运行任务列）。顶部搜索框实时过滤 scope_id。点击行跳转到 `/spaces/:scopeId`
-- [ ] **4.2** 实现 `apps/admin-ui/web/src/views/SpaceDetailView.vue`：面包屑导航 + 空间基本信息卡片（scope_id、类型、busy 状态）+ 该空间定时任务列表（如果有数据）。加载/空/错误三种状态覆盖
-- [ ] **4.3** 实现 `apps/admin-ui/web/src/views/SettingsView.vue`：展示当前 LLM 配置（API Key 脱敏、Model、Base URL）+ 系统信息（运行时间、磁盘用量）
+- [x] **4.1** 实现 `apps/admin-ui/web/src/views/SpacesView.vue`：表格展示所有空间（scope_id 列、类型 badge 列 — group/user、状态列 busy/idle、运行任务列）。顶部搜索框实时过滤 scope_id。点击行跳转到 `/spaces/:scopeId`
+- [x] **4.2** 实现 `apps/admin-ui/web/src/views/SpaceDetailView.vue`：面包屑导航 + 空间基本信息卡片（scope_id、类型、busy 状态）+ 该空间定时任务列表（如果有数据）。加载/空/错误三种状态覆盖
+- [x] **4.3** 实现 `apps/admin-ui/web/src/views/SettingsView.vue`：展示当前 LLM 配置（API Key 脱敏、Model、Base URL）+ 系统信息（运行时间、磁盘用量）
 
 ## Phase 5：Core Server 扩展 — 给 harness-ui server 加 Express 路由
 
@@ -79,3 +79,6 @@
 | 2026-05-27 05:40 | Phase 3.2 完成 | 实现了 apps/admin-ui/web/src/App.vue，添加了全局样式，复用了harness-ui的CSS变量
 | 2026-05-27 05:45 | Phase 3.3 完成 | 实现了 apps/admin-ui/web/src/views/DashboardView.vue，包含指标卡片、饼图、进度条和热度分布图
 | 2026-05-27 05:50 | Phase 3.4 完成 | 实现了 apps/admin-ui/web/src/stores/dashboard.ts Pinia store，支持数据加载和定时刷新
+| 2026-05-27 05:55 | Phase 4.1 完成 | 实现了 apps/admin-ui/web/src/views/SpacesView.vue，包含空间列表表格和搜索功能
+| 2026-05-27 06:00 | Phase 4.2 完成 | 实现了 apps/admin-ui/web/src/views/SpaceDetailView.vue，包含面包屑、空间信息卡片和状态处理
+| 2026-05-27 06:05 | Phase 4.3 完成 | 实现了 apps/admin-ui/web/src/views/SettingsView.vue，包含 LLM 配置和系统信息展示
