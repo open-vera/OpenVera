@@ -22,9 +22,9 @@
 ## Phase 3：管理端 UI — 集群 Dashboard
 
 - [x] **3.1** 实现 `apps/admin-ui/web/src/api.ts`：封装 fetch 调用，方法 `fetchOverview()`, `fetchContainers()`, `fetchResources()`, `fetchSpaces()`, `fetchSpaceDetail(scopeId)`, `fetchHeatmap()`，返回 typed 数据
-- [ ] **3.2** 实现 `apps/admin-ui/web/src/App.vue`：左侧导航（📊 Dashboard / 📦 Spaces / ⚙️ Settings 三个入口，vue-router link）+ 右侧 `<router-view>`。暗色主题 CSS 变量（复用 harness-ui 的 `:root` 变量）
-- [ ] **3.3** 实现 `apps/admin-ui/web/src/views/DashboardView.vue`：顶部 4 个指标卡片行（总空间数、Worker 节点、今日任务数、今日花费）+ 容器分布饼图（用 CSS conic-gradient 实现简易 donut）+ CPU/内存进度条 + 24h 热度分布柱状图
-- [ ] **3.4** 实现 `apps/admin-ui/web/src/stores/dashboard.ts`：Pinia store，`useDashboardStore` — 管理 overview/resources/containers 数据，提供 `fetchAll()` action + `autoRefresh(intervalMs)` 定时刷新
+- [x] **3.2** 实现 `apps/admin-ui/web/src/App.vue`：左侧导航（📊 Dashboard / 📦 Spaces / ⚙️ Settings 三个入口，vue-router link）+ 右侧 `<router-view>`。暗色主题 CSS 变量（复用 harness-ui 的 `:root` 变量）
+- [x] **3.3** 实现 `apps/admin-ui/web/src/views/DashboardView.vue`：顶部 4 个指标卡片行（总空间数、Worker 节点、今日任务数、今日花费）+ 容器分布饼图（用 CSS conic-gradient 实现简易 donut）+ CPU/内存进度条 + 24h 热度分布柱状图
+- [x] **3.4** 实现 `apps/admin-ui/web/src/stores/dashboard.ts`：Pinia store，`useDashboardStore` — 管理 overview/resources/containers 数据，提供 `fetchAll()` action + `autoRefresh(intervalMs)` 定时刷新
 
 ## Phase 4：管理端 UI — 空间列表 & 详情
 
@@ -76,3 +76,6 @@
 | 2026-05-27 05:05 | Phase 1.5 完成 | 根 package.json 新增了 admin、admin-serve、core 脚本，验证了编译通过
 | 2026-05-27 05:15 | Phase 2 完成 | 实现了 admin-ui server 所有 API 路由：cluster、spaces、heatmap
 | 2026-05-27 05:35 | Phase 3.1 完成 | 创建了 apps/admin-ui/web/src/api.ts，封装了所有 admin API fetch 方法
+| 2026-05-27 05:40 | Phase 3.2 完成 | 实现了 apps/admin-ui/web/src/App.vue，添加了全局样式，复用了harness-ui的CSS变量
+| 2026-05-27 05:45 | Phase 3.3 完成 | 实现了 apps/admin-ui/web/src/views/DashboardView.vue，包含指标卡片、饼图、进度条和热度分布图
+| 2026-05-27 05:50 | Phase 3.4 完成 | 实现了 apps/admin-ui/web/src/stores/dashboard.ts Pinia store，支持数据加载和定时刷新
