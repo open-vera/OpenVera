@@ -1,6 +1,14 @@
 export { StrategyStore } from "./strategy-store.js";
 export type { StrategyFilter } from "./strategy-store.js";
 
+export { AutoTuner } from "./auto-tuner.js";
+export type {
+  CompositeScore,
+  StrategyRecommendation,
+  OptimizationResult,
+  AutoTunerConfig,
+} from "./auto-tuner.js";
+
 export type {
   Strategy,
   StrategyDomain,

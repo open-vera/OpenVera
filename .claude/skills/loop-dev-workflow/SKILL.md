@@ -365,6 +365,25 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：outcomes 单独存储（strategy-outcomes.json）比嵌入 strategy 对象更好——策略配置变更不影响历史统计数据
 - 测试总数：~2776 tests（Core 2000 + Harness 776）
 
+### Phase 17 Adaptive Strategy — AD2（2026-05-27，完成）
+
+- AD2: Historical Success Rate — 时间窗口统计、趋势检测、自动调优，17 tests
+- 实现要点：`getStatsWindowed()` 按 TimeWindow（1h/6h/24h/7d/30d）过滤 outcomes 后复用 `computeStats()`；`getTrend()` 比较 recent vs older 两个窗口；`autoTune()` 自动 promote/deprecate
+- 经验：AD1 已有 `getStats()`、`getBestForDomain()`、`findUnderperforming()` 等基础统计方法，AD2 是在此基础上增加时间维度和自动化——先检查已有代码再动手
+- 经验：重构 `getStats()` 为 `computeStats(strategyId, outcomes[])` 私有方法，windowed 和 overall 统计共用同一逻辑，避免代码重复
+- 经验：趋势检测的阈值（5% delta）和 auto-tune 的 promote/deprecate 阈值应可配置，不同场景需要不同灵敏度
+- 测试总数：~2793 tests（Core 2000 + Harness 793）
+
+### Phase 17 Adaptive Strategy — AD3（2026-05-27，完成）
+
+- AD3: Auto-Tuner — UCB1 策略选择、复合评分、优化周期、推荐引擎，37 tests
+- 实现要点：`AutoTuner` 类包装 `StrategyStore`，用 UCB1（Upper Confidence Bound）平衡探索与利用；复合评分 = successWeight×成功率 + speedWeight×速度 + costWeight×成本效率；`runOptimizationCycle()` 遍历所有 domain 生成推荐
+- 踩坑：速度归一化用 `referenceDurationMs / avgDurationMs` 并 clamp 到 [0,1]，测试中 500ms 和 5000ms 都被 clamp 到 1（参考值 5000ms）→ 改为 500ms vs 50000ms 才能区分
+- 经验：未尝试的策略（0 runs）获得无限探索奖励（`Infinity`），确保新策略有机会被试用
+- 经验：`selectOptimal()` 只考虑 active 和 candidate 策略，deprecated/retired 自动排除
+- 经验：推荐稳定性追踪最近 5 次 cycle 的推荐变化，用于检测 oscillation
+- 测试总数：~2830 tests（Core 2000 + Harness 830）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*
