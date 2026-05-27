@@ -153,7 +153,7 @@
   - L2：多步任务（需要组合多个工具）
   - L3：复杂任务（需要多轮推理 + 工具使用）
   - 评测指标：pass rate、avg steps、avg cost
-- [ ] **EV3** SWE-bench 评测集集成 — `packages/harness/src/eval/runners/swe-bench-runner.ts`
+- [x] **EV3** SWE-bench 评测集集成 — `packages/harness/src/eval/runners/swe-bench-runner.ts`
   - SWE-bench：2294 个 GitHub issue，评测代码修复能力
   - 评测流程：读 issue → 定位代码 → 生成 patch → 验证测试通过
   - 评测指标：pass rate、patch accuracy、test pass rate
@@ -229,12 +229,12 @@
 
 ## Phase 13: Proposal Pipeline（P2 核心）
 
-- [ ] **PP1** Proposal 存储 — 结构化存储改进提案（prompt/tool/workflow）
-- [ ] **PP2** 人工审核接口 — Proposal 标记 approved/rejected/deferred
-- [ ] **PP3** 小流量 Rollout — approved Proposal 在限定范围内自动生效
-- [ ] **PP4** 效果验证 — Rollout 后自动跑 benchmark 验证改进是否有效
-- [ ] **PP5** 回滚机制 — 效果不达预期时自动回滚
-- [ ] **PP6** Proposal Pipeline 测试（8+ tests）
+- [x] **PP1** Proposal 存储 — 结构化存储改进提案（prompt/tool/workflow）
+- [x] **PP2** 人工审核接口 — Proposal 标记 approved/rejected/deferred
+- [x] **PP3** 小流量 Rollout — approved Proposal 在限定范围内自动生效
+- [x] **PP4** 效果验证 — Rollout 后自动跑 benchmark 验证改进是否有效
+- [x] **PP5** 回滚机制 — 效果不达预期时自动回滚
+- [x] **PP6** Proposal Pipeline 测试（8+ tests）
 
 ## Phase 14: MCP Client 支持（P3）
 
