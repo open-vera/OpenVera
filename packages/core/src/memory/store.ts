@@ -33,6 +33,10 @@ export interface MemoryEntry {
   source?: string;
   /** Importance score 0-1, used for eviction ranking */
   importance: number;
+  /** Number of times this entry has been accessed/retrieved */
+  accessCount?: number;
+  /** ISO timestamp of last access */
+  lastAccessedAt?: string;
 }
 
 export interface EpisodicEntry extends MemoryEntry {
@@ -67,6 +71,68 @@ export interface MemorySearchResult {
   score: number;
   matchedTerms: string[];
 }
+
+/** Result of an auto-organize pass (M2). */
+export interface MemoryOrganizeResult {
+  /** Number of duplicate entries merged */
+  duplicatesMerged: number;
+  /** Number of expired entries removed */
+  expiredRemoved: number;
+  /** IDs of entries that were removed */
+  removedIds: string[];
+}
+
+/** Result of a compression pass (M3). */
+export interface MemoryCompressionResult {
+  /** Number of entries before compression */
+  before: number;
+  /** Number of entries after compression */
+  after: number;
+  /** Number of clusters compressed */
+  clustersCompressed: number;
+  /** The summary entries created */
+  summaries: SemanticEntry[];
+}
+
+/** Configuration for memory decay (M4). */
+export interface DecayConfig {
+  /** Half-life in days — importance halves every this many days without access. Default: 30 */
+  halfLifeDays: number;
+  /** Minimum importance floor — never decay below this. Default: 0.05 */
+  minImportance: number;
+  /** Only decay entries older than this many days. Default: 7 */
+  minAgeDays: number;
+}
+
+export const DEFAULT_DECAY_CONFIG: DecayConfig = {
+  halfLifeDays: 30,
+  minImportance: 0.05,
+  minAgeDays: 7,
+};
+
+/** High-value content signals for auto-extraction (M1). */
+const HIGH_VALUE_SIGNALS = [
+  "error",
+  "bug",
+  "fix",
+  "solution",
+  "learned",
+  "lesson",
+  "important",
+  "critical",
+  "decision",
+  "architecture",
+  "pattern",
+  "best practice",
+  "gotcha",
+  "workaround",
+  "breakthrough",
+  "discovered",
+  "insight",
+  "key finding",
+  "root cause",
+  "resolved",
+];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -105,16 +171,20 @@ function extractKeywords(text: string, maxTerms = 20): string[] {
 function isValidMemoryEntry(obj: unknown): obj is MemoryEntry {
   if (typeof obj !== "object" || obj === null) return false;
   const e = obj as Record<string, unknown>;
-  return (
-    typeof e.id === "string" &&
-    typeof e.tier === "string" &&
-    ["working", "episodic", "semantic"].includes(e.tier as string) &&
-    typeof e.content === "string" &&
-    Array.isArray(e.tags) &&
-    typeof e.createdAt === "string" &&
-    typeof e.updatedAt === "string" &&
-    typeof e.importance === "number"
-  );
+  if (
+    typeof e.id !== "string" ||
+    typeof e.tier !== "string" ||
+    !["working", "episodic", "semantic"].includes(e.tier as string) ||
+    typeof e.content !== "string" ||
+    !Array.isArray(e.tags) ||
+    typeof e.createdAt !== "string" ||
+    typeof e.updatedAt !== "string" ||
+    typeof e.importance !== "number"
+  ) return false;
+  // Optional fields: if present, must be correct type
+  if (e.accessCount !== undefined && typeof e.accessCount !== "number") return false;
+  if (e.lastAccessedAt !== undefined && typeof e.lastAccessedAt !== "string") return false;
+  return true;
 }
 
 // ─── Inverted Index ──────────────────────────────────────────────────────────
@@ -461,6 +531,424 @@ export class MemoryStore {
       semantic: this.semantic.length,
       total: this.working.length + this.episodic.length + this.semantic.length,
     };
+  }
+
+  // ─── M1: Auto-Extract ────────────────────────────────────────────────────
+
+  /**
+   * Analyze content for high-value signals and automatically store as
+   * semantic memory if it scores above the threshold.
+   *
+   * Returns the created entry, or null if content was not deemed high-value.
+   */
+  autoExtract(
+    content: string,
+    context: { source?: string; tags?: string[]; threshold?: number } = {},
+  ): SemanticEntry | null {
+    const threshold = context.threshold ?? 0.3;
+    const score = this.scoreContentValue(content);
+    if (score < threshold) return null;
+
+    const key = this.extractKey(content);
+    const tags = [...(context.tags ?? []), "auto-extracted"];
+
+    return this.addSemantic(key, content, tags, context.source, score);
+  }
+
+  /**
+   * Batch auto-extract: analyze multiple content strings and store
+   * high-value ones. Returns only the entries that were created.
+   */
+  autoExtractBatch(
+    contents: string[],
+    context: { source?: string; tags?: string[]; threshold?: number } = {},
+  ): SemanticEntry[] {
+    const results: SemanticEntry[] = [];
+    for (const content of contents) {
+      const entry = this.autoExtract(content, context);
+      if (entry) results.push(entry);
+    }
+    return results;
+  }
+
+  /**
+   * Score content for "high-value" signals. Returns 0-1.
+   * Checks for signal keywords, content length, specificity indicators.
+   */
+  private scoreContentValue(content: string): number {
+    const lower = content.toLowerCase();
+    let signalHits = 0;
+
+    for (const signal of HIGH_VALUE_SIGNALS) {
+      if (lower.includes(signal)) signalHits++;
+    }
+
+    // Signal score: up to 0.5 from keyword matches (cap at 3 hits)
+    const signalScore = Math.min(signalHits / 6, 0.5);
+
+    // Length score: longer content is likely more detailed (up to 0.2)
+    const lengthScore = Math.min(content.length / 500, 0.2);
+
+    // Specificity: contains code paths, numbers, or technical terms (up to 0.3)
+    const hasCodePath = /[\/\\][\w.-]+\.(ts|js|py|md|json)/.test(content);
+    const hasNumbers = /\d+/.test(content);
+    const hasTechnical = /\b(function|class|interface|type|import|export|async|await)\b/.test(content);
+    const specificityScore = (hasCodePath ? 0.1 : 0) + (hasNumbers ? 0.1 : 0) + (hasTechnical ? 0.1 : 0);
+
+    return Math.min(signalScore + lengthScore + specificityScore, 1.0);
+  }
+
+  /**
+   * Extract a concise key from content for semantic memory storage.
+   * Takes the first sentence or first 80 chars, whichever is shorter.
+   */
+  private extractKey(content: string): string {
+    const firstSentence = content.match(/^[^.!?\n]+[.!?]/)?.[0];
+    const key = firstSentence ?? content.split("\n")[0] ?? content;
+    return key.length > 80 ? key.slice(0, 77) + "..." : key.trim();
+  }
+
+  // ─── M2: Auto-Organize ───────────────────────────────────────────────────
+
+  /**
+   * Run a full organize pass: deduplicate similar entries, merge them,
+   * and clean up expired/stale memories.
+   *
+   * @param options.ttlDays - Remove semantic/episodic entries older than this (0 = disabled)
+   * @param options.similarityThreshold - Content similarity threshold for dedup (0-1, default 0.8)
+   */
+  autoOrganize(options: {
+    ttlDays?: number;
+    similarityThreshold?: number;
+  } = {}): MemoryOrganizeResult {
+    const ttlDays = options.ttlDays ?? 0;
+    const simThreshold = options.similarityThreshold ?? 0.8;
+
+    let duplicatesMerged = 0;
+    let expiredRemoved = 0;
+    const removedIds: string[] = [];
+
+    // Step 1: Dedup semantic entries by content similarity
+    const semanticPairs = this.findSimilarPairs(this.semantic, simThreshold);
+    const toRemove = new Set<string>();
+
+    for (const [a, b] of semanticPairs) {
+      if (toRemove.has(a.id) || toRemove.has(b.id)) continue;
+      // Keep the one with higher importance, merge tags
+      const [keep, remove] = a.importance >= b.importance ? [a, b] : [b, a];
+      keep.tags = [...new Set([...keep.tags, ...remove.tags])];
+      keep.importance = Math.max(keep.importance, remove.importance);
+      keep.updatedAt = now();
+      toRemove.add(remove.id);
+      removedIds.push(remove.id);
+      duplicatesMerged++;
+    }
+
+    if (toRemove.size > 0) {
+      this.semantic = this.semantic.filter((e) => !toRemove.has(e.id));
+      for (const id of toRemove) this.searchIndex.remove(id);
+    }
+
+    // Step 2: Dedup episodic entries by taskSummary similarity
+    const episodicPairs = this.findSimilarPairs(this.episodic, simThreshold);
+    const epiToRemove = new Set<string>();
+
+    for (const [a, b] of episodicPairs) {
+      if (epiToRemove.has(a.id) || epiToRemove.has(b.id)) continue;
+      const [keep, remove] = a.importance >= b.importance ? [a, b] : [b, a];
+      keep.lessons = [...new Set([...keep.lessons, ...remove.lessons])];
+      keep.tags = [...new Set([...keep.tags, ...remove.tags])];
+      keep.updatedAt = now();
+      epiToRemove.add(remove.id);
+      removedIds.push(remove.id);
+      duplicatesMerged++;
+    }
+
+    if (epiToRemove.size > 0) {
+      this.episodic = this.episodic.filter((e) => !epiToRemove.has(e.id));
+      for (const id of epiToRemove) this.searchIndex.remove(id);
+    }
+
+    // Step 3: Remove expired entries (if TTL enabled)
+    if (ttlDays > 0) {
+      const cutoff = Date.now() - ttlDays * 86400000;
+      const cutoffISO = new Date(cutoff).toISOString();
+
+      const beforeSemantic = this.semantic.length;
+      const expiredSemanticIds = this.semantic
+        .filter((e) => e.updatedAt < cutoffISO)
+        .map((e) => e.id);
+      this.semantic = this.semantic.filter((e) => e.updatedAt >= cutoffISO);
+      for (const id of expiredSemanticIds) {
+        this.searchIndex.remove(id);
+        removedIds.push(id);
+      }
+      expiredRemoved += beforeSemantic - this.semantic.length;
+
+      const beforeEpisodic = this.episodic.length;
+      const expiredEpisodicIds = this.episodic
+        .filter((e) => e.updatedAt < cutoffISO)
+        .map((e) => e.id);
+      this.episodic = this.episodic.filter((e) => e.updatedAt >= cutoffISO);
+      for (const id of expiredEpisodicIds) {
+        this.searchIndex.remove(id);
+        removedIds.push(id);
+      }
+      expiredRemoved += beforeEpisodic - this.episodic.length;
+    }
+
+    // Persist changes
+    if (duplicatesMerged > 0 || expiredRemoved > 0) {
+      this.persistAll();
+    }
+
+    return { duplicatesMerged, expiredRemoved, removedIds };
+  }
+
+  /**
+   * Find pairs of entries with content similarity above the threshold.
+   * Uses trigram Jaccard similarity for efficiency.
+   */
+  private findSimilarPairs<T extends MemoryEntry>(
+    entries: T[],
+    threshold: number,
+  ): [T, T][] {
+    const pairs: [T, T][] = [];
+    const trigramCache = new Map<string, Set<string>>();
+
+    const getTrigrams = (text: string): Set<string> => {
+      const cached = trigramCache.get(text);
+      if (cached) return cached;
+      const lower = text.toLowerCase();
+      const trigrams = new Set<string>();
+      for (let i = 0; i <= lower.length - 3; i++) {
+        trigrams.add(lower.slice(i, i + 3));
+      }
+      trigramCache.set(text, trigrams);
+      return trigrams;
+    };
+
+    const jaccard = (a: Set<string>, b: Set<string>): number => {
+      if (a.size === 0 && b.size === 0) return 1;
+      let intersection = 0;
+      for (const t of a) { if (b.has(t)) intersection++; }
+      const union = a.size + b.size - intersection;
+      return union > 0 ? intersection / union : 0;
+    };
+
+    for (let i = 0; i < entries.length; i++) {
+      for (let j = i + 1; j < entries.length; j++) {
+        const aTri = getTrigrams(entries[i]!.content);
+        const bTri = getTrigrams(entries[j]!.content);
+        if (jaccard(aTri, bTri) >= threshold) {
+          pairs.push([entries[i]!, entries[j]!]);
+        }
+      }
+    }
+
+    return pairs;
+  }
+
+  // ─── M3: Memory Compression ──────────────────────────────────────────────
+
+  /**
+   * Cluster similar memories by tag overlap and compress each cluster
+   * into a single summary entry. Keeps the most important entry in each
+   * cluster as the base, merges content from others.
+   *
+   * @param options.minClusterSize - Minimum entries to form a cluster (default: 3)
+   * @param options.maxClusters - Maximum clusters to compress in one pass (default: 10)
+   */
+  compressMemories(options: {
+    minClusterSize?: number;
+    maxClusters?: number;
+  } = {}): MemoryCompressionResult {
+    const minClusterSize = options.minClusterSize ?? 3;
+    const maxClusters = options.maxClusters ?? 10;
+
+    const allEntries = [...this.semantic, ...this.episodic];
+    const before = allEntries.length;
+
+    // Build clusters by tag overlap
+    const clusters = this.clusterByTags(allEntries, minClusterSize);
+
+    let clustersCompressed = 0;
+    const summaries: SemanticEntry[] = [];
+    const removedIds = new Set<string>();
+
+    for (const cluster of clusters) {
+      if (clustersCompressed >= maxClusters) break;
+      if (cluster.length < minClusterSize) continue;
+
+      // Sort by importance descending — keep the top entry as base
+      cluster.sort((a, b) => b.importance - a.importance);
+      const base = cluster[0]!;
+      const others = cluster.slice(1);
+
+      // Build a summary from all entries in the cluster
+      const allContent = cluster.map((e) => e.content).join("\n---\n");
+      const allTags = [...new Set(cluster.flatMap((e) => e.tags))];
+      const avgImportance = cluster.reduce((s, e) => s + e.importance, 0) / cluster.length;
+
+      // Create a compressed summary entry
+      const summaryKey = `summary: ${base.content.slice(0, 60)}${base.content.length > 60 ? "..." : ""}`;
+      const summaryValue = `[Compressed from ${cluster.length} memories]\n\n${allContent}`;
+
+      const summary = this.addSemantic(
+        summaryKey,
+        summaryValue,
+        [...allTags, "compressed"],
+        "memory-compression",
+        Math.max(avgImportance, 0.3),
+      );
+      summaries.push(summary);
+
+      // Mark originals for removal (except the summary we just added)
+      for (const entry of others) {
+        removedIds.add(entry.id);
+      }
+      // Also remove the base entry since it's now in the summary
+      removedIds.add(base.id);
+
+      clustersCompressed++;
+    }
+
+    // Remove compressed originals
+    if (removedIds.size > 0) {
+      this.semantic = this.semantic.filter((e) => !removedIds.has(e.id));
+      this.episodic = this.episodic.filter((e) => !removedIds.has(e.id));
+      for (const id of removedIds) this.searchIndex.remove(id);
+      this.persistAll();
+    }
+
+    return {
+      before,
+      after: this.semantic.length + this.episodic.length,
+      clustersCompressed,
+      summaries,
+    };
+  }
+
+  /**
+   * Cluster entries by tag overlap using union-find.
+   * Two entries are in the same cluster if they share at least one tag
+   * and the cluster meets the minimum size requirement.
+   */
+  private clusterByTags(entries: MemoryEntry[], _minSize: number): MemoryEntry[][] {
+    if (entries.length === 0) return [];
+
+    // Build tag → entry indices
+    const tagToIndices = new Map<string, number[]>();
+    for (let i = 0; i < entries.length; i++) {
+      for (const tag of entries[i]!.tags) {
+        if (!tagToIndices.has(tag)) tagToIndices.set(tag, []);
+        tagToIndices.get(tag)!.push(i);
+      }
+    }
+
+    // Union-find
+    const parent = entries.map((_, i) => i);
+    const find = (x: number): number => { while (parent[x] !== x) { parent[x] = parent[parent[x]!]!; x = parent[x]!; } return x; };
+    const union = (a: number, b: number): void => { parent[find(a)] = find(b); };
+
+    for (const indices of tagToIndices.values()) {
+      for (let i = 1; i < indices.length; i++) {
+        union(indices[0]!, indices[i]!);
+      }
+    }
+
+    // Group by root
+    const clusters = new Map<number, MemoryEntry[]>();
+    for (let i = 0; i < entries.length; i++) {
+      const root = find(i);
+      if (!clusters.has(root)) clusters.set(root, []);
+      clusters.get(root)!.push(entries[i]!);
+    }
+
+    return [...clusters.values()];
+  }
+
+  // ─── M4: Memory Decay ────────────────────────────────────────────────────
+
+  /**
+   * Record an access to a memory entry. Updates accessCount and
+   * lastAccessedAt. Call this when a memory is retrieved via search.
+   */
+  recordAccess(entryId: string): void {
+    const entry = this.findEntryById(entryId);
+    if (!entry) return;
+    entry.accessCount = (entry.accessCount ?? 0) + 1;
+    entry.lastAccessedAt = now();
+  }
+
+  /**
+   * Apply exponential decay to importance scores of all persisted entries.
+   * Uses the formula: newImportance = baseImportance * 2^(-ageDays / halfLife)
+   *
+   * Entries with recent access get a "refresh" that slows their decay.
+   * Returns the number of entries whose importance was updated.
+   */
+  decayImportance(config: DecayConfig = DEFAULT_DECAY_CONFIG): number {
+    const nowMs = Date.now();
+    const minAgeMs = config.minAgeDays * 86400000;
+    let updated = 0;
+
+    const decayEntry = (entry: MemoryEntry): void => {
+      const createdMs = new Date(entry.createdAt).getTime();
+      const ageMs = nowMs - createdMs;
+      if (ageMs < minAgeMs) return;
+
+      const lastAccess = entry.lastAccessedAt
+        ? new Date(entry.lastAccessedAt).getTime()
+        : createdMs;
+      const daysSinceAccess = (nowMs - lastAccess) / 86400000;
+
+      // Exponential decay based on days since last access
+      const decayFactor = Math.pow(2, -daysSinceAccess / config.halfLifeDays);
+      const newImportance = Math.max(
+        entry.importance * decayFactor,
+        config.minImportance,
+      );
+
+      // Only update if meaningfully different (avoid micro-churn)
+      if (Math.abs(newImportance - entry.importance) > 0.001) {
+        entry.importance = newImportance;
+        entry.updatedAt = now();
+        updated++;
+      }
+    };
+
+    for (const entry of this.episodic) decayEntry(entry);
+    for (const entry of this.semantic) decayEntry(entry);
+
+    // Update the inverted index entries
+    for (const entry of [...this.episodic, ...this.semantic]) {
+      this.searchIndex.remove(entry.id);
+      this.searchIndex.add(entry);
+    }
+
+    if (updated > 0) this.persistAll();
+    return updated;
+  }
+
+  /**
+   * Get entries whose importance has decayed below the given threshold.
+   * Useful for cleanup: remove entries that are no longer relevant.
+   */
+  getDecayedEntries(threshold: number = 0.1): MemoryEntry[] {
+    const allEntries: MemoryEntry[] = [...this.episodic, ...this.semantic];
+    return allEntries.filter((e) => e.importance < threshold);
+  }
+
+  /**
+   * Find an entry by ID across all tiers.
+   */
+  private findEntryById(id: string): MemoryEntry | undefined {
+    return (
+      this.working.find((e) => e.id === id) ??
+      this.episodic.find((e) => e.id === id) ??
+      this.semantic.find((e) => e.id === id)
+    );
   }
 
   // ─── Persistence ─────────────────────────────────────────────────────────

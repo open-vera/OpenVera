@@ -22,4 +22,16 @@ export type {
   MemoryStoreOptions,
   MemorySearchResult,
   MemoryTier,
+  MemoryOrganizeResult,
+  MemoryCompressionResult,
+  DecayConfig,
 } from "./store.js";
+export { DEFAULT_DECAY_CONFIG } from "./store.js";
+
+export { MemoryGraph } from "./graph.js";
+export type {
+  MemoryRelation,
+  GraphNode,
+  RelatedMemory,
+  GraphBuildOptions,
+} from "./graph.js";
