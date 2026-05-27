@@ -177,6 +177,19 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：SkillRecommender 的 keyword overlap 使用 Jaccard similarity，对中英文混合文本需要 tokenize 为单词后再比较
 - 测试总数：877 tests（Core 609 + Harness 268）
 
+### Phase 9 Storage Layer — SQ1-SQ3（2026-05-27，完成）
+
+- SQ1: StorageProvider 抽象层 — types.ts 定义接口、查询类型、错误层次
+- SQ2: SqliteStorageProvider — better-sqlite3, WAL mode, prepared statements, FTS5, 53 tests
+- SQ3: FileStore — per-namespace JSON files, atomic writes, in-memory cache, 55 tests
+- 经验：SQ2 和 SQ3 可以并行开发，它们实现同一接口但修改不同文件
+- 踩坑：better-sqlite3 需要 `pnpm approve-builds` 才能编译 native 模块，否则会报 "Ignored build scripts"
+- 踩坑：`@types/better-sqlite3` 不会自动安装，需要 `pnpm add -D @types/better-sqlite3`
+- 踩坑：ISO timestamp 字符串比较 `updatedAt >= createdAt` 在 Vitest 中不能用 `toBeGreaterThanOrEqual`（只接受 number/bigint），需要用 `>=` 运算符 + `toBe(true)`
+- 经验：FileStore 的 TTL 清理用 `setInterval` + `unref()` 避免阻止进程退出
+- 经验：SQLite 的 FTS5 需要手动创建触发器来保持索引同步（INSERT/UPDATE/DELETE）
+- 测试总数：1093 tests（Core 825 + Harness 268）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*
