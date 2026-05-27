@@ -13,7 +13,9 @@
     </div>
 
     <div v-else-if="checkpoints.length === 0" class="empty-state">
-      <p>暂无检查点数据</p>
+      <div class="empty-icon">📍</div>
+      <p class="empty-title">暂无检查点数据</p>
+      <p class="empty-desc">检查点在每个关键步骤自动生成</p>
     </div>
 
     <div v-else class="checkpoints-timeline">
@@ -120,11 +122,12 @@
         @swap="swapDiffCheckpoints"
       />
     </div>
+    <Toast v-model:visible="toastVisible" :message="toastMessage" :type="toastType" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { fetchCheckpoints, type Checkpoint } from '../api';
 import CheckpointDiff from '../components/CheckpointDiff.vue';
@@ -218,11 +221,15 @@ const formatTime = (timestamp: string) => {
   }
 };
 
+const refreshTimer = ref<ReturnType<typeof setInterval>>();
+
 onMounted(() => {
   loadCheckpoints();
-  // 每15秒刷新一次
-  const interval = setInterval(loadCheckpoints, 15000);
-  return () => clearInterval(interval);
+  refreshTimer.value = setInterval(loadCheckpoints, 15000);
+});
+
+onUnmounted(() => {
+  clearInterval(refreshTimer.value);
 });
 </script>
 
@@ -260,8 +267,30 @@ onMounted(() => {
 
 .loading-state, .empty-state {
   text-align: center;
-  padding: 40px;
+  padding: 60px 40px;
   color: var(--text-muted);
+}
+
+.empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 8px 0;
+}
+
+.empty-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.5;
 }
 
 .spinner {
@@ -386,8 +415,8 @@ onMounted(() => {
 }
 
 .checkpoint-state-badge.running {
-  background-color: var(--success-dim);
-  color: var(--success);
+  background-color: var(--accent-dim);
+  color: var(--accent);
 }
 
 .checkpoint-state-badge.completed {
@@ -406,8 +435,8 @@ onMounted(() => {
 }
 
 .checkpoint-state-badge.pending {
-  background-color: var(--surface-2);
-  color: var(--text-muted);
+  background-color: var(--warning-dim);
+  color: var(--warning);
 }
 
 .checkpoint-time {

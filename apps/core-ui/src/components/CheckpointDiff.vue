@@ -56,12 +56,14 @@
         </div>
       </div>
     </div>
+    <Toast v-model:visible="toastVisible" :message="toastMessage" :type="toastType" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { ref, computed } from 'vue';
 import type { Checkpoint } from '../api';
+import Toast from './Toast.vue';
 
 interface Props {
   checkpointA: Checkpoint | null;
@@ -72,6 +74,10 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   swap: [];
 }>();
+
+const toastVisible = ref(false);
+const toastMessage = ref('');
+const toastType = ref<'success' | 'danger' | 'info'>('success');
 
 const changeTypeLabels = {
   added: '✅ 新增',
@@ -86,7 +92,9 @@ const swapCheckpoints = () => {
 
 const copyDiff = () => {
   navigator.clipboard.writeText(formattedDiff.value);
-  alert('已复制对比结果');
+  toastMessage.value = '已复制对比结果';
+  toastType.value = 'success';
+  toastVisible.value = true;
 };
 
 const formatTime = (timestamp: string) => {

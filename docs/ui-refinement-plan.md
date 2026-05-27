@@ -99,17 +99,15 @@
   ```
 - MemoryView 在 10.1 已修复；SubagentsView 本轮修复
 
-### 10.3 替换 alert() 为 toast 通知
-- **文件**: `SubagentsView.vue`
-- `alert('已复制任务ID: ...')` → 实现轻量 toast
-- 创建 `apps/core-ui/src/components/Toast.vue`：
-  - 固定定位右下角，自动 2s 消失
-  - 用 `var(--success)` / `var(--danger)` 底色
-- 在 `SubagentsView.vue` 中引入 Toast，用 `ref<boolean>` 控制显隐
+### 10.3 替换 alert() 为 toast 通知 ✅
+- **文件**: `SubagentsView.vue`, `CheckpointsView.vue`, `CheckpointDiff.vue`
+- 创建 `apps/core-ui/src/components/Toast.vue`：固定定位右下角，自动 2s 消失，支持 success/danger/info 类型
+- 所有 `alert()` 调用替换为 Toast 组件，用 `ref<boolean>` 控制显隐
 
-### 10.4 admin-ui 同步修复
-- 检查 admin-ui 下所有 view 是否有相同 lifecycle bug
-- 统一使用 `onUnmounted` 清理定时器
+### 10.4 admin-ui 同步修复 ✅
+- DashboardView.vue、SpacesView.vue：`onMounted` return cleanup 改为 `onUnmounted` 模式
+- CheckpointsView.vue：同步修复 lifecycle bug
+- admin-ui 无 `alert()` 调用，无需替换
 
 **验证**: `vue-tsc --noEmit` 无类型错误；手动操作确认 toast 弹出
 
@@ -117,7 +115,7 @@
 
 ## Phase 11：数据驱动图表
 
-### 11.1 DashboardView 环形图数据驱动
+### 11.1 DashboardView 环形图数据驱动 ✅
 - **文件**: `apps/admin-ui/web/src/views/DashboardView.vue`
 - 当前：`conic-gradient(#3498db 0% 70%, #e0e0e0 70% 100%)` 硬编码 70%
 - 改为 computed 属性：
@@ -129,12 +127,12 @@
   ```
 - 绑定 `:style="{ background: donutGradient }"` 到 `.donut-chart::before`（改为直接 div）
 
-### 11.2 DashboardView 热度图 tooltip
+### 11.2 DashboardView 热度图 tooltip ✅
 - 当前：仅 `title` 属性（浏览器原生 tooltip，延迟大）
 - 改为自定义 tooltip div：hover 时显示 "14:00 - 12 活跃, 3 空闲"
 - 用 CSS `position: absolute` + `opacity` 过渡动画
 
-### 11.3 MemoryView 重要度星级显示
+### 11.3 MemoryView 重要度星级显示 ✅
 - 当前：`🌟 {{ entry.importance }}` 只显示数字
 - 改为 N 颗星图标（filled/empty），importance 1-5 映射为 ⭐/☆
 
@@ -144,7 +142,7 @@
 
 ## Phase 12：交互细节打磨
 
-### 12.1 Loading skeleton 替代 spinner
+### 12.1 Loading skeleton 替代 spinner ✅
 - 创建通用组件 `Skeleton.vue`（admin-ui 和 core-ui 各一份）
   - 脉冲动画背景色：`var(--surface-2)` → `var(--surface-3)` 循环
   - 接受 `width` / `height` / `border-radius` props
@@ -152,18 +150,18 @@
 - SpacesView：表格行加载时显示 skeleton 行
 - MemoryView：卡片列表加载时显示 skeleton 卡片
 
-### 12.2 空状态优化
+### 12.2 空状态优化 ✅
 - 各 view 的空状态增加图标和引导文案
 - MemoryView：暂无数据 → "记忆系统尚未初始化，运行一次 agent 后将自动填充"
 - SubagentsView：暂无调用 → "无子代理调用记录，复杂任务会自动拆分子代理"
 - CheckpointsView：暂无检查点 → "检查点在每个关键步骤自动生成"
 
-### 12.3 响应式布局
+### 12.3 响应式布局 ✅
 - DashboardView：`@media (max-width: 768px)` 时 metrics-grid 单列
 - SpacesView：表格水平滚动（`overflow-x: auto`）
 - 侧边栏：窄屏可折叠
 
-### 12.4 状态徽章统一
+### 12.4 状态徽章统一 ✅
 - 统一 badge 颜色映射：
   - running → `var(--accent)` + `var(--accent-dim)` 底
   - done/success → `var(--success)` + `var(--success-dim)` 底
@@ -177,16 +175,16 @@
 
 ## Phase 13：构建验证 & 文档
 
-### 13.1 全量编译
+### 13.1 全量编译 ✅
 - `pnpm --filter @vera/admin-ui-server run build`
 - `pnpm --filter @vera/admin-ui-web run build`
 - `pnpm --filter @vera/core-ui-web run build`
 - `pnpm --filter @vera/harness-ui-server run build`
 
-### 13.2 质量扫描
+### 13.2 质量扫描 ✅
 - `bash .claude/skills/quality-scan/scan.sh` 确认无 error
 
-### 13.3 更新文档
+### 13.3 更新文档 ✅
 - 更新 `docs/changelog.md` 追加 UI refinement 记录
 - 更新 `docs/roadmap.md` 标记对应条目
 
@@ -203,3 +201,14 @@
 | 2026-05-27 10:24 | 完成 9.5 core-ui 全部视图主题替换 | 7 个文件（RunsView/RunDetailView/MemoryView/CheckpointsView/SubagentsView/CheckpointDiff/TreeNode）全部替换为 CSS 变量，grep 确认无旧变量名和硬编码色值残留 |
 | 2026-05-27 10:42 | 完成 10.1 MemoryView 异步时序修复 | setTierFilter 改为 async+await nextTick；onMounted cleanup 改为 onUnmounted 模式（10.2 的 MemoryView 部分也已修复） |
 | 2026-05-27 10:44 | 完成 10.2 onMounted cleanup 模式修复 | SubagentsView: import onUnmounted, 用 refreshTimer ref + onUnmounted 替代 onMounted return cleanup |
+| 2026-05-27 10:46 | 完成 10.3 alert→toast + 10.4 admin-ui lifecycle 修复 | 创建 Toast.vue 组件；替换 core-ui 3 处 alert()；修复 DashboardView/SpacesView/CheckpointsView 的 onMounted cleanup bug |
+| 2026-05-27 10:54 | 完成 11.1 DashboardView 环形图数据驱动 | 硬编码 70% conic-gradient 改为 donutGradient computed 属性绑定，随容器分布数据动态更新 |
+| 2026-05-27 10:58 | 完成 11.2 DashboardView 热度图 tooltip | 移除原生 title 属性，改为自定义 tooltip div + CSS opacity 过渡动画 |
+| 2026-05-27 11:02 | 完成 11.3 MemoryView 重要度星级显示 | 数字改为 5 颗星图标（★/☆），filled 用 --warning 色，移除 getImportanceClass 和旧高亮样式 |
+| 2026-05-27 11:04 | 完成 12.1 Loading skeleton 替代 spinner | 创建 admin-ui 和 core-ui 各一份 Skeleton.vue 组件；DashboardView 指标卡片加载显示 skeleton 块；SpacesView 表格行加载显示 skeleton 行；MemoryView 卡片列表加载显示 skeleton 卡片 |
+| 2026-05-27 11:10 | 完成 12.2 空状态优化 | 三个 view 的空状态增加 emoji 图标 + 标题 + 引导文案，统一样式 |
+| 2026-05-27 11:12 | 完成 12.3 响应式布局 | DashboardView 768px 单列；SpacesView 表格水平滚动；App.vue 侧边栏窄屏可折叠（hamburger+overlay+slide） |
+| 2026-05-27 11:15 | 完成 12.4 状态徽章统一 | running→accent, done/completed→success, failed→danger, pending/paused→warning；统一 SubagentsView/RunDetailView/RunsView/CheckpointsView 4 个文件 |
+| 2026-05-27 11:19 | 完成 13.1 全量编译 | 4 个包全部构建通过（修复 Toast.vue 未使用 ref 导入）；admin-ui-web/harness-ui 为二级目录需直接 cd 构建 |
+| 2026-05-27 11:22 | 完成 13.2 质量扫描 | oxlint/sonarjs 扫描通过，0 个 error 级别问题 |
+| 2026-05-27 11:24 | 完成 13.3 更新文档 | changelog.md 索引 + 2026-05-27-11.md 详细记录 + roadmap.md UI 展示条目追加 refinement 说明 |

@@ -57,13 +57,27 @@
       </div>
     </div>
 
-    <div v-if="loading && entries.length === 0" class="loading-state">
-      <div class="spinner"></div>
-      <p>加载记忆数据中...</p>
+    <div v-if="loading && entries.length === 0" class="skeleton-list">
+      <div v-for="n in 4" :key="n" class="skeleton-card">
+        <div class="skeleton-header">
+          <Skeleton width="80px" height="20px" border-radius="4px" />
+          <Skeleton width="70px" height="14px" />
+          <Skeleton width="100px" height="14px" />
+        </div>
+        <Skeleton width="100%" height="14px" style="margin-bottom: 8px" />
+        <Skeleton width="80%" height="14px" style="margin-bottom: 12px" />
+        <div class="skeleton-tags">
+          <Skeleton width="50px" height="20px" border-radius="4px" />
+          <Skeleton width="60px" height="20px" border-radius="4px" />
+          <Skeleton width="45px" height="20px" border-radius="4px" />
+        </div>
+      </div>
     </div>
 
     <div v-else-if="entries.length === 0" class="empty-state">
-      <p>暂无记忆数据</p>
+      <div class="empty-icon">🧠</div>
+      <p class="empty-title">暂无记忆数据</p>
+      <p class="empty-desc">记忆系统尚未初始化，运行一次 agent 后将自动填充</p>
     </div>
 
     <div v-else class="memory-list">
@@ -78,8 +92,8 @@
             <span class="tier-badge" :class="entry.tier">
               {{ tierLabels[entry.tier] }}
             </span>
-            <span class="importance-badge" :class="getImportanceClass(entry.importance)">
-              🌟 {{ entry.importance }}
+            <span class="importance-badge" :title="`重要度: ${entry.importance}/5`">
+              <span v-for="n in 5" :key="n" class="star" :class="{ filled: n <= entry.importance }">{{ n <= entry.importance ? '★' : '☆' }}</span>
             </span>
             <span class="created-time">
               {{ formatTime(entry.createdAt) }}
@@ -116,6 +130,7 @@
 import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import { fetchMemory, type MemoryEntry, type MemorySnapshot } from '../api';
+import Skeleton from '../components/Skeleton.vue';
 
 const route = useRoute();
 const runId = route.params.runId as string;
@@ -131,12 +146,6 @@ const tierLabels = {
   episodic: '📝 情景记忆',
   semantic: '🧠 语义记忆',
   working: '💼 工作记忆'
-};
-
-const getImportanceClass = (importance: number) => {
-  if (importance >= 4) return 'high';
-  if (importance >= 2) return 'medium';
-  return 'low';
 };
 
 const filteredEntries = computed(() => {
@@ -313,23 +322,55 @@ onUnmounted(() => {
 
 .loading-state, .empty-state {
   text-align: center;
-  padding: 40px;
+  padding: 60px 40px;
   color: var(--text-muted);
 }
 
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid var(--border);
-  border-top: 4px solid var(--accent);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin: 0 auto 20px;
+.empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
 }
 
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+.empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 8px 0;
+}
+
+.empty-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.5;
+}
+
+.skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skeleton-card {
+  background-color: var(--surface);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.skeleton-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.skeleton-tags {
+  display: flex;
+  gap: 6px;
 }
 
 .memory-list {
@@ -387,23 +428,17 @@ onUnmounted(() => {
 }
 
 .importance-badge {
-  padding: 2px 6px;
-  border-radius: 4px;
   font-size: 12px;
-  font-weight: 500;
-  color: white;
+  letter-spacing: 1px;
 }
 
-.importance-badge.high {
-  background-color: var(--danger);
+.star {
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
-.importance-badge.medium {
-  background-color: var(--warning);
-}
-
-.importance-badge.low {
-  background-color: var(--text-muted);
+.star.filled {
+  color: var(--warning);
 }
 
 .created-time {

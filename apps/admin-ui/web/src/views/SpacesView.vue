@@ -23,6 +23,15 @@
           </tr>
         </thead>
         <tbody>
+          <template v-if="loading">
+            <tr v-for="n in 5" :key="n" class="skeleton-row">
+              <td><Skeleton width="200px" height="14px" /></td>
+              <td><Skeleton width="60px" height="22px" border-radius="4px" /></td>
+              <td><Skeleton width="60px" height="22px" border-radius="4px" /></td>
+              <td><Skeleton width="100px" height="14px" /></td>
+            </tr>
+          </template>
+          <template v-else>
           <tr
             v-for="space in filteredSpaces"
             :key="space.scope_id"
@@ -47,6 +56,7 @@
               <span v-else class="no-task">-</span>
             </td>
           </tr>
+          </template>
         </tbody>
       </table>
 
@@ -58,13 +68,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { fetchSpaces, AdminSpaceDetail } from '../api';
+import Skeleton from '../components/Skeleton.vue';
 
 const router = useRouter();
 const spaces = ref<AdminSpaceDetail[]>([]);
 const searchQuery = ref('');
+const loading = ref(true);
 
 const filteredSpaces = computed(() => {
   if (!searchQuery.value) return spaces.value;
@@ -77,10 +89,13 @@ const filteredSpaces = computed(() => {
 
 const loadSpaces = async () => {
   try {
+    loading.value = true;
     const data = await fetchSpaces();
     spaces.value = data;
   } catch (error) {
     console.error('Failed to load spaces:', error);
+  } finally {
+    loading.value = false;
   }
 };
 
@@ -88,11 +103,15 @@ const goToSpaceDetail = (scopeId: string) => {
   router.push(`/spaces/${scopeId}`);
 };
 
+const refreshTimer = ref<ReturnType<typeof setInterval>>();
+
 onMounted(() => {
   loadSpaces();
-  // 每30秒刷新一次
-  const interval = setInterval(loadSpaces, 30000);
-  return () => clearInterval(interval);
+  refreshTimer.value = setInterval(loadSpaces, 30000);
+});
+
+onUnmounted(() => {
+  clearInterval(refreshTimer.value);
 });
 </script>
 
@@ -132,7 +151,7 @@ onMounted(() => {
 .table-container {
   background-color: var(--surface);
   border-radius: 8px;
-  overflow: hidden;
+  overflow-x: auto;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
@@ -228,5 +247,29 @@ onMounted(() => {
 .empty-state p {
   margin: 0;
   font-size: 16px;
+}
+
+.skeleton-row td {
+  padding: 12px 16px;
+}
+
+@media (max-width: 768px) {
+  .spaces-container {
+    padding: 12px;
+  }
+
+  .page-header {
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  .search-input {
+    width: 100%;
+  }
+
+  .spaces-table {
+    min-width: 600px;
+  }
 }
 </style>

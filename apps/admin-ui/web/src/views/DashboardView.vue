@@ -2,34 +2,45 @@
   <div class="dashboard-container">
     <!-- 顶部指标卡片 -->
     <div class="metrics-grid">
-      <div class="metric-card">
-        <div class="metric-icon">📦</div>
-        <div class="metric-content">
-          <div class="metric-label">总空间数</div>
-          <div class="metric-value">{{ metrics.totalSpaces }}</div>
+      <template v-if="loading">
+        <div v-for="n in 4" :key="n" class="metric-card">
+          <Skeleton width="48px" height="48px" border-radius="8px" />
+          <div class="metric-content">
+            <Skeleton width="60px" height="14px" />
+            <Skeleton width="80px" height="28px" style="margin-top: 6px" />
+          </div>
         </div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-icon">🚀</div>
-        <div class="metric-content">
-          <div class="metric-label">运行任务</div>
-          <div class="metric-value">{{ metrics.activeTasks }}</div>
+      </template>
+      <template v-else>
+        <div class="metric-card">
+          <div class="metric-icon">📦</div>
+          <div class="metric-content">
+            <div class="metric-label">总空间数</div>
+            <div class="metric-value">{{ metrics.totalSpaces }}</div>
+          </div>
         </div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-icon">💻</div>
-        <div class="metric-content">
-          <div class="metric-label">容器总数</div>
-          <div class="metric-value">{{ metrics.totalContainers }}</div>
+        <div class="metric-card">
+          <div class="metric-icon">🚀</div>
+          <div class="metric-content">
+            <div class="metric-label">运行任务</div>
+            <div class="metric-value">{{ metrics.activeTasks }}</div>
+          </div>
         </div>
-      </div>
-      <div class="metric-card">
-        <div class="metric-icon">💰</div>
-        <div class="metric-content">
-          <div class="metric-label">今日花费</div>
-          <div class="metric-value">${{ metrics.todayCost }}</div>
+        <div class="metric-card">
+          <div class="metric-icon">💻</div>
+          <div class="metric-content">
+            <div class="metric-label">容器总数</div>
+            <div class="metric-value">{{ metrics.totalContainers }}</div>
+          </div>
         </div>
-      </div>
+        <div class="metric-card">
+          <div class="metric-icon">💰</div>
+          <div class="metric-content">
+            <div class="metric-label">今日花费</div>
+            <div class="metric-value">${{ metrics.todayCost }}</div>
+          </div>
+        </div>
+      </template>
     </div>
 
     <!-- 图表区域 -->
@@ -37,7 +48,7 @@
       <!-- 容器分布饼图 -->
       <div class="chart-card">
         <h3>容器分布</h3>
-        <div class="donut-chart">
+        <div class="donut-chart" :style="{ background: donutGradient }">
           <div class="donut-inner">
             <span class="donut-percent">{{ containerDistribution.activePercent }}%</span>
           </div>
@@ -75,7 +86,8 @@
       <div class="chart-card full-width">
         <h3>24小时容器热度</h3>
         <div class="heatmap-chart">
-          <div class="heatmap-bar" v-for="data in heatmapData" :key="data.hour" :title="`${data.hour}:00 - ${data.active}活跃, ${data.idle}空闲`">
+          <div class="heatmap-bar" v-for="data in heatmapData" :key="data.hour">
+            <div class="tooltip">{{ data.hour }}:00 - {{ data.active }} 活跃, {{ data.idle }} 空闲</div>
             <div class="bar-container">
               <div class="bar active" :style="{ height: (data.active / maxCount * 100) + '%' }"></div>
               <div class="bar idle" :style="{ height: (data.idle / maxCount * 100) + '%' }"></div>
@@ -89,8 +101,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { fetchOverview, fetchResources, fetchHeatmap, fetchContainers } from '../api';
+import Skeleton from '../components/Skeleton.vue';
 
 interface MetricData {
   totalSpaces: number;
@@ -129,15 +142,22 @@ const resourceUsage = ref<ResourceUsage>({
 });
 
 const heatmapData = ref<Array<{ hour: number; active: number; idle: number }>>([]);
+const loading = ref(true);
 
 const maxCount = computed(() => {
   if (heatmapData.value.length === 0) return 1;
   return Math.max(...heatmapData.value.flatMap(d => [d.active, d.idle]));
 });
 
+const donutGradient = computed(() => {
+  const pct = containerDistribution.value.activePercent;
+  return `conic-gradient(var(--accent) 0% ${pct}%, var(--surface-2) ${pct}% 100%)`;
+});
+
 const loadData = async () => {
   try {
     // 加载概览数据
+    loading.value = true;
     const overview = await fetchOverview();
     metrics.value = {
       totalSpaces: overview.total_spaces,
@@ -168,14 +188,20 @@ const loadData = async () => {
     heatmapData.value = heatmap;
   } catch (error) {
     console.error('Failed to load dashboard data:', error);
+  } finally {
+    loading.value = false;
   }
 };
 
+const refreshTimer = ref<ReturnType<typeof setInterval>>();
+
 onMounted(() => {
   loadData();
-  // 每30秒刷新一次数据
-  const interval = setInterval(loadData, 30000);
-  return () => clearInterval(interval);
+  refreshTimer.value = setInterval(loadData, 30000);
+});
+
+onUnmounted(() => {
+  clearInterval(refreshTimer.value);
 });
 </script>
 
@@ -250,17 +276,7 @@ onMounted(() => {
   height: 150px;
   margin: 0 auto 20px;
   position: relative;
-}
-
-.donut-chart::before {
-  content: '';
-  width: 100%;
-  height: 100%;
   border-radius: 50%;
-  background: conic-gradient(var(--accent) 0% 70%, var(--text-muted) 70% 100%);
-  position: absolute;
-  top: 0;
-  left: 0;
 }
 
 .donut-inner {
@@ -345,6 +361,29 @@ onMounted(() => {
   flex-direction: column;
   align-items: center;
   gap: 4px;
+  position: relative;
+}
+
+.heatmap-bar .tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: var(--surface-3);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  border: 1px solid var(--border);
+  z-index: 10;
+}
+
+.heatmap-bar:hover .tooltip {
+  opacity: 1;
 }
 
 .bar-container {
@@ -374,5 +413,30 @@ onMounted(() => {
 .bar-label {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+@media (max-width: 768px) {
+  .dashboard-container {
+    padding: 12px;
+  }
+
+  .metrics-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .charts-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .heatmap-chart {
+    overflow-x: auto;
+    padding-bottom: 8px;
+  }
+
+  .heatmap-bar {
+    min-width: 24px;
+  }
 }
 </style>

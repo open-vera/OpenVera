@@ -274,8 +274,8 @@ onMounted(() => {
 }
 
 .status-badge.running {
-  background-color: var(--success-dim);
-  color: var(--success);
+  background-color: var(--accent-dim);
+  color: var(--accent);
 }
 
 .status-badge.completed {
@@ -289,8 +289,8 @@ onMounted(() => {
 }
 
 .status-badge.paused {
-  background-color: var(--surface-2);
-  color: var(--text-muted);
+  background-color: var(--warning-dim);
+  color: var(--warning);
 }
 
 .stats-grid {

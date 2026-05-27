@@ -44,7 +44,9 @@
     </div>
 
     <div v-if="callTree.length === 0" class="empty-state">
-      <p>暂无子代理调用数据</p>
+      <div class="empty-icon">🧩</div>
+      <p class="empty-title">暂无子代理调用数据</p>
+      <p class="empty-desc">无子代理调用记录，复杂任务会自动拆分子代理</p>
     </div>
 
     <div v-else class="call-tree-container">
@@ -275,10 +277,32 @@ onUnmounted(() => {
 
 .empty-state {
   text-align: center;
-  padding: 40px;
+  padding: 60px 40px;
   color: var(--text-muted);
   background-color: var(--surface);
   border-radius: 8px;
+}
+
+.empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 8px 0;
+}
+
+.empty-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.5;
 }
 
 .call-tree-container {
@@ -435,8 +459,8 @@ onUnmounted(() => {
 }
 
 .badge.running {
-  background-color: var(--success-dim);
-  color: var(--success);
+  background-color: var(--accent-dim);
+  color: var(--accent);
 }
 
 .badge.done {
@@ -450,7 +474,7 @@ onUnmounted(() => {
 }
 
 .badge.pending {
-  background-color: var(--surface-2);
-  color: var(--text-muted);
+  background-color: var(--warning-dim);
+  color: var(--warning);
 }
 </style>

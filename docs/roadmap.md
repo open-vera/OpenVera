@@ -306,7 +306,7 @@ P1 的目标是让 Vera 从受控执行器，升级为能自己推进复杂 Flow
 - 状态基线（2026-04-28）详见：[p0-alignment-checklist.md](./core/p0-alignment-checklist.md)
 - 权限与授权体验：✅ 已完成（持久化工具规则、bash 风险确认、命令 allow/deny pattern）
 - 项目上下文：✅ 已完成（规则优先级、mtime 缓存、按路径激活 scoped rules）
-- UI 展示：✅ 已完成（read/search/list grouped collapsed summary，子 agent summary + transcript）
+- UI 展示：✅ 已完成（read/search/list grouped collapsed summary，子 agent summary + transcript）；UI Refinement Phase 9-13 完成（主题统一、生命周期修复、数据驱动图表、skeleton loading、响应式布局、状态徽章统一）
 - 子 agent（Claude Code 对齐）：
   - ✅ 已实现：`agent` tool 入参对齐 `description` / `prompt` / `subagent_type`
   - ✅ 已实现：内置 `general-purpose` / `explore` / `plan`，支持工具策略、sidechain session 和 summary 回传
