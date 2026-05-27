@@ -156,6 +156,16 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：session.test.ts 有 flaky 测试（分页），单独跑通过、全量跑偶尔失败 — 已知问题，非本次引入
 - 测试总数：815 tests（Core 581 + Harness 234）
 
+### Phase 7 Memory Enhancement（2026-05-27，完成）
+
+- M1-M6: auto-extract、auto-organize (dedup + TTL cleanup)、compress (union-find clustering)、decay (exponential half-life)、MemoryGraph (keyword/tag/co-occurrence relations)
+- 28 tests, 1264 lines added, 1 new file (graph.ts)
+- 经验：M1-M4 全部作为 MemoryStore 方法实现，不需要新文件；M5 (MemoryGraph) 因为是独立数据结构，值得单独文件
+- 踩坑：MemoryGraph 的 co-occurrence 关系会在 entries 创建时间接近时自动建立，即使设置了高 keyword/tag 阈值。测试"disconnected entries"需要同时禁用 co-occurrence weight
+- 经验：MemoryEntry 增加可选字段 `accessCount` / `lastAccessedAt` 时，需要同步更新 `isValidMemoryEntry` 验证函数，否则旧 JSONL 加载时这些字段会被丢弃
+- 经验：trigram Jaccard similarity 对短文本（< 10 字符）效果不佳，但对 memory 内容长度（通常 20+ 字符）足够
+- 测试总数：843 tests（Core 609 + Harness 234）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*

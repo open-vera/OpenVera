@@ -241,11 +241,12 @@ P1 的目标是让 Vera 从受控执行器，升级为能自己推进复杂 Flow
 - 进程中断后可恢复
 - 支持从 Checkpoint Replay / Fork
 
-**2. Memory 系统** → 详见 [agent-design.md](./core/agent-design.md#2-记忆系统memory-system)
+**2. Memory 系统** ✅ → 详见 [agent-design.md](./core/agent-design.md#2-记忆系统memory-system)
 - Working Memory：当前消息历史
 - Episodic Memory：任务级结构化摘要
 - Semantic Memory：长期知识与偏好
 - `memory_write` / `memory_search` tool
+- Auto-extract / auto-organize / compress / decay / relationship graph（Phase 7）
 
 **3. AgentRunner 接口**（随 Plan Mode 一起实现，在 P0.7 中完成）
 - `packages/core/src/types/agent.ts` 定义接口
