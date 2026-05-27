@@ -48,3 +48,49 @@ export function truncateChars(
     totalLines: truncated.split("\n").length,
   };
 }
+
+// ── Token-budget truncation (head/tail preservation) ──────────────────────────
+
+export interface TruncatedOutput {
+  truncated: string;
+  originalLength: number;
+  wasTruncated: boolean;
+}
+
+/**
+ * Truncate long output preserving the beginning and end.
+ *
+ * Strategy: keep the first 60% and last 40% of the character budget,
+ * inserting a `[...truncated N chars...]` marker in between.
+ *
+ * @param output  The full output string.
+ * @param maxTokens  Approximate token budget (1 token ≈ 4 chars). Default 4000.
+ */
+export function truncateOutput(
+  output: string,
+  maxTokens = 4000
+): TruncatedOutput {
+  const maxChars = maxTokens * 4;
+
+  if (output.length <= maxChars) {
+    return {
+      truncated: output,
+      originalLength: output.length,
+      wasTruncated: false,
+    };
+  }
+
+  const headRatio = 0.6;
+  const headLen = Math.floor(maxChars * headRatio);
+  const tailLen = maxChars - headLen;
+
+  const head = output.slice(0, headLen);
+  const tail = output.slice(output.length - tailLen);
+  const removedChars = output.length - headLen - tailLen;
+
+  return {
+    truncated: `${head}[...truncated ${removedChars} chars...]${tail}`,
+    originalLength: output.length,
+    wasTruncated: true,
+  };
+}
