@@ -292,6 +292,18 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：Gateway 事件类型用 discriminated union（`type` 字段区分），TypeScript 自动 narrow
 - 测试总数：~1821 tests（Core 1557 + Harness 732）（含 1 个 pre-existing flaky session 分页测试）
 
+### Phase 16 Channel — CH2（2026-05-27，完成）
+
+- CH2: Channel Gateway — ChannelGateway 类管理多 adapter、连接生命周期、消息路由、session 绑定、自动重连
+- 41 tests, 319 lines added, 1 new file (gateway.ts)
+- 踩坑：`ChannelAdapter` 接口用 `state` 而非 `connectionState`，`sendMessage()` 接受 `SendMessageOptions` 而非 `ChannelMessage` — 必须先读实际接口再编码
+- 踩坑：`GatewayEvent` 是 discriminated union，不能发明新的 event type（如 `adapter_added`），必须用已定义的类型
+- 踩坑：`gateway.connect()` 是 async，测试中必须 `await`，否则 event callback 在断言时还未触发
+- 经验：`dispatchMessage` 设计为 public，供外部系统注入消息到 gateway（不仅限内部路由）
+- 经验：session binding 在 adapter 移除时自动清理，避免悬挂引用
+- 经验：auto-reconnect 用 `setTimeout` + 递归重试，不阻塞 `connectAll()` 返回
+- 测试总数：~1862 tests（Core 1598 + Harness 732）（含 1 个 pre-existing flaky session 分页测试）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*
