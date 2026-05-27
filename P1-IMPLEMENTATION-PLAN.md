@@ -203,7 +203,7 @@
   - 自动生成 SKILL.md 元数据（名称、描述、用法）
   - 支持版本管理：每次训练生成新版本
   - 支持 A/B 对比：对比新旧 skill 的效果
-- [ ] **SP6** WebUI 集成 — 可选的训练监控面板
+- [x] **SP6** WebUI 集成 — 可选的训练监控面板
   - 基于 SkillOpt 的 Gradio WebUI
   - 实时显示训练进度、loss 曲线、best_skill 更新
   - 支持远程访问（`--share` 模式）
