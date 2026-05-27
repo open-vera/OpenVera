@@ -101,9 +101,9 @@
 
 - [x] **R1** 向量存储接口 — `packages/core/src/rag/types.ts`，定义 `VectorStore` 抽象接口
 - [x] **R2** 本地向量存储 — `packages/core/src/rag/local-vector-store.ts`，基于 SQLite + 自实现向量索引（无需外部依赖）
-- [ ] **R3** Embedding 适配器接口 — `packages/core/src/rag/embedding-adapter.ts`，统一接口
-- [ ] **R4** 远程 Embedding — OpenAI/Anthropic embedding API 适配器（默认）
-- [ ] **R5** 本地 Embedding — 留接口支持本地小模型（ONNX/GGML），可选插件
+- [x] **R3** Embedding 适配器接口 — `packages/core/src/rag/embedding-adapter.ts`，统一接口
+- [x] **R4** 远程 Embedding — OpenAI/Anthropic embedding API 适配器（默认）
+- [x] **R5** 本地 Embedding — 留接口支持本地小模型（ONNX/GGML），可选插件
 - [ ] **R6** 文档加载器 — 支持 Markdown/JSON/TypeScript/文本文件批量索引
 - [ ] **R7** 检索工具 — `knowledge_search` tool，集成到 ToolRegistry
 - [ ] **R8** 增量索引 — 文件变更自动更新向量索引（基于 mtime 检测）
