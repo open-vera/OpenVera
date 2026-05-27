@@ -8,7 +8,6 @@ import type {
   ToolLifecycleHook,
   ToolMiddleware,
   ToolGroup,
-  ToolVersion,
 } from "./types.js";
 import { toolDefToSchema, errorResult } from "./types.js";
 import { executeWithTimeout } from "./executor.js";

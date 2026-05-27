@@ -27,7 +27,6 @@ export type {
   MemoryHitStats,
   UsageDetectionResult,
 } from "./memory/index.js";
-import type { Tool } from "./types/index.js";
 export * from "./errors.js";
 
 const config = loadConfig();
@@ -63,19 +62,6 @@ function resolveEnvKey(adapter: string, name: string): string | undefined {
       );
   }
 }
-
-function envVarForAdapter(adapter: string, _name: string): string {
-  switch (adapter) {
-    case "openai":
-      return "OPENAI_API_KEY";
-    case "gemini":
-      return "GEMINI_API_KEY";
-    default:
-      return "ANTHROPIC_API_KEY";
-  }
-}
-
-const tools: Tool[] = [];
 
 const defaultProvider = config.default_provider ?? "anthropic";
 const defaultModel = config.default_model ?? "claude-opus-4-6";

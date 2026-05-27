@@ -5,7 +5,6 @@ import { ToolResultView } from "./ToolResultView.js";
 import { theme } from "./theme.js";
 import {
   toolUsesForDisplay,
-  type RenderableToolUse,
 } from "./controller/toolProjection.js";
 import { getEstimatedMessageLines } from "./controller/transcriptLayout.js";
 

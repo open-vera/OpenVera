@@ -1,7 +1,6 @@
 // read_file — 读取文件内容，支持 offset/limit
 
 import { readFileSync, statSync } from "node:fs";
-import { resolve } from "node:path";
 import type { ToolDef, ToolResult, ToolContext } from "./types.js";
 import { errorResult } from "./types.js";
 import { safePath } from "./utils/path.js";

@@ -94,8 +94,8 @@ export async function resolveModel(
   classifierAdapter: LLMAdapter,
   classifierModel: string,
   routing: RoutingConfig,
-  fallbackProvider: string,
-  fallbackModel: string,
+  _fallbackProvider: string,
+  _fallbackModel: string,
   onUsage?: (usage: Usage) => void
 ): Promise<{
   model: string;

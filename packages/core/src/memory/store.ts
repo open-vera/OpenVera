@@ -101,16 +101,6 @@ function extractKeywords(text: string, maxTerms = 20): string[] {
     .map(([term]) => term);
 }
 
-/** Keyword-based relevance score (Jaccard-like overlap). */
-function keywordScore(queryTerms: string[], entryTerms: string[]): { score: number; matched: string[] } {
-  if (queryTerms.length === 0 || entryTerms.length === 0) return { score: 0, matched: [] };
-  const entrySet = new Set(entryTerms);
-  const matched = queryTerms.filter((t) => entrySet.has(t));
-  // Weighted: matched / min(query, entry) — favors entries that cover more query terms
-  const denominator = Math.min(queryTerms.length, entryTerms.length);
-  return { score: matched.length / denominator, matched };
-}
-
 /** Validate that a parsed JSON object is a plausible memory entry. */
 function isValidMemoryEntry(obj: unknown): obj is MemoryEntry {
   if (typeof obj !== "object" || obj === null) return false;

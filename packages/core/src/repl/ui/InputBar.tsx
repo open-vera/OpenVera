@@ -1,6 +1,6 @@
 import { Box, Text, useInput, useStdin } from "ink";
 import type { Key } from "ink";
-import { useState, useRef, useMemo, useEffect, useCallback, useLayoutEffect } from "react";
+import { useState, useRef, useMemo, useEffect, useLayoutEffect } from "react";
 import { theme } from "./theme.js";
 import stringWidth from "string-width";
 import { parseInputChunk } from "./inputKeys.js";

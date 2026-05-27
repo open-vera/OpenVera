@@ -33,8 +33,6 @@ export function createHarnessPlanExecutor(
   critiqueModel: string,
 ): PlanExecutor {
   return async (goal, ctx, onEvent, onUsage) => {
-    const flowId = `repl-${Date.now()}`;
-
     // ── 1. Generate plan via Harness planner ────────────────────────────────
 
     let plan;
