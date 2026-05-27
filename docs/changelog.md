@@ -29,3 +29,4 @@
 | 2026-05-27 · 08:xx | Phase 6 SessionManager：auto-compress、dedup、keyword index、lifecycle cleanup（23 tests） | [→](./changelog/2026-05-27-09.md) |
 | 2026-05-27 · 10:xx | Phase 7 Memory 增强：auto-extract、organize、compress、decay、graph（28 tests） | [→](./changelog/2026-05-27-10.md) |
 | 2026-05-27 · 11:xx | Phase 8 Skill 增强：auto-extract、scoring、recommendation、versioning、hot-reload（34 tests） | [→](./changelog/2026-05-27-11.md) |
+| 2026-05-27 · 09:xx | Phase 9 SQ1-SQ3：StorageProvider 抽象层 + SQLite 适配器 + 文件存储适配器（108 tests） | [→](./changelog/2026-05-27-09.md) |
