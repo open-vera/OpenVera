@@ -238,11 +238,11 @@
 
 ## Phase 14: MCP Client 支持（P3）
 
-- [ ] **MC1** MCP Client — `packages/core/src/mcp/client.ts`，连接第三方 MCP server
-- [ ] **MC2** MCP Tool 统一 — MCP tool 自动注册到 ToolRegistry，统一 schema
-- [ ] **MC3** MCP 权限治理 — MCP tool 走 SecurityPlugin hook，不绕过 Harness
-- [ ] **MC4** MCP 发现 — 支持动态发现和连接 MCP server
-- [ ] **MC5** MCP 集成测试（8+ tests：连接、tool 注册、权限、断线重连）
+- [x] **MC1** MCP Client — `packages/core/src/mcp/client.ts`，连接第三方 MCP server
+- [x] **MC2** MCP Tool 统一 — MCP tool 自动注册到 ToolRegistry，统一 schema
+- [x] **MC3** MCP 权限治理 — MCP tool 走 SecurityPlugin hook，不绕过 Harness
+- [x] **MC4** MCP 发现 — 支持动态发现和连接 MCP server
+- [x] **MC5** MCP 集成测试（8+ tests：连接、tool 注册、权限、断线重连）
 
 ## Phase 15: 多 Agent 协作网络（P3）
 
