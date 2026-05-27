@@ -192,7 +192,7 @@ onMounted(() => {
 }
 
 .metric-card {
-  background-color: var(--card-bg, #2d2d2d);
+  background-color: var(--surface);
   padding: 20px;
   border-radius: 8px;
   display: flex;
@@ -211,14 +211,14 @@ onMounted(() => {
 
 .metric-label {
   font-size: 14px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
   margin-bottom: 5px;
 }
 
 .metric-value {
   font-size: 28px;
   font-weight: bold;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .charts-grid {
@@ -228,7 +228,7 @@ onMounted(() => {
 }
 
 .chart-card {
-  background-color: var(--card-bg, #2d2d2d);
+  background-color: var(--surface);
   padding: 20px;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -241,7 +241,7 @@ onMounted(() => {
 .chart-card h3 {
   margin: 0 0 20px 0;
   font-size: 18px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 /* 环形图 */
@@ -257,7 +257,7 @@ onMounted(() => {
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  background: conic-gradient(#3498db 0% 70%, #e0e0e0 70% 100%);
+  background: conic-gradient(var(--accent) 0% 70%, var(--text-muted) 70% 100%);
   position: absolute;
   top: 0;
   left: 0;
@@ -267,7 +267,7 @@ onMounted(() => {
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  background-color: var(--card-bg, #2d2d2d);
+  background-color: var(--surface);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -277,7 +277,7 @@ onMounted(() => {
 .donut-percent {
   font-size: 24px;
   font-weight: bold;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .chart-legend {
@@ -285,15 +285,15 @@ onMounted(() => {
   justify-content: center;
   gap: 20px;
   font-size: 14px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .legend-item.active {
-  color: #3498db;
+  color: var(--accent);
 }
 
 .legend-item.idle {
-  color: #e0e0e0;
+  color: var(--text-muted);
 }
 
 /* 资源进度条 */
@@ -306,12 +306,12 @@ onMounted(() => {
   justify-content: space-between;
   margin-bottom: 8px;
   font-size: 14px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .progress-bar {
   height: 12px;
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -323,11 +323,11 @@ onMounted(() => {
 }
 
 .progress-fill.cpu {
-  background-color: #3498db;
+  background-color: var(--accent);
 }
 
 .progress-fill.memory {
-  background-color: #e74c3c;
+  background-color: var(--danger);
 }
 
 /* 热度图 */
@@ -350,7 +350,7 @@ onMounted(() => {
 .bar-container {
   height: 150px;
   width: 100%;
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
   border-radius: 4px;
   display: flex;
   align-items: flex-end;
@@ -364,15 +364,15 @@ onMounted(() => {
 }
 
 .bar.active {
-  background-color: #3498db;
+  background-color: var(--accent);
 }
 
 .bar.idle {
-  background-color: #e0e0e0;
+  background-color: var(--text-muted);
 }
 
 .bar-label {
   font-size: 12px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 </style>

@@ -104,14 +104,16 @@
         </div>
       </div>
     </div>
+    <Toast v-model:visible="toastVisible" :message="toastMessage" :type="toastType" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { fetchSubagents, type SubagentCallTreeNode } from '../api';
 import TreeNode from '../components/TreeNode.vue';
+import Toast from '../components/Toast.vue';
 
 const route = useRoute();
 const runId = route.params.runId as string;
@@ -121,6 +123,9 @@ const poolStatus = ref<{ totalSlots: number; activeAgents: number; queuedTasks: 
 const loading = ref(false);
 const selectedNode = ref<SubagentCallTreeNode | null>(null);
 const expandedNodes = ref<Set<string>>(new Set());
+const toastVisible = ref(false);
+const toastMessage = ref('');
+const toastType = ref<'success' | 'danger' | 'info'>('success');
 
 const statusMap = {
   pending: '⏳ 待执行',
@@ -180,16 +185,22 @@ const closeNodeModal = () => {
 const copyNodeId = () => {
   if (selectedNode.value) {
     navigator.clipboard.writeText(selectedNode.value.taskId);
-    alert('已复制任务ID: ' + selectedNode.value.taskId);
+    toastMessage.value = '已复制任务ID: ' + selectedNode.value.taskId;
+    toastType.value = 'success';
+    toastVisible.value = true;
   }
 };
 
 
+const refreshTimer = ref<ReturnType<typeof setInterval>>();
+
 onMounted(() => {
   loadSubagents();
-  // 每20秒刷新一次
-  const interval = setInterval(loadSubagents, 20000);
-  return () => clearInterval(interval);
+  refreshTimer.value = setInterval(loadSubagents, 20000);
+});
+
+onUnmounted(() => {
+  clearInterval(refreshTimer.value);
 });
 </script>
 
@@ -207,13 +218,13 @@ onMounted(() => {
 
 .page-header h1 {
   font-size: 24px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   margin: 0;
 }
 
 .refresh-btn {
   padding: 8px 16px;
-  background-color: var(--accent-primary, #3498db);
+  background-color: var(--accent);
   color: white;
   border: none;
   border-radius: 4px;
@@ -237,7 +248,7 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   padding: 16px;
-  background-color: var(--card-bg, #2d2d2d);
+  background-color: var(--surface);
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
@@ -253,25 +264,25 @@ onMounted(() => {
 .stat-number {
   font-size: 28px;
   font-weight: bold;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   margin-bottom: 4px;
 }
 
 .stat-label {
   font-size: 13px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .empty-state {
   text-align: center;
   padding: 40px;
-  color: var(--text-secondary, #b0b0b0);
-  background-color: var(--card-bg, #2d2d2d);
+  color: var(--text-muted);
+  background-color: var(--surface);
   border-radius: 8px;
 }
 
 .call-tree-container {
-  background-color: var(--card-bg, #2d2d2d);
+  background-color: var(--surface);
   border-radius: 8px;
   padding: 20px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -283,18 +294,18 @@ onMounted(() => {
   align-items: center;
   margin-bottom: 20px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-color, #404040);
+  border-bottom: 1px solid var(--border);
 }
 
 .tree-title h2 {
   margin: 0;
   font-size: 18px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .tree-info {
   font-size: 13px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .tree-root {
@@ -315,7 +326,7 @@ onMounted(() => {
 }
 
 .node-modal {
-  background-color: var(--card-bg, #2d2d2d);
+  background-color: var(--surface);
   border-radius: 8px;
   padding: 24px;
   max-width: 600px;
@@ -331,19 +342,19 @@ onMounted(() => {
   align-items: center;
   margin-bottom: 20px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-color, #404040);
+  border-bottom: 1px solid var(--border);
 }
 
 .modal-header h2 {
   margin: 0;
   font-size: 20px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .close-btn {
   padding: 8px 12px;
-  background-color: var(--bg-secondary, #404040);
-  color: var(--text-primary, #ffffff);
+  background-color: var(--surface-2);
+  color: var(--text);
   border: none;
   border-radius: 4px;
   cursor: pointer;
@@ -351,7 +362,7 @@ onMounted(() => {
 }
 
 .close-btn:hover {
-  background-color: var(--accent-hover, #34495e);
+  background-color: var(--surface-3);
 }
 
 .modal-content {
@@ -367,12 +378,12 @@ onMounted(() => {
 
 .detail-section label {
   font-size: 13px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .detail-section .value {
   font-size: 14px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   font-family: monospace;
 }
 
@@ -388,10 +399,10 @@ onMounted(() => {
   padding: 2px 6px;
   margin-right: 4px;
   margin-bottom: 4px;
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
   border-radius: 4px;
   font-size: 12px;
-  color: var(--accent-primary, #3498db);
+  color: var(--accent);
 }
 
 .modal-actions {
@@ -399,12 +410,12 @@ onMounted(() => {
   justify-content: flex-end;
   gap: 12px;
   padding-top: 12px;
-  border-top: 1px solid var(--border-color, #404040);
+  border-top: 1px solid var(--border);
 }
 
 .copy-btn {
   padding: 8px 16px;
-  background-color: var(--accent-primary, #3498db);
+  background-color: var(--accent);
   color: white;
   border: none;
   border-radius: 4px;
@@ -412,7 +423,7 @@ onMounted(() => {
 }
 
 .copy-btn:hover {
-  background-color: #2980b9;
+  background-color: var(--accent-dim);
 }
 
 /* 状态徽章样式 */
@@ -424,22 +435,22 @@ onMounted(() => {
 }
 
 .badge.running {
-  background-color: rgba(46, 204, 113, 0.2);
-  color: #2ecc71;
+  background-color: var(--success-dim);
+  color: var(--success);
 }
 
 .badge.done {
-  background-color: rgba(46, 204, 113, 0.2);
-  color: #2ecc71;
+  background-color: var(--success-dim);
+  color: var(--success);
 }
 
 .badge.failed {
-  background-color: rgba(231, 76, 60, 0.2);
-  color: #e74c3c;
+  background-color: var(--danger-dim);
+  color: var(--danger);
 }
 
 .badge.pending {
-  background-color: rgba(153, 153, 153, 0.2);
-  color: #999;
+  background-color: var(--surface-2);
+  color: var(--text-muted);
 }
 </style>

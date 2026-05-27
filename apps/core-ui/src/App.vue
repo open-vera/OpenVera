@@ -70,10 +70,34 @@ onMounted(() => {
 </script>
 
 <style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-2: #1c2128;
+  --surface-3: #22272e;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-muted: #7d8590;
+  --accent: #58a6ff;
+  --accent-dim: #1f3d5c;
+  --success: #3fb950;
+  --success-dim: #1a3626;
+  --danger: #f85149;
+  --danger-dim: #3d1a1a;
+  --warning: #d29922;
+  --warning-dim: #3d2e0a;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
 }
 
 .app-container {
@@ -85,11 +109,12 @@ onMounted(() => {
 
 .header {
   padding: 16px 24px;
-  background-color: #2c3e50;
-  color: white;
+  background-color: var(--surface);
+  color: var(--text);
   display: flex;
   justify-content: space-between;
   align-items: center;
+  border-bottom: 1px solid var(--border);
 }
 
 .run-selector {
@@ -101,8 +126,10 @@ onMounted(() => {
 .run-selector select {
   padding: 4px 8px;
   border-radius: 4px;
-  border: none;
+  border: 1px solid var(--border);
   min-width: 300px;
+  background-color: var(--surface-2);
+  color: var(--text);
 }
 
 .loading-indicator {
@@ -116,31 +143,35 @@ onMounted(() => {
 
 .tabs {
   display: flex;
-  background-color: #34495e;
+  background-color: var(--surface);
   padding: 0 24px;
   gap: 16px;
+  border-bottom: 1px solid var(--border);
 }
 
 .tab {
   padding: 12px 16px;
-  color: white;
+  color: var(--text-muted);
   text-decoration: none;
   border-bottom: 3px solid transparent;
   transition: all 0.2s;
 }
 
 .tab:hover {
-  background-color: #4a5f7a;
+  background-color: var(--surface-3);
+  color: var(--text);
 }
 
 .tab.active {
-  border-bottom-color: #3498db;
-  background-color: #3498db;
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+  background-color: var(--accent-dim);
 }
 
 .content {
   flex: 1;
   padding: 20px;
   overflow-y: auto;
+  background-color: var(--bg);
 }
 </style>

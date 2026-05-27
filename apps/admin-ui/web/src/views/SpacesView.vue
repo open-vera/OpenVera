@@ -110,27 +110,27 @@ onMounted(() => {
 
 .page-header h1 {
   font-size: 24px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   margin: 0;
 }
 
 .search-input {
   padding: 8px 12px;
-  border: 1px solid var(--border-color, #404040);
+  border: 1px solid var(--border);
   border-radius: 4px;
-  background-color: var(--bg-secondary, #2d2d2d);
-  color: var(--text-primary, #ffffff);
+  background-color: var(--surface-2);
+  color: var(--text);
   font-size: 14px;
   width: 300px;
 }
 
 .search-input:focus {
   outline: none;
-  border-color: var(--accent-primary, #3498db);
+  border-color: var(--accent);
 }
 
 .table-container {
-  background-color: var(--card-bg, #2d2d2d);
+  background-color: var(--surface);
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -142,7 +142,7 @@ onMounted(() => {
 }
 
 .spaces-table thead {
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
 }
 
 .spaces-table th {
@@ -150,23 +150,23 @@ onMounted(() => {
   text-align: left;
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .spaces-table tbody tr {
-  border-bottom: 1px solid var(--border-color, #404040);
+  border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition: background-color 0.2s;
 }
 
 .spaces-table tbody tr:hover {
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
 }
 
 .spaces-table td {
   padding: 12px 16px;
   font-size: 14px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .scope-id {
@@ -182,13 +182,13 @@ onMounted(() => {
 }
 
 .badge.group {
-  background-color: rgba(52, 152, 219, 0.2);
-  color: #3498db;
+  background-color: var(--accent-dim);
+  color: var(--accent);
 }
 
 .badge.user {
-  background-color: rgba(46, 204, 113, 0.2);
-  color: #2ecc71;
+  background-color: var(--success-dim);
+  color: var(--success);
 }
 
 .status-badge {
@@ -199,30 +199,30 @@ onMounted(() => {
 }
 
 .status-badge.busy {
-  background-color: rgba(231, 76, 60, 0.2);
-  color: #e74c3c;
+  background-color: var(--danger-dim);
+  color: var(--danger);
 }
 
 .status-badge.idle {
-  background-color: rgba(46, 204, 113, 0.2);
-  color: #2ecc71;
+  background-color: var(--success-dim);
+  color: var(--success);
 }
 
 .task-id {
   font-family: monospace;
   font-size: 12px;
-  color: var(--accent-primary, #3498db);
+  color: var(--accent);
 }
 
 .no-task {
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
   font-size: 13px;
 }
 
 .empty-state {
   padding: 40px;
   text-align: center;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .empty-state p {

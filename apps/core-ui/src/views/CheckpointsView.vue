@@ -128,6 +128,7 @@ import { ref, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { fetchCheckpoints, type Checkpoint } from '../api';
 import CheckpointDiff from '../components/CheckpointDiff.vue';
+import Toast from '../components/Toast.vue';
 
 const route = useRoute();
 const runId = route.params.runId as string;
@@ -138,6 +139,9 @@ const selectedCheckpointId = ref<string | null>(null);
 const selectedCheckpoint = ref<Checkpoint | null>(null);
 const selectedCheckpointA = ref<Checkpoint | null>(null);
 const selectedCheckpointB = ref<Checkpoint | null>(null);
+const toastVisible = ref(false);
+const toastMessage = ref('');
+const toastType = ref<'success' | 'danger' | 'info'>('success');
 
 const stateLabels: Record<string, string> = {
   running: '🟢 运行中',
@@ -200,7 +204,9 @@ const closeModal = () => {
 const copyCheckpointId = () => {
   if (selectedCheckpoint.value) {
     navigator.clipboard.writeText(selectedCheckpoint.value.checkpointId);
-    alert('已复制检查点ID: ' + selectedCheckpoint.value.checkpointId);
+    toastMessage.value = '已复制检查点ID: ' + selectedCheckpoint.value.checkpointId;
+    toastType.value = 'success';
+    toastVisible.value = true;
   }
 };
 
@@ -234,13 +240,13 @@ onMounted(() => {
 
 .page-header h1 {
   font-size: 24px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   margin: 0;
 }
 
 .refresh-btn {
   padding: 8px 16px;
-  background-color: var(--accent-primary, #3498db);
+  background-color: var(--accent);
   color: white;
   border: none;
   border-radius: 4px;
@@ -255,14 +261,14 @@ onMounted(() => {
 .loading-state, .empty-state {
   text-align: center;
   padding: 40px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid var(--border-color, #404040);
-  border-top: 4px solid var(--accent-primary, #3498db);
+  border: 4px solid var(--border);
+  border-top: 4px solid var(--accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin: 0 auto 20px;
@@ -288,12 +294,12 @@ onMounted(() => {
 }
 
 .timeline-item:hover .timeline-content {
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
 }
 
 .timeline-item.active .timeline-content {
-  background-color: var(--accent-primary, rgba(52, 152, 219, 0.1));
-  border-color: var(--accent-primary, #3498db);
+  background-color: var(--accent-dim);
+  border-color: var(--accent);
 }
 
 .timeline-node {
@@ -308,28 +314,28 @@ onMounted(() => {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  border: 3px solid var(--card-bg, #2d2d2d);
+  border: 3px solid var(--surface);
   z-index: 2;
 }
 
 .node-dot.running {
-  background-color: #2ecc71;
+  background-color: var(--success);
 }
 
 .node-dot.completed {
-  background-color: #2ecc71;
+  background-color: var(--success);
 }
 
 .node-dot.failed {
-  background-color: #e74c3c;
+  background-color: var(--danger);
 }
 
 .node-dot.paused {
-  background-color: #f39c12;
+  background-color: var(--warning);
 }
 
 .node-dot.pending {
-  background-color: #95a5a6;
+  background-color: var(--text-muted);
 }
 
 .timeline-line {
@@ -338,7 +344,7 @@ onMounted(() => {
   left: 50%;
   width: 2px;
   height: calc(100% + 8px);
-  background-color: var(--border-color, #404040);
+  background-color: var(--border);
   transform: translateX(-50%);
   z-index: 1;
 }
@@ -346,10 +352,10 @@ onMounted(() => {
 .timeline-content {
   flex: 1;
   padding: 16px;
-  background-color: var(--card-bg, #2d2d2d);
+  background-color: var(--surface);
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  border: 1px solid var(--border-color, #404040);
+  border: 1px solid var(--border);
 }
 
 .checkpoint-header {
@@ -368,7 +374,7 @@ onMounted(() => {
 .checkpoint-id {
   font-size: 14px;
   font-weight: 500;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   font-family: monospace;
 }
 
@@ -380,40 +386,40 @@ onMounted(() => {
 }
 
 .checkpoint-state-badge.running {
-  background-color: rgba(46, 204, 113, 0.2);
-  color: #2ecc71;
+  background-color: var(--success-dim);
+  color: var(--success);
 }
 
 .checkpoint-state-badge.completed {
-  background-color: rgba(46, 204, 113, 0.2);
-  color: #2ecc71;
+  background-color: var(--success-dim);
+  color: var(--success);
 }
 
 .checkpoint-state-badge.failed {
-  background-color: rgba(231, 76, 60, 0.2);
-  color: #e74c3c;
+  background-color: var(--danger-dim);
+  color: var(--danger);
 }
 
 .checkpoint-state-badge.paused {
-  background-color: rgba(243, 156, 18, 0.2);
-  color: #f39c12;
+  background-color: var(--warning-dim);
+  color: var(--warning);
 }
 
 .checkpoint-state-badge.pending {
-  background-color: rgba(149, 165, 166, 0.2);
-  color: #95a5a6;
+  background-color: var(--surface-2);
+  color: var(--text-muted);
 }
 
 .checkpoint-time {
   font-size: 12px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .checkpoint-meta {
   display: flex;
   gap: 16px;
   font-size: 12px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .checkpoint-modal-overlay {
@@ -430,7 +436,7 @@ onMounted(() => {
 }
 
 .checkpoint-modal {
-  background-color: var(--card-bg, #2d2d2d);
+  background-color: var(--surface);
   border-radius: 8px;
   padding: 24px;
   max-width: 800px;
@@ -446,19 +452,19 @@ onMounted(() => {
   align-items: center;
   margin-bottom: 20px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-color, #404040);
+  border-bottom: 1px solid var(--border);
 }
 
 .modal-header h2 {
   margin: 0;
   font-size: 20px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .close-btn {
   padding: 8px 12px;
-  background-color: var(--bg-secondary, #404040);
-  color: var(--text-primary, #ffffff);
+  background-color: var(--surface-2);
+  color: var(--text);
   border: none;
   border-radius: 4px;
   cursor: pointer;
@@ -466,7 +472,7 @@ onMounted(() => {
 }
 
 .close-btn:hover {
-  background-color: var(--accent-hover, #34495e);
+  background-color: var(--surface-3);
 }
 
 .modal-content {
@@ -486,12 +492,12 @@ onMounted(() => {
 
 .detail-section label {
   font-size: 13px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .detail-section .value {
   font-size: 14px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   font-family: monospace;
 }
 
@@ -504,11 +510,11 @@ onMounted(() => {
 
 .json-viewer {
   padding: 12px;
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
   border-radius: 4px;
   overflow-x: auto;
   font-size: 13px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   white-space: pre-wrap;
   word-wrap: break-word;
   max-height: 300px;
@@ -519,12 +525,12 @@ onMounted(() => {
   justify-content: flex-end;
   gap: 12px;
   padding-top: 12px;
-  border-top: 1px solid var(--border-color, #404040);
+  border-top: 1px solid var(--border);
 }
 
 .copy-btn {
   padding: 8px 16px;
-  background-color: var(--accent-primary, #3498db);
+  background-color: var(--accent);
   color: white;
   border: none;
   border-radius: 4px;
@@ -532,7 +538,7 @@ onMounted(() => {
 }
 
 .copy-btn:hover {
-  background-color: #2980b9;
+  background-color: var(--accent-dim);
 }
 
 .diff-buttons {
@@ -544,9 +550,9 @@ onMounted(() => {
 
 .diff-btn {
   padding: 10px 24px;
-  background-color: var(--bg-secondary, #404040);
-  color: var(--text-primary, #ffffff);
-  border: 1px solid var(--border-color, #404040);
+  background-color: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
   border-radius: 4px;
   cursor: pointer;
   font-size: 14px;
@@ -554,8 +560,8 @@ onMounted(() => {
 }
 
 .diff-btn:hover:not(:disabled) {
-  background-color: var(--accent-primary, rgba(52, 152, 219, 0.1));
-  border-color: var(--accent-primary, #3498db);
+  background-color: var(--accent-dim);
+  border-color: var(--accent);
 }
 
 .diff-btn:disabled {
@@ -564,22 +570,22 @@ onMounted(() => {
 }
 
 .diff-btn:nth-child(1).active {
-  background-color: rgba(46, 204, 113, 0.2);
-  border-color: #2ecc71;
-  color: #2ecc71;
+  background-color: var(--success-dim);
+  border-color: var(--success);
+  color: var(--success);
 }
 
 .diff-btn:nth-child(2).active {
-  background-color: rgba(52, 152, 219, 0.2);
-  border-color: #3498db;
-  color: #3498db;
+  background-color: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .clear-diff-btn {
   padding: 10px 24px;
-  background-color: var(--bg-danger, rgba(231, 76, 60, 0.1));
-  color: var(--text-danger, #e74c3c);
-  border: 1px solid var(--border-color, #404040);
+  background-color: var(--danger-dim);
+  color: var(--danger);
+  border: 1px solid var(--border);
   border-radius: 4px;
   cursor: pointer;
   font-size: 14px;
@@ -587,7 +593,7 @@ onMounted(() => {
 }
 
 .clear-diff-btn:hover {
-  background-color: var(--bg-danger, rgba(231, 76, 60, 0.2));
+  background-color: var(--danger-dim);
 }
 
 .diff-container {

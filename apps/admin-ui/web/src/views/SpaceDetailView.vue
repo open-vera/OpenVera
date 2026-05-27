@@ -173,11 +173,11 @@ onMounted(() => {
 .breadcrumb {
   margin-bottom: 20px;
   font-size: 14px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .breadcrumb a {
-  color: var(--accent-primary, #3498db);
+  color: var(--accent);
   text-decoration: none;
 }
 
@@ -190,21 +190,21 @@ onMounted(() => {
 }
 
 .current {
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   font-family: monospace;
 }
 
 .loading-state, .error-state, .empty-state {
   text-align: center;
   padding: 40px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid var(--border-color, #404040);
-  border-top: 4px solid var(--accent-primary, #3498db);
+  border: 4px solid var(--border);
+  border-top: 4px solid var(--accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin: 0 auto 20px;
@@ -217,7 +217,7 @@ onMounted(() => {
 
 .retry-btn {
   padding: 8px 16px;
-  background-color: var(--accent-primary, #3498db);
+  background-color: var(--accent);
   color: white;
   border: none;
   border-radius: 4px;
@@ -226,7 +226,8 @@ onMounted(() => {
 }
 
 .retry-btn:hover {
-  background-color: #2980b9;
+  background-color: var(--accent);
+  opacity: 0.9;
 }
 
 .detail-content {
@@ -236,7 +237,7 @@ onMounted(() => {
 }
 
 .info-card {
-  background-color: var(--card-bg, #2d2d2d);
+  background-color: var(--surface);
   padding: 20px;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -245,7 +246,7 @@ onMounted(() => {
 .info-card h2 {
   margin: 0 0 20px 0;
   font-size: 18px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .info-grid {
@@ -261,12 +262,12 @@ onMounted(() => {
 
 .info-item label {
   font-size: 13px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .info-item .value {
   font-size: 14px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   font-family: monospace;
 }
 
@@ -280,13 +281,13 @@ onMounted(() => {
 }
 
 .badge.group {
-  background-color: rgba(52, 152, 219, 0.2);
-  color: #3498db;
+  background-color: var(--accent-dim);
+  color: var(--accent);
 }
 
 .badge.user {
-  background-color: rgba(46, 204, 113, 0.2);
-  color: #2ecc71;
+  background-color: var(--success-dim);
+  color: var(--success);
 }
 
 .status-badge {
@@ -299,42 +300,42 @@ onMounted(() => {
 }
 
 .status-badge.busy {
-  background-color: rgba(231, 76, 60, 0.2);
-  color: #e74c3c;
+  background-color: var(--danger-dim);
+  color: var(--danger);
 }
 
 .status-badge.idle {
-  background-color: rgba(46, 204, 113, 0.2);
-  color: #2ecc71;
+  background-color: var(--success-dim);
+  color: var(--success);
 }
 
 .task-info {
   margin-top: 8px;
   padding: 10px;
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
   border-radius: 4px;
 }
 
 .task-id {
   font-family: monospace;
   font-size: 13px;
-  color: var(--accent-primary, #3498db);
+  color: var(--accent);
   margin-bottom: 4px;
 }
 
 .task-prompt {
   font-size: 13px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   margin-bottom: 4px;
 }
 
 .task-time {
   font-size: 12px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .no-task {
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
   font-size: 13px;
 }
 
@@ -347,20 +348,20 @@ onMounted(() => {
 .stat-item {
   text-align: center;
   padding: 16px;
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
   border-radius: 8px;
 }
 
 .stat-number {
   font-size: 28px;
   font-weight: bold;
-  color: var(--accent-primary, #3498db);
+  color: var(--accent);
   margin-bottom: 4px;
 }
 
 .stat-label {
   font-size: 13px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .tasks-list {
@@ -371,9 +372,9 @@ onMounted(() => {
 
 .task-item {
   padding: 12px;
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
   border-radius: 4px;
-  border-left: 4px solid var(--accent-primary, #3498db);
+  border-left: 4px solid var(--accent);
 }
 
 .task-header {
@@ -385,7 +386,7 @@ onMounted(() => {
 
 .task-name {
   font-size: 14px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   font-weight: 500;
 }
 
@@ -396,23 +397,23 @@ onMounted(() => {
 }
 
 .task-status.active {
-  background-color: rgba(46, 204, 113, 0.2);
-  color: #2ecc71;
+  background-color: var(--success-dim);
+  color: var(--success);
 }
 
 .task-status.disabled {
-  background-color: rgba(153, 153, 153, 0.2);
-  color: #999;
+  background-color: var(--surface-3);
+  color: var(--text-muted);
 }
 
 .task-schedule {
   font-size: 12px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .no-tasks {
   text-align: center;
   padding: 20px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 </style>

@@ -187,7 +187,7 @@ const formattedDiff = computed(() => {
 <style scoped>
 .checkpoint-diff-container {
   padding: 20px;
-  background-color: var(--card-bg, #2d2d2d);
+  background-color: var(--surface);
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
@@ -195,7 +195,7 @@ const formattedDiff = computed(() => {
 .empty-state {
   text-align: center;
   padding: 40px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .diff-header {
@@ -204,7 +204,7 @@ const formattedDiff = computed(() => {
   align-items: flex-start;
   margin-bottom: 20px;
   padding-bottom: 16px;
-  border-bottom: 1px solid var(--border-color, #404040);
+  border-bottom: 1px solid var(--border);
 }
 
 .diff-info {
@@ -224,24 +224,24 @@ const formattedDiff = computed(() => {
 .checkpoint-info h3 {
   margin: 0;
   font-size: 16px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .checkpoint-id {
   font-size: 13px;
-  color: var(--accent-primary, #3498db);
+  color: var(--accent);
   font-family: monospace;
 }
 
 .checkpoint-time {
   font-size: 12px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .diff-arrow {
   font-size: 24px;
   font-weight: bold;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
   padding: 0 20px;
 }
 
@@ -254,14 +254,14 @@ const formattedDiff = computed(() => {
   padding: 8px 12px;
   border: none;
   border-radius: 4px;
-  background-color: var(--bg-secondary, #404040);
-  color: var(--text-primary, #ffffff);
+  background-color: var(--surface-2);
+  color: var(--text);
   cursor: pointer;
   font-size: 13px;
 }
 
 .swap-btn:hover, .copy-btn:hover {
-  background-color: var(--accent-hover, #34495e);
+  background-color: var(--surface-3);
 }
 
 .diff-content {
@@ -285,16 +285,16 @@ const formattedDiff = computed(() => {
 .diff-panel h4 {
   margin: 0;
   font-size: 14px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .diff-json {
   padding: 12px;
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
   border-radius: 4px;
   overflow-x: auto;
   font-size: 13px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   white-space: pre-wrap;
   word-wrap: break-word;
   max-height: 500px;
@@ -309,13 +309,13 @@ const formattedDiff = computed(() => {
 .diff-summary h4 {
   margin: 0;
   font-size: 14px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .no-changes {
   text-align: center;
   padding: 20px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .change-list {
@@ -326,9 +326,9 @@ const formattedDiff = computed(() => {
 
 .change-item {
   padding: 12px;
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
   border-radius: 4px;
-  border-left: 4px solid var(--accent-primary, #3498db);
+  border-left: 4px solid var(--accent);
 }
 
 .change-type-badge {
@@ -341,28 +341,28 @@ const formattedDiff = computed(() => {
 }
 
 .change-type-badge.added {
-  background-color: rgba(46, 204, 113, 0.2);
-  color: #2ecc71;
+  background-color: var(--success-dim);
+  color: var(--success);
 }
 
 .change-type-badge.removed {
-  background-color: rgba(231, 76, 60, 0.2);
-  color: #e74c3c;
+  background-color: var(--danger-dim);
+  color: var(--danger);
 }
 
 .change-type-badge.modified {
-  background-color: rgba(52, 152, 219, 0.2);
-  color: #3498db;
+  background-color: var(--accent-dim);
+  color: var(--accent);
 }
 
 .change-type-badge.unchanged {
-  background-color: rgba(149, 165, 166, 0.2);
-  color: #95a5a6;
+  background-color: var(--surface-2);
+  color: var(--text-muted);
 }
 
 .change-path {
   font-size: 13px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   font-family: monospace;
   margin-bottom: 4px;
 }
@@ -375,10 +375,10 @@ const formattedDiff = computed(() => {
 }
 
 .old-value {
-  color: #e74c3c;
+  color: var(--danger);
 }
 
 .new-value {
-  color: #2ecc71;
+  color: var(--success);
 }
 </style>

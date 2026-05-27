@@ -113,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import { fetchMemory, type MemoryEntry, type MemorySnapshot } from '../api';
 
@@ -173,8 +173,9 @@ const loadMemoryData = async () => {
   }
 };
 
-const setTierFilter = (tier: string | null) => {
+const setTierFilter = async (tier: string | null) => {
   currentTierFilter.value = tier;
+  await nextTick();
   loadMemoryData();
 };
 
@@ -199,11 +200,18 @@ const formatTime = (timestamp: string) => {
   }
 };
 
+const refreshTimer = ref<ReturnType<typeof setInterval>>();
+
 onMounted(() => {
   loadMemoryData();
   // 每10秒刷新一次
-  const interval = setInterval(loadMemoryData, 10000);
-  return () => clearInterval(interval);
+  refreshTimer.value = setInterval(loadMemoryData, 10000);
+});
+
+onUnmounted(() => {
+  if (refreshTimer.value) {
+    clearInterval(refreshTimer.value);
+  }
 });
 </script>
 
@@ -223,7 +231,7 @@ onMounted(() => {
 
 .page-header h1 {
   font-size: 24px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   margin: 0;
   flex: 1;
   min-width: 200px;
@@ -246,34 +254,34 @@ onMounted(() => {
   padding: 6px 12px;
   border: none;
   border-radius: 4px;
-  background-color: var(--bg-secondary, #404040);
-  color: var(--text-primary, #ffffff);
+  background-color: var(--surface-2);
+  color: var(--text);
   cursor: pointer;
   font-size: 13px;
   transition: all 0.2s;
 }
 
 .tier-selector button:hover {
-  background-color: var(--accent-hover, #34495e);
+  background-color: var(--surface-3);
 }
 
 .tier-selector button.active {
-  background-color: var(--accent-primary, #3498db);
+  background-color: var(--accent);
 }
 
 .search-input {
   padding: 8px 12px;
-  border: 1px solid var(--border-color, #404040);
+  border: 1px solid var(--border);
   border-radius: 4px;
-  background-color: var(--bg-secondary, #2d2d2d);
-  color: var(--text-primary, #ffffff);
+  background-color: var(--surface-2);
+  color: var(--text);
   font-size: 14px;
   width: 100%;
 }
 
 .search-input:focus {
   outline: none;
-  border-color: var(--accent-primary, #3498db);
+  border-color: var(--accent);
 }
 
 .stats-bar {
@@ -281,7 +289,7 @@ onMounted(() => {
   gap: 24px;
   margin-bottom: 20px;
   padding: 16px;
-  background-color: var(--card-bg, #2d2d2d);
+  background-color: var(--surface);
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
@@ -295,25 +303,25 @@ onMounted(() => {
 .stat-number {
   font-size: 24px;
   font-weight: bold;
-  color: var(--accent-primary, #3498db);
+  color: var(--accent);
 }
 
 .stat-label {
   font-size: 13px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .loading-state, .empty-state {
   text-align: center;
   padding: 40px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid var(--border-color, #404040);
-  border-top: 4px solid var(--accent-primary, #3498db);
+  border: 4px solid var(--border);
+  border-top: 4px solid var(--accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin: 0 auto 20px;
@@ -331,7 +339,7 @@ onMounted(() => {
 }
 
 .memory-card {
-  background-color: var(--card-bg, #2d2d2d);
+  background-color: var(--surface);
   border-radius: 8px;
   padding: 16px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -367,15 +375,15 @@ onMounted(() => {
 }
 
 .tier-badge.episodic {
-  background-color: #3498db;
+  background-color: var(--accent);
 }
 
 .tier-badge.semantic {
-  background-color: #9b59b6;
+  background-color: var(--accent-dim);
 }
 
 .tier-badge.working {
-  background-color: #f39c12;
+  background-color: var(--warning);
 }
 
 .importance-badge {
@@ -387,25 +395,25 @@ onMounted(() => {
 }
 
 .importance-badge.high {
-  background-color: #e74c3c;
+  background-color: var(--danger);
 }
 
 .importance-badge.medium {
-  background-color: #f39c12;
+  background-color: var(--warning);
 }
 
 .importance-badge.low {
-  background-color: #95a5a6;
+  background-color: var(--text-muted);
 }
 
 .created-time {
   font-size: 12px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .expand-icon {
   font-size: 16px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .memory-content {
@@ -414,7 +422,7 @@ onMounted(() => {
 
 .content-preview {
   font-size: 14px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   margin-bottom: 8px;
   line-height: 1.5;
 }
@@ -427,16 +435,16 @@ onMounted(() => {
 
 .tag {
   padding: 2px 6px;
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
   border-radius: 4px;
   font-size: 12px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .memory-expanded {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid var(--border-color, #404040);
+  border-top: 1px solid var(--border);
 }
 
 .full-content {
@@ -446,16 +454,16 @@ onMounted(() => {
 .full-content h4 {
   margin: 0 0 8px 0;
   font-size: 14px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .full-content pre {
   padding: 12px;
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
   border-radius: 4px;
   overflow-x: auto;
   font-size: 13px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   white-space: pre-wrap;
   word-wrap: break-word;
 }
@@ -468,12 +476,12 @@ onMounted(() => {
 
 .source-info label {
   font-size: 13px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .source-info .source {
   font-size: 13px;
-  color: var(--accent-primary, #3498db);
+  color: var(--accent);
   font-family: monospace;
 }
 </style>

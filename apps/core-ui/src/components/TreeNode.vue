@@ -87,14 +87,14 @@ const statusMap = {
 }
 
 .node-content:hover {
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
 }
 
 .expand-btn, .expand-placeholder {
   width: 20px;
   text-align: center;
   font-size: 12px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .node-item {
@@ -115,13 +115,13 @@ const statusMap = {
 .node-task-id {
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   font-family: monospace;
 }
 
 .node-agent-type {
   font-size: 12px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .node-status-badge {
@@ -133,19 +133,19 @@ const statusMap = {
 }
 
 .node-status-badge.running {
-  background-color: #2ecc71;
+  background-color: var(--success);
 }
 
 .node-status-badge.done {
-  background-color: #2ecc71;
+  background-color: var(--success);
 }
 
 .node-status-badge.failed {
-  background-color: #e74c3c;
+  background-color: var(--danger);
 }
 
 .node-status-badge.pending {
-  background-color: #95a5a6;
+  background-color: var(--text-muted);
 }
 
 .node-meta {
@@ -157,9 +157,9 @@ const statusMap = {
 .depends-on-badge, .children-count {
   font-size: 11px;
   padding: 2px 4px;
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
   border-radius: 3px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .node-children {

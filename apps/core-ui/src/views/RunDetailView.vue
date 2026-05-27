@@ -142,10 +142,10 @@ const progressPercent = computed(() => {
 });
 
 const getProgressColor = () => {
-  if (!run.value) return '#95a5a6';
-  if (run.value.status === 'failed') return '#e74c3c';
-  if (run.value.status === 'completed') return '#2ecc71';
-  return '#3498db';
+  if (!run.value) return 'var(--text-muted)';
+  if (run.value.status === 'failed') return 'var(--danger)';
+  if (run.value.status === 'completed') return 'var(--success)';
+  return 'var(--accent)';
 };
 
 const loadRunDetail = async () => {
@@ -198,14 +198,14 @@ onMounted(() => {
 .loading-state, .empty-state {
   text-align: center;
   padding: 40px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid var(--border-color, #404040);
-  border-top: 4px solid var(--accent-primary, #3498db);
+  border: 4px solid var(--border);
+  border-top: 4px solid var(--accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin: 0 auto 20px;
@@ -223,7 +223,7 @@ onMounted(() => {
 }
 
 .info-card {
-  background-color: var(--card-bg, #2d2d2d);
+  background-color: var(--surface);
   padding: 20px;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -232,7 +232,7 @@ onMounted(() => {
 .info-card h2 {
   margin: 0 0 20px 0;
   font-size: 18px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .info-grid {
@@ -249,12 +249,12 @@ onMounted(() => {
 
 .info-item label {
   font-size: 13px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .info-item .value {
   font-size: 14px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   font-family: monospace;
 }
 
@@ -274,23 +274,23 @@ onMounted(() => {
 }
 
 .status-badge.running {
-  background-color: rgba(46, 204, 113, 0.2);
-  color: #2ecc71;
+  background-color: var(--success-dim);
+  color: var(--success);
 }
 
 .status-badge.completed {
-  background-color: rgba(46, 204, 113, 0.2);
-  color: #2ecc71;
+  background-color: var(--success-dim);
+  color: var(--success);
 }
 
 .status-badge.failed {
-  background-color: rgba(231, 76, 60, 0.2);
-  color: #e74c3c;
+  background-color: var(--danger-dim);
+  color: var(--danger);
 }
 
 .status-badge.paused {
-  background-color: rgba(153, 153, 153, 0.2);
-  color: #999;
+  background-color: var(--surface-2);
+  color: var(--text-muted);
 }
 
 .stats-grid {
@@ -303,7 +303,7 @@ onMounted(() => {
 .stat-item {
   text-align: center;
   padding: 16px;
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
   border-radius: 8px;
 }
 
@@ -314,20 +314,20 @@ onMounted(() => {
 }
 
 .stat-number.completed {
-  color: #2ecc71;
+  color: var(--success);
 }
 
 .stat-number.failed {
-  color: #e74c3c;
+  color: var(--danger);
 }
 
 .stat-number.progress {
-  color: #3498db;
+  color: var(--accent);
 }
 
 .stat-label {
   font-size: 13px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .overall-progress {
@@ -339,12 +339,12 @@ onMounted(() => {
   justify-content: space-between;
   margin-bottom: 8px;
   font-size: 14px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .progress-bar {
   height: 12px;
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -356,7 +356,7 @@ onMounted(() => {
 }
 
 .steps-card {
-  background-color: var(--card-bg, #2d2d2d);
+  background-color: var(--surface);
   padding: 20px;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -365,7 +365,7 @@ onMounted(() => {
 .steps-card h2 {
   margin: 0 0 20px 0;
   font-size: 18px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .steps-list {
@@ -376,9 +376,9 @@ onMounted(() => {
 
 .step-item {
   padding: 12px;
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
   border-radius: 4px;
-  border-left: 4px solid var(--accent-primary, #3498db);
+  border-left: 4px solid var(--accent);
 }
 
 .step-header {
@@ -397,7 +397,7 @@ onMounted(() => {
 .step-id {
   font-size: 14px;
   font-weight: 500;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .step-status {
@@ -407,33 +407,33 @@ onMounted(() => {
 }
 
 .step-status.running {
-  background-color: rgba(46, 204, 113, 0.2);
-  color: #2ecc71;
+  background-color: var(--success-dim);
+  color: var(--success);
 }
 
 .step-status.done {
-  background-color: rgba(46, 204, 113, 0.2);
-  color: #2ecc71;
+  background-color: var(--success-dim);
+  color: var(--success);
 }
 
 .step-status.failed {
-  background-color: rgba(231, 76, 60, 0.2);
-  color: #e74c3c;
+  background-color: var(--danger-dim);
+  color: var(--danger);
 }
 
 .step-status.pending {
-  background-color: rgba(153, 153, 153, 0.2);
-  color: #999;
+  background-color: var(--surface-2);
+  color: var(--text-muted);
 }
 
 .step-meta {
   font-size: 12px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .step-score, .step-retries {
   font-size: 12px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
   margin-top: 4px;
 }
 </style>

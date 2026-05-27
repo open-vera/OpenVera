@@ -132,7 +132,7 @@ onMounted(() => {
 
 .page-header h1 {
   font-size: 24px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   margin: 0;
 }
 
@@ -143,7 +143,7 @@ onMounted(() => {
 }
 
 .settings-card {
-  background-color: var(--card-bg, #2d2d2d);
+  background-color: var(--surface);
   padding: 20px;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -156,7 +156,7 @@ onMounted(() => {
 .settings-card h2 {
   margin: 0 0 20px 0;
   font-size: 18px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .setting-item {
@@ -172,7 +172,7 @@ onMounted(() => {
 
 .setting-item label {
   font-size: 13px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .value-container {
@@ -184,16 +184,16 @@ onMounted(() => {
 .api-key {
   flex: 1;
   padding: 6px 8px;
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
   border-radius: 4px;
   font-family: monospace;
   font-size: 13px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .toggle-btn {
   padding: 6px 12px;
-  background-color: var(--accent-primary, #3498db);
+  background-color: var(--accent);
   color: white;
   border: none;
   border-radius: 4px;
@@ -202,15 +202,15 @@ onMounted(() => {
 }
 
 .toggle-btn:hover {
-  background-color: #2980b9;
+  opacity: 0.9;
 }
 
 .value {
   padding: 6px 8px;
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
   border-radius: 4px;
   font-size: 13px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   font-family: monospace;
 }
 
@@ -228,7 +228,7 @@ onMounted(() => {
 
 .version-item label {
   font-size: 14px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .version-item .value {
@@ -236,6 +236,6 @@ onMounted(() => {
   padding: 0;
   font-family: inherit;
   font-size: 14px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 </style>

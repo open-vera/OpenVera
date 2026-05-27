@@ -16,3 +16,6 @@
 <script setup lang="ts">
 </script>
 
+<style>
+/* Theme variables and global styles are in style.css */
+</style>

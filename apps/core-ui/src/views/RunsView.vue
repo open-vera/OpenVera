@@ -80,11 +80,11 @@ const statusMap = {
 };
 
 const getProgressColor = (status: string, completed: number, total: number) => {
-  if (status === 'failed') return '#e74c3c';
-  if (status === 'completed') return '#2ecc71';
-  if (completed === 0) return '#95a5a6';
-  if (completed === total) return '#2ecc71';
-  return '#3498db';
+  if (status === 'failed') return 'var(--danger)';
+  if (status === 'completed') return 'var(--success)';
+  if (completed === 0) return 'var(--text-muted)';
+  if (completed === total) return 'var(--success)';
+  return 'var(--accent)';
 };
 
 const loadRuns = async () => {
@@ -153,13 +153,13 @@ onMounted(() => {
 
 .page-header h1 {
   font-size: 24px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
   margin: 0;
 }
 
 .refresh-btn {
   padding: 8px 16px;
-  background-color: var(--accent-primary, #3498db);
+  background-color: var(--accent);
   color: white;
   border: none;
   border-radius: 4px;
@@ -174,14 +174,14 @@ onMounted(() => {
 .loading-state, .empty-state {
   text-align: center;
   padding: 40px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
 }
 
 .spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid var(--border-color, #404040);
-  border-top: 4px solid var(--accent-primary, #3498db);
+  border: 4px solid var(--border);
+  border-top: 4px solid var(--accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin: 0 auto 20px;
@@ -195,14 +195,14 @@ onMounted(() => {
 .runs-table {
   width: 100%;
   border-collapse: collapse;
-  background-color: var(--card-bg, #2d2d2d);
+  background-color: var(--surface);
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .runs-table thead {
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
 }
 
 .runs-table th {
@@ -210,23 +210,23 @@ onMounted(() => {
   text-align: left;
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .runs-table tbody tr {
-  border-bottom: 1px solid var(--border-color, #404040);
+  border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition: background-color 0.2s;
 }
 
 .runs-table tbody tr:hover {
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
 }
 
 .runs-table td {
   padding: 12px 16px;
   font-size: 14px;
-  color: var(--text-primary, #ffffff);
+  color: var(--text);
 }
 
 .run-id {
@@ -242,32 +242,32 @@ onMounted(() => {
 }
 
 .status-badge.running {
-  background-color: rgba(46, 204, 113, 0.2);
-  color: #2ecc71;
+  background-color: var(--success-dim);
+  color: var(--success);
 }
 
 .status-badge.completed {
-  background-color: rgba(46, 204, 113, 0.2);
-  color: #2ecc71;
+  background-color: var(--success-dim);
+  color: var(--success);
 }
 
 .status-badge.failed {
-  background-color: rgba(231, 76, 60, 0.2);
-  color: #e74c3c;
+  background-color: var(--danger-dim);
+  color: var(--danger);
 }
 
 .status-badge.paused {
-  background-color: rgba(153, 153, 153, 0.2);
-  color: #999;
+  background-color: var(--surface-2);
+  color: var(--text-muted);
 }
 
 .timestamp {
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
   font-size: 13px;
 }
 
 .duration {
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
   font-size: 13px;
 }
 
@@ -279,7 +279,7 @@ onMounted(() => {
 
 .progress-bar {
   height: 8px;
-  background-color: var(--bg-secondary, #404040);
+  background-color: var(--surface-2);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -292,7 +292,7 @@ onMounted(() => {
 
 .steps-text {
   font-size: 12px;
-  color: var(--text-secondary, #b0b0b0);
+  color: var(--text-muted);
   text-align: right;
 }
 
