@@ -356,6 +356,15 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：CH1-CH6 各自已有独立测试文件（types/gateway/cli-channel/api-channel/webhook-channel/plugin-registry），CH7 聚焦于跨 channel 的集成场景（多 adapter 并发、错误隔离、session 跨 channel 绑定），不需要新文件
 - 测试总数：~2732 tests（Core 2000 + Harness 732）
 
+### Phase 17 Adaptive Strategy — AD1（2026-05-27，完成）
+
+- AD1: Strategy Store — 按任务域存储策略配置 + 成果追踪 + 统计对比，44 tests
+- 实现要点：策略类型（10 种 domain、4 种 status）+ JSON 持久化 + outcome-based 统计
+- 踩坑：测试中用 `await import("node:fs")` 在非 async 回调中导致 parse error → 改用已 import 的 `writeFileSync`
+- 经验：StrategyStore 模式与 ProposalStore 一致（JSON 文件持久化 + filter + CRUD），新模块可以快速复用模式
+- 经验：outcomes 单独存储（strategy-outcomes.json）比嵌入 strategy 对象更好——策略配置变更不影响历史统计数据
+- 测试总数：~2776 tests（Core 2000 + Harness 776）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*

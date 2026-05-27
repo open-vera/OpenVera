@@ -13,3 +13,4 @@ export * from "./training/index.js";
 export * from "./benchmark/index.js";
 export * from "./dreaming/index.js";
 export * from "./proposal/index.js";
+export * from "./strategy/index.js";

@@ -12,6 +12,7 @@
 
 | 日期批次 | 摘要 | 详细 |
 |---|---|---|
+| 2026-05-27 · 22:xx | Phase 17 AD1：Strategy Store — 策略仓库，按任务域存储配置 + 成果追踪 + 统计（44 tests） | [→](./changelog/2026-05-27-22.md) |
 | 2026-05-27 · 22:xx | Phase 16 CH7：Channel Multi-Channel Concurrent Tests — Gateway 生命周期/消息路由/并发（8 tests） | [→](./changelog/2026-05-27-22.md) |
 | 2026-05-27 · 22:xx | Phase 16 CH6：Channel Plugin Registry — 运行时动态加载/卸载 adapter（42 tests） | [→](./changelog/2026-05-27-22.md) |
 | 2026-05-27 · 22:xx | Phase 16 CH5：Webhook Channel — HTTP webhook 接收器 + 签名验证（49 tests） | [→](./changelog/2026-05-27-22.md) |
