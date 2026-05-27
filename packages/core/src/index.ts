@@ -28,6 +28,7 @@ export type {
   UsageDetectionResult,
 } from "./memory/index.js";
 export * from "./errors.js";
+export * from "./storage/index.js";
 
 const config = loadConfig();
 

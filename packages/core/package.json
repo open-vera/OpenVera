@@ -26,7 +26,8 @@
     "./session": "./dist/session/index.js",
     "./project-context": "./dist/project-context/index.js",
     "./prompt": "./dist/prompt/index.js",
-    "./errors": "./dist/errors.js"
+    "./errors": "./dist/errors.js",
+    "./storage": "./dist/storage/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -44,6 +45,7 @@
     "@anthropic-ai/sdk": "^0.54.0",
     "@google/generative-ai": "^0.24.1",
     "@types/figlet": "^1.7.0",
+    "better-sqlite3": "^11.0.0",
     "diff": "^8.0.4",
     "figlet": "^1.11.0",
     "ink": "^5.2.0",
@@ -52,6 +54,7 @@
     "string-width": "^8.2.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/diff": "^8.0.0",
     "@types/node": "^22.0.0",
     "@types/react": "^18.3.0",
