@@ -16,3 +16,6 @@ export {
   SandboxConnectionError,
   SandboxQuotaError,
 } from "./types.js";
+
+export { CubeSandboxProvider, createCubeSandboxProvider } from "./cubesandbox.js";
+export type { CubeSandboxOptions } from "./cubesandbox.js";
