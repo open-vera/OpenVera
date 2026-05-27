@@ -117,6 +117,12 @@ Computer Use、MCP 接入、智能 UI 测试等 P2/P3 能力。
 
 → [platform/README.md](./platform/README.md)
 
+### Testing — 测试覆盖与验收
+
+| 文档 | 说明 |
+|---|---|
+| [storage/README.md](./testing/storage/README.md) | Storage/UI 测试覆盖方案——SQLite、Session 迁移、DataExporter、黑盒验收 |
+
 ---
 
 ### Apps — 应用层
