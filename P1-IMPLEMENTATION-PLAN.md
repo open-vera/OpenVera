@@ -257,7 +257,7 @@
 > 设计参考：Hermes Agent（Telegram/Discord/Slack/WhatsApp/Teams 单网关）、OpenClaw（25+ channel 本地 Gateway）
 > 核心思想：一个 Gateway 统一接入所有平台，Channel 通过 Adapter 插件化
 
-- [ ] **CH1** Channel 抽象层 — `packages/core/src/channel/types.ts`，定义 `ChannelAdapter` 接口
+- [x] **CH1** Channel 抽象层 — `packages/core/src/channel/types.ts`，定义 `ChannelAdapter` 接口
   - 接口：`connect()` / `disconnect()` / `sendMessage()` / `onMessage(callback)` / `getHistory()`
   - 消息统一格式：`ChannelMessage { id, channelType, senderId, content, attachments[], replyTo?, timestamp }`
 - [ ] **CH2** Channel Gateway — `packages/core/src/channel/gateway.ts`，统一管理多 channel 生命周期

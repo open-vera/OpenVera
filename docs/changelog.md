@@ -12,6 +12,7 @@
 
 | 日期批次 | 摘要 | 详细 |
 |---|---|---|
+| 2026-05-27 · 20:xx | Phase 16 CH1：Channel 抽象层 — 类型定义与接口（32 tests） | [→](./changelog/2026-05-27-20b.md) |
 | 2026-05-27 · 20:xx | Phase 10.3 SP6：WebUI 集成 — 训练监控面板（25 tests） | [→](./changelog/2026-05-27-20.md) |
 | 2026-05-27 · 19:xx | Phase 11 B3：GAIA L1 Benchmark Runner — GAIA 评测集自动跑分 | [→](./changelog/2026-05-27-19c.md) |
 | 2026-05-27 · 19:xx | Phase 10.2 EV7：回归检测 — CIGate + CI workflow + 61 tests | [→](./changelog/2026-05-27-19b.md) |
