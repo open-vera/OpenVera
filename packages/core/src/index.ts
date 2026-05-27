@@ -29,6 +29,7 @@ export type {
 } from "./memory/index.js";
 export { PlannerError } from "./errors.js";
 export * from "./storage/index.js";
+export * from "./rag/index.js";
 
 const config = loadConfig();
 

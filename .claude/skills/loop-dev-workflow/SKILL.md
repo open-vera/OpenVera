@@ -201,6 +201,24 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：pre-existing test failure（session.test.ts 分页）与本次改动无关，可通过 `git stash` + 跑测试验证是否 pre-existing
 - 测试总数：1103 tests（Core 835 + Harness 268）
 
+### Phase 10 RAG — R1（2026-05-27，完成）
+
+- R1: VectorStore + EmbeddingAdapter 抽象接口，16 tests
+- 经验：RAG 类型文件（types.ts）只定义接口和错误类，不涉及任何实现，测试聚焦于错误类构造和接口结构合规性
+- 经验：barrel export 在 `packages/core/src/rag/index.ts`，然后在 `packages/core/src/index.ts` 加一行 `export * from "./rag/index.js"` 即可
+- 经验：类型测试用 mock implementation 验证接口结构，不需要实际向量计算
+- 测试总数：1430 tests（Core 1162 + Harness 268）
+
+### Phase 10 RAG — R2（2026-05-27，完成）
+
+- R2: LocalVectorStore — SQLite-backed vector store with cosine similarity search, 59 tests
+- 实现要点：embedding 存为 Float64 BLOB，upsert 时预计算 L2 norm 存入 DB，search 时直接用余弦公式
+- 踩坑：`makeEmbedding` 测试辅助函数用 `Math.sin(seed * (i+1))` 生成向量，会产生负值分量，导致余弦相似度为负。默认 `minScore=0` 会过滤掉这些结果，造成 2 个测试失败 → 修复为 `Math.abs(Math.sin(...)) + 0.01` 确保全正
+- 经验：LocalVectorStore 实现和测试文件在 R1 完成时已被创建（可能是之前 agent 的工作），本次主要是修复测试 bug
+- 经验：brute-force 向量搜索适用于 <100k 文档场景，SQLite 单表存储即可，不需要外部向量索引库
+- 经验：metadata 过滤通过 JS 层 JSON match 实现（SQLite 无 JSON 索引），对大量文档可能有性能问题，但当前规模可接受
+- 测试总数：1489 tests（Core 1221 + Harness 268）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*
