@@ -134,3 +134,25 @@ Vera = Harness 为内核的 agent runtime。两层结构：
 - 存储层抽象接口化：所有持久化通过接口（`VectorStore`、`SessionStore`、`MemoryStore`），不硬编码具体实现。
 - Sandbox 隔离：所有外部代码执行必须通过 Sandbox 抽象层，禁止直接 `child_process.exec` 用户代码。
 - Channel 抽象：所有消息平台通过 `ChannelAdapter` 接口接入，不直接调用平台 SDK。
+
+## Agent 工作流程（强制）
+
+### 开始编码前
+
+1. **读取 `docs/changelog.md`** — 了解最近变更，避免重复工作或踩同样的坑
+2. **读取 `P1-IMPLEMENTATION-PLAN.md`** — 找到下一个未完成的 checkbox 任务
+3. **读取 `P0-IMPROVEMENT-PLAN.md`** — 检查是否有遗留修复项
+
+### 编码过程中
+
+4. 每完成一项任务，立即勾选对应 checkbox
+5. 每完成一个 Phase 或重要变更，运行 `pnpm --filter @open-vera/core build && pnpm test` 确认无 regression
+6. 测试通过后 git commit，message 格式：`<type>(<scope>): <description>`
+
+### 编码完成后
+
+7. **更新 `docs/changelog.md`** — 追加本批次摘要行
+8. **创建 `docs/changelog/<YYYY-MM-DD-HH>.md`** — 详细记录 commit 表格、Roadmap 同步、遗留事项
+9. **更新 roadmap** — 在 `docs/roadmap.md` 标记已完成的条目
+
+> **重要**：不读 changelog 就开始编码 = 违反项目规范。

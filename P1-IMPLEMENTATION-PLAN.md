@@ -11,7 +11,7 @@
 
 - [x] **D4** Tool Middleware 完整管线测试 — before→execute→after→onError 全链路（10+ tests）
 - [x] **E3** 未使用导入清理 — grep 检查并移除未使用的 import
-- [ ] **E2** CHANGELOG 更新 — 记录 feature 分支所有里程碑
+- [x] **E2** CHANGELOG 更新 — 记录 feature 分支所有里程碑
 - [ ] **E1** API 文档 — 为 checkpoint-store、memory store、subagent-pool/orchestrator 生成 README
 
 ---
