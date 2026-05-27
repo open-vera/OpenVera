@@ -1,0 +1,82 @@
+# Eval Regression Gate — Run GAIA L1 on PRs to detect capability regressions.
+#
+# This workflow runs a lightweight subset of GAIA L1 test cases against the
+# current code and compares pass rate against the best historical baseline.
+# If pass rate drops more than 5%, the check fails and blocks the merge.
+#
+# The benchmark history is stored as a GitHub Actions artifact so it persists
+# across runs.
+
+name: Eval Regression Gate
+
+on:
+  pull_request:
+    branches: [main, develop, "feature/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: eval-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+  REGRESSION_THRESHOLD: "0.05"
+  BENCHMARK_NAME: "gaia-l1"
+
+jobs:
+  regression-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build core package
+        run: pnpm --filter @open-vera/core build
+
+      - name: Download benchmark history
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-history
+          path: .benchmark-history/
+        continue-on-error: true
+
+      - name: Run GAIA L1 eval
+        run: |
+          node --import tsx packages/harness/src/benchmark/ci-runner.ts \
+            --name ${{ env.BENCHMARK_NAME }} \
+            --model "pr-${{ github.event.pull_request.number || 'manual' }}" \
+            --threshold ${{ env.REGRESSION_THRESHOLD }} \
+            --history .benchmark-history/history.json
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Upload benchmark history
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-history
+          path: .benchmark-history/history.json
+          retention-days: 90
+
+      - name: Upload eval report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-report
+          path: .benchmark-history/report.md
+          retention-days: 30

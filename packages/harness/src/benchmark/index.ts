@@ -12,3 +12,9 @@ export type {
   BenchmarkSnapshot,
   RegressionReport,
 } from "./regression-detector.js";
+
+export { CIGate } from "./ci-gate.js";
+export type {
+  CIGateOptions,
+  CIGateResult,
+} from "./ci-gate.js";
