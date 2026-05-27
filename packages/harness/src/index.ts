@@ -11,3 +11,4 @@ export * from "./critic/index.js";
 export * from "./flow/index.js";
 export * from "./training/index.js";
 export * from "./benchmark/index.js";
+export * from "./dreaming/index.js";
