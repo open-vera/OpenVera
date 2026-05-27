@@ -322,16 +322,30 @@ export class SelfLoopRunner {
     const recentEntries = entries.slice(-this.config.duplicateThreshold);
     const currentKey = this.critiqueKey(critique);
 
-    return recentEntries.every((entry) => entry.critiqueSummary === currentKey);
+    return recentEntries.every((entry) => this.entryKey(entry) === currentKey);
   }
 
   /**
-   * Generate a stable key for duplicate detection.
+   * Generate a stable key for duplicate detection from a CriticResult.
    * Uses sorted issue list as the identity of a critique.
    */
   private critiqueKey(critique: CriticResult): string {
     const sorted = [...critique.issues].sort();
     return `issues:[${sorted.join("|")}]`;
+  }
+
+  /**
+   * Extract a comparable key from a CycleEntry.
+   * Parses the issue list from critiqueSummary to match critiqueKey format.
+   */
+  private entryKey(entry: CycleEntry): string {
+    // critiqueSummary format: "confidence=X.XX: issue1; issue2" or "confidence=X.XX: no issues"
+    const colonIdx = entry.critiqueSummary.indexOf(": ");
+    if (colonIdx === -1) return entry.critiqueSummary;
+    const issuesPart = entry.critiqueSummary.slice(colonIdx + 2);
+    if (issuesPart === "no issues") return "issues:[]";
+    const issues = issuesPart.split("; ").sort();
+    return `issues:[${issues.join("|")}]`;
   }
 
   // ── Replan ────────────────────────────────────────────────────────────────

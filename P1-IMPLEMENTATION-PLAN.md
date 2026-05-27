@@ -21,9 +21,9 @@
 - [x] **S1** 创建 `packages/harness/src/flow/self-loop.ts` — SelfLoopRunner 类骨架
 - [x] **S2** 实现循环终止条件：confidence≥0.9 / maxCycles(默认5) / budgetUsd / 连续重复critique检测
 - [x] **S3** 实现 cycle_end JSONL entry 写入（含 critique 摘要、是否 replan）
-- [ ] **S4** 集成到 HarnessRuntime — 在 runtime.ts 中增加 `runSelfLoop()` 入口
+- [x] **S4** 集成到 HarnessRuntime — 在 runtime.ts 中增加 `runSelfLoop()` 入口
 - [x] **S5** SelfLoopRunner 单元测试（15+ tests：正常终止、budget 超限、死循环检测、replan 触发）
-- [ ] **S6** E2E 测试：plan→self-loop→critique→replan→complete 全链路
+- [x] **S6** E2E 测试：plan→self-loop→critique→replan→complete 全链路
 
 ## Phase 2: Critic Agent（独立批判能力）
 

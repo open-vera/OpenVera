@@ -133,10 +133,7 @@ describe("SelfLoopRunner", () => {
   });
 
   describe("duplicate critique detection", () => {
-    // BUG: detectDuplicateCritique compares entry.critiqueSummary (format: "confidence=0.30: issue")
-    // with critiqueKey (format: "issues:[issue]") — they never match.
-    // This test documents the known issue. Fix: unify the comparison format.
-    it.skip("replans when consecutive duplicate critiques detected", async () => {
+    it("replans when consecutive duplicate critiques detected", async () => {
       const critic = makeMockCritic({
         confidence: 0.3,
         nextAction: "continue",
