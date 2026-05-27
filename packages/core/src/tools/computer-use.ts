@@ -2,6 +2,7 @@
 //
 // 自动选择浏览器/桌面/CLI 子工具，提供高层抽象的 computer use 接口
 // 支持复合任务编排：将高级任务描述分解为子工具调用序列
+// 集成 MultiStepOrchestrator 用于复杂多步操作
 
 import type { ToolDef, ToolResult, ToolContext } from "./types.js";
 import { errorResult } from "./types.js";
@@ -12,6 +13,14 @@ import { desktopScriptTool } from "./desktop-script.js";
 import { desktopAccessibilityTool } from "./desktop-accessibility.js";
 import { bashTool } from "./bash.js";
 import { createVisualAnalyzeTool } from "./visual-analyze.js";
+import {
+  MultiStepOrchestrator,
+  StepPatterns,
+  type StepDefinition,
+  type ToolResolver,
+  type OrchestrationResult,
+  type StepResult,
+} from "./multi-step-orchestrator.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -343,6 +352,100 @@ function decomposeTask(task: string, args?: ComputerUseArgs): SubStep[] | null {
   return null; // Not a composite task — use single dispatch
 }
 
+// ── Orchestrator Integration ───────────────────────────────────────────────────
+
+/** Registry of all available sub-tools for the orchestrator */
+function buildToolRegistry(): Map<string, ToolDef> {
+  const registry = new Map<string, ToolDef>();
+  registry.set("browser", browserTool);
+  registry.set("screenshot", desktopScreenshotTool);
+  registry.set("desktop_input", desktopInputTool);
+  registry.set("desktop_script", desktopScriptTool);
+  registry.set("accessibility", desktopAccessibilityTool);
+  registry.set("bash", bashTool);
+  return registry;
+}
+
+/**
+ * Convert a composite task description into orchestrator StepDefinitions.
+ * Only handles complex patterns that benefit from orchestrator features
+ * (conditions, retries, variable passing). Simple patterns (navigate+screenshot,
+ * navigate+click) are handled by decomposeTask instead.
+ */
+function buildOrchestratorSteps(
+  task: string,
+  args?: ComputerUseArgs,
+): StepDefinition[] | null {
+  const lower = task.toLowerCase();
+  const urlMatch = task.match(/https?:\/\/[^\s]+/);
+
+  // Pattern: "login to <url>" or "sign in to <url>" — needs conditional steps
+  // Only match when login/sign-in is the primary action, not in selectors like "#login-button"
+  const isLoginTask =
+    /\b(?:login|log\s+in|sign\s+in)\b/.test(lower) &&
+    !lower.includes("click") && // "click #login-button" is not a login flow
+    !lower.includes("press");
+  if (isLoginTask && urlMatch) {
+    return StepPatterns.login(urlMatch[0], {
+      username: args?.text ?? "",
+      password: "",
+    });
+  }
+
+  // Pattern: "open <url> and download <selector> then parse <command>" — multi-step with wait
+  const downloadMatch = task.match(
+    /(?:(?:open|navigate)(?:\s+to)?|go\s+to)\s+(https?:\/\/[^\s]+).*?(?:download)\s+(.+?)(?:\s+then\s+parse\s+(.+))?$/i
+  );
+  if (downloadMatch) {
+    return StepPatterns.downloadAndParse(
+      downloadMatch[1],
+      downloadMatch[2].trim(),
+      downloadMatch[3]?.trim() ?? "ls -la ~/Downloads",
+    );
+  }
+
+  // Simple patterns (URL+screenshot, URL+click, URL+type) → handled by decomposeTask
+  return null;
+}
+
+/**
+ * Execute multi-step task using the orchestrator engine.
+ * Returns null if the task doesn't match a multi-step pattern.
+ */
+async function executeWithOrchestrator(
+  task: string,
+  args: ComputerUseArgs | undefined,
+  ctx: ToolContext,
+): Promise<OrchestrationResult | null> {
+  const steps = buildOrchestratorSteps(task, args);
+  if (!steps) return null;
+
+  const registry = buildToolRegistry();
+
+  // Add visual_analyze tool dynamically (needs LLM adapter)
+  const resolver: ToolResolver = (name: string) => {
+    if (name === "visual_analyze" && ctx.llmAdapter) {
+      return createVisualAnalyzeTool(ctx.llmAdapter, ctx.defaultModel);
+    }
+    return registry.get(name);
+  };
+
+  const orchestrator = new MultiStepOrchestrator({
+    globalTimeoutMs: args?.timeout ?? 120_000,
+    stopOnError: true,
+  });
+
+  return orchestrator.execute(steps, resolver, ctx, {
+    url: args?.url,
+    text: args?.text,
+    command: args?.command,
+    screenshotPath: args?.screenshotPath,
+  });
+}
+
+// Re-export OrchestrationResult for external use
+export type { OrchestrationResult } from "./multi-step-orchestrator.js";
+
 // ── Meta-tool Definition ───────────────────────────────────────────────────────
 
 export const computerUseTool: ToolDef<ComputerUseArgs> = {
@@ -445,7 +548,26 @@ export const computerUseTool: ToolDef<ComputerUseArgs> = {
     const detectedEnv = args.url ? "browser" : detectEnvironment(args.task);
     const environment: Environment = args.environment ?? detectedEnv;
 
-    // Try composite task decomposition first
+    // Try orchestrator first (complex multi-step tasks with conditions/retries)
+    const orchestratorResult = await executeWithOrchestrator(args.task, args, ctx);
+    if (orchestratorResult) {
+      const summary = orchestratorResult.steps
+        .map((s: StepResult) => `[${s.stepId}] ${s.skipped ? "⊘ skipped" : s.ok ? "✓" : "✗"} ${s.content}`)
+        .join("\n");
+
+      return {
+        ok: orchestratorResult.ok,
+        content: `Multi-step orchestration (${orchestratorResult.steps.length} steps, ${orchestratorResult.totalDurationMs}ms):\n${summary}`,
+        metadata: {
+          renderHint: { type: "text" },
+        },
+        ...(orchestratorResult.error
+          ? { error: { code: "EXEC_ERROR" as const, message: orchestratorResult.error, retryable: false } }
+          : {}),
+      };
+    }
+
+    // Try simple composite task decomposition
     const steps = decomposeTask(args.task, args);
     if (steps) {
       const results: string[] = [];

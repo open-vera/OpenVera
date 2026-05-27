@@ -47,6 +47,8 @@ export { desktopScriptTool } from "./desktop-script.js";
 export { desktopAccessibilityTool } from "./desktop-accessibility.js";
 export { computerUseTool } from "./computer-use.js";
 export { createVisualAnalyzeTool } from "./visual-analyze.js";
+export { MultiStepOrchestrator, StepPatterns } from "./multi-step-orchestrator.js";
+export type { StepDefinition, OrchestrationResult, OrchestratorConfig, ToolResolver, ErrorStrategy, StepCondition, StepResult } from "./multi-step-orchestrator.js";
 import type { LLMAdapter } from "../adapters/base.js";
 
 export interface CreateToolRegistryOptions {
