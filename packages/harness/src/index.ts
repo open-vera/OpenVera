@@ -10,3 +10,4 @@ export * from "./agent/index.js";
 export * from "./critic/index.js";
 export * from "./flow/index.js";
 export * from "./training/index.js";
+export * from "./benchmark/index.js";
