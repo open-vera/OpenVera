@@ -7,7 +7,7 @@ import {
 } from "../../../context/index.js";
 import { resolveResumeWorkspace } from "../../workspace.js";
 import type { ReplContext } from "../../context.js";
-import type { Message, Usage } from "../../../types/index.js";
+import type { Message } from "../../../types/index.js";
 import type { CompressionState, MicroCompactState } from "../../../context/index.js";
 import type { MemoryTracker, MemoryFile } from "../../../memory/index.js";
 import type { ProjectContext } from "../../../project-context/index.js";

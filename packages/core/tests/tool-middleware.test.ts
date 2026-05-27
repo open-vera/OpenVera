@@ -258,4 +258,117 @@ describe("D4: Tool Middleware full pipeline", () => {
     expect(result.ok).toBe(true);
     expect(result.content).toBe("42");
   });
+
+  it("full pipeline: before→execute→after called in order with correct data", async () => {
+    const reg = new ToolRegistry();
+    const order: string[] = [];
+    const capturedArgs: unknown[] = [];
+    const capturedResults: unknown[] = [];
+
+    reg.register({
+      name: "pipeline",
+      description: "pipeline tool",
+      parameters: { type: "object", properties: {} },
+      execute: async (args) => {
+        order.push("execute");
+        capturedArgs.push({ ...args });
+        return { ok: true, content: "executed" };
+      },
+    });
+
+    reg.addMiddleware({
+      name: "tracer",
+      before: async (_n, args) => {
+        order.push("before");
+        return { args: { ...args, injected: true } };
+      },
+      after: async (_n, _args, result) => {
+        order.push("after");
+        capturedResults.push({ ...result });
+        return { ...result, content: result.content + "+after" };
+      },
+    });
+
+    const result = await reg.execute("pipeline", { orig: 1 }, ctx);
+    expect(order).toEqual(["before", "execute", "after"]);
+    expect(capturedArgs[0]).toMatchObject({ orig: 1, injected: true });
+    expect(result.content).toBe("executed+after");
+  });
+
+  it("ctx is propagated to all middleware phases", async () => {
+    const reg = new ToolRegistry();
+    const receivedCtxs: string[] = [];
+    const testCtx: typeof ctx = { cwd: "/custom", readonlyMode: true };
+
+    reg.register({
+      name: "ctx-check",
+      description: "ctx check",
+      parameters: { type: "object", properties: {} },
+      execute: async () => {
+        receivedCtxs.push("execute");
+        return { ok: true, content: "ok" };
+      },
+    });
+
+    reg.addMiddleware({
+      name: "ctx-mw",
+      before: async (_n, _args, c) => {
+        receivedCtxs.push(`before:${c.cwd}:${c.readonlyMode}`);
+        return null;
+      },
+      after: async (_n, _a, _r, c) => {
+        receivedCtxs.push(`after:${c.cwd}:${c.readonlyMode}`);
+        return { ok: true, content: "ok" };
+      },
+      onError: async (_n, _a, _err, c) => {
+        receivedCtxs.push(`onError:${c.cwd}:${c.readonlyMode}`);
+        return null;
+      },
+    });
+
+    await reg.execute("ctx-check", {}, testCtx);
+    expect(receivedCtxs).toContain("before:/custom:true");
+    expect(receivedCtxs).toContain("after:/custom:true");
+  });
+
+  it("onError returning null falls through to error result", async () => {
+    const reg = new ToolRegistry();
+    reg.register({
+      name: "unrecoverable",
+      description: "unrecoverable",
+      parameters: { type: "object", properties: {} },
+      execute: async () => { throw new Error("fatal"); },
+    });
+
+    reg.addMiddleware({
+      name: "decline-recovery",
+      onError: async () => null, // cannot recover
+    });
+
+    const result = await reg.execute("unrecoverable", {}, ctx);
+    expect(result.ok).toBe(false);
+    expect(result.error?.message).toBe("fatal");
+  });
+
+  it("multiple after hooks transform result in registration order", async () => {
+    const reg = new ToolRegistry();
+    reg.register({
+      name: "chain",
+      description: "chain tool",
+      parameters: { type: "object", properties: {} },
+      execute: async () => ({ ok: true, content: "base" }),
+    });
+
+    reg.addMiddleware({
+      name: "append-a",
+      after: async (_n, _a, r) => ({ ...r, content: r.content + "+A" }),
+    });
+    reg.addMiddleware({
+      name: "append-b",
+      after: async (_n, _a, r) => ({ ...r, content: r.content + "+B" }),
+    });
+
+    const result = await reg.execute("chain", {}, ctx);
+    expect(result.content).toBe("base+A+B");
+  });
 });

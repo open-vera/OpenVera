@@ -5,7 +5,6 @@
  * and map-reduce style coordination.
  */
 
-import { SubagentPool } from "./subagent-pool.js";
 import { UnknownDependencyError, CircularDependencyError } from "../errors.js";
 
 export type OrchestratorStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
@@ -192,7 +191,7 @@ export class SubagentOrchestrator {
  */
 export function fanOut(
   tasks: Array<{ id: string; agentType: string; prompt: string }>,
-  executeTask: (task: OrchestratorTask) => Promise<string>
+  _executeTask: (task: OrchestratorTask) => Promise<string>
 ): SubagentOrchestrator {
   return new SubagentOrchestrator(tasks);
 }

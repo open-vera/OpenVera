@@ -140,7 +140,7 @@ export function getPathCompletions(
   cursor: number,
   candidates: string[],
 ): PathCompletion | null {
-  const { token, start, end } = getCurrentToken(value, cursor);
+  const { token, start: _start, end: _end } = getCurrentToken(value, cursor);
   if (!token || !(token.startsWith("./") || token.startsWith("../") || token.startsWith("/") || token.includes("/"))) {
     return null;
   }

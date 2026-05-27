@@ -112,7 +112,7 @@ async function classifyResults(
     // Below threshold: if sideQuery is configured and score is in
     // the ambiguous zone, escalate.
     if (config.sideQuery) {
-      const { lowBound, highBound, classify } = config.sideQuery;
+      const { lowBound } = config.sideQuery;
       // Already above highBound would have hit the threshold branch.
       if (result.score >= lowBound && result.score < config.keywordThreshold) {
         // Ambiguous — will be resolved in batch below

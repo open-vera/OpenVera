@@ -41,7 +41,7 @@ export function QuestionView({
   const submitButtonText =
     currentQuestionIndex === questions.length - 1 ? "Submit" : "Next";
 
-  useInput((input, key) => {
+  useInput((_input, key) => {
     if (key.tab) {
       if (key.shift) {
         onTabPrev?.();

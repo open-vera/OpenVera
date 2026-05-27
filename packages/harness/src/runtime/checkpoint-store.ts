@@ -11,7 +11,7 @@
  * - load(checkpointId) scans for matching ID
  */
 
-import { mkdirSync, readFileSync, writeFileSync, readdirSync, statSync, renameSync, unlinkSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, readdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import type { FlowCheckpoint } from "@open-vera/core/types";
 

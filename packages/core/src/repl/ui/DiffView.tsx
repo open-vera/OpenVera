@@ -132,7 +132,7 @@ function WordDiffRow({
   );
 }
 
-const DiffHunk = memo(function DiffHunk({ hunk, dim = false, width }: DiffHunkProps) {
+const DiffHunk = memo(function DiffHunk({ hunk, dim = false, width: _width }: DiffHunkProps) {
   const gutW = gutterWidth(hunk);
   const lines = classifyLines(hunk);
 

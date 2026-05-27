@@ -38,7 +38,7 @@ export function AskUserQuestion({ state: { questions, resolve }, columns }: Prop
   const handleTabPrev = () => prevQuestion(questions.length);
 
   // Allow Tab from anywhere to navigate between questions
-  useInput((input, key) => {
+  useInput((_input, key) => {
     if (!key.tab) return;
     if (key.shift) {
       handleTabPrev();

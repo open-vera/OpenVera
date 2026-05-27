@@ -36,8 +36,8 @@ export function PreviewLayout({
   onToggle,
   onCommit,
   onCancel,
-  onTabPrev,
-  onTabNext,
+  onTabPrev: _onTabPrev,
+  onTabNext: _onTabNext,
   submitButtonText,
 }: Props) {
   const [focusedIndex, setFocusedIndex] = useState(0);

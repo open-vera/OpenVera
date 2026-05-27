@@ -19,7 +19,7 @@ export interface ToolDisplayModel {
   preface?: string;
 }
 
-export function toolArgsLabel(toolName: string, args: Record<string, unknown>, maxChars = 50): string {
+export function toolArgsLabel(_toolName: string, args: Record<string, unknown>, maxChars = 50): string {
   const value = args.path ?? args.command ?? args.pattern ?? args.query;
   if (typeof value !== "string") return "";
   return value.length > maxChars ? `${value.slice(0, maxChars)}…` : value;
