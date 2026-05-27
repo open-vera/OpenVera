@@ -5,7 +5,7 @@ import { describe, it, expect } from "vitest";
 import { EvalHarness } from "../harness.js";
 import { EvalReporter } from "../reporter.js";
 import type { EvalCase, AgentExecutor, AgentResponse, EvalReport } from "../harness.js";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 // ── Mock Agent ───────────────────────────────────────────────────────────────
@@ -230,7 +230,12 @@ describe("EvalReporter", () => {
 
 describe("Vera Custom Cases", () => {
   it("should load vera-custom.json", () => {
-    const casesPath = join(__dirname, "..", "cases", "vera-custom.json");
+    // Resolve from source dir (works in both src and dist contexts)
+    const srcDir = join(__dirname, "..", "..", "..", "src", "eval", "cases");
+    const distDir = join(__dirname, "..", "cases");
+    const casesPath = existsSync(join(distDir, "vera-custom.json"))
+      ? join(distDir, "vera-custom.json")
+      : join(srcDir, "vera-custom.json");
     const content = readFileSync(casesPath, "utf-8");
     const cases = JSON.parse(content) as EvalCase[];
 
