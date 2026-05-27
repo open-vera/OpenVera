@@ -9,6 +9,16 @@ export type {
   AutoTunerConfig,
 } from "./auto-tuner.js";
 
+export { ABTestManager } from "./ab-test.js";
+export type {
+  ABTestStatus,
+  ABTestVariant,
+  ABTestConfig,
+  ABTestVariantResult,
+  StatisticalComparison,
+  ABTestResult,
+} from "./ab-test.js";
+
 export type {
   Strategy,
   StrategyDomain,
