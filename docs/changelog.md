@@ -21,5 +21,7 @@
 | 2026-04-30 · 11:xx | TUI 控制器架构重构：controller 层拆分、queue dequeue 修复、slash command 重构 | [→](./changelog/2026-04-30-11.md) |
 | 2026-05-04 · 17:xx | CLI 命令扩展 + star history | [→](./changelog/2026-05-04-17.md) |
 | 2026-05-10 · 14:xx | Feature branch 核心实现：checkpoint/resume、memory 系统、tool runtime、P0 收尾测试（25 commits） | [→](./changelog/2026-05-10-14.md) |
+| 2026-05-27 · 03:xx | P0 收尾 + P1 SelfLoopRunner & CriticAgent（11 commits） | [→](./changelog/2026-05-27-03.md) |
+| 2026-05-27 · 08:xx | F1-F4 失败归因模块：分类、JSONL 记录、自动回放（12 tests） | [→](./changelog/2026-05-27-08.md) |
 | 2026-05-11 · 01:xx | Bug 修复与类型安全：review fixes + TypeScript 严格模式零错误 | [→](./changelog/2026-05-11-01.md) |
 | 2026-05-27 · 03:xx | P0 收尾 D4/E3 + P1 SelfLoopRunner(S1-S3) + CriticAgent(CR1-CR3) + 文档治理 | [→](./changelog/2026-05-27-03.md) |
