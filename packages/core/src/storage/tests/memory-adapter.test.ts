@@ -17,7 +17,6 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { SqliteStorageProvider } from "../sqlite.js";
 import { MemoryStorageAdapter } from "../memory-adapter.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -31,14 +30,12 @@ function makeDbPath(): string {
 
 describe("MemoryStorageAdapter (SQ5)", () => {
   let adapter: MemoryStorageAdapter;
-  let storage: SqliteStorageProvider;
   let tmpDir: string;
 
   beforeAll(async () => {
     const dbPath = makeDbPath();
     tmpDir = join(dbPath, "..");
-    storage = new SqliteStorageProvider({ backend: "sqlite", dbPath, enableFts: true });
-    adapter = new MemoryStorageAdapter(storage as any);
+    adapter = new MemoryStorageAdapter({ dbPath });
     await adapter.initialize();
   });
 
@@ -94,15 +91,13 @@ describe("MemoryStorageAdapter (SQ5)", () => {
 
     it("should persist episodic entries across adapter restart", async () => {
       const dbPath = join(tmpDir, "restart-test.db");
-      const storage1 = new SqliteStorageProvider({ backend: "sqlite", dbPath, enableFts: true });
-      const adapter1 = new MemoryStorageAdapter(storage1 as any);
+      const adapter1 = new MemoryStorageAdapter({ dbPath });
       await adapter1.initialize();
 
       await adapter1.addEpisodic("test persistence", "success", ["lesson1"], ["persist"]);
       await adapter1.close();
 
-      const storage2 = new SqliteStorageProvider({ backend: "sqlite", dbPath, enableFts: true });
-      const adapter2 = new MemoryStorageAdapter(storage2 as any);
+      const adapter2 = new MemoryStorageAdapter({ dbPath });
       await adapter2.initialize();
 
       const all = await adapter2.getEpisodic();

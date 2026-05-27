@@ -190,6 +190,17 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：SQLite 的 FTS5 需要手动创建触发器来保持索引同步（INSERT/UPDATE/DELETE）
 - 测试总数：1093 tests（Core 825 + Harness 268）
 
+### Phase 9 Storage Layer — SQ4（2026-05-27，完成）
+
+- SQ4: Session 存储迁移 — 同步写入、importSession、exportJsonl、verifyMigration，10 tests
+- 经验：fire-and-forget 异步写入（`.catch(() => {})`）在测试中极不稳定 — 改为同步 `storage.setSync()` 后所有测试稳定通过
+- 踩坑：`migrateJsonlToSqlite` 原本用 `(adapter as unknown as {storage: ...}).storage.set()` 强转访问私有字段，需新增公共 `importSession()` 方法替代
+- 踩坑：`ValidationError` 在 `errors.ts` 和 `storage/user-data.ts` 两处导出，导致 `src/index.ts` barrel 重导出冲突 — 重命名为 `UserDataValidationError`
+- 踩坑：`Record<string, unknown>` 类型的 `entry` 字段访问 `entry.model as string` 等需要显式类型断言，TypeScript strict mode 不会自动 narrow
+- 经验：`verifyMigration()` 比较条目数 + 逐行 JSON parse 计数（容忍损坏行），不需要字节级比较
+- 经验：pre-existing test failure（session.test.ts 分页）与本次改动无关，可通过 `git stash` + 跑测试验证是否 pre-existing
+- 测试总数：1103 tests（Core 835 + Harness 268）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*
