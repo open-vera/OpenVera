@@ -174,6 +174,41 @@
   - 退化阈值：pass rate 下降 > 5% 则阻断
 - [ ] **EV8** Agent Eval 测试（10+ tests：框架流程、case 加载、评分逻辑、报告生成）
 
+## Phase 10.3: Skill 预训练（SP — Skill Pre-training）
+
+> 引入微软 SkillOpt 框架，实现 skill 自动训练与优化。
+> SkillOpt 像训练神经网络一样训练 agent skills — 使用 epochs、batch size、learning rates、validation gates。
+> 训练出的最优 skill（best_skill.md）可直接导入为 Vera skill。
+
+- [ ] **SP1** SkillOpt 集成层 — `packages/harness/src/training/skill-opt-adapter.ts`
+  - 将 SkillOpt 作为外部 Python 工具集成
+  - 封装 `train.py` 和 `eval_only.py` 的调用接口
+  - 支持配置：optimizer_model、target_model、num_epochs、batch_size、workers
+  - 支持多种 LLM：Azure OpenAI、OpenAI、Anthropic、Qwen
+- [ ] **SP2** 数据准备 — `packages/harness/src/training/data-preparer.ts`
+  - 将 Vera 的任务/评测数据转换为 SkillOpt 格式
+  - 支持的数据格式：SearchQA、ALFWorld、DocVQA、LiveMathematicianBench、OfficeQA
+  - 生成 train/val/test split 目录结构
+- [ ] **SP3** 训练流程 — `packages/harness/src/training/trainer.ts`
+  - 调用 SkillOpt 进行 skill 训练
+  - 支持断点续训：从 runtime_state.json 恢复
+  - 训练监控：实时获取 loss、accuracy、best_skill 更新
+  - 输出结构：outputs/<run_name>/（best_skill.md、history.json、config.json）
+- [ ] **SP4** 评测集成 — `packages/harness/src/training/eval-runner.ts`
+  - 使用 SkillOpt 的评测集评估 Vera 能力
+  - 支持评测模式：valid_unseen（测试集）、valid_seen（验证集）、train（训练集）、all（全部）
+  - 评测指标：pass rate、accuracy、avg steps
+- [ ] **SP5** Skill 导入 — `packages/harness/src/training/skill-importer.ts`
+  - 将训练出的 best_skill.md 导入为 Vera skill
+  - 自动生成 SKILL.md 元数据（名称、描述、用法）
+  - 支持版本管理：每次训练生成新版本
+  - 支持 A/B 对比：对比新旧 skill 的效果
+- [ ] **SP6** WebUI 集成 — 可选的训练监控面板
+  - 基于 SkillOpt 的 Gradio WebUI
+  - 实时显示训练进度、loss 曲线、best_skill 更新
+  - 支持远程访问（`--share` 模式）
+- [ ] **SP7** Skill 预训练测试（8+ tests：数据转换、训练流程、skill 导入、版本管理）
+
 ## Phase 11: Benchmark 评测系统（P2 核心）
 
 - [ ] **B1** Benchmark Harness — `packages/harness/src/benchmark/harness.ts`，case 加载 + agent 执行 + 评估
