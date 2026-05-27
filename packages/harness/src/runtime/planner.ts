@@ -1,7 +1,7 @@
 import type { LLMAdapter } from "@open-vera/core/adapters";
 import type { ExecutionPlan, PlanStep } from "@open-vera/core/types";
 import { completeJson } from "./json.js";
-import { PlannerError } from "@open-vera/core";
+import { PlannerError } from "@open-vera/core/errors";
 // Re-export for tests
 
 export interface PlanFromPromptOptions {

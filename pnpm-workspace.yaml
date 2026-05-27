@@ -1,5 +1,6 @@
 packages:
   - packages/*
   - apps/*
+  - apps/*/*
   # claude-code-source 使用 bun，不纳入 pnpm workspace
   - "!packages/claude-code-source"

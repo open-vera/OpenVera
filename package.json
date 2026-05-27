@@ -16,7 +16,10 @@
     "format:check": "prettier --check packages apps eslint.config.js package.json pnpm-workspace.yaml tsconfig.base.json",
     "flow": "pnpm --filter @open-vera/openvera exec openvera flow run",
     "serve": "pnpm --filter @vera/harness-ui-server exec vera-serve",
-    "ui": "pnpm --filter @vera/harness-ui-web dev"
+    "ui": "pnpm --filter @vera/harness-ui-web dev",
+    "admin": "pnpm --filter @vera/admin-ui-web dev",
+    "admin-serve": "pnpm --filter @vera/admin-ui-server exec vera-admin-serve",
+    "core": "pnpm --filter @vera/core-ui-web dev"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

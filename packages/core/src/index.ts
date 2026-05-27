@@ -27,6 +27,7 @@ export type {
   MemoryHitStats,
   UsageDetectionResult,
 } from "./memory/index.js";
+export { PlannerError } from "./errors.js";
 export * from "./storage/index.js";
 
 const config = loadConfig();

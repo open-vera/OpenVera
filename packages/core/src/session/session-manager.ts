@@ -264,7 +264,7 @@ export class SessionManager {
     // Phase 1: Remove sessions older than TTL
     for (const session of sessions) {
       const mtime = session.lastActivityAt.getTime();
-      if (mtime <= cutoff) {
+      if (ttlMs <= 0 || mtime <= cutoff) {
         removedSessionIds.push(session.sessionId);
         if (!opts?.dryRun) {
           this.safeDelete(session.filePath);

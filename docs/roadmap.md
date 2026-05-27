@@ -236,17 +236,17 @@ Critique 结果返回外部调用方，由调用方决定是否 replan；Harness
 
 P1 的目标是让 Vera 从受控执行器，升级为能自己推进复杂 Flow 的 agent。
 
-**1. Checkpoint / Resume**
-- 在关键 Plan Step 后保存状态
-- 进程中断后可恢复
-- 支持从 Checkpoint Replay / Fork
+**1. Checkpoint / Resume** ✅
+- 在关键 Plan Step 后保存状态 ✅
+- 进程中断后可恢复 ✅
+- 支持从 Checkpoint Replay / Fork ✅
 
-**2. Memory 系统** ✅ → 详见 [agent-design.md](./core/agent-design.md#2-记忆系统memory-system)
-- Working Memory：当前消息历史
-- Episodic Memory：任务级结构化摘要
-- Semantic Memory：长期知识与偏好
-- `memory_write` / `memory_search` tool
-- Auto-extract / auto-organize / compress / decay / relationship graph（Phase 7）
+**2. Memory 系统** → 详见 [agent-design.md](./core/agent-design.md#2-记忆系统memory-system) ✅
+- Working Memory：当前消息历史 ✅
+- Episodic Memory：任务级结构化摘要 ✅
+- Semantic Memory：长期知识与偏好 ✅
+- `memory_write` / `memory_search` tool ✅
+- Auto-extract / auto-organize / compress / decay / relationship graph（Phase 7）✅
 
 **3. AgentRunner 接口**（随 Plan Mode 一起实现，在 P0.7 中完成）
 - `packages/core/src/types/agent.ts` 定义接口
@@ -259,12 +259,12 @@ P1 的目标是让 Vera 从受控执行器，升级为能自己推进复杂 Flow
 - dry-run / simulate 能力
 - shell 输出截断与摘要
 
-**5. Subagent 系统** → 详见 [subagent-design.md](./core/subagent-design.md)
-- Orchestrator / Worker 模式
-- 并行扇出、串行流水线
-- 共享上下文层（key-value 按需同步）
-- 权限继承与 usage 汇总
-- 递归 subagent（maxDepth 限制）
+**5. Subagent 系统** → 详见 [subagent-design.md](./core/subagent-design.md) ✅
+- Orchestrator / Worker 模式 ✅
+- 并行扇出、串行流水线 ✅
+- 共享上下文层（key-value 按需同步） ✅
+- 权限继承与 usage 汇总 ✅
+- 递归 subagent（maxDepth 限制） ✅
 
 **6. 语音输入** → 详见 [voice-input.md](./core/voice-input.md)
 - 按住录音、释放提交的 push-to-talk 模式
@@ -307,7 +307,7 @@ P1 的目标是让 Vera 从受控执行器，升级为能自己推进复杂 Flow
 - 状态基线（2026-04-28）详见：[p0-alignment-checklist.md](./core/p0-alignment-checklist.md)
 - 权限与授权体验：✅ 已完成（持久化工具规则、bash 风险确认、命令 allow/deny pattern）
 - 项目上下文：✅ 已完成（规则优先级、mtime 缓存、按路径激活 scoped rules）
-- UI 展示：✅ 已完成（read/search/list grouped collapsed summary，子 agent summary + transcript）
+- UI 展示：✅ 已完成（read/search/list grouped collapsed summary，子 agent summary + transcript）；UI Refinement Phase 9-13 完成（主题统一、生命周期修复、数据驱动图表、skeleton loading、响应式布局、状态徽章统一）
 - 子 agent（Claude Code 对齐）：
   - ✅ 已实现：`agent` tool 入参对齐 `description` / `prompt` / `subagent_type`
   - ✅ 已实现：内置 `general-purpose` / `explore` / `plan`，支持工具策略、sidechain session 和 summary 回传
@@ -461,12 +461,12 @@ P3 的目标不是立刻做，而是在 P0-P2 稳定后向更宽环境扩展。
          ├── Tier 1：onTurnStart / onTurnEnd / onSessionEnd（try/finally 保证触发）
          └── Tier 2：onCompression（progressive/micro/reactive）/ onRetry
 
-[P1]     Self-Loop Runtime
-         └── harness/flow/loop.ts（SelfLoopRunner，Plan→Act→Critique→Replan 自循环）
+[P1]     Self-Loop Runtime ✅
+         └── harness/flow/loop.ts（SelfLoopRunner，Plan→Act→Critique→Replan 自循环） ✅
 
-         Checkpoint / Resume（Plan Step 级别）
-         Memory 系统
-         Subagent 系统
+         Checkpoint / Resume（Plan Step 级别） ✅
+         Memory 系统 ✅
+         Subagent 系统 ✅
 
 [P2] Benchmark Harness → Dreaming → Proposal Pipeline
 

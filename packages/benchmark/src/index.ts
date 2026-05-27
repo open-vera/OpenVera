@@ -1,6 +1,7 @@
 import { runSuite } from "@open-vera/openvera";
 import { evaluate } from "@open-vera/openvera";
-import { loadConfig, AnthropicAdapter } from "@open-vera/core/adapters";
+import { AnthropicAdapter } from "@open-vera/core/adapters";
+import { loadConfig } from "@open-vera/core/config";
 import type { TestCase, ReportEntry } from "@open-vera/openvera";
 
 // 示例 case 集（后续从文件加载）
