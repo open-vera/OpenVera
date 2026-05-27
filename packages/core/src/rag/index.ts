@@ -44,3 +44,11 @@ export type {
   LoadResult,
   SupportedFileType,
 } from "./document-loader.js";
+
+export { IncrementalIndexer } from "./incremental-indexer.js";
+export type {
+  IndexManifestEntry,
+  IndexManifest,
+  IndexResult,
+  IncrementalIndexerOptions,
+} from "./incremental-indexer.js";
