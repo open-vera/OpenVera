@@ -147,6 +147,15 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：T1-T3 已有部分字段（idempotent/dryRun/retryable），agent 正确识别并补充实现而非重复定义
 - 测试总数：792 tests（Core 558 + Harness 234）
 
+### Phase 6 Session Manager（2026-05-27，完成）
+
+- SS1-SS5: SessionManager 类 — auto-compression、dedup (trigram similarity)、keyword index、lifecycle cleanup
+- 23 tests, 871 lines added
+- 踩坑：`tool-runtime.test.ts` 从 harness 导入 `truncateOutput`，违反 core→harness 依赖方向 → 移动函数到 core 的 `tools/utils/truncate.ts`
+- 经验：SessionManager 复用了已有的 `compressMessages()` 和 `estimateMessageTokens()`，不需要重新实现压缩逻辑
+- 经验：session.test.ts 有 flaky 测试（分页），单独跑通过、全量跑偶尔失败 — 已知问题，非本次引入
+- 测试总数：815 tests（Core 581 + Harness 234）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*
