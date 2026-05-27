@@ -36,3 +36,11 @@ export type {
   EmbeddingProvider,
   CreateEmbeddingAdapterOptions,
 } from "./embedding-adapter.js";
+
+export { DocumentLoader, createDocumentLoader } from "./document-loader.js";
+export type {
+  DocumentLoaderOptions,
+  LoadedDocument,
+  LoadResult,
+  SupportedFileType,
+} from "./document-loader.js";
