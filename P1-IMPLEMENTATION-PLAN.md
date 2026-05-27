@@ -61,11 +61,11 @@
 
 ## Phase 6: Session 自动压缩与智能管理
 
-- [ ] **SS1** 自动 session 压缩 — 超过 token 阈值自动摘要旧轮次，无需手动触发
-- [ ] **SS2** Session 去重与合并 — 相似 session 自动归并，减少存储膨胀
-- [ ] **SS3** Session 索引 — 按 topic/keyword/sessionId 快速检索历史 session
-- [ ] **SS4** Session 生命周期管理 — 自动清理过期 session（可配置 TTL）
-- [ ] **SS5** Session 压缩测试（8+ tests）
+- [x] **SS1** 自动 session 压缩 — 超过 token 阈值自动摘要旧轮次，无需手动触发
+- [x] **SS2** Session 去重与合并 — 相似 session 自动归并，减少存储膨胀
+- [x] **SS3** Session 索引 — 按 topic/keyword/sessionId 快速检索历史 session
+- [x] **SS4** Session 生命周期管理 — 自动清理过期 session（可配置 TTL）
+- [x] **SS5** Session 压缩测试（8+ tests）
 
 ## Phase 7: 记忆系统增强（自动提取/整理/压缩）
 

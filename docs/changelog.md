@@ -26,3 +26,4 @@
 | 2026-05-27 · 08:xx | Phase 4+5 并行完成：Tool Runtime 增强（21 tests）+ Subagent 系统增强（37 tests） | [→](./changelog/2026-05-27-08.md) |
 | 2026-05-11 · 01:xx | Bug 修复与类型安全：review fixes + TypeScript 严格模式零错误 | [→](./changelog/2026-05-11-01.md) |
 | 2026-05-27 · 03:xx | P0 收尾 D4/E3 + P1 SelfLoopRunner(S1-S3) + CriticAgent(CR1-CR3) + 文档治理 | [→](./changelog/2026-05-27-03.md) |
+| 2026-05-27 · 08:xx | Phase 6 SessionManager：auto-compress、dedup、keyword index、lifecycle cleanup（23 tests） | [→](./changelog/2026-05-27-09.md) |
