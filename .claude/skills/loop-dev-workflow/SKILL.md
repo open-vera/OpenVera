@@ -201,6 +201,14 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：pre-existing test failure（session.test.ts 分页）与本次改动无关，可通过 `git stash` + 跑测试验证是否 pre-existing
 - 测试总数：1103 tests（Core 835 + Harness 268）
 
+### Phase 10 RAG — R1（2026-05-27，完成）
+
+- R1: VectorStore + EmbeddingAdapter 抽象接口，16 tests
+- 经验：RAG 类型文件（types.ts）只定义接口和错误类，不涉及任何实现，测试聚焦于错误类构造和接口结构合规性
+- 经验：barrel export 在 `packages/core/src/rag/index.ts`，然后在 `packages/core/src/index.ts` 加一行 `export * from "./rag/index.js"` 即可
+- 经验：类型测试用 mock implementation 验证接口结构，不需要实际向量计算
+- 测试总数：1430 tests（Core 1162 + Harness 268）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*

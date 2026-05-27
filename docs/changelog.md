@@ -31,3 +31,4 @@
 | 2026-05-27 · 11:xx | Phase 8 Skill 增强：auto-extract、scoring、recommendation、versioning、hot-reload（34 tests） | [→](./changelog/2026-05-27-11.md) |
 | 2026-05-27 · 09:xx | Phase 9 SQ1-SQ3：StorageProvider 抽象层 + SQLite 适配器 + 文件存储适配器（108 tests） | [→](./changelog/2026-05-27-09.md) |
 | 2026-05-27 · 14:xx | Phase 9 SQ4：Session 存储迁移 — 同步写入、import/export、迁移验证（10 tests） | [→](./changelog/2026-05-27-14.md) |
+| 2026-05-27 · 15:xx | Phase 10 R1：RAG 向量存储抽象接口 — VectorStore / EmbeddingAdapter / 错误层次 | [→](./changelog/2026-05-27-15.md) |

@@ -95,11 +95,11 @@
 - [x] **SQ6** 用户数据存储 — 用户可通过 `data_save` / `data_load` 工具存取任意结构化数据
 - [x] **SQ7** 查询接口 — 按时间/类型/关键词/关联查询历史数据
 - [x] **SQ8** 数据导出 — 支持导出为 JSONL/CSV/JSON
-- [ ] **SQ9** SQLite 集成测试（12+ tests：CRUD、并发、迁移、查询性能、用户数据存取）
+- [x] **SQ9** SQLite 集成测试（12+ tests：CRUD、并发、迁移、查询性能、用户数据存取）
 
 ## Phase 10: RAG 知识库能力
 
-- [ ] **R1** 向量存储接口 — `packages/core/src/rag/types.ts`，定义 `VectorStore` 抽象接口
+- [x] **R1** 向量存储接口 — `packages/core/src/rag/types.ts`，定义 `VectorStore` 抽象接口
 - [ ] **R2** 本地向量存储 — `packages/core/src/rag/local-vector-store.ts`，基于 SQLite + 自实现向量索引（无需外部依赖）
 - [ ] **R3** Embedding 适配器接口 — `packages/core/src/rag/embedding-adapter.ts`，统一接口
 - [ ] **R4** 远程 Embedding — OpenAI/Anthropic embedding API 适配器（默认）
