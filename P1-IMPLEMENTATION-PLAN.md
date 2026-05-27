@@ -107,7 +107,7 @@
 - [x] **R6** 文档加载器 — 支持 Markdown/JSON/TypeScript/文本文件批量索引
 - [x] **R7** 检索工具 — `knowledge_search` tool，集成到 ToolRegistry
 - [x] **R8** 增量索引 — 文件变更自动更新向量索引（基于 mtime 检测）
-- [ ] **R9** RAG 集成测试（12+ tests：索引准确性、检索质量、增量更新、embedding 切换）
+- [x] **R9** RAG 集成测试（12+ tests：索引准确性、检索质量、增量更新、embedding 切换）
 
 ## Phase 10.1: Agent 变更追踪与知识库（CT）
 
