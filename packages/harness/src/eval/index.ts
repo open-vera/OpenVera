@@ -10,3 +10,5 @@ export type {
 } from "./harness.js";
 
 export { EvalReporter } from "./reporter.js";
+
+export * from "./runners/index.js";

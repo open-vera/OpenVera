@@ -60,7 +60,7 @@ export class ChangeTracker {
           args: this.truncate(JSON.stringify(args), 1000),
           success: result.ok,
           filesChanged: this.extractChangedFiles(name, args, result),
-          summary: this.generateSummary(name, args, result),
+          summary: this.generateToolSummary(name, args, result),
           resultPreview: result.ok
             ? this.truncate(result.content, this.maxResultLength)
             : undefined,
@@ -201,7 +201,7 @@ export class ChangeTracker {
     return [...new Set(files)];
   }
 
-  private generateSummary(
+  private generateToolSummary(
     toolName: string,
     args: Record<string, unknown>,
     result: ToolResult,
