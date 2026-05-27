@@ -292,12 +292,12 @@
 
 ### 18A: 浏览器自动化
 
-- [ ] **CU1** Playwright 集成 — `packages/core/src/tools/browser.ts`，封装 Playwright 为 tool
+- [x] **CU1** Playwright 集成 — `packages/core/src/tools/browser.ts`，封装 Playwright 为 tool
   - 支持：navigate / click / type / screenshot / evaluate / waitForSelector
   - headless 模式（默认）+ headed 模式（调试用）
-- [ ] **CU2** CDP 协议支持 — 连接已有 Chrome 实例（调试场景）
-- [ ] **CU3** 浏览器 Session 管理 — cookie 持久化、多 tab 管理
-- [ ] **CU4** 浏览器工具测试（8+ tests：导航、点击、截图、表单填写）
+- [x] **CU2** CDP 协议支持 — 连接已有 Chrome 实例（调试场景）
+- [x] **CU3** 浏览器 Session 管理 — cookie 持久化、多 tab 管理
+- [x] **CU4** 浏览器工具测试（8+ tests：导航、点击、截图、表单填写）
 
 ### 18B: 桌面操作（Mac）
 
