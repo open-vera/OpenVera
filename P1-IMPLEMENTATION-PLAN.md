@@ -114,11 +114,11 @@
 > 核心思想：hook agent 的工具调用，自动记录变更，形成可查询的项目变更知识库。
 > 新会话时 agent 可以通过 change_query skill 快速了解项目变更历史，无需遍历 git log。
 
-- [ ] **CT1** 变更追踪器 — `packages/harness/src/tracking/change-tracker.ts`
+- [x] **CT1** 变更追踪器 — `packages/harness/src/tracking/change-tracker.ts`
   - 在 ToolRegistry 的 `execute()` 方法中添加 hook，记录每次工具调用
   - 记录字段：`timestamp, agentId, toolName, args, result, filesChanged[], summary`
   - 支持配置：`trackReads`（是否记录读操作）、`maxResultLength`（截断阈值）
-- [ ] **CT2** 变更存储 — `packages/harness/src/tracking/change-store.ts`
+- [x] **CT2** 变更存储 — `packages/harness/src/tracking/change-store.ts`
   - JSONL 格式存储，按日期分文件：`~/.vera/changes/YYYY-MM-DD.jsonl`
   - 支持按时间范围、agent、工具名、文件路径查询
   - 支持压缩：超过 30 天的记录自动归档
@@ -136,7 +136,7 @@
 - [ ] **CT5** 新会话提示词注入 — 在 agent 系统提示中添加变更查询指引
   - "除了查看 git commit 历史，你还可以调用 change_query skill 获取详细的 agent 变更记录"
   - "变更记录包含每个 agent 的工具调用、修改的文件、执行时间等详细信息"
-- [ ] **CT6** 变更追踪测试（10+ tests：hook 触发、存储查询、摘要生成、skill 接口）
+- [x] **CT6** 变更追踪测试（10+ tests：hook 触发、存储查询、摘要生成、skill 接口）
 
 ## Phase 10.2: Agent Eval 评测系统（EV）
 
