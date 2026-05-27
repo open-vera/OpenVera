@@ -338,6 +338,15 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：timingSafeEqual 要求两个 Buffer 长度相等，否则直接返回 false（不抛错），这是正确的安全行为
 - 测试总数：~2632 tests（Core 1900 + Harness 732）
 
+### Phase 16 Channel — CH6（2026-05-27，完成）
+
+- CH6: ChannelPluginRegistry — 运行时动态加载/卸载 channel adapter
+- 42 tests, 355 lines added, 2 new files (plugin-registry.ts + plugin-registry.test.ts)
+- 实现要点：Plugin 注册/注销 + Adapter 实例加载/卸载 + 批量操作 + 按 plugin/channelType 查询
+- 踩坑：测试中 `createMockAdapter()` 在外部创建，但 `factory` 函数内部又调用 `createMockAdapter()` 创建新实例 → 断言检查的是外部创建的 mock，而实际加载的是 factory 内部创建的新 mock → 断言永远失败。修复：让 factory 闭包捕获外部创建的 mock adapter
+- 经验：Plugin 模式比直接 addAdapter 更灵活——metadata（name/version/channelType）支持运行时发现和批量管理，factory 函数支持延迟初始化和配置注入
+- 测试总数：~2674 tests（Core 1942 + Harness 732）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*
