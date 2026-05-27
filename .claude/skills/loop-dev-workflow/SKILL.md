@@ -327,6 +327,17 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：REST API 的 `readBody` 需要限制 body 大小（maxBodyBytes），防止 DoS
 - 测试总数：~2534 tests（Core 1802 + Harness 732）
 
+### Phase 16 Channel — CH5（2026-05-27，完成）
+
+- CH5: Webhook Channel — WebhookChannelAdapter 实现 ChannelAdapter 接口，HTTP webhook 接收器 + HMAC-SHA256 签名验证
+- 49 tests, 743 lines added, 2 new files (webhook-channel.ts + webhook-channel.test.ts)
+- 实现要点：支持 4 种签名策略（GitHub/Stripe/Slack/Custom），timingSafeEqual 防时序攻击，内置 GitHub push/issue 和 Stripe payload parser
+- 踩坑：签名验证测试中，`httpRequest` helper 发送 JSON body 时 Content-Length 由 helper 内部计算，但签名需要基于**原始 JSON 字符串**计算。如果先用 `httpRequest` 再用 `rawPost` 发两次请求，第一次会因签名校验失败导致服务器挂起 → 必须用 `rawPost` 一次发送，确保签名和 body 一致
+- 经验：Webhook adapter 是纯 HTTP server（无 WebSocket），实现比 API Channel 简单，但签名验证逻辑需要仔细测试每种策略
+- 经验：GitHub/Stripe payload parser 作为内部函数实现，通过 `STRATEGY_PARSERS` map 按 strategy name 查找，比 OOP 继承更灵活
+- 经验：timingSafeEqual 要求两个 Buffer 长度相等，否则直接返回 false（不抛错），这是正确的安全行为
+- 测试总数：~2632 tests（Core 1900 + Harness 732）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*

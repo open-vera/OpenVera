@@ -12,6 +12,7 @@
 
 | 日期批次 | 摘要 | 详细 |
 |---|---|---|
+| 2026-05-27 · 22:xx | Phase 16 CH5：Webhook Channel — HTTP webhook 接收器 + 签名验证（49 tests） | [→](./changelog/2026-05-27-22.md) |
 | 2026-05-27 · 21:xx | Phase 16 CH4：API Channel — REST/WebSocket API（30 tests） | [→](./changelog/2026-05-27-21.md) |
 | 2026-05-27 · 21:xx | Phase 16 CH3：CLI Channel — 命令行交互（interactive/pipe/non-interactive，24 tests） | [→](./changelog/2026-05-27-21.md) |
 | 2026-05-27 · 20:xx | Phase 16 CH2：Channel Gateway — 多 channel 统一管理（41 tests） | [→](./changelog/2026-05-27-20c.md) |
