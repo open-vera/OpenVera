@@ -35,11 +35,11 @@
 
 ## Phase 3: 失败恢复与归因
 
-- [ ] **F1** 创建 `packages/harness/src/runtime/failure-attributor.ts` — 失败归因模块
-- [ ] **F2** 定义失败分类枚举：model/tool/permission/context/plan_deviation
-- [ ] **F3** 实现 root cause 记录到 JSONL session（failure entry 含 category + root_cause + step_id）
-- [ ] **F4** 实现失败 case 自动回放 — 从 session 中提取失败 step 重新执行
-- [ ] **F5** 失败归因测试（8+ tests：分类准确性、回放、边界）
+- [x] **F1** 创建 `packages/harness/src/runtime/failure-attributor.ts` — 失败归因模块
+- [x] **F2** 定义失败分类枚举：model/tool/permission/context/plan_deviation
+- [x] **F3** 实现 root cause 记录到 JSONL session（failure entry 含 category + root_cause + step_id）
+- [x] **F4** 实现失败 case 自动回放 — 从 session 中提取失败 step 重新执行
+- [x] **F5** 失败归因测试（12 tests：分类准确性、回放、边界）
 
 ## Phase 4: Tool Runtime 增强
 
