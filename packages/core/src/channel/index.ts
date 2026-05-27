@@ -39,6 +39,12 @@ export type {
   WebhookPayloadParser,
 } from "./webhook-channel.js";
 
+export { FeishuChannelAdapter } from "./feishu-channel.js";
+export type { FeishuChannelConfig } from "./feishu-channel.js";
+
+export { WeComChannelAdapter } from "./wecom-channel.js";
+export type { WeComChannelConfig } from "./wecom-channel.js";
+
 export {
   ChannelPluginRegistry,
   PluginAlreadyRegisteredError,

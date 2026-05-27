@@ -270,8 +270,8 @@
 
 ### 预留 Channel 插件（框架就绪后社区可扩展）
 
-- [ ] **CH-FEISHU** 飞书 Channel — 飞书机器人消息接收/发送（参考 OpenClaw 飞书集成）
-- [ ] **CH-WECOM** 企业微信 Channel
+- [x] **CH-FEISHU** 飞书 Channel — 飞书机器人消息接收/发送（参考 OpenClaw 飞书集成）
+- [x] **CH-WECOM** 企业微信 Channel
 - [ ] **CH-TELEGRAM** Telegram Bot Channel
 - [ ] **CH-DISCORD** Discord Bot Channel
 - [ ] **CH-SLACK** Slack App Channel
