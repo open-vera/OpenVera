@@ -327,12 +327,12 @@
 
 ### 19A: Sandbox 抽象层
 
-- [ ] **SB1** Sandbox 接口 — `packages/core/src/sandbox/types.ts`，定义 `SandboxProvider` 接口
+- [x] **SB1** Sandbox 接口 — `packages/core/src/sandbox/types.ts`，定义 `SandboxProvider` 接口
   - 接口：`create()` / `exec()` / `upload()` / `download()` / `destroy()` / `list()`
   - 沙箱生命周期：创建 → 上传文件 → 执行命令 → 下载产物 → 销毁
-- [ ] **SB2** CubeSandbox 适配器 — `packages/core/src/sandbox/cubesandbox.ts`，对接 CubeSandbox API
-- [ ] **SB3** 本地 Docker 适配器 — `packages/core/src/sandbox/docker.ts`，本地 Docker 容器作为沙箱（开发/测试用）
-- [ ] **SB4** Sandbox 工具 — `sandbox_exec` / `sandbox_upload` / `sandbox_download` tool，注册到 ToolRegistry
+- [x] **SB2** CubeSandbox 适配器 — `packages/core/src/sandbox/cubesandbox.ts`，对接 CubeSandbox API
+- [x] **SB3** 本地 Docker 适配器 — `packages/core/src/sandbox/docker.ts`，本地 Docker 容器作为沙箱（开发/测试用）
+- [x] **SB4** Sandbox 工具 — `sandbox_exec` / `sandbox_upload` / `sandbox_download` tool，注册到 ToolRegistry
 
 ### 19B: 蜂群模式（Swarm）
 
