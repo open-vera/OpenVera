@@ -15,3 +15,4 @@
 | 2026-04-28 · 12:xx | P0 对齐收尾：CLI 主题、pre-commit 扫描、background subagent 接口、quality-scan skill、docs 全面更新 | [→](./changelog/2026-04-28-12.md) |
 | 2026-04-29 · 11:xx | Smoke 入口统一：修复 loop 空回复重试 bug、新增 REPL loop smoke test、统一 smoke suite 入口 | [→](./changelog/2026-04-29-11.md) |
 | 2026-04-29 · 12:xx | M3 修复：bash 流式输出收集 + 512KB 阈值进程组提前终止，新增 5 个测试 | [→](./changelog/2026-04-29-12.md) |
+| 2026-05-27 · 03:xx | P0 收尾 D4/E3 完成 + 代码治理规范 + P1-P3 实现计划 + Agent 工作流程强制 | [→](./changelog/2026-05-27-03.md) |
