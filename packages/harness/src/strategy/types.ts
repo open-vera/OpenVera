@@ -130,3 +130,43 @@ export interface StrategyComparison {
   confidence: number; // 0-1, based on sample size
   details: string;
 }
+
+// ── Trend & Windowed Stats ──────────────────────────────────────────────────
+
+/** Direction of success rate trend. */
+export type TrendDirection = "improving" | "declining" | "stable" | "insufficient_data";
+
+/** Trend analysis result for a strategy. */
+export interface StrategyTrend {
+  strategyId: string;
+  /** Overall trend direction */
+  direction: TrendDirection;
+  /** Recent window success rate */
+  recentRate: number;
+  /** Older window success rate */
+  olderRate: number;
+  /** Rate delta (recent - older) */
+  delta: number;
+  /** Number of runs in recent window */
+  recentRuns: number;
+  /** Number of runs in older window */
+  olderRuns: number;
+  /** Minimum runs required for a reliable trend */
+  minRunsForTrend: number;
+}
+
+/** Predefined time windows for windowed statistics. */
+export type TimeWindow = "1h" | "6h" | "24h" | "7d" | "30d";
+
+/** Domain-level summary across all strategies. */
+export interface DomainSummary {
+  domain: StrategyDomain;
+  totalStrategies: number;
+  activeStrategies: number;
+  totalRuns: number;
+  overallSuccessRate: number;
+  bestStrategyId: string | null;
+  bestSuccessRate: number;
+  worstStrategyId: string | null;
+  worstSuccessRate: number;
+}

@@ -14,6 +14,10 @@ import type {
   StrategyOutcome,
   StrategyStats,
   StrategyComparison,
+  StrategyTrend,
+  TrendDirection,
+  TimeWindow,
+  DomainSummary,
 } from "./types.js";
 
 // ── Filter Types ───────────────────────────────────────────────────────────────
@@ -174,23 +178,26 @@ export class StrategyStore {
    * Get aggregated statistics for a strategy.
    */
   getStats(strategyId: string): StrategyStats {
-    const strategyOutcomes = this.getOutcomes(strategyId);
-    const totalRuns = strategyOutcomes.length;
-    const successCount = strategyOutcomes.filter((o) => o.success).length;
+    return this.computeStats(strategyId, this.getOutcomes(strategyId));
+  }
+
+  private computeStats(strategyId: string, outcomes: StrategyOutcome[]): StrategyStats {
+    const totalRuns = outcomes.length;
+    const successCount = outcomes.filter((o) => o.success).length;
     const failureCount = totalRuns - successCount;
     const successRate = totalRuns > 0 ? successCount / totalRuns : 0;
 
-    const totalDuration = strategyOutcomes.reduce((sum, o) => sum + o.durationMs, 0);
+    const totalDuration = outcomes.reduce((sum, o) => sum + o.durationMs, 0);
     const avgDurationMs = totalRuns > 0 ? totalDuration / totalRuns : 0;
 
-    const totalTokens = strategyOutcomes.reduce(
+    const totalTokens = outcomes.reduce(
       (sum, o) => sum + (o.tokenUsage ? o.tokenUsage.input + o.tokenUsage.output : 0),
       0
     );
 
     const lastRunAt =
-      strategyOutcomes.length > 0
-        ? strategyOutcomes[strategyOutcomes.length - 1]!.timestamp
+      outcomes.length > 0
+        ? outcomes[outcomes.length - 1]!.timestamp
         : null;
 
     return {
@@ -244,6 +251,201 @@ export class StrategyStore {
       ? this.list({ domain })
       : this.strategies;
     return strategies.map((s) => this.getStats(s.id));
+  }
+
+  // ── Time-Windowed Statistics ───────────────────────────────────────────────
+
+  private static readonly WINDOW_MS: Record<TimeWindow, number> = {
+    "1h": 3_600_000,
+    "6h": 21_600_000,
+    "24h": 86_400_000,
+    "7d": 604_800_000,
+    "30d": 2_592_000_000,
+  };
+
+  /**
+   * Get aggregated statistics for a strategy within a time window.
+   * Only outcomes with timestamp >= (now - window) are included.
+   */
+  getStatsWindowed(strategyId: string, window: TimeWindow): StrategyStats {
+    const windowMs = StrategyStore.WINDOW_MS[window];
+    const cutoff = new Date(Date.now() - windowMs).toISOString();
+    const all = this.getOutcomes(strategyId);
+    const windowed = all.filter((o) => o.timestamp >= cutoff);
+    return this.computeStats(strategyId, windowed);
+  }
+
+  /**
+   * Get windowed stats for an arbitrary duration in milliseconds.
+   */
+  getStatsSince(strategyId: string, durationMs: number): StrategyStats {
+    const cutoff = new Date(Date.now() - durationMs).toISOString();
+    const all = this.getOutcomes(strategyId);
+    const windowed = all.filter((o) => o.timestamp >= cutoff);
+    return this.computeStats(strategyId, windowed);
+  }
+
+  // ── Trend Detection ───────────────────────────────────────────────────────
+
+  /**
+   * Analyze success rate trend by comparing a recent window to an older window.
+   * Default: recent = last 24h, older = 24h before that.
+   */
+  getTrend(
+    strategyId: string,
+    recentWindow: TimeWindow = "24h",
+    olderWindow: TimeWindow = "24h",
+    minRunsForTrend = 3,
+  ): StrategyTrend {
+    const recentMs = StrategyStore.WINDOW_MS[recentWindow];
+    const olderMs = StrategyStore.WINDOW_MS[olderWindow];
+    const now = Date.now();
+
+    const recentCutoff = new Date(now - recentMs).toISOString();
+    const olderCutoff = new Date(now - recentMs - olderMs).toISOString();
+
+    const all = this.getOutcomes(strategyId);
+    const recentOutcomes = all.filter((o) => o.timestamp >= recentCutoff);
+    const olderOutcomes = all.filter(
+      (o) => o.timestamp >= olderCutoff && o.timestamp < recentCutoff,
+    );
+
+    const recentRate =
+      recentOutcomes.length > 0
+        ? recentOutcomes.filter((o) => o.success).length / recentOutcomes.length
+        : 0;
+    const olderRate =
+      olderOutcomes.length > 0
+        ? olderOutcomes.filter((o) => o.success).length / olderOutcomes.length
+        : 0;
+
+    const delta = recentRate - olderRate;
+    const direction = this.classifyTrend(
+      recentOutcomes.length,
+      olderOutcomes.length,
+      delta,
+      minRunsForTrend,
+    );
+
+    return {
+      strategyId,
+      direction,
+      recentRate,
+      olderRate,
+      delta,
+      recentRuns: recentOutcomes.length,
+      olderRuns: olderOutcomes.length,
+      minRunsForTrend,
+    };
+  }
+
+  private classifyTrend(
+    recentCount: number,
+    olderCount: number,
+    delta: number,
+    minRuns: number,
+  ): TrendDirection {
+    if (recentCount < minRuns && olderCount < minRuns) {
+      return "insufficient_data";
+    }
+    const threshold = 0.05; // 5% change to be considered significant
+    if (delta > threshold) return "improving";
+    if (delta < -threshold) return "declining";
+    return "stable";
+  }
+
+  // ── Auto-Status Transitions ───────────────────────────────────────────────
+
+  /**
+   * Automatically promote/deprecate strategies based on historical performance.
+   *
+   * Rules:
+   * - candidate → active: successRate >= promoteThreshold with >= minRuns
+   * - active → deprecated: successRate < deprecateThreshold with >= minRuns
+   * - deprecated/retired: unchanged (manual only)
+   *
+   * Returns the list of strategy IDs whose status was changed.
+   */
+  autoTune(
+    promoteThreshold = 0.7,
+    deprecateThreshold = 0.3,
+    minRuns = 5,
+  ): string[] {
+    const changed: string[] = [];
+
+    for (const strategy of this.strategies) {
+      const stats = this.getStats(strategy.id);
+      if (stats.totalRuns < minRuns) continue;
+
+      if (
+        strategy.status === "candidate" &&
+        stats.successRate >= promoteThreshold
+      ) {
+        strategy.status = "active";
+        strategy.version++;
+        strategy.updatedAt = new Date().toISOString();
+        changed.push(strategy.id);
+      } else if (
+        strategy.status === "active" &&
+        stats.successRate < deprecateThreshold
+      ) {
+        strategy.status = "deprecated";
+        strategy.version++;
+        strategy.updatedAt = new Date().toISOString();
+        changed.push(strategy.id);
+      }
+    }
+
+    if (changed.length > 0) {
+      this.saveStrategies();
+    }
+    return changed;
+  }
+
+  // ── Domain Summary ────────────────────────────────────────────────────────
+
+  /**
+   * Get a summary of all strategies within a domain.
+   */
+  getDomainSummary(domain: StrategyDomain): DomainSummary {
+    const strategies = this.list({ domain });
+    const active = strategies.filter((s) => s.status === "active");
+
+    let totalRuns = 0;
+    let totalSuccess = 0;
+    let bestStrategyId: string | null = null;
+    let bestRate = -1;
+    let worstStrategyId: string | null = null;
+    let worstRate = 2;
+
+    for (const s of strategies) {
+      const stats = this.getStats(s.id);
+      totalRuns += stats.totalRuns;
+      totalSuccess += stats.successCount;
+
+      if (stats.totalRuns > 0) {
+        if (stats.successRate > bestRate) {
+          bestRate = stats.successRate;
+          bestStrategyId = s.id;
+        }
+        if (stats.successRate < worstRate) {
+          worstRate = stats.successRate;
+          worstStrategyId = s.id;
+        }
+      }
+    }
+
+    return {
+      domain,
+      totalStrategies: strategies.length,
+      activeStrategies: active.length,
+      totalRuns,
+      overallSuccessRate: totalRuns > 0 ? totalSuccess / totalRuns : 0,
+      bestStrategyId,
+      bestSuccessRate: bestRate >= 0 ? bestRate : 0,
+      worstStrategyId,
+      worstSuccessRate: worstRate <= 1 ? worstRate : 0,
+    };
   }
 
   // ── Queries ────────────────────────────────────────────────────────────────

@@ -13,6 +13,7 @@ import type {
   ModelConfig,
   ToolPolicy,
   PromptTemplate,
+  TimeWindow,
 } from "../types.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -493,6 +494,281 @@ describe("StrategyStore", () => {
       for (const domain of domains) {
         expect(store.getActiveByDomain(domain)).toHaveLength(1);
       }
+    });
+  });
+
+  // ── Time-Windowed Statistics ──────────────────────────────────────────────
+
+  describe("time-windowed statistics", () => {
+    it("should compute stats within a 24h window", () => {
+      store.add(makeStrategy({ id: "s1" }));
+
+      const now = Date.now();
+      const recent = new Date(now - 3600_000).toISOString();     // 1h ago
+      const old = new Date(now - 100_000_000).toISOString();     // ~27h ago
+
+      store.recordOutcome(makeOutcome("s1", true, { timestamp: recent }));
+      store.recordOutcome(makeOutcome("s1", false, { timestamp: old }));
+
+      const windowed = store.getStatsWindowed("s1", "24h");
+      expect(windowed.totalRuns).toBe(1);
+      expect(windowed.successCount).toBe(1);
+      expect(windowed.successRate).toBe(1);
+    });
+
+    it("should include all outcomes in a 30d window", () => {
+      store.add(makeStrategy({ id: "s1" }));
+
+      const now = Date.now();
+      for (let i = 0; i < 5; i++) {
+        const ts = new Date(now - i * 86_400_000).toISOString(); // each day back
+        store.recordOutcome(makeOutcome("s1", i % 2 === 0, { timestamp: ts }));
+      }
+
+      const stats = store.getStatsWindowed("s1", "30d");
+      expect(stats.totalRuns).toBe(5);
+      expect(stats.successCount).toBe(3); // 0, 2, 4 are success
+    });
+
+    it("should return zero stats when window has no outcomes", () => {
+      store.add(makeStrategy({ id: "s1" }));
+      const old = new Date(Date.now() - 200_000_000).toISOString(); // ~2.3d ago
+      store.recordOutcome(makeOutcome("s1", true, { timestamp: old }));
+
+      const stats = store.getStatsWindowed("s1", "1h");
+      expect(stats.totalRuns).toBe(0);
+      expect(stats.successRate).toBe(0);
+    });
+
+    it("should support getStatsSince with arbitrary duration", () => {
+      store.add(makeStrategy({ id: "s1" }));
+      const now = Date.now();
+      const recent = new Date(now - 5000).toISOString(); // 5s ago
+      store.recordOutcome(makeOutcome("s1", true, { timestamp: recent }));
+
+      const stats = store.getStatsSince("s1", 10_000); // 10s window
+      expect(stats.totalRuns).toBe(1);
+
+      const tooNarrow = store.getStatsSince("s1", 1000); // 1s window
+      expect(tooNarrow.totalRuns).toBe(0);
+    });
+  });
+
+  // ── Trend Detection ──────────────────────────────────────────────────────
+
+  describe("trend detection", () => {
+    it("should detect improving trend", () => {
+      store.add(makeStrategy({ id: "s1" }));
+      const now = Date.now();
+
+      // Recent (last 24h): 3/3 success
+      for (let i = 0; i < 3; i++) {
+        store.recordOutcome(
+          makeOutcome("s1", true, { timestamp: new Date(now - i * 3600_000).toISOString() }),
+        );
+      }
+      // Older (24h-48h): 1/3 success
+      for (let i = 0; i < 2; i++) {
+        store.recordOutcome(
+          makeOutcome("s1", false, { timestamp: new Date(now - 24 * 3600_000 - i * 3600_000).toISOString() }),
+        );
+      }
+      store.recordOutcome(
+        makeOutcome("s1", true, { timestamp: new Date(now - 24 * 3600_000 - 2 * 3600_000).toISOString() }),
+      );
+
+      const trend = store.getTrend("s1", "24h", "24h", 3);
+      expect(trend.direction).toBe("improving");
+      expect(trend.recentRate).toBe(1);
+      expect(trend.olderRate).toBeCloseTo(1 / 3, 5);
+      expect(trend.delta).toBeGreaterThan(0);
+    });
+
+    it("should detect declining trend", () => {
+      store.add(makeStrategy({ id: "s1" }));
+      const now = Date.now();
+
+      // Recent: 1/3 success
+      store.recordOutcome(
+        makeOutcome("s1", true, { timestamp: new Date(now - 1000).toISOString() }),
+      );
+      for (let i = 0; i < 2; i++) {
+        store.recordOutcome(
+          makeOutcome("s1", false, { timestamp: new Date(now - i * 3600_000).toISOString() }),
+        );
+      }
+
+      // Older: 3/3 success
+      for (let i = 0; i < 3; i++) {
+        store.recordOutcome(
+          makeOutcome("s1", true, { timestamp: new Date(now - 24 * 3600_000 - i * 3600_000).toISOString() }),
+        );
+      }
+
+      const trend = store.getTrend("s1", "24h", "24h", 3);
+      expect(trend.direction).toBe("declining");
+      expect(trend.delta).toBeLessThan(0);
+    });
+
+    it("should detect stable trend", () => {
+      store.add(makeStrategy({ id: "s1" }));
+      const now = Date.now();
+
+      // Both windows: ~50% success
+      for (let i = 0; i < 4; i++) {
+        store.recordOutcome(
+          makeOutcome("s1", i < 2, { timestamp: new Date(now - i * 3600_000).toISOString() }),
+        );
+        store.recordOutcome(
+          makeOutcome("s1", i < 2, { timestamp: new Date(now - 24 * 3600_000 - i * 3600_000).toISOString() }),
+        );
+      }
+
+      const trend = store.getTrend("s1", "24h", "24h", 3);
+      expect(trend.direction).toBe("stable");
+    });
+
+    it("should return insufficient_data when too few runs", () => {
+      store.add(makeStrategy({ id: "s1" }));
+      const now = Date.now();
+      store.recordOutcome(
+        makeOutcome("s1", true, { timestamp: new Date(now - 1000).toISOString() }),
+      );
+
+      const trend = store.getTrend("s1", "24h", "24h", 3);
+      expect(trend.direction).toBe("insufficient_data");
+      expect(trend.recentRuns).toBe(1);
+      expect(trend.olderRuns).toBe(0);
+    });
+  });
+
+  // ── Auto-Status Transitions ──────────────────────────────────────────────
+
+  describe("auto-status transitions", () => {
+    it("should promote candidate to active when success rate is high", () => {
+      store.add(makeStrategy({ id: "s1", status: "candidate" }));
+
+      for (let i = 0; i < 5; i++) {
+        store.recordOutcome(makeOutcome("s1", true));
+      }
+
+      const changed = store.autoTune(0.7, 0.3, 5);
+      expect(changed).toContain("s1");
+      expect(store.get("s1")!.status).toBe("active");
+    });
+
+    it("should deprecate active strategy when success rate is low", () => {
+      store.add(makeStrategy({ id: "s1", status: "active" }));
+
+      store.recordOutcome(makeOutcome("s1", true));
+      for (let i = 0; i < 4; i++) {
+        store.recordOutcome(makeOutcome("s1", false));
+      }
+
+      const changed = store.autoTune(0.7, 0.3, 5);
+      expect(changed).toContain("s1");
+      expect(store.get("s1")!.status).toBe("deprecated");
+    });
+
+    it("should not change strategies below minRuns", () => {
+      store.add(makeStrategy({ id: "s1", status: "candidate" }));
+      for (let i = 0; i < 3; i++) {
+        store.recordOutcome(makeOutcome("s1", true));
+      }
+
+      const changed = store.autoTune(0.7, 0.3, 5);
+      expect(changed).toHaveLength(0);
+      expect(store.get("s1")!.status).toBe("candidate");
+    });
+
+    it("should not change deprecated or retired strategies", () => {
+      store.add(makeStrategy({ id: "s1", status: "deprecated" }));
+      store.add(makeStrategy({ id: "s2", status: "retired" }));
+
+      for (let i = 0; i < 5; i++) {
+        store.recordOutcome(makeOutcome("s1", true));
+        store.recordOutcome(makeOutcome("s2", true));
+      }
+
+      const changed = store.autoTune(0.7, 0.3, 5);
+      expect(changed).toHaveLength(0);
+      expect(store.get("s1")!.status).toBe("deprecated");
+      expect(store.get("s2")!.status).toBe("retired");
+    });
+
+    it("should increment version on status change", () => {
+      store.add(makeStrategy({ id: "s1", status: "candidate", version: 1 }));
+      for (let i = 0; i < 5; i++) {
+        store.recordOutcome(makeOutcome("s1", true));
+      }
+
+      store.autoTune();
+      expect(store.get("s1")!.version).toBe(2);
+    });
+
+    it("should handle mixed strategies", () => {
+      store.add(makeStrategy({ id: "s1", status: "candidate" }));
+      store.add(makeStrategy({ id: "s2", status: "active" }));
+      store.add(makeStrategy({ id: "s3", status: "candidate" }));
+
+      // s1: 5/5 success → promote
+      for (let i = 0; i < 5; i++) store.recordOutcome(makeOutcome("s1", true));
+      // s2: 1/5 success → deprecate
+      store.recordOutcome(makeOutcome("s2", true));
+      for (let i = 0; i < 4; i++) store.recordOutcome(makeOutcome("s2", false));
+      // s3: 3/5 = 60% → below promoteThreshold (70%), stay candidate
+      for (let i = 0; i < 3; i++) store.recordOutcome(makeOutcome("s3", true));
+      for (let i = 0; i < 2; i++) store.recordOutcome(makeOutcome("s3", false));
+
+      const changed = store.autoTune(0.7, 0.3, 5);
+      expect(changed).toContain("s1");
+      expect(changed).toContain("s2");
+      expect(changed).not.toContain("s3");
+      expect(store.get("s1")!.status).toBe("active");
+      expect(store.get("s2")!.status).toBe("deprecated");
+      expect(store.get("s3")!.status).toBe("candidate");
+    });
+  });
+
+  // ── Domain Summary ───────────────────────────────────────────────────────
+
+  describe("domain summary", () => {
+    it("should compute domain summary", () => {
+      store.add(makeStrategy({ id: "s1", domain: "coding", status: "active" }));
+      store.add(makeStrategy({ id: "s2", domain: "coding", status: "active" }));
+      store.add(makeStrategy({ id: "s3", domain: "research", status: "active" }));
+
+      // s1: 3/3 success
+      for (let i = 0; i < 3; i++) store.recordOutcome(makeOutcome("s1", true));
+      // s2: 1/2 success
+      store.recordOutcome(makeOutcome("s2", true));
+      store.recordOutcome(makeOutcome("s2", false));
+
+      const summary = store.getDomainSummary("coding");
+      expect(summary.domain).toBe("coding");
+      expect(summary.totalStrategies).toBe(2);
+      expect(summary.activeStrategies).toBe(2);
+      expect(summary.totalRuns).toBe(5);
+      expect(summary.overallSuccessRate).toBeCloseTo(4 / 5, 5);
+      expect(summary.bestStrategyId).toBe("s1");
+      expect(summary.worstStrategyId).toBe("s2");
+    });
+
+    it("should return zero summary for empty domain", () => {
+      const summary = store.getDomainSummary("testing");
+      expect(summary.totalStrategies).toBe(0);
+      expect(summary.totalRuns).toBe(0);
+      expect(summary.overallSuccessRate).toBe(0);
+      expect(summary.bestStrategyId).toBeNull();
+      expect(summary.worstStrategyId).toBeNull();
+    });
+
+    it("should handle domain with no outcomes", () => {
+      store.add(makeStrategy({ id: "s1", domain: "coding" }));
+      const summary = store.getDomainSummary("coding");
+      expect(summary.totalRuns).toBe(0);
+      expect(summary.bestSuccessRate).toBe(0);
+      expect(summary.worstSuccessRate).toBe(0);
     });
   });
 });
