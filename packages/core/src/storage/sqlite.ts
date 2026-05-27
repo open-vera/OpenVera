@@ -353,6 +353,41 @@ export class SqliteStorageProvider implements StorageProvider {
     }
   }
 
+  // ── Synchronous helpers (for backend sync API) ───────────────────────────
+
+  /** Synchronous set — bypasses async wrapper. */
+  setSync(namespace: string, key: string, value: StorageValue): void {
+    this.ensureOpen();
+    const now = new Date().toISOString();
+    this.stmts.set.run({
+      namespace,
+      key,
+      value: JSON.stringify(value),
+      now,
+      ttl: null,
+      tags: null,
+    });
+  }
+
+  /** Synchronous get — bypasses async wrapper. */
+  getSync(namespace: string, key: string): StorageValue | undefined {
+    this.ensureOpen();
+    const row = this.stmts.get.get(namespace, key) as KvRow | undefined;
+    if (!row) return undefined;
+    if (this.isExpired(row)) {
+      this.stmts.del.run(namespace, key);
+      return undefined;
+    }
+    return JSON.parse(row.value) as StorageValue;
+  }
+
+  /** Synchronous listKeys — bypasses async wrapper. */
+  listKeysSync(namespace: string): string[] {
+    this.ensureOpen();
+    const rows = this.stmts.listKeys.all(namespace) as Array<{ key: string }>;
+    return rows.map((r) => r.key);
+  }
+
   // ── Internal helpers ─────────────────────────────────────────────────────
 
   setWithMeta(namespace: string, key: string, value: StorageValue, ttl?: number, tags?: string[]): void {

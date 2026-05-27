@@ -2,6 +2,8 @@ export { SessionStore } from "./store.js";
 export { SessionManager } from "./session-manager.js";
 export { generateSessionTitle } from "./title.js";
 export { calculateCost, accumulateCost, normalizeModelKey, emptyAccumulatedCost, emptyUsage } from "./cost.js";
+export type { SessionStoreBackend, BackendOptions } from "./backend.js";
+export { SQLiteSessionBackend } from "./sqlite-backend.js";
 export type { GenerateSessionTitleOptions } from "./title.js";
 export type {
   SessionManagerOptions,

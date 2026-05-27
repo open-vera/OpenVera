@@ -18,6 +18,8 @@ import { grepTool } from "./grep.js";
 import { createMemoryWriteTool } from "./memory-write.js";
 import { createMemorySearchTool } from "./memory-search.js";
 import type { MemoryStore } from "../memory/store.js";
+import { createDataSaveTool, createDataLoadTool, createDataListTool, createDataDeleteTool } from "../storage/user-data.js";
+import type { UserDataStore } from "../storage/user-data.js";
 
 export { ToolRegistry } from "./registry.js";
 export { SecurityPlugin } from "./security.js";
