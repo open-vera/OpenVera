@@ -22,3 +22,17 @@ export {
 
 export { LocalVectorStore } from "./local-vector-store.js";
 export type { LocalVectorStoreOptions } from "./local-vector-store.js";
+
+export {
+  OpenAIEmbeddingAdapter,
+  VoyageEmbeddingAdapter,
+  LocalEmbeddingAdapter,
+  createEmbeddingAdapter,
+} from "./embedding-adapter.js";
+export type {
+  OpenAIEmbeddingOptions,
+  VoyageEmbeddingOptions,
+  LocalEmbeddingOptions,
+  EmbeddingProvider,
+  CreateEmbeddingAdapterOptions,
+} from "./embedding-adapter.js";
