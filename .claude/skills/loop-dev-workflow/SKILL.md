@@ -232,6 +232,25 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：R3-R8 实现文件和测试由之前的 agent 创建但未提交，本次主要是修复 TS 错误、更新 checkbox、提交 changelog
 - 测试总数：~1558 tests（Core 1290 + Harness 268）
 
+### Phase 10.2 Eval — EV2+EV8（2026-05-27，完成）
+
+- EV2: GAIA Runner — GAIA 原始格式转 EvalCase，按级别过滤，per-level 超时
+- EV8: 52 tests — EvalHarness（所有 eval 类型、错误处理、report）、EvalReporter（markdown、comparison）、GaiaRunner
+- 踩坑：`eval/index.ts` 的类型导出与 `types.ts` 的 `EvalResult` 冲突 → 不将 eval 子模块 re-export 到 harness 主 index，保持独立子路径
+- 踩坑：`change-tracker.ts` 有两个 `generateSummary` 方法（public async + private），tsc 报 duplicate function → 重命名 private 为 `generateToolSummary`
+- 经验：eval 框架（EV1）和 reporter（EV6）代码已存在但无测试，先补测试再做 EV2 更稳妥
+- 经验：GAIA runner 设计为轻量包装层，核心逻辑（评分、report）全复用 EvalHarness，只做格式转换和配置
+- 测试总数：~1610 tests（Core 1290 + Harness 320）
+
+### Phase 10.2 Eval — EV3（2026-05-27，完成）
+
+- EV3: SWE-bench Runner — GitHub issue 格式转 EvalCase，按 difficulty/repo 过滤，per-difficulty 超时
+- 30 tests：loading/filtering、prompt building、evaluation、metrics
+- 经验：SWE-bench Runner 和 GAIA Runner 结构几乎一致（都是 EvalHarness 的轻量包装），新增 `SweBenchMetrics` 提供 benchmark-specific 指标（resolved rate、patch rate、patch accuracy）
+- 经验：SWE-bench 的评估核心是 patch 匹配，当前用 `contains` eval type 近似——真实场景需要沙箱环境应用 patch 并运行 test_patch
+- 经验：`includeTestPatch` 和 `includeGoldPatch` 选项用于调试，生产评测默认关闭
+- 测试总数：~1640 tests（Core 1408 + Harness 542）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*
