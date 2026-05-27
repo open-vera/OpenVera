@@ -21,3 +21,6 @@ export {
   ChannelNotConnectedError,
   ChannelNotFoundError,
 } from "./types.js";
+
+export { ChannelGateway } from "./gateway.js";
+export type { SessionBinding, MessageHandler } from "./gateway.js";
