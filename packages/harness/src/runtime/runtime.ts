@@ -56,6 +56,9 @@ import type { AgentRunner, AgentRunnerMap } from "../agent/index.js";
 import { planFromPrompt, type PlanFromPromptOptions } from "./planner.js";
 import { CheckpointStore, makeCheckpointId } from "./checkpoint-store.js";
 import type { ResumeOptions, ForkOptions } from "./internal.js";
+import { SelfLoopRunner } from "../flow/self-loop.js";
+import type { SelfLoopRunnerConfig, SelfLoopResult } from "../flow/self-loop.js";
+import type { CriticAgent } from "../critic/critic-agent.js";
 
 function now(): string {
   return new Date().toISOString();
@@ -756,6 +759,25 @@ export class HarnessRuntime {
     });
 
     return { flow, store };
+  }
+
+  /**
+   * Run a self-loop: multi-cycle plan-execute-critique loop with automatic
+   * termination based on confidence, cycles, budget, or duplicate detection.
+   *
+   * @param handle - Initial FlowHandle (from startFlow or planAndStart)
+   * @param config - Self-loop configuration (maxCycles, budgetUsd, etc.)
+   * @param critic - Optional CriticAgent for LLM-based critique. If omitted,
+   *   uses heuristic critique based on flow completion state.
+   * @returns SelfLoopResult with cycles, termination reason, and total cost
+   */
+  async runSelfLoop(
+    handle: FlowHandle,
+    config: SelfLoopRunnerConfig = {},
+    critic?: CriticAgent
+  ): Promise<SelfLoopResult> {
+    const runner = new SelfLoopRunner(this, critic, config);
+    return runner.run(handle);
   }
 
   async createProposal(
