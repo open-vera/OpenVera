@@ -95,6 +95,19 @@
 
 ---
 
+### `/loop-dev-workflow`
+**迭代开发工作流经验库**
+
+从 OpenVera 迭代开发中沉淀的踩坑记录、并行开发流程、测试要求、commit 规范。
+每完成一个 Phase 后由当前 agent 维护更新。
+
+| 项 | 内容 |
+|---|---|
+| 数据源 | 手动维护 |
+| 位置 | `.claude/skills/loop-dev-workflow/SKILL.md` |
+
+---
+
 ## 新增 Skill 模板
 
 新增 skill 时在 `.claude/skills/<name>/SKILL.md` 中填写以下 frontmatter，然后在本文件对应位置追加条目：
