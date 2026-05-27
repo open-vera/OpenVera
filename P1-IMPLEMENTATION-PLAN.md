@@ -211,21 +211,21 @@
 
 ## Phase 11: Benchmark 评测系统（P2 核心）
 
-- [ ] **B1** Benchmark Harness — `packages/harness/src/benchmark/harness.ts`，case 加载 + agent 执行 + 评估
-- [ ] **B2** 评估器增强 — 在 evaluator.ts 基础上增加 llm_judge / tool_match / semantic_similarity
+- [x] **B1** Benchmark Harness — `packages/harness/src/benchmark/harness.ts`，case 加载 + agent 执行 + 评估
+- [x] **B2** 评估器增强 — 在 evaluator.ts 基础上增加 llm_judge / tool_match / semantic_similarity
 - [ ] **B3** GAIA L1 集成 — 导入 GAIA 评测集，自动跑分
-- [ ] **B4** 自建评测集 — 针对 Vera 特有能力的 custom benchmark cases
-- [ ] **B5** 报告生成 — 自动产出 benchmark 报告（pass rate、tool accuracy、flaky rate）
-- [ ] **B6** 回归检测 — 代码变更后自动跑 benchmark，检测退化
-- [ ] **B7** Benchmark 测试（8+ tests）
+- [x] **B4** 自建评测集 — 针对 Vera 特有能力的 custom benchmark cases
+- [x] **B5** 报告生成 — 自动产出 benchmark 报告（pass rate、tool accuracy、flaky rate）
+- [x] **B6** 回归检测 — 代码变更后自动跑 benchmark，检测退化
+- [x] **B7** Benchmark 测试（8+ tests）
 
 ## Phase 12: Dreaming 系统（P2 核心）
 
-- [ ] **DR1** Dreaming Runner — `packages/harness/src/dreaming/runner.ts`，异步触发
-- [ ] **DR2** 经验提炼 — 从 episodic memory + benchmark failure 中提取高价值洞察
-- [ ] **DR3** 改进建议生成 — 产出 prompt/tool policy/workflow 改进 Proposal
-- [ ] **DR4** Dreaming 调度 — 空闲时自动触发，不干扰正常任务
-- [ ] **DR5** Dreaming 测试（6+ tests：提炼质量、建议可执行性）
+- [x] **DR1** Dreaming Runner — `packages/harness/src/dreaming/runner.ts`，异步触发
+- [x] **DR2** 经验提炼 — 从 episodic memory + benchmark failure 中提取高价值洞察
+- [x] **DR3** 改进建议生成 — 产出 prompt/tool policy/workflow 改进 Proposal
+- [x] **DR4** Dreaming 调度 — 空闲时自动触发，不干扰正常任务
+- [x] **DR5** Dreaming 测试（6+ tests：提炼质量、建议可执行性）
 
 ## Phase 13: Proposal Pipeline（P2 核心）
 
