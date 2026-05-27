@@ -5,7 +5,7 @@
  * extracting changed files and producing a structured change record.
  */
 
-import type { ToolMiddleware, ToolResult, ToolContext } from "@open-vera/core";
+import type { ToolMiddleware, ToolResult, ToolContext } from "@open-vera/core/tools";
 import { ChangeStore, type ChangeRecord } from "./change-store.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -99,6 +99,65 @@ export class ChangeTracker {
    */
   getStore(): ChangeStore {
     return this.store;
+  }
+
+  /**
+   * Generate a summary of changes for a given time period.
+   * Useful for episodic memory or daily reports.
+   */
+  async generateSummary(options: {
+    since?: string;
+    until?: string;
+  }): Promise<{
+    totalCalls: number;
+    successfulCalls: number;
+    failedCalls: number;
+    filesModified: string[];
+    toolsUsed: Record<string, number>;
+    summary: string;
+  }> {
+    const records = await this.store.query({
+      since: options.since,
+      until: options.until,
+      limit: 10000,
+    });
+
+    const filesModified = new Set<string>();
+    const toolsUsed: Record<string, number> = {};
+    let successful = 0;
+    let failed = 0;
+
+    for (const record of records) {
+      if (record.success) successful++;
+      else failed++;
+
+      for (const file of record.filesChanged) {
+        filesModified.add(file);
+      }
+
+      toolsUsed[record.toolName] = (toolsUsed[record.toolName] ?? 0) + 1;
+    }
+
+    const topTools = Object.entries(toolsUsed)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name, count]) => `${name}(${count})`)
+      .join(", ");
+
+    const summary = [
+      `Agent activity: ${records.length} tool calls (${successful} ok, ${failed} failed)`,
+      `Files modified: ${filesModified.size}`,
+      `Top tools: ${topTools || "none"}`,
+    ].join(". ");
+
+    return {
+      totalCalls: records.length,
+      successfulCalls: successful,
+      failedCalls: failed,
+      filesModified: Array.from(filesModified),
+      toolsUsed,
+      summary,
+    };
   }
 
   // ── Internal ─────────────────────────────────────────────────────────────
