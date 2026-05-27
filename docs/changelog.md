@@ -12,6 +12,8 @@
 
 | 日期批次 | 摘要 | 详细 |
 |---|---|---|
+| 2026-05-27 · 21:xx | Phase 16 CH4：API Channel — REST/WebSocket API（30 tests） | [→](./changelog/2026-05-27-21.md) |
+| 2026-05-27 · 21:xx | Phase 16 CH3：CLI Channel — 命令行交互（interactive/pipe/non-interactive，24 tests） | [→](./changelog/2026-05-27-21.md) |
 | 2026-05-27 · 20:xx | Phase 16 CH2：Channel Gateway — 多 channel 统一管理（41 tests） | [→](./changelog/2026-05-27-20c.md) |
 | 2026-05-27 · 20:xx | Phase 16 CH1：Channel 抽象层 — 类型定义与接口（32 tests） | [→](./changelog/2026-05-27-20b.md) |
 | 2026-05-27 · 20:xx | Phase 10.3 SP6：WebUI 集成 — 训练监控面板（25 tests） | [→](./changelog/2026-05-27-20.md) |

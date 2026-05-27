@@ -262,8 +262,8 @@
   - 消息统一格式：`ChannelMessage { id, channelType, senderId, content, attachments[], replyTo?, timestamp }`
 - [x] **CH2** Channel Gateway — `packages/core/src/channel/gateway.ts`，统一管理多 channel 生命周期
   - 多 channel 并发连接、消息路由、session 绑定
-- [ ] **CH3** CLI Channel — 命令行交互（已有 REPL，补全 CLI 非交互模式 + pipe 模式）
-- [ ] **CH4** API Channel — REST/WebSocket API，支持外部系统集成
+- [x] **CH3** CLI Channel — 命令行交互（已有 REPL，补全 CLI 非交互模式 + pipe 模式）
+- [x] **CH4** API Channel — REST/WebSocket API，支持外部系统集成
 - [ ] **CH5** Webhook Channel — HTTP webhook 接收器，支持签名验证
 - [ ] **CH6** Channel 插件注册 — 运行时动态加载/卸载 channel adapter
 - [ ] **CH7** Channel 测试（8+ tests：Gateway 生命周期、消息路由、多 channel 并发）

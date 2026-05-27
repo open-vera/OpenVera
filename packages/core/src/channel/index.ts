@@ -27,3 +27,6 @@ export type { SessionBinding, MessageHandler } from "./gateway.js";
 
 export { CliChannelAdapter } from "./cli-channel.js";
 export type { CliChannelConfig } from "./cli-channel.js";
+
+export { ApiChannelAdapter } from "./api-channel.js";
+export type { ApiChannelConfig } from "./api-channel.js";

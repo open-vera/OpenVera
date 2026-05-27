@@ -304,6 +304,29 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：auto-reconnect 用 `setTimeout` + 递归重试，不阻塞 `connectAll()` 返回
 - 测试总数：~1862 tests（Core 1598 + Harness 732）（含 1 个 pre-existing flaky session 分页测试）
 
+### Phase 16 Channel — CH3（2026-05-27，完成）
+
+- CH3: CLI Channel — CliChannelAdapter 实现 ChannelAdapter 接口，支持 interactive/pipe/non-interactive 三种模式
+- 24 tests, 703 lines added, 2 new files (cli-channel.ts + cli-channel.test.ts)
+- 实现要点：interactive 模式用 node:readline 的 createInterface，pipe 模式用 stream events 读取所有 stdin 直到 EOF，non-interactive 模式暴露 processInput() 供编程式调用
+- 踩坑：pipe 模式下 connect() 是 async，必须等 stdin 'end' 事件后才 resolve——测试中用 PassThrough stream 模拟 stdin，写入后立即 end()
+- 经验：CliChannelAdapter 的 sendMessage 用 output.write() 而非 console.log()，方便测试中捕获输出（PassThrough stream）
+- 经验：interactive 模式 readline 的 'line' 事件回调中空行需要跳过（`if (trimmed)`），否则会产生空消息
+- 经验：disconnect() 需要安全地支持多次调用（不抛错），因为 readline.close() 在已关闭的接口上可能抛异常
+- 测试总数：~2474 tests（Core 1742 + Harness 732）
+
+### Phase 16 Channel — CH4（2026-05-27，完成）
+
+- CH4: API Channel — ApiChannelAdapter 实现 ChannelAdapter 接口，REST HTTP + WebSocket 双协议
+- 30 tests, 482 lines added, 2 new files (api-channel.ts + api-channel.test.ts)
+- 实现要点：REST 用 node:http createServer，WebSocket 用 RFC 6455 最小实现（frame parsing、mask/unmask、ping/pong/close），端口 0 自动分配
+- 踩坑：`Array.push()` 返回 `number`，TypeScript strict mode 下作为 `MessageCallback`（返回 `void | Promise<void>`）的回调时会报类型错误 → 用 `{ arr.push(msg); }` 块语句替代表达式箭头
+- 踩坑：WS 认证拒绝测试 — 服务端用 `socket.write()` + `socket.destroy()` 会导致客户端收到 ECONNRESET 而非 HTTP 401 → 改用 `socket.end()` 确保 401 响应被完整发送
+- 踩坑：WS 认证拒绝测试中，客户端 `http.request` 的 `upgrade` 事件不会触发（因为服务端返回普通 HTTP 响应）→ 需要监听 `response` 事件而非 `upgrade`
+- 经验：`node:crypto` 的 `createHash` 必须用 static import（ESM 不支持 `require()`）
+- 经验：REST API 的 `readBody` 需要限制 body 大小（maxBodyBytes），防止 DoS
+- 测试总数：~2534 tests（Core 1802 + Harness 732）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*
