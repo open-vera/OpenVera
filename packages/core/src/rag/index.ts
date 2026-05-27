@@ -19,3 +19,6 @@ export {
   DocumentNotFoundError,
   RAGNotInitializedError,
 } from "./types.js";
+
+export { LocalVectorStore } from "./local-vector-store.js";
+export type { LocalVectorStoreOptions } from "./local-vector-store.js";

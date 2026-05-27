@@ -100,7 +100,7 @@
 ## Phase 10: RAG 知识库能力
 
 - [x] **R1** 向量存储接口 — `packages/core/src/rag/types.ts`，定义 `VectorStore` 抽象接口
-- [ ] **R2** 本地向量存储 — `packages/core/src/rag/local-vector-store.ts`，基于 SQLite + 自实现向量索引（无需外部依赖）
+- [x] **R2** 本地向量存储 — `packages/core/src/rag/local-vector-store.ts`，基于 SQLite + 自实现向量索引（无需外部依赖）
 - [ ] **R3** Embedding 适配器接口 — `packages/core/src/rag/embedding-adapter.ts`，统一接口
 - [ ] **R4** 远程 Embedding — OpenAI/Anthropic embedding API 适配器（默认）
 - [ ] **R5** 本地 Embedding — 留接口支持本地小模型（ONNX/GGML），可选插件
