@@ -109,6 +109,71 @@
 - [ ] **R8** 增量索引 — 文件变更自动更新向量索引（基于 mtime 检测）
 - [ ] **R9** RAG 集成测试（12+ tests：索引准确性、检索质量、增量更新、embedding 切换）
 
+## Phase 10.1: Agent 变更追踪与知识库（CT）
+
+> 核心思想：hook agent 的工具调用，自动记录变更，形成可查询的项目变更知识库。
+> 新会话时 agent 可以通过 change_query skill 快速了解项目变更历史，无需遍历 git log。
+
+- [ ] **CT1** 变更追踪器 — `packages/harness/src/tracking/change-tracker.ts`
+  - 在 ToolRegistry 的 `execute()` 方法中添加 hook，记录每次工具调用
+  - 记录字段：`timestamp, agentId, toolName, args, result, filesChanged[], summary`
+  - 支持配置：`trackReads`（是否记录读操作）、`maxResultLength`（截断阈值）
+- [ ] **CT2** 变更存储 — `packages/harness/src/tracking/change-store.ts`
+  - JSONL 格式存储，按日期分文件：`~/.vera/changes/YYYY-MM-DD.jsonl`
+  - 支持按时间范围、agent、工具名、文件路径查询
+  - 支持压缩：超过 30 天的记录自动归档
+- [ ] **CT3** 变更查询 skill — `.claude/skills/change-query/SKILL.md`
+  - 提供 `change_query` skill，让 agent 可以查询历史变更
+  - 支持查询模式：
+    - 最近 N 小时的变更
+    - 某个文件的修改历史
+    - 某个 agent 的操作记录
+    - 某个工具的调用统计
+  - 输出格式：markdown 表格，含时间、agent、工具、文件、摘要
+- [ ] **CT4** 变更摘要生成 — 定期（每小时/每天）生成变更摘要，存入 episodic memory
+  - 摘要包含：修改了哪些文件、哪些模块、主要变更点
+  - 用于 agent 快速了解项目近期动态
+- [ ] **CT5** 新会话提示词注入 — 在 agent 系统提示中添加变更查询指引
+  - "除了查看 git commit 历史，你还可以调用 change_query skill 获取详细的 agent 变更记录"
+  - "变更记录包含每个 agent 的工具调用、修改的文件、执行时间等详细信息"
+- [ ] **CT6** 变更追踪测试（10+ tests：hook 触发、存储查询、摘要生成、skill 接口）
+
+## Phase 10.2: Agent Eval 评测系统（EV）
+
+> 引入业界主流 agent 评测集，建立标准化评测流程，量化 agent 能力。
+> 评测维度：工具使用准确性、多步推理、代码生成、信息检索、任务完成率。
+
+- [ ] **EV1** 评测框架 — `packages/harness/src/eval/harness.ts`
+  - 评测流程：加载 case → 执行 agent → 收集结果 → 评分 → 生成报告
+  - 支持配置：超时、重试、并发数、评测集路径
+  - 评测结果格式：`EvalResult { caseId, status, score, duration, toolCalls[], error? }`
+- [ ] **EV2** GAIA 评测集集成 — `packages/harness/src/eval/runners/gaia-runner.ts`
+  - GAIA (General AI Assistants)：466 个问题，3 个难度级别
+  - L1：单步任务（简单工具调用）
+  - L2：多步任务（需要组合多个工具）
+  - L3：复杂任务（需要多轮推理 + 工具使用）
+  - 评测指标：pass rate、avg steps、avg cost
+- [ ] **EV3** SWE-bench 评测集集成 — `packages/harness/src/eval/runners/swe-bench-runner.ts`
+  - SWE-bench：2294 个 GitHub issue，评测代码修复能力
+  - 评测流程：读 issue → 定位代码 → 生成 patch → 验证测试通过
+  - 评测指标：pass rate、patch accuracy、test pass rate
+- [ ] **EV4** ToolBench 评测集集成 — `packages/harness/src/eval/runners/toolbench-runner.ts`
+  - ToolBench：16464 个任务，评测工具使用能力
+  - 评测维度：API 调用准确性、参数正确性、多步工具链
+  - 评测指标：tool accuracy、pass rate、avg API calls
+- [ ] **EV5** 自建评测集 — `packages/harness/src/eval/cases/vera-custom.json`
+  - 针对 Vera 特有能力的 custom benchmark cases
+  - 覆盖：checkpoint/resume、self-loop、critic agent、failure recovery、memory
+  - 至少 20 个 case，覆盖核心功能
+- [ ] **EV6** 评测报告生成 — `packages/harness/src/eval/reporter.ts`
+  - 报告格式：markdown，含总分、分维度得分、失败 case 分析
+  - 支持对比：不同模型/配置的评测结果对比
+  - 输出到 `docs/eval-reports/<date>-<model>.md`
+- [ ] **EV7** 回归检测 — 代码变更后自动跑评测，检测退化
+  - 集成到 CI：PR 合并前自动跑 GAIA L1
+  - 退化阈值：pass rate 下降 > 5% 则阻断
+- [ ] **EV8** Agent Eval 测试（10+ tests：框架流程、case 加载、评分逻辑、报告生成）
+
 ## Phase 11: Benchmark 评测系统（P2 核心）
 
 - [ ] **B1** Benchmark Harness — `packages/harness/src/benchmark/harness.ts`，case 加载 + agent 执行 + 评估
