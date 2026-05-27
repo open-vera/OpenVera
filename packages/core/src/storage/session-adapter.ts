@@ -23,6 +23,7 @@ import type {
   SessionEntry,
   SessionSummary,
   LoadedSession,
+  SessionTranscriptPreview,
   BranchEntry,
   ListSessionsOptions,
   ListSessionsResult,
@@ -378,6 +379,65 @@ export class SessionStorageAdapter {
   }
 
   /**
+   * Load a transcript preview (messages with tool uses).
+   */
+  async loadTranscriptPreview(
+    sessionId: string,
+  ): Promise<SessionTranscriptPreview> {
+    const stored = await this.getStoredSession(sessionId);
+    if (!stored) throw new SessionNotFoundError(sessionId);
+
+    const entries = parseJsonlLines(stored.content);
+    const messages: SessionTranscriptPreview["messages"] = [];
+
+    const toolCallsByParent = new Map<string, SessionEntry[]>();
+    const toolResultsByCallUuid = new Map<string, SessionEntry>();
+
+    for (const entry of entries) {
+      if (entry.type === "tool_call") {
+        const existing = toolCallsByParent.get(entry.parentUuid) ?? [];
+        existing.push(entry);
+        toolCallsByParent.set(entry.parentUuid, existing);
+      } else if (entry.type === "tool_result") {
+        toolResultsByCallUuid.set(entry.parentUuid, entry);
+      }
+    }
+
+    for (const entry of entries) {
+      if (entry.type === "user") {
+        messages.push({ role: "user", content: entry.content });
+      } else if (entry.type === "assistant") {
+        const toolUses = (toolCallsByParent.get(entry.uuid) ?? []).map((tc) => {
+          if (tc.type !== "tool_call") return null;
+          const result = toolResultsByCallUuid.get(tc.uuid);
+          return {
+            name: tc.toolName,
+            args: tc.arguments,
+            result: {
+              ok: Boolean(result),
+              content:
+                result?.type === "tool_result"
+                  ? result.content
+                  : "(no tool result recorded)",
+            },
+          };
+        }).filter((t): t is NonNullable<typeof t> => t !== null);
+
+        messages.push({
+          role: "assistant",
+          content: entry.content,
+          ...(toolUses.length ? { toolUses } : {}),
+        });
+      }
+    }
+
+    return {
+      sessionId,
+      messages,
+    };
+  }
+
+  /**
    * Load a session's raw entries for preview.
    */
   async loadEntries(sessionId: string): Promise<SessionEntry[]> {
@@ -512,7 +572,7 @@ export class SessionStorageAdapter {
    * List branches of a parent session.
    */
   async listBranches(parentSessionId: string): Promise<SessionSummary[]> {
-    const { sessions } = await this.listSessions({}, { tags: ["fork"] });
+    const { sessions } = await this.listSessions();
     return sessions.filter(
       (s) =>
         s.branch?.parentSessionId === parentSessionId &&

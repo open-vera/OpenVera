@@ -8,6 +8,7 @@
 
 import type { StopReason, Usage } from "../types/index.js";
 import type { Message } from "../types/message.js";
+import type { StorageValue, StoredSession } from "../storage/types.js";
 import { SqliteStorageProvider } from "../storage/sqlite.js";
 import { SessionStorageAdapter, migrateJsonlToSqlite } from "../storage/session-adapter.js";
 import { SessionNotFoundError, SessionNotBranchError } from "../errors.js";
@@ -18,6 +19,7 @@ import type {
   ListSessionsOptions,
   ListSessionsResult,
   LoadedSession,
+  SessionEntry,
   SessionSummary,
   SessionTranscriptPreview,
 } from "./types.js";
@@ -60,50 +62,67 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
   // ── Write operations ──────────────────────────────────────────────────────
 
   writeStart(sessionId: string, cwd: string, model: string, provider: string): void {
-    // Fire-and-forget for synchronous API compatibility;
-    // actual writes are awaited internally by the adapter
-    this.adapter.createSession(sessionId, model, provider, cwd).catch(() => {});
+    const now = new Date().toISOString();
+    const startEntry: SessionEntry = {
+      type: "session_start",
+      sessionId,
+      timestamp: now,
+      cwd,
+      model,
+      provider,
+    };
+    this.setStoredSessionSync({
+      sessionId,
+      content: `${JSON.stringify(startEntry)}\n`,
+      createdAt: now,
+      updatedAt: now,
+      metadata: { model, provider, cwd },
+    });
   }
 
   writeTitle(sessionId: string, _cwd: string, title: string): void {
-    this.adapter.writeTitle(sessionId, title).catch(() => {});
+    this.appendEntrySync(sessionId, {
+      type: "custom-title",
+      sessionId,
+      timestamp: new Date().toISOString(),
+      customTitle: title,
+    });
   }
 
   writeAiTitle(sessionId: string, _cwd: string, aiTitle: string): void {
-    // The adapter doesn't have a dedicated writeAiTitle, so we append a raw entry
-    this.adapter.appendEntry(sessionId, {
+    this.appendEntrySync(sessionId, {
       type: "ai-title",
       sessionId,
       timestamp: new Date().toISOString(),
       aiTitle,
-    } as Parameters<typeof this.adapter.appendEntry>[1]).catch(() => {});
+    });
   }
 
   writeSummary(sessionId: string, _cwd: string, summary: string): void {
-    this.adapter.appendEntry(sessionId, {
+    this.appendEntrySync(sessionId, {
       type: "summary",
       sessionId,
       timestamp: new Date().toISOString(),
       summary,
-    } as Parameters<typeof this.adapter.appendEntry>[1]).catch(() => {});
+    });
   }
 
   writeTag(sessionId: string, _cwd: string, tag: string): void {
-    this.adapter.appendEntry(sessionId, {
+    this.appendEntrySync(sessionId, {
       type: "tag",
       sessionId,
       timestamp: new Date().toISOString(),
       tag,
-    } as Parameters<typeof this.adapter.appendEntry>[1]).catch(() => {});
+    });
   }
 
   writeGitBranch(sessionId: string, _cwd: string, gitBranch: string): void {
-    this.adapter.appendEntry(sessionId, {
+    this.appendEntrySync(sessionId, {
       type: "git-branch",
       sessionId,
       timestamp: new Date().toISOString(),
       gitBranch,
-    } as Parameters<typeof this.adapter.appendEntry>[1]).catch(() => {});
+    });
   }
 
   writePrLink(
@@ -111,14 +130,14 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
     _cwd: string,
     p: { prUrl: string; prRepository?: string; prNumber?: number },
   ): void {
-    this.adapter.appendEntry(sessionId, {
+    this.appendEntrySync(sessionId, {
       type: "pr-link",
       sessionId,
       timestamp: new Date().toISOString(),
       prUrl: p.prUrl,
       ...(p.prRepository ? { prRepository: p.prRepository } : {}),
       ...(p.prNumber ? { prNumber: p.prNumber } : {}),
-    } as Parameters<typeof this.adapter.appendEntry>[1]).catch(() => {});
+    });
   }
 
   writeBranch(
@@ -134,12 +153,29 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
       baseCommit?: string;
     },
   ): void {
-    this.adapter.writeBranch(sessionId, p).catch(() => {});
+    this.appendEntrySync(sessionId, {
+      type: "branch",
+      sessionId,
+      timestamp: new Date().toISOString(),
+      parentSessionId: p.parentSessionId,
+      status: p.status ?? "active",
+      ...(p.forkedFromUuid ? { forkedFromUuid: p.forkedFromUuid } : {}),
+      ...(p.title ? { title: p.title } : {}),
+      ...(p.worktreePath ? { worktreePath: p.worktreePath } : {}),
+      ...(p.worktreeBranch ? { worktreeBranch: p.worktreeBranch } : {}),
+      ...(p.baseCommit ? { baseCommit: p.baseCommit } : {}),
+    });
   }
 
   writeUser(sessionId: string, _cwd: string, content: string): string {
     const uuid = crypto.randomUUID();
-    this.adapter.writeUser(sessionId, content).catch(() => {});
+    this.appendEntrySync(sessionId, {
+      type: "user",
+      sessionId,
+      timestamp: new Date().toISOString(),
+      uuid,
+      content,
+    });
     return uuid;
   }
 
@@ -160,7 +196,13 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
     },
   ): string {
     const uuid = crypto.randomUUID();
-    this.adapter.writeAssistant(sessionId, { ...p }).catch(() => {});
+    this.appendEntrySync(sessionId, {
+      type: "assistant",
+      sessionId,
+      timestamp: new Date().toISOString(),
+      uuid,
+      ...p,
+    });
     return uuid;
   }
 
@@ -175,7 +217,13 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
     },
   ): string {
     const uuid = crypto.randomUUID();
-    this.adapter.writeToolCall(sessionId, p).catch(() => {});
+    this.appendEntrySync(sessionId, {
+      type: "tool_call",
+      sessionId,
+      timestamp: new Date().toISOString(),
+      uuid,
+      ...p,
+    });
     return uuid;
   }
 
@@ -188,7 +236,13 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
       content: string;
     },
   ): void {
-    this.adapter.writeToolResult(sessionId, p).catch(() => {});
+    this.appendEntrySync(sessionId, {
+      type: "tool_result",
+      sessionId,
+      timestamp: new Date().toISOString(),
+      uuid: crypto.randomUUID(),
+      ...p,
+    });
   }
 
   writeEnd(
@@ -199,7 +253,23 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
     turnCount: number,
     lastPrompt?: string,
   ): void {
-    this.adapter.writeEnd(sessionId, totalUsage, totalCostUsd, turnCount, lastPrompt).catch(() => {});
+    const normalized = this.preview(lastPrompt);
+    if (normalized) {
+      this.appendEntrySync(sessionId, {
+        type: "last-prompt",
+        sessionId,
+        timestamp: new Date().toISOString(),
+        lastPrompt: normalized,
+      });
+    }
+    this.appendEntrySync(sessionId, {
+      type: "session_end",
+      sessionId,
+      timestamp: new Date().toISOString(),
+      totalUsage,
+      totalCostUsd,
+      turnCount,
+    });
   }
 
   // ── Query operations ──────────────────────────────────────────────────────
@@ -225,7 +295,7 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
       try {
         const val = this.storage.getSync("sessions", key);
         if (!val) continue;
-        const stored = val as unknown as import("../storage/types.js").StoredSession;
+        const stored = val as unknown as StoredSession;
         const summary = this.extractSummary(stored);
         if (summary) summaries.push(summary);
       } catch {
@@ -255,14 +325,14 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
   loadSession(sessionId: string, _cwd?: string): LoadedSession {
     const val = this.storage.getSync("sessions", sessionId);
     if (!val) throw new SessionNotFoundError(sessionId);
-    const stored = val as unknown as import("../storage/types.js").StoredSession;
+    const stored = val as unknown as StoredSession;
     return this.extractLoadedSession(stored);
   }
 
   loadTranscriptPreview(sessionId: string, _cwd?: string): SessionTranscriptPreview {
     const val = this.storage.getSync("sessions", sessionId);
     if (!val) throw new SessionNotFoundError(sessionId);
-    const stored = val as unknown as import("../storage/types.js").StoredSession;
+    const stored = val as unknown as StoredSession;
     return this.extractTranscriptPreview(stored);
   }
 
@@ -277,7 +347,7 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
     const sourceVal = this.storage.getSync("sessions", options.fromSessionId);
     if (!sourceVal) throw new SessionNotFoundError(options.fromSessionId);
 
-    const sourceStored = sourceVal as unknown as import("../storage/types.js").StoredSession;
+    const sourceStored = sourceVal as unknown as StoredSession;
     const entries = this.parseJsonlLines(sourceStored.content);
     const replayable = entries.filter(this.isReplayable);
 
@@ -323,22 +393,23 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
       }) + "\n";
     }
 
-    const stored = {
+    const metadata: StoredSession["metadata"] = {
+      ...(sourceStored.metadata.model ? { model: sourceStored.metadata.model } : {}),
+      ...(sourceStored.metadata.provider ? { provider: sourceStored.metadata.provider } : {}),
+      ...(sourceStored.metadata.cwd ? { cwd: sourceStored.metadata.cwd } : {}),
+      ...(firstPrompt ? { firstPrompt } : {}),
+      ...(options.title ? { title: `${options.title} (Branch)` } : {}),
+      tags: ["fork"],
+    };
+    const stored: StoredSession = {
       sessionId: newSessionId,
       content,
       createdAt: now,
       updatedAt: now,
-      metadata: {
-        model: sourceStored.metadata.model,
-        provider: sourceStored.metadata.provider,
-        cwd: sourceStored.metadata.cwd,
-        firstPrompt,
-        title: options.title ? `${options.title} (Branch)` : undefined,
-        tags: ["fork"],
-      },
+      metadata,
     };
 
-    this.storage.setSync("sessions", newSessionId, stored);
+    this.setStoredSessionSync(stored);
 
     return {
       sessionId: newSessionId,
@@ -388,7 +459,7 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
     const val = this.storage.getSync("sessions", sessionId);
     if (!val) throw new SessionNotFoundError(sessionId);
 
-    const stored = val as unknown as import("../storage/types.js").StoredSession;
+    const stored = val as unknown as StoredSession;
     const entries = this.parseJsonlLines(stored.content);
     const branchEntries = entries.filter(
       (e): e is Extract<typeof e, { type: "branch" }> => e.type === "branch",
@@ -400,7 +471,7 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
 
     const lastBranch = branchEntries[branchEntries.length - 1]!;
     const now = new Date().toISOString();
-    const newEntry = {
+    const newEntry: SessionEntry = {
       type: "branch",
       sessionId,
       timestamp: now,
@@ -415,10 +486,48 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
 
     stored.content += JSON.stringify(newEntry) + "\n";
     stored.updatedAt = now;
-    this.storage.setSync("sessions", sessionId, stored);
+    this.setStoredSessionSync(stored);
   }
 
-  private extractSummary(stored: import("../storage/types.js").StoredSession): SessionSummary | null {
+  private appendEntrySync(sessionId: string, entry: SessionEntry): void {
+    const val = this.storage.getSync("sessions", sessionId);
+    if (!val) throw new SessionNotFoundError(sessionId);
+
+    const stored = val as unknown as StoredSession;
+    stored.content += `${JSON.stringify(entry)}\n`;
+    stored.updatedAt = new Date().toISOString();
+    this.updateMetadata(stored, entry);
+    this.setStoredSessionSync(stored);
+  }
+
+  private setStoredSessionSync(stored: StoredSession): void {
+    this.storage.setSync("sessions", stored.sessionId, stored as unknown as StorageValue);
+  }
+
+  private updateMetadata(stored: StoredSession, entry: SessionEntry): void {
+    const meta = stored.metadata;
+
+    if (entry.type === "user" && !meta.firstPrompt) {
+      meta.firstPrompt = this.preview(entry.content);
+    } else if (entry.type === "assistant") {
+      meta.turnCount = (meta.turnCount ?? 0) + 1;
+      meta.model = entry.model;
+      meta.provider = entry.provider;
+    } else if (entry.type === "session_end") {
+      meta.turnCount = entry.turnCount;
+      meta.totalCostUsd = entry.totalCostUsd;
+    } else if (entry.type === "custom-title" || entry.type === "custom_title") {
+      meta.title = entry.customTitle ?? entry.title;
+    } else if (entry.type === "ai-title") {
+      meta.title ??= entry.aiTitle;
+    } else if (entry.type === "tag") {
+      const tags = meta.tags ? [...meta.tags] : [];
+      if (!tags.includes(entry.tag)) tags.push(entry.tag);
+      meta.tags = tags;
+    }
+  }
+
+  private extractSummary(stored: StoredSession): SessionSummary | null {
     const entries = this.parseJsonlLines(stored.content);
     const meta = stored.metadata;
 
@@ -433,6 +542,7 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
     let firstPrompt = meta.firstPrompt;
     let lastUserInput: string | undefined;
     let tag: string | undefined;
+    let gitBranch: string | undefined;
     let branch: SessionSummary["branch"];
     let foundEnd = false;
 
@@ -463,6 +573,8 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
         customTitle = entry.aiTitle;
       } else if (entry.type === "tag") {
         tag = entry.tag;
+      } else if (entry.type === "git-branch") {
+        gitBranch = entry.gitBranch;
       } else if (entry.type === "branch") {
         branch = {
           parentSessionId: entry.parentSessionId,
@@ -500,11 +612,12 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
       ...(firstPrompt ? { firstPrompt: this.preview(firstPrompt) } : {}),
       lastUserInput: this.preview(lastUserInput),
       ...(tag ? { tag } : {}),
+      ...(gitBranch ? { gitBranch } : {}),
       ...(branch ? { branch } : {}),
     };
   }
 
-  private extractLoadedSession(stored: import("../storage/types.js").StoredSession): LoadedSession {
+  private extractLoadedSession(stored: StoredSession): LoadedSession {
     const entries = this.parseJsonlLines(stored.content);
     const history: Message[] = [];
     let totalUsage: Usage = { input_tokens: 0, output_tokens: 0 };
@@ -542,11 +655,11 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
     };
   }
 
-  private extractTranscriptPreview(stored: import("../storage/types.js").StoredSession): SessionTranscriptPreview {
+  private extractTranscriptPreview(stored: StoredSession): SessionTranscriptPreview {
     const entries = this.parseJsonlLines(stored.content);
     const messages: SessionTranscriptPreview["messages"] = [];
-    const toolCallsByParent = new Map<string, Array<{ uuid: string; toolName: string; arguments: Record<string, unknown> }>>();
-    const toolResultsByCallUuid = new Map<string, { content: string }>();
+    const toolCallsByParent = new Map<string, Extract<SessionEntry, { type: "tool_call" }>[]>();
+    const toolResultsByCallUuid = new Map<string, Extract<SessionEntry, { type: "tool_result" }>>();
 
     for (const entry of entries) {
       if (entry.type === "tool_call") {
@@ -562,7 +675,10 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
       if (entry.type === "user") {
         messages.push({ role: "user", content: entry.content });
       } else if (entry.type === "assistant") {
-        const toolUses = (toolCallsByParent.get(entry.parentUuid) ?? []).map((tc) => {
+        const toolUses = [
+          ...(toolCallsByParent.get(entry.uuid) ?? []),
+          ...(toolCallsByParent.get(entry.parentUuid) ?? []),
+        ].map((tc) => {
           const result = toolResultsByCallUuid.get(tc.uuid);
           return {
             name: tc.toolName,
@@ -587,19 +703,19 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
     };
   }
 
-  private parseJsonlLines(raw: string): Array<Record<string, unknown>> {
+  private parseJsonlLines(raw: string): SessionEntry[] {
     return raw
       .split("\n")
       .filter(Boolean)
       .map((line) => {
-        try { return JSON.parse(line) as Record<string, unknown>; }
+        try { return JSON.parse(line) as SessionEntry; }
         catch { return null; }
       })
-      .filter((e): e is Record<string, unknown> => e !== null);
+      .filter((e): e is SessionEntry => e !== null);
   }
 
-  private isReplayable(entry: Record<string, unknown>): boolean {
-    const type = entry.type as string;
+  private isReplayable(entry: SessionEntry): boolean {
+    const type = entry.type;
     return (
       type !== "session_end" &&
       type !== "last_prompt" &&
@@ -613,7 +729,7 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
     );
   }
 
-  private findLastMessageUuid(entries: Array<Record<string, unknown>>): string | undefined {
+  private findLastMessageUuid(entries: SessionEntry[]): string | undefined {
     for (let i = entries.length - 1; i >= 0; i--) {
       const entry = entries[i]!;
       if ("uuid" in entry) return entry.uuid as string;
