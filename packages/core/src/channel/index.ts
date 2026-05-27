@@ -38,3 +38,17 @@ export type {
   WebhookVerifyStrategy,
   WebhookPayloadParser,
 } from "./webhook-channel.js";
+
+export {
+  ChannelPluginRegistry,
+  PluginAlreadyRegisteredError,
+  PluginNotFoundError,
+  AdapterAlreadyLoadedError,
+  AdapterNotLoadedError,
+} from "./plugin-registry.js";
+export type {
+  ChannelPluginMeta,
+  AdapterFactory,
+  ChannelPlugin,
+  LoadedAdapter,
+} from "./plugin-registry.js";
