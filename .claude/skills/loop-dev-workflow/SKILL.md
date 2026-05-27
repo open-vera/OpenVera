@@ -166,6 +166,17 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：trigram Jaccard similarity 对短文本（< 10 字符）效果不佳，但对 memory 内容长度（通常 20+ 字符）足够
 - 测试总数：843 tests（Core 609 + Harness 234）
 
+### Phase 8 Skill Enhancement（2026-05-27，完成）
+
+- SK1-SK6: SkillAutoExtractor（从执行 trace 提取 skill 模板）、SkillAutoScorer（效果评分）、SkillRecommender（任务匹配推荐）、SkillVersionManager（版本管理 + 回滚）、SkillHotReloader（文件监视 + 去抖重载）
+- 34 tests, 1632 lines added, 4 new files
+- 经验：SK1-SK4 都是纯数据结构，不依赖文件系统，可以安全地在测试中覆盖所有分支
+- 踩坑：SkillAutoScorer 的 composite score 计算需要仔细测试 — 50% 失败率但速度快且无成本时，分数仍然较高（0.8），因为 speed 和 cost 权重各 0.3。测试需要理解权重组合
+- 经验：SkillHotReloader 使用 `fs.watch()`，在测试中不测试实际文件系统监视（避免 flaky），只测试手动 reload/unload/pin 逻辑
+- 经验：SkillVersionManager 的 rollback 操作会创建一个新版本（记录 rollback 事件），而不是删除后续版本 — 这是设计决策，确保版本历史完整
+- 经验：SkillRecommender 的 keyword overlap 使用 Jaccard similarity，对中英文混合文本需要 tokenize 为单词后再比较
+- 测试总数：877 tests（Core 609 + Harness 268）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*
