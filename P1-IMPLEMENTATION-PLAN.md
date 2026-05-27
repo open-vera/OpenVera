@@ -275,7 +275,7 @@
 - [x] **CH-TELEGRAM** Telegram Bot Channel
 - [x] **CH-DISCORD** Discord Bot Channel
 - [x] **CH-SLACK** Slack App Channel
-- [ ] **CH-WHATSAPP** WhatsApp Business API Channel
+- [x] **CH-WHATSAPP** WhatsApp Business API Channel
 
 ## Phase 17: 自适应策略系统（P3）
 
