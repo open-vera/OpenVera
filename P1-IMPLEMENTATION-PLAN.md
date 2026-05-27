@@ -104,8 +104,8 @@
 - [x] **R3** Embedding 适配器接口 — `packages/core/src/rag/embedding-adapter.ts`，统一接口
 - [x] **R4** 远程 Embedding — OpenAI/Anthropic embedding API 适配器（默认）
 - [x] **R5** 本地 Embedding — 留接口支持本地小模型（ONNX/GGML），可选插件
-- [ ] **R6** 文档加载器 — 支持 Markdown/JSON/TypeScript/文本文件批量索引
-- [ ] **R7** 检索工具 — `knowledge_search` tool，集成到 ToolRegistry
+- [x] **R6** 文档加载器 — 支持 Markdown/JSON/TypeScript/文本文件批量索引
+- [x] **R7** 检索工具 — `knowledge_search` tool，集成到 ToolRegistry
 - [ ] **R8** 增量索引 — 文件变更自动更新向量索引（基于 mtime 检测）
 - [ ] **R9** RAG 集成测试（12+ tests：索引准确性、检索质量、增量更新、embedding 切换）
 

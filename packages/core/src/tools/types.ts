@@ -78,6 +78,10 @@ export interface ToolContext {
   memoryStore?: import("../memory/store.js").MemoryStore;
   /** Optional user data store for data_save / data_load / data_list / data_delete tools. */
   userDataStore?: import("../storage/user-data.js").UserDataStore;
+  /** Optional vector store for knowledge_search tool. */
+  vectorStore?: import("../rag/types.js").VectorStore;
+  /** Optional embedding adapter for knowledge_search tool. */
+  embeddingAdapter?: import("../rag/types.js").EmbeddingAdapter;
 }
 
 // ── ToolVersion ─────────────────────────────────────────────────────────────

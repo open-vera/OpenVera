@@ -20,6 +20,8 @@ import { createMemorySearchTool } from "./memory-search.js";
 import type { MemoryStore } from "../memory/store.js";
 import { createDataSaveTool, createDataLoadTool, createDataListTool, createDataDeleteTool } from "../storage/user-data.js";
 import type { UserDataStore } from "../storage/user-data.js";
+import { createKnowledgeSearchTool } from "./knowledge-search.js";
+import type { VectorStore, EmbeddingAdapter } from "../rag/types.js";
 
 export { ToolRegistry } from "./registry.js";
 export { SecurityPlugin } from "./security.js";
@@ -30,6 +32,7 @@ export { errorResult } from "./types.js";
 export { ToolStatsCollector } from "./tool-stats.js";
 export { createMemoryWriteTool } from "./memory-write.js";
 export { createMemorySearchTool } from "./memory-search.js";
+export { createKnowledgeSearchTool } from "./knowledge-search.js";
 
 export interface CreateToolRegistryOptions {
   cwd: string;
@@ -37,6 +40,9 @@ export interface CreateToolRegistryOptions {
   sessionStore?: SessionStore;
   /** If provided, registers memory_write and memory_search tools. */
   memoryStore?: MemoryStore;
+  /** If provided, registers knowledge_search tool. */
+  vectorStore?: VectorStore;
+  embeddingAdapter?: EmbeddingAdapter;
 }
 
 export interface ToolRegistryBundle {
@@ -87,6 +93,11 @@ export function createToolRegistry(opts: CreateToolRegistryOptions): ToolRegistr
   if (opts.memoryStore) {
     registry.register(createMemoryWriteTool());
     registry.register(createMemorySearchTool());
+  }
+
+  // Register knowledge search tool (optional)
+  if (opts.vectorStore && opts.embeddingAdapter) {
+    registry.register(createKnowledgeSearchTool());
   }
 
   return { registry, security };
