@@ -30,3 +30,11 @@ export type { CliChannelConfig } from "./cli-channel.js";
 
 export { ApiChannelAdapter } from "./api-channel.js";
 export type { ApiChannelConfig } from "./api-channel.js";
+
+export { WebhookChannelAdapter } from "./webhook-channel.js";
+export type {
+  WebhookChannelConfig,
+  WebhookSignatureConfig,
+  WebhookVerifyStrategy,
+  WebhookPayloadParser,
+} from "./webhook-channel.js";
