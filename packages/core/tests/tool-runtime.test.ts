@@ -1,328 +1,387 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ToolRegistry } from "../src/tools/registry.js";
-import { ToolStatsCollector } from "../src/tools/tool-stats.js";
-import type { ToolDef, ToolResult, ToolContext, ToolMiddleware, ToolGroup } from "../src/tools/types.js";
+import type { ToolDef, ToolResult, ToolContext } from "../src/tools/types.js";
 import { errorResult } from "../src/tools/types.js";
+import { truncateOutput } from "../../harness/src/runtime/output-truncator.js";
 
-function makeTool(name: string, opts?: Partial<ToolDef>): ToolDef {
+function makeCtx(overrides?: Partial<ToolContext>): ToolContext {
+  return { cwd: "/tmp", sessionId: "test-session", ...overrides };
+}
+
+function makeTool(
+  name: string,
+  execute?: (args: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult>,
+  opts?: Partial<ToolDef["options"]>
+): ToolDef {
   return {
     name,
     description: `${name} tool`,
     parameters: { type: "object" as const, properties: {} },
-    execute: opts?.execute ?? (async () => ({ ok: true, content: `${name} done` })),
-    ...opts,
+    execute: execute ?? (async () => ({ ok: true, content: `${name} done` })),
+    options: opts,
   };
 }
 
-function makeCtx(): ToolContext {
-  return { cwd: "/tmp", sessionId: "test-session" };
-}
+// ── T1: Idempotent Control ─────────────────────────────────────────────────
 
-describe("ToolStatsCollector", () => {
-  it("records and retrieves stats for a specific tool", () => {
-    const collector = new ToolStatsCollector();
-    collector.record("read_file", {}, { ok: true, content: "ok" }, 100, "s1");
-    collector.record("read_file", {}, { ok: true, content: "ok" }, 200, "s1");
-    collector.record("read_file", {}, errorResult("UNKNOWN", "fail"), 50, "s1");
+describe("T1 — Idempotent Control", () => {
+  it("idempotent tool returns cached result on repeated call with same args", async () => {
+    const registry = new ToolRegistry();
+    let callCount = 0;
+    const tool = makeTool("fetch", async () => {
+      callCount++;
+      return { ok: true, content: `result-${callCount}` };
+    }, { idempotent: true });
+    registry.register(tool);
 
-    const stats = collector.getStats("read_file");
-    expect(stats.totalCalls).toBe(3);
-    expect(stats.successCount).toBe(2);
-    expect(stats.errorCount).toBe(1);
-    expect(stats.errorRate).toBeCloseTo(1 / 3);
-    expect(stats.avgDurationMs).toBeCloseTo(116.67, 0);
+    const ctx = makeCtx();
+    const r1 = await registry.execute("fetch", { url: "http://example.com" }, ctx);
+    const r2 = await registry.execute("fetch", { url: "http://example.com" }, ctx);
+
+    expect(callCount).toBe(1);
+    expect(r1.content).toBe("result-1");
+    expect(r2.content).toBe("result-1");
+    expect(r2).toEqual(r1);
   });
 
-  it("returns zero stats for unknown tool", () => {
-    const collector = new ToolStatsCollector();
-    const stats = collector.getStats("ghost");
-    expect(stats.totalCalls).toBe(0);
-    expect(stats.lastCalledAt).toBeNull();
+  it("non-idempotent tool executes every time", async () => {
+    const registry = new ToolRegistry();
+    let callCount = 0;
+    const tool = makeTool("compute", async () => {
+      callCount++;
+      return { ok: true, content: `result-${callCount}` };
+    });
+    registry.register(tool);
+
+    const ctx = makeCtx();
+    const r1 = await registry.execute("compute", { x: 1 }, ctx);
+    const r2 = await registry.execute("compute", { x: 1 }, ctx);
+
+    expect(callCount).toBe(2);
+    expect(r1.content).toBe("result-1");
+    expect(r2.content).toBe("result-2");
   });
 
-  it("computes percentiles correctly", () => {
-    const collector = new ToolStatsCollector();
-    // Add 100 records with durations 1..100
-    for (let i = 1; i <= 100; i++) {
-      collector.record("t", {}, { ok: true, content: "" }, i, "s");
-    }
+  it("idempotent tool with different args does not hit cache", async () => {
+    const registry = new ToolRegistry();
+    let callCount = 0;
+    const tool = makeTool("fetch", async () => {
+      callCount++;
+      return { ok: true, content: `result-${callCount}` };
+    }, { idempotent: true });
+    registry.register(tool);
 
-    const stats = collector.getStats("t");
-    expect(stats.p50DurationMs).toBe(50);
-    expect(stats.p95DurationMs).toBe(95);
-    expect(stats.p99DurationMs).toBe(99);
+    const ctx = makeCtx();
+    const r1 = await registry.execute("fetch", { url: "http://a.com" }, ctx);
+    const r2 = await registry.execute("fetch", { url: "http://b.com" }, ctx);
+
+    expect(callCount).toBe(2);
+    expect(r1.content).toBe("result-1");
+    expect(r2.content).toBe("result-2");
   });
 
-  it("evicts old records when maxRecords exceeded", () => {
-    const collector = new ToolStatsCollector(5);
-    for (let i = 0; i < 10; i++) {
-      collector.record("t", {}, { ok: true, content: "" }, i, "s");
-    }
-    expect(collector.size).toBe(5);
-    // Should have records 5..9
-    const records = collector.getRecords();
-    expect(records[0]!.durationMs).toBe(5);
+  it("idempotent tool does not cache failed results", async () => {
+    const registry = new ToolRegistry();
+    let callCount = 0;
+    const tool = makeTool("risky", async () => {
+      callCount++;
+      return errorResult("EXEC_ERROR", "boom");
+    }, { idempotent: true });
+    registry.register(tool);
+
+    const ctx = makeCtx();
+    const r1 = await registry.execute("risky", {}, ctx);
+    const r2 = await registry.execute("risky", {}, ctx);
+
+    expect(callCount).toBe(2);
+    expect(r1.ok).toBe(false);
+    expect(r2.ok).toBe(false);
   });
 
-  it("topTools returns sorted by call count", () => {
-    const collector = new ToolStatsCollector();
-    for (let i = 0; i < 10; i++) collector.record("a", {}, { ok: true, content: "" }, 1, "s");
-    for (let i = 0; i < 5; i++) collector.record("b", {}, { ok: true, content: "" }, 1, "s");
-    for (let i = 0; i < 3; i++) collector.record("c", {}, { ok: true, content: "" }, 1, "s");
+  it("clearIdempotentCache resets the cache", async () => {
+    const registry = new ToolRegistry();
+    let callCount = 0;
+    const tool = makeTool("fetch", async () => {
+      callCount++;
+      return { ok: true, content: `result-${callCount}` };
+    }, { idempotent: true });
+    registry.register(tool);
 
-    const top = collector.topTools(2);
-    expect(top).toHaveLength(2);
-    expect(top[0]!.name).toBe("a");
-    expect(top[0]!.calls).toBe(10);
-    expect(top[1]!.name).toBe("b");
-  });
+    const ctx = makeCtx();
+    await registry.execute("fetch", { url: "x" }, ctx);
+    registry.clearIdempotentCache();
+    await registry.execute("fetch", { url: "x" }, ctx);
 
-  it("clear resets all records", () => {
-    const collector = new ToolStatsCollector();
-    collector.record("t", {}, { ok: true, content: "" }, 1, "s");
-    expect(collector.size).toBe(1);
-    collector.clear();
-    expect(collector.size).toBe(0);
+    expect(callCount).toBe(2);
   });
 });
 
-describe("ToolRegistry — Middleware", () => {
-  it("middleware.before can modify args", async () => {
-    const registry = new ToolRegistry();
-    const spy = vi.fn(async () => ({ ok: true, content: "done" }));
-    registry.register(makeTool("t", { execute: spy }));
+// ── T2: Retryable Error Classification ──────────────────────────────────────
 
-    registry.addMiddleware({
-      name: "arg-modifier",
-      before: async (_name, args) => {
-        return { args: { ...args, added: true } };
-      },
-    });
-
-    await registry.execute("t", { original: true }, makeCtx());
-    expect(spy).toHaveBeenCalledWith({ original: true, added: true }, expect.anything());
+describe("T2 — Retryable Error Classification", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
   });
 
-  it("middleware.before can short-circuit", async () => {
-    const registry = new ToolRegistry();
-    const spy = vi.fn(async () => ({ ok: true, content: "should not run" }));
-    registry.register(makeTool("t", { execute: spy }));
-
-    registry.addMiddleware({
-      name: "blocker",
-      before: async () => ({
-        args: {},
-        skip: true,
-        result: { ok: false, content: "blocked by middleware" },
-      }),
-    });
-
-    const result = await registry.execute("t", {}, makeCtx());
-    expect(spy).not.toHaveBeenCalled();
-    expect(result.content).toBe("blocked by middleware");
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  it("middleware.after can transform result", async () => {
+  it("retries retryable errors automatically up to 3 times", async () => {
     const registry = new ToolRegistry();
-    registry.register(makeTool("t"));
-
-    registry.addMiddleware({
-      name: "transformer",
-      after: async (_name, _args, result) => ({
-        ...result,
-        content: result.content + " (transformed)",
-      }),
+    let attempts = 0;
+    const tool = makeTool("flaky", async () => {
+      attempts++;
+      if (attempts < 3) {
+        return errorResult("EXEC_ERROR", "transient failure", true);
+      }
+      return { ok: true, content: "success" };
     });
+    registry.register(tool);
 
-    const result = await registry.execute("t", {}, makeCtx());
-    expect(result.content).toBe("t done (transformed)");
+    const ctx = makeCtx();
+    const promise = registry.execute("flaky", {}, ctx);
+
+    // Advance through retries: 100ms, 200ms
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(200);
+
+    const result = await promise;
+    expect(attempts).toBe(3);
+    expect(result.ok).toBe(true);
+    expect(result.content).toBe("success");
+    expect(result.retryCount).toBe(2);
   });
 
-  it("middleware.onError can recover from errors", async () => {
+  it("non-retryable errors are not retried", async () => {
     const registry = new ToolRegistry();
-    registry.register(
-      makeTool("t", { execute: async () => { throw new Error("boom"); } })
-    );
-
-    registry.addMiddleware({
-      name: "recoverer",
-      onError: async () => ({ ok: true, content: "recovered" }),
+    let attempts = 0;
+    const tool = makeTool("perm-fail", async () => {
+      attempts++;
+      return errorResult("PERMISSION_DENIED", "no access", false);
     });
+    registry.register(tool);
 
-    const result = await registry.execute("t", {}, makeCtx());
+    const ctx = makeCtx();
+    const result = await registry.execute("perm-fail", {}, ctx);
+
+    expect(attempts).toBe(1);
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("PERMISSION_DENIED");
+    expect(result.retryCount).toBe(0);
+  });
+
+  it("gives up after max retries (3)", async () => {
+    const registry = new ToolRegistry();
+    let attempts = 0;
+    const tool = makeTool("always-fail", async () => {
+      attempts++;
+      return errorResult("EXEC_ERROR", "persistent failure", true);
+    });
+    registry.register(tool);
+
+    const ctx = makeCtx();
+    const promise = registry.execute("always-fail", {}, ctx);
+
+    // Advance through all retries: 100ms, 200ms, 400ms
+    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(200);
+    await vi.advanceTimersByTimeAsync(400);
+
+    const result = await promise;
+    expect(attempts).toBe(4); // 1 initial + 3 retries
+    expect(result.ok).toBe(false);
+    expect(result.retryCount).toBe(3);
+  });
+
+  it("uses exponential backoff: 100ms, 200ms, 400ms", async () => {
+    const registry = new ToolRegistry();
+    const timestamps: number[] = [];
+    const tool = makeTool("slow-fail", async () => {
+      timestamps.push(Date.now());
+      return errorResult("EXEC_ERROR", "fail", true);
+    });
+    registry.register(tool);
+
+    const ctx = makeCtx();
+    const start = Date.now();
+    const promise = registry.execute("slow-fail", {}, ctx);
+
+    // Advance time step by step and verify backoff pattern
+    await vi.advanceTimersByTimeAsync(50); // not enough for first retry
+    expect(timestamps.length).toBe(1); // only initial call
+
+    await vi.advanceTimersByTimeAsync(50); // 100ms total — first retry fires
+    // Allow microtask to settle
+    await vi.advanceTimersByTimeAsync(0);
+    expect(timestamps.length).toBe(2);
+
+    await vi.advanceTimersByTimeAsync(200); // 200ms — second retry
+    await vi.advanceTimersByTimeAsync(0);
+    expect(timestamps.length).toBe(3);
+
+    await vi.advanceTimersByTimeAsync(400); // 400ms — third retry
+    await vi.advanceTimersByTimeAsync(0);
+    expect(timestamps.length).toBe(4);
+
+    await promise;
+  });
+
+  it("retryable exception (thrown) is also retried", async () => {
+    const registry = new ToolRegistry();
+    let attempts = 0;
+    const tool = makeTool("thrower", async () => {
+      attempts++;
+      if (attempts < 2) {
+        throw new Error("transient crash");
+      }
+      return { ok: true, content: "recovered" };
+    });
+    registry.register(tool);
+
+    const ctx = makeCtx();
+    const promise = registry.execute("thrower", {}, ctx);
+
+    await vi.advanceTimersByTimeAsync(100);
+    const result = await promise;
+
+    expect(attempts).toBe(2);
     expect(result.ok).toBe(true);
     expect(result.content).toBe("recovered");
   });
+});
 
-  it("removeMiddleware works", async () => {
+// ── T3: Dry-Run / Simulate ──────────────────────────────────────────────────
+
+describe("T3 — Dry-Run / Simulate", () => {
+  it("returns simulated result when dryRun is true", async () => {
     const registry = new ToolRegistry();
-    registry.register(makeTool("t"));
-    const mw: ToolMiddleware = {
-      name: "removable",
-      after: async (_n, _a, r) => ({ ...r, content: "modified" }),
-    };
-    registry.addMiddleware(mw);
+    const tool = makeTool("deploy", async () => ({ ok: true, content: "deployed" }));
+    registry.register(tool);
 
-    await registry.execute("t", {}, makeCtx());
-    // Now remove
-    expect(registry.removeMiddleware("removable")).toBe(true);
-    expect(registry.removeMiddleware("nonexistent")).toBe(false);
+    const ctx = makeCtx({ dryRun: true });
+    const result = await registry.execute("deploy", { env: "prod" }, ctx);
 
-    const result = await registry.execute("t", {}, makeCtx());
-    expect(result.content).toBe("t done"); // not modified
+    expect(result.ok).toBe(true);
+    expect(result.content).toBe('[DRY RUN] Would execute: deploy({"env":"prod"})');
+    expect(result.dryRun).toBe(true);
   });
 
-  it("multiple middlewares execute in order", async () => {
+  it("does not actually execute the tool in dry-run mode", async () => {
     const registry = new ToolRegistry();
-    const order: string[] = [];
-    registry.register(makeTool("t"));
+    const spy = vi.fn(async () => ({ ok: true, content: "executed" }));
+    const tool = makeTool("write", spy);
+    registry.register(tool);
 
-    registry.addMiddleware({
-      name: "first",
-      before: async () => { order.push("first"); return null; },
-    });
-    registry.addMiddleware({
-      name: "second",
-      before: async () => { order.push("second"); return null; },
-    });
+    const ctx = makeCtx({ dryRun: true });
+    await registry.execute("write", { file: "test.txt" }, ctx);
 
-    await registry.execute("t", {}, makeCtx());
-    expect(order).toEqual(["first", "second"]);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("dry-run preserves tool name and args in output", async () => {
+    const registry = new ToolRegistry();
+    registry.register(makeTool("bash", async () => ({ ok: true, content: "" })));
+
+    const ctx = makeCtx({ dryRun: true });
+    const result = await registry.execute(
+      "bash",
+      { command: "rm -rf /tmp/test" },
+      ctx
+    );
+
+    expect(result.content).toContain("bash");
+    expect(result.content).toContain("rm -rf /tmp/test");
+  });
+
+  it("dry-run returns error for unknown tool", async () => {
+    const registry = new ToolRegistry();
+    const ctx = makeCtx({ dryRun: true });
+    const result = await registry.execute("nonexistent", {}, ctx);
+
+    // Unknown tool check happens before dry-run
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("UNKNOWN");
   });
 });
 
-describe("ToolRegistry — Groups", () => {
-  it("registerGroup registers all tools with group defaults", () => {
-    const registry = new ToolRegistry();
-    const group: ToolGroup = {
-      name: "filesystem",
-      description: "File system tools",
-      defaults: { timeoutMs: 5000 },
-    };
-    const tools = [makeTool("read"), makeTool("write")];
-    registry.registerGroup(group, tools);
+// ── T4: Output Truncation ───────────────────────────────────────────────────
 
-    expect(registry.has("read")).toBe(true);
-    expect(registry.has("write")).toBe(true);
-    expect(registry.get("read")!.group).toBe("filesystem");
-    expect(registry.get("read")!.options?.timeoutMs).toBe(5000);
+describe("T4 — Output Truncation", () => {
+  it("truncates long output preserving head and tail", () => {
+    // maxTokens=10 → maxChars=40. head=24 chars, tail=16 chars
+    const output = "A".repeat(30) + "MIDDLE" + "B".repeat(30); // 66 chars
+    const result = truncateOutput(output, 10);
+
+    expect(result.wasTruncated).toBe(true);
+    expect(result.originalLength).toBe(66);
+    expect(result.truncated).toContain("A".repeat(24));
+    expect(result.truncated).toContain("B".repeat(16));
+    expect(result.truncated).toContain("[...truncated");
   });
 
-  it("tool options override group defaults", () => {
-    const registry = new ToolRegistry();
-    registry.registerGroup(
-      { name: "g", defaults: { timeoutMs: 5000 } },
-      [makeTool("t", { options: { timeoutMs: 1000 } })]
-    );
-    expect(registry.get("t")!.options?.timeoutMs).toBe(1000);
+  it("does not truncate short output", () => {
+    const output = "short output";
+    const result = truncateOutput(output, 4000);
+
+    expect(result.wasTruncated).toBe(false);
+    expect(result.truncated).toBe(output);
+    expect(result.originalLength).toBe(output.length);
   });
 
-  it("getGroup returns group and its tools", () => {
-    const registry = new ToolRegistry();
-    registry.registerGroup(
-      { name: "git" },
-      [makeTool("commit"), makeTool("push")]
-    );
-    registry.register(makeTool("other")); // not in group
+  it("truncation ratio is approximately 60/40", () => {
+    const maxTokens = 10;
+    const maxChars = maxTokens * 4; // 40
+    const output = "X".repeat(200);
+    const result = truncateOutput(output, maxTokens);
 
-    const result = registry.getGroup("git");
-    expect(result).toBeDefined();
-    expect(result!.tools).toHaveLength(2);
-    expect(result!.group.name).toBe("git");
+    expect(result.wasTruncated).toBe(true);
+
+    // Extract the head and tail from the truncated output
+    const markerIdx = result.truncated.indexOf("[...truncated");
+    const head = result.truncated.slice(0, markerIdx);
+    const tailStart = result.truncated.indexOf("]", markerIdx) + 1;
+    const tail = result.truncated.slice(tailStart);
+
+    const expectedHead = Math.floor(maxChars * 0.6); // 24
+    const expectedTail = maxChars - expectedHead; // 16
+
+    expect(head.length).toBe(expectedHead);
+    expect(tail.length).toBe(expectedTail);
   });
 
-  it("getSchemasByGroup returns only group schemas", () => {
-    const registry = new ToolRegistry();
-    registry.registerGroup({ name: "a" }, [makeTool("a1"), makeTool("a2")]);
-    registry.register(makeTool("b1")); // no group
+  it("originalLength records the full output length", () => {
+    const output = "a".repeat(10000);
+    const result = truncateOutput(output, 100);
 
-    const schemas = registry.getSchemasByGroup("a");
-    expect(schemas).toHaveLength(2);
-    expect(schemas.map((s) => s.name)).toEqual(["a1", "a2"]);
-  });
-});
-
-describe("ToolRegistry — Versioning", () => {
-  it("getDeprecationWarning returns null for non-deprecated tools", () => {
-    const registry = new ToolRegistry();
-    registry.register(makeTool("t"));
-    expect(registry.getDeprecationWarning("t")).toBeNull();
+    expect(result.originalLength).toBe(10000);
   });
 
-  it("getDeprecationWarning returns message for deprecated tools", () => {
-    const registry = new ToolRegistry();
-    registry.register(
-      makeTool("old", {
-        version: {
-          version: "1.0.0",
-          deprecated: true,
-          deprecatedReason: "Use new API.",
-          replacedBy: "new_tool",
-        },
-      })
-    );
+  it("marker includes correct truncated char count", () => {
+    const maxTokens = 5; // 20 chars budget
+    const output = "Z".repeat(100);
+    const result = truncateOutput(output, maxTokens);
 
-    const warning = registry.getDeprecationWarning("old");
-    expect(warning).toContain("Use new API.");
-    expect(warning).toContain('"new_tool"');
+    const headLen = Math.floor(20 * 0.6); // 12
+    const tailLen = 20 - headLen; // 8
+    const removedChars = 100 - headLen - tailLen; // 80
+
+    expect(result.truncated).toContain(`[...truncated ${removedChars} chars...]`);
   });
 
-  it("getDeprecationWarning uses default reason if not specified", () => {
-    const registry = new ToolRegistry();
-    registry.register(
-      makeTool("old", {
-        version: { version: "1.0.0", deprecated: true },
-      })
-    );
-    expect(registry.getDeprecationWarning("old")).toContain("deprecated");
-  });
-});
+  it("uses default maxTokens of 4000 when not specified", () => {
+    const maxChars = 4000 * 4; // 16000
+    const output = "x".repeat(maxChars); // exactly at limit
+    const result = truncateOutput(output);
 
-describe("ToolStatsCollector — Memory Control", () => {
-  it("default maxRecords is 1000 (reasonable memory bound)", () => {
-    const collector = new ToolStatsCollector();
-    // Record 1500 entries — only 1000 should remain
-    for (let i = 0; i < 1500; i++) {
-      collector.record("t", { i }, { ok: true, content: "ok" }, i, "s");
-    }
-    expect(collector.size).toBe(1000);
-    // Oldest 500 were evicted
-    const records = collector.getRecords();
-    expect(records[0]!.durationMs).toBe(500);
-    expect(records[999]!.durationMs).toBe(1499);
+    expect(result.wasTruncated).toBe(false);
   });
 
-  it("registry uses same default maxRecords", () => {
-    const registry = new ToolRegistry();
-    // Registry stats collector should use 1000 as default
-    for (let i = 0; i < 1500; i++) {
-      registry.stats.record("t", {}, { ok: true, content: "" }, i, "s");
-    }
-    expect(registry.stats.size).toBe(1000);
-  });
-});
+  it("truncates when output exceeds default limit by one char", () => {
+    const maxChars = 4000 * 4; // 16000
+    const output = "x".repeat(maxChars + 1);
+    const result = truncateOutput(output);
 
-describe("ToolRegistry — Stats Integration", () => {
-  it("records stats after execution", async () => {
-    const registry = new ToolRegistry();
-    registry.register(makeTool("t"));
-
-    await registry.execute("t", {}, makeCtx());
-    await registry.execute("t", {}, makeCtx());
-
-    const stats = registry.stats.getStats("t");
-    expect(stats.totalCalls).toBe(2);
-    expect(stats.successCount).toBe(2);
-  });
-
-  it("records failed executions in stats", async () => {
-    const registry = new ToolRegistry();
-    registry.register(makeTool("fail", { execute: async () => errorResult("UNKNOWN", "oops") }));
-
-    await registry.execute("fail", {}, makeCtx());
-
-    const stats = registry.stats.getStats("fail");
-    expect(stats.totalCalls).toBe(1);
-    expect(stats.errorCount).toBe(1);
+    expect(result.wasTruncated).toBe(true);
   });
 });

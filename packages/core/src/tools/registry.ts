@@ -19,6 +19,8 @@ export class ToolRegistry {
   private middlewares: ToolMiddleware[] = [];
   private groups = new Map<string, ToolGroup>();
   private readonly statsCollector: ToolStatsCollector;
+  /** Idempotent result cache: callKey → cached result. Session-scoped. */
+  private idempotentCache = new Map<string, ToolResult>();
 
   constructor(opts?: { statsMaxRecords?: number }) {
     this.statsCollector = new ToolStatsCollector(opts?.statsMaxRecords ?? 1_000);
@@ -124,6 +126,15 @@ export class ToolRegistry {
       return errorResult("UNKNOWN", `Tool not found: ${name}`);
     }
 
+    // T3: Dry-run — return simulated result without executing
+    if (ctx.dryRun) {
+      return {
+        ok: true,
+        content: `[DRY RUN] Would execute: ${name}(${JSON.stringify(args)})`,
+        dryRun: true,
+      };
+    }
+
     // Deprecation warning (non-blocking)
     const depWarning = this.getDeprecationWarning(name);
     if (depWarning) {
@@ -162,6 +173,16 @@ export class ToolRegistry {
       }
     }
 
+    // T1: Idempotent cache — check after middleware (args may have been mutated)
+    const isIdempotent = toolDef.options?.idempotent === true;
+    if (isIdempotent && !skipped) {
+      const callKey = `${name}:${JSON.stringify(currentArgs)}`;
+      const cached = this.idempotentCache.get(callKey);
+      if (cached) {
+        return cached;
+      }
+    }
+
     // Execute with timeout + stats
     const startMs = Date.now();
     let result: ToolResult;
@@ -169,28 +190,62 @@ export class ToolRegistry {
     if (skipped && skipResult) {
       result = skipResult;
     } else {
-      try {
-        result = await executeWithTimeout(
-          () => toolDef.execute(currentArgs as never, ctx),
-          toolDef.options?.timeoutMs ?? 30_000
-        );
-      } catch (err) {
-        const error = err instanceof Error ? err : new Error(String(err));
+      // T2: Retry logic for retryable errors
+      const maxRetries = 3;
+      let lastResult: ToolResult | undefined;
 
-        // Middleware — onError phase
-        for (const mw of this.middlewares) {
-          if (!mw.onError) continue;
-          const recovered = await mw.onError(name, currentArgs, error, ctx);
-          if (recovered) {
-            result = recovered;
-            error.message = ""; // Mark as handled
-            break;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          lastResult = await executeWithTimeout(
+            () => toolDef.execute(currentArgs as never, ctx),
+            toolDef.options?.timeoutMs ?? 30_000
+          );
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+
+          // Middleware — onError phase (only on final attempt)
+          if (attempt >= maxRetries) {
+            for (const mw of this.middlewares) {
+              if (!mw.onError) continue;
+              const recovered = await mw.onError(name, currentArgs, error, ctx);
+              if (recovered) {
+                lastResult = recovered;
+                error.message = ""; // Mark as handled
+                break;
+              }
+            }
+            if (!lastResult!) {
+              lastResult = errorResult("UNKNOWN", error.message, true);
+            }
+          } else {
+            // Retryable exception — wait with exponential backoff
+            lastResult = errorResult("UNKNOWN", error.message, true);
+            lastResult.retryCount = attempt + 1;
+            await sleep(100 * Math.pow(2, attempt));
+            continue;
           }
         }
-        if (!result!) {
-          result = errorResult("UNKNOWN", error.message, true);
+
+        // Check if result is retryable
+        if (
+          lastResult &&
+          !lastResult.ok &&
+          lastResult.error?.retryable &&
+          attempt < maxRetries
+        ) {
+          lastResult.retryCount = attempt + 1;
+          await sleep(100 * Math.pow(2, attempt));
+          continue;
         }
+
+        // Success or non-retryable — break
+        if (lastResult) {
+          lastResult.retryCount = attempt;
+        }
+        break;
       }
+
+      result = lastResult!;
     }
 
     const durationMs = Date.now() - startMs;
@@ -207,9 +262,24 @@ export class ToolRegistry {
       await hook.onAfterToolCall(name, currentArgs, result, ctx);
     }
 
+    // T1: Cache result for idempotent tools
+    if (isIdempotent && !skipped && result.ok) {
+      const callKey = `${name}:${JSON.stringify(currentArgs)}`;
+      this.idempotentCache.set(callKey, result);
+    }
+
     // Record stats (fire-and-forget)
     this.statsCollector.record(name, currentArgs, result, durationMs, ctx.sessionId);
 
     return result;
   }
+
+  /** Clear the idempotent result cache (e.g., on session reset). */
+  clearIdempotentCache(): void {
+    this.idempotentCache.clear();
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }

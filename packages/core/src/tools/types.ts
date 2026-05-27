@@ -45,6 +45,8 @@ export interface ToolResult {
     message: string;
     retryable: boolean;
   };
+  /** Number of automatic retries performed before this result was produced. */
+  retryCount?: number;
   /**
    * When present, the tool execution was blocked and is awaiting user confirmation.
    * The REPL layer should prompt the user, then call allowPath() on the SecurityPlugin
@@ -58,6 +60,8 @@ export interface ToolResult {
     /** Original tool name + args, so the caller can retry identically. */
     retry: { name: string; args: Record<string, unknown> };
   };
+  /** Present when the execution was a dry-run simulation. */
+  dryRun?: boolean;
 }
 
 // ── ToolContext ───────────────────────────────────────────────────────────────
