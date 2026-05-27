@@ -19,3 +19,5 @@ export {
 
 export { CubeSandboxProvider, createCubeSandboxProvider } from "./cubesandbox.js";
 export type { CubeSandboxOptions } from "./cubesandbox.js";
+
+export { DockerSandboxProvider } from "./docker.js";
