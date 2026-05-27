@@ -36,3 +36,6 @@ export type {
   ImportResult,
   TrainedSkillVersion,
 } from "./skill-importer.js";
+
+export { TrainingMonitor } from "./webui/training-monitor.js";
+export type { MonitorConfig, MonitorState } from "./webui/training-monitor.js";
