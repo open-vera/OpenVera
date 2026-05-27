@@ -82,6 +82,10 @@ export interface ToolContext {
   vectorStore?: import("../rag/types.js").VectorStore;
   /** Optional embedding adapter for knowledge_search tool. */
   embeddingAdapter?: import("../rag/types.js").EmbeddingAdapter;
+  /** Optional LLM adapter for visual_analyze and other AI-powered tools. */
+  llmAdapter?: import("../adapters/base.js").LLMAdapter;
+  /** Default model for LLM calls within tools (e.g., vision model). */
+  defaultModel?: string;
 }
 
 // ── ToolVersion ─────────────────────────────────────────────────────────────

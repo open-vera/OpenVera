@@ -20,6 +20,8 @@ import { desktopScreenshotTool } from "./desktop-screenshot.js";
 import { desktopInputTool } from "./desktop-input.js";
 import { desktopScriptTool } from "./desktop-script.js";
 import { desktopAccessibilityTool } from "./desktop-accessibility.js";
+import { computerUseTool } from "./computer-use.js";
+import { createVisualAnalyzeTool } from "./visual-analyze.js";
 import { createMemoryWriteTool } from "./memory-write.js";
 import { createMemorySearchTool } from "./memory-search.js";
 import type { MemoryStore } from "../memory/store.js";
@@ -43,6 +45,9 @@ export { desktopScreenshotTool } from "./desktop-screenshot.js";
 export { desktopInputTool } from "./desktop-input.js";
 export { desktopScriptTool } from "./desktop-script.js";
 export { desktopAccessibilityTool } from "./desktop-accessibility.js";
+export { computerUseTool } from "./computer-use.js";
+export { createVisualAnalyzeTool } from "./visual-analyze.js";
+import type { LLMAdapter } from "../adapters/base.js";
 
 export interface CreateToolRegistryOptions {
   cwd: string;
@@ -53,6 +58,10 @@ export interface CreateToolRegistryOptions {
   /** If provided, registers knowledge_search tool. */
   vectorStore?: VectorStore;
   embeddingAdapter?: EmbeddingAdapter;
+  /** If provided, registers visual_analyze tool. */
+  llmAdapter?: LLMAdapter;
+  /** Default model for LLM calls within tools. */
+  defaultModel?: string;
 }
 
 export interface ToolRegistryBundle {
@@ -89,6 +98,7 @@ export function createToolRegistry(opts: CreateToolRegistryOptions): ToolRegistr
   registry.register(desktopInputTool);
   registry.register(desktopScriptTool);
   registry.register(desktopAccessibilityTool);
+  registry.register(computerUseTool);
 
   // Register SecurityPlugin (runs first — short-circuits on denial)
   const permissionRules = loadPermissionRules(opts.cwd);
@@ -113,6 +123,11 @@ export function createToolRegistry(opts: CreateToolRegistryOptions): ToolRegistr
   // Register knowledge search tool (optional)
   if (opts.vectorStore && opts.embeddingAdapter) {
     registry.register(createKnowledgeSearchTool());
+  }
+
+  // Register visual analyze tool (optional)
+  if (opts.llmAdapter) {
+    registry.register(createVisualAnalyzeTool(opts.llmAdapter, opts.defaultModel));
   }
 
   return { registry, security };

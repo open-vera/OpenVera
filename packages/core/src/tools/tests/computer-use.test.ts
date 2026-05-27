@@ -16,13 +16,16 @@ const mockScriptResult: ToolResult = { ok: true, content: "script output" };
 const mockAccessibilityResult: ToolResult = { ok: true, content: "accessibility data" };
 const mockBashResult: ToolResult = { ok: true, content: "command output" };
 
-const { mockBrowserExecute, mockScreenshotExecute, mockInputExecute, mockScriptExecute, mockAccessibilityExecute, mockBashExecute } = vi.hoisted(() => ({
+const mockVisualAnalyzeResult: ToolResult = { ok: true, content: "## Description\nA browser page.\n\n## Suggested Actions\n1. Click login" };
+
+const { mockBrowserExecute, mockScreenshotExecute, mockInputExecute, mockScriptExecute, mockAccessibilityExecute, mockBashExecute, mockVisualAnalyzeExecute } = vi.hoisted(() => ({
   mockBrowserExecute: vi.fn().mockResolvedValue({ ok: true, content: "browser: navigated" }),
   mockScreenshotExecute: vi.fn().mockResolvedValue({ ok: true, content: "screenshot saved" }),
   mockInputExecute: vi.fn().mockResolvedValue({ ok: true, content: "clicked at (100, 200)" }),
   mockScriptExecute: vi.fn().mockResolvedValue({ ok: true, content: "script output" }),
   mockAccessibilityExecute: vi.fn().mockResolvedValue({ ok: true, content: "accessibility data" }),
   mockBashExecute: vi.fn().mockResolvedValue({ ok: true, content: "command output" }),
+  mockVisualAnalyzeExecute: vi.fn().mockResolvedValue({ ok: true, content: "## Description\nA browser page.\n\n## Suggested Actions\n1. Click login" }),
 }));
 
 vi.mock("../browser.js", () => ({
@@ -50,6 +53,17 @@ vi.mock("../bash.js", () => ({
   bashTool: { execute: mockBashExecute },
 }));
 
+vi.mock("../visual-analyze.js", () => {
+  return {
+    createVisualAnalyzeTool: vi.fn((_adapter?: unknown, _model?: string) => ({
+      name: "visual_analyze",
+      description: "mock visual analyze",
+      parameters: { type: "object", properties: {} },
+      execute: mockVisualAnalyzeExecute,
+    })),
+  };
+});
+
 // ── Import after mock ─────────────────────────────────────────────────────────
 
 import { computerUseTool } from "../computer-use.js";
@@ -73,6 +87,7 @@ describe("CU10: computer_use meta-tool", () => {
     mockScriptExecute.mockResolvedValue(mockScriptResult);
     mockAccessibilityExecute.mockResolvedValue(mockAccessibilityResult);
     mockBashExecute.mockResolvedValue(mockBashResult);
+    mockVisualAnalyzeExecute.mockResolvedValue(mockVisualAnalyzeResult);
   });
 
   // ── Tool registration ───────────────────────────────────────────────────────
@@ -527,5 +542,72 @@ describe("CU10: computer_use meta-tool", () => {
       expect.objectContaining({ action: "evaluate", expression: "document.title" }),
       mockCtx
     );
+  });
+
+  // ── Visual analyze integration (CU11) ────────────────────────────────────
+
+  it("should decompose 'screenshot and analyze' with URL into navigate + screenshot + visual_analyze", async () => {
+    const mockAdapter = { complete: vi.fn(), stream: vi.fn() };
+    const ctxWithLLM: ToolContext = { ...mockCtx, llmAdapter: mockAdapter };
+
+    const result = await computerUseTool.execute(
+      { task: "navigate to https://example.com and analyze the screenshot", screenshotPath: "/tmp/s.png" },
+      ctxWithLLM
+    );
+
+    expect(result.ok).toBe(true);
+    // navigate + screenshot + visual_analyze
+    expect(mockBrowserExecute).toHaveBeenCalledTimes(2);
+    expect(mockVisualAnalyzeExecute).toHaveBeenCalledOnce();
+    expect(mockVisualAnalyzeExecute).toHaveBeenCalledWith(
+      expect.objectContaining({ imagePath: "/tmp/s.png" }),
+      ctxWithLLM
+    );
+  });
+
+  it("should decompose desktop 'screenshot and analyze' into screenshot + visual_analyze", async () => {
+    const mockAdapter = { complete: vi.fn(), stream: vi.fn() };
+    const ctxWithLLM: ToolContext = { ...mockCtx, llmAdapter: mockAdapter };
+
+    const result = await computerUseTool.execute(
+      { task: "take a screenshot and analyze it", environment: "desktop", screenshotPath: "/tmp/d.png" },
+      ctxWithLLM
+    );
+
+    expect(result.ok).toBe(true);
+    expect(mockScreenshotExecute).toHaveBeenCalledOnce();
+    expect(mockVisualAnalyzeExecute).toHaveBeenCalledOnce();
+    expect(mockVisualAnalyzeExecute).toHaveBeenCalledWith(
+      expect.objectContaining({ imagePath: "/tmp/d.png" }),
+      ctxWithLLM
+    );
+  });
+
+  it("should return error when visual_analyze needs llmAdapter but none provided", async () => {
+    const result = await computerUseTool.execute(
+      { task: "navigate to https://example.com and analyze the screenshot" },
+      mockCtx // no llmAdapter
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.content).toContain("LLM adapter not available");
+  });
+
+  it("should stop composite task if visual_analyze fails", async () => {
+    const mockAdapter = { complete: vi.fn(), stream: vi.fn() };
+    const ctxWithLLM: ToolContext = { ...mockCtx, llmAdapter: mockAdapter };
+    mockVisualAnalyzeExecute.mockResolvedValueOnce({
+      ok: false,
+      content: "analysis failed",
+      error: { code: "EXEC_ERROR", message: "analysis failed", retryable: false },
+    });
+
+    const result = await computerUseTool.execute(
+      { task: "take a screenshot and analyze it", environment: "desktop" },
+      ctxWithLLM
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.content).toContain("✗");
   });
 });
