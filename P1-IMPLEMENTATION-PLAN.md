@@ -94,7 +94,7 @@
 - [x] **SQ5** 记忆存储 — semantic/episodic memory 存入 SQLite，支持全文搜索（FTS5）
 - [x] **SQ6** 用户数据存储 — 用户可通过 `data_save` / `data_load` 工具存取任意结构化数据
 - [x] **SQ7** 查询接口 — 按时间/类型/关键词/关联查询历史数据
-- [ ] **SQ8** 数据导出 — 支持导出为 JSONL/CSV/JSON
+- [x] **SQ8** 数据导出 — 支持导出为 JSONL/CSV/JSON
 - [ ] **SQ9** SQLite 集成测试（12+ tests：CRUD、并发、迁移、查询性能、用户数据存取）
 
 ## Phase 10: RAG 知识库能力
