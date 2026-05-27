@@ -87,9 +87,9 @@
 
 ## Phase 9: 本地存储系统（SQLite + 文件）
 
-- [ ] **SQ1** 存储抽象层 — `packages/core/src/storage/types.ts`，定义 `StorageProvider` 接口
-- [ ] **SQ2** SQLite 适配器 — `packages/core/src/storage/sqlite.ts`，封装 better-sqlite3
-- [ ] **SQ3** 文件存储适配器 — `packages/core/src/storage/file-store.ts`，简易 key-value 文件存储
+- [x] **SQ1** 存储抽象层 — `packages/core/src/storage/types.ts`，定义 `StorageProvider` 接口
+- [x] **SQ2** SQLite 适配器 — `packages/core/src/storage/sqlite.ts`，封装 better-sqlite3
+- [x] **SQ3** 文件存储适配器 — `packages/core/src/storage/file-store.ts`，简易 key-value 文件存储
 - [ ] **SQ4** Session 存储迁移 — 从 JSONL 迁移到 SQLite（保留 JSONL 兼容层）
 - [ ] **SQ5** 记忆存储 — semantic/episodic memory 存入 SQLite，支持全文搜索（FTS5）
 - [ ] **SQ6** 用户数据存储 — 用户可通过 `data_save` / `data_load` 工具存取任意结构化数据
