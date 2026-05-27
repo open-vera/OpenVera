@@ -5,6 +5,9 @@ import { handleGetArtifact } from "./handlers/artifacts.js";
 import { handleStream } from "./handlers/stream.js";
 import { handleListFlows } from "./handlers/flows.js";
 import { handleSpawnRun } from "./handlers/spawn.js";
+import { handleGetRunMemory } from "./handlers/memory.js";
+import { handleGetRunCheckpoints, handleGetRunCheckpoint } from "./handlers/checkpoints.js";
+import { handleGetRunSubagents } from "./handlers/subagents.js";
 import { cors, notFound, internalError } from "./http.js";
 import type { ServerContext } from "./types.js";
 
@@ -16,7 +19,11 @@ type Route =
   | { handler: "get_artifact"; runId: string; artifactId: string }
   | { handler: "stream"; runId: string }
   | { handler: "list_flows" }
-  | { handler: "spawn_run" };
+  | { handler: "spawn_run" }
+  | { handler: "get_run_memory"; runId: string }
+  | { handler: "get_run_checkpoints"; runId: string }
+  | { handler: "get_run_checkpoint"; runId: string; checkpointId: string }
+  | { handler: "get_run_subagents"; runId: string };
 
 function matchRoute(pathname: string): Route | null {
   if (pathname === "/api/runs") return { handler: "list_runs" };
@@ -40,6 +47,21 @@ function matchRoute(pathname: string): Route | null {
   );
   if (artifact)
     return { handler: "get_artifact", runId: artifact[1]!, artifactId: artifact[2]! };
+
+  // Memory routes
+  const memory = pathname.match(/^\/api\/runs\/(iter-[^/]+)\/memory$/);
+  if (memory) return { handler: "get_run_memory", runId: memory[1]! };
+
+  // Checkpoint routes
+  const checkpoints = pathname.match(/^\/api\/runs\/(iter-[^/]+)\/checkpoints$/);
+  if (checkpoints) return { handler: "get_run_checkpoints", runId: checkpoints[1]! };
+
+  const checkpoint = pathname.match(/^\/api\/runs\/(iter-[^/]+)\/checkpoints\/([^/]+)$/);
+  if (checkpoint) return { handler: "get_run_checkpoint", runId: checkpoint[1]!, checkpointId: checkpoint[2]! };
+
+  // Subagent routes
+  const subagents = pathname.match(/^\/api\/runs\/(iter-[^/]+)\/subagents$/);
+  if (subagents) return { handler: "get_run_subagents", runId: subagents[1]! };
 
   return null;
 }
@@ -103,6 +125,18 @@ export async function handleRequest(
         break;
       case "spawn_run":
         await handleSpawnRun(ctx, req, res);
+        break;
+      case "get_run_memory":
+        await handleGetRunMemory(ctx, route.runId, res);
+        break;
+      case "get_run_checkpoints":
+        await handleGetRunCheckpoints(ctx, route.runId, res);
+        break;
+      case "get_run_checkpoint":
+        await handleGetRunCheckpoint(ctx, route.runId, route.checkpointId, res);
+        break;
+      case "get_run_subagents":
+        await handleGetRunSubagents(ctx, route.runId, res);
         break;
     }
   } catch (err) {

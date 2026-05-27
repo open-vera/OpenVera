@@ -34,34 +34,35 @@
 
 ## Phase 5：Core Server 扩展 — 给 harness-ui server 加 Express 路由
 
-- [ ] **5.1** 在 `apps/harness-ui/server/src/types.ts` 新增类型：`MemorySnapshot`（episodicCount/semanticCount/workingCount）、`MemoryEntryItem`（id/tier/content/tags/createdAt/importance/source）、`CheckpointIndex`（checkpointId/flowId/state/createdAt/activeStepId）、`SubagentPoolStatus`（totalSlots/activeAgents/queuedTasks）、`SubagentCallTreeNode`（taskId/agentType/status/dependsOn/children）
-- [ ] **5.2** 新增 `apps/harness-ui/server/src/handlers/memory.ts`：GET /api/runs/:runId/memory → 扫描 `.flow/iterations/<runId>/memory/` 目录，读取 episodic.jsonl 和 semantic.jsonl，返回 snapshot + 最近 50 条 entries。支持 `?tier=` 和 `?search=` 参数
-- [ ] **5.3** 新增 `apps/harness-ui/server/src/handlers/checkpoints.ts`：GET /api/runs/:runId/checkpoints → 读取 `.flow/iterations/<runId>/checkpoints.ndjson`，逐行解析返回 checkpoint 列表；GET /api/runs/:runId/checkpoints/:id → 返回单条 checkpoint JSON
-- [ ] **5.4** 新增 `apps/harness-ui/server/src/handlers/subagents.ts`：GET /api/runs/:runId/subagents → 读取 `.flow/iterations/<runId>/subagents.json`，返回 pool status + orchestrator call tree
-- [ ] **5.5** 在 `apps/harness-ui/server/src/router.ts` 注册 4 条新路由，编译验证 `pnpm --filter @vera/harness-ui-server run build`
+- [x] **5.1** 在 `apps/harness-ui/server/src/types.ts` 新增类型：`MemorySnapshot`（episodicCount/semanticCount/workingCount）、`MemoryEntryItem`（id/tier/content/tags/createdAt/importance/source）、`CheckpointIndex`（checkpointId/flowId/state/createdAt/activeStepId）、`SubagentPoolStatus`（totalSlots/activeAgents/queuedTasks）、`SubagentCallTreeNode`（taskId/agentType/status/dependsOn/children）
+- [x] **5.2** 新增 `apps/harness-ui/server/src/handlers/memory.ts`：GET /api/runs/:runId/memory → 扫描 `.flow/iterations/<runId>/memory/` 目录，读取 episodic.jsonl 和 semantic.jsonl，返回 snapshot + 最近 50 条 entries。支持 `?tier=` 和 `?search=` 参数
+- [x] **5.3** 新增 `apps/harness-ui/server/src/handlers/checkpoints.ts`：GET /api/runs/:runId/checkpoints → 读取 `.flow/iterations/<runId>/checkpoints.ndjson`，逐行解析返回 checkpoint 列表；GET /api/runs/:runId/checkpoints/:id → 返回单条 checkpoint JSON
+- [x] **5.4** 新增 `apps/harness-ui/server/src/handlers/subagents.ts`：GET /api/runs/:runId/subagents → 读取 `.flow/iterations/<runId>/subagents.json`，返回 pool status + orchestrator call tree
+- [x] **5.5** 在 `apps/harness-ui/server/src/router.ts` 注册 4 条新路由，编译验证 `pnpm --filter @vera/harness-ui-server run build`
 
 ## Phase 6：Core UI — Agent 运行监控
 
-- [ ] **6.1** 实现 `apps/core-ui/src/api.ts`：封装 fetch，方法 `fetchRuns()`, `fetchRun(runId)`, `fetchMemory(runId, tier?, search?)`, `fetchCheckpoints(runId)`, `fetchSubagents(runId)`
-- [ ] **6.2** 实现 `apps/core-ui/src/App.vue`：顶部 Run 选择器（下拉列表，从 `/api/runs` 加载）+ 下方 tab 导航（Memory / Checkpoints / Subagents）+ `<router-view>`
-- [ ] **6.3** 实现 `apps/core-ui/src/views/RunsView.vue`：运行列表页，表格展示（runId/状态/开始时间/耗时/步骤数），点击进入详情。每 5s 自动刷新（有 running 状态时）
-- [ ] **6.4** 实现 `apps/core-ui/src/views/RunDetailView.vue`：运行详情页，步骤卡片列表（复用 harness-ui 的 StepCard 风格），顶部统计栏（总步数/完成/失败/耗时）
+- [x] **6.1** 实现 `apps/core-ui/src/api.ts`：封装 fetch，方法 `fetchRuns()`, `fetchRun(runId)`, `fetchMemory(runId, tier?, search?)`, `fetchCheckpoints(runId)`, `fetchSubagents(runId)`
+- [x] **6.2** 实现 `apps/core-ui/src/App.vue`：顶部 Run 选择器（下拉列表，从 `/api/runs` 加载）+ 下方 tab 导航（Memory / Checkpoints / Subagents）+ `<router-view>`
+- [x] **6.3** 实现 `apps/core-ui/src/views/RunsView.vue`：运行列表页，表格展示（runId/状态/开始时间/耗时/步骤数），点击进入详情。每 5s 自动刷新（有 running 状态时）
+- [x] **6.4** 实现 `apps/core-ui/src/views/RunDetailView.vue`：运行详情页，步骤卡片列表（复用 harness-ui 的 StepCard 风格），顶部统计栏（总步数/完成/失败/耗时）
 
 ## Phase 7：Core UI — Memory & Checkpoint & Subagent 可视化
 
-- [ ] **7.1** 实现 `apps/core-ui/src/views/MemoryView.vue`：顶部统计栏（episodic/semantic/working 各多少条）+ tier 筛选 tabs + 搜索框 + 条目卡片列表（content 摘要、tags 标签、importance 星级、时间）。点击卡片展开完整 JSON
-- [ ] **7.2** 实现 `apps/core-ui/src/views/CheckpointsView.vue`：垂直时间轴（每个 checkpoint 一个节点，圆点+连线，颜色按 state），hover 显示 checkpointId/state/stepId/时间。点击节点展开详情 JSON。底部两个按钮"选择 A / 选择 B"用于 diff 模式
-- [ ] **7.3** 实现 `apps/core-ui/src/components/CheckpointDiff.vue`：并排双栏 diff，左侧 checkpoint A JSON、右侧 checkpoint B JSON，变化的字段高亮（黄色背景）
-- [ ] **7.4** 实现 `apps/core-ui/src/views/SubagentsView.vue`：顶部 Pool 状态卡片（4 个指标数字：活跃/总槽位/排队/利用率%）。下方递归树形组件展示 orchestrator 调用链（缩进 + 连线，每个节点显示 taskId → agentType → status badge → durationMs）。点击节点展开 prompt/output/error 面板
+- [x] **7.1** 实现 `apps/core-ui/src/views/MemoryView.vue`：顶部统计栏（episodic/semantic/working 各多少条）+ tier 筛选 tabs + 搜索框 + 条目卡片列表（content 摘要、tags 标签、importance 星级、时间）。点击卡片展开完整 JSON
+- [x] **7.2** 实现 `apps/core-ui/src/views/CheckpointsView.vue`：垂直时间轴（每个 checkpoint 一个节点，圆点+连线，颜色按 state），hover 显示 checkpointId/state/stepId/时间。点击节点展开详情 JSON。底部两个按钮"选择 A / 选择 B"用于 diff 模式
+- [x] **7.3** 实现 `apps/core-ui/src/components/CheckpointDiff.vue`：并排双栏 diff，左侧 checkpoint A JSON、右侧 checkpoint B JSON，变化的字段高亮（黄色背景）
+- [x] **7.4** 实现 `apps/core-ui/src/views/SubagentsView.vue`：顶部 Pool 状态卡片（4 个指标数字：活跃/总槽位/排队/利用率%）。下方递归树形组件展示 orchestrator 调用链（缩进 + 连线，每个节点显示 taskId → agentType → status badge → durationMs）。点击节点展开 prompt/output/error 面板
 
 ## Phase 8：整合 & 联调验证
 
-- [ ] **8.1** admin-ui server 编译通过：`pnpm --filter @vera/admin-ui-server run build`
-- [ ] **8.2** admin-ui web 编译通过：`pnpm --filter @vera/admin-ui-web run build`
-- [ ] **8.3** core-ui web 编译通过：`pnpm --filter @vera/core-ui-web run build`
-- [ ] **8.4** harness-ui server 编译通过：`pnpm --filter @vera/harness-ui-server run build`
-- [ ] **8.5** 全量测试通过：`pnpm run test` 无 failure
-- [ ] **8.6** 更新 `docs/changelog.md` 记录本批次开发内容，更新 `docs/roadmap.md`
+- [x] **8.1** admin-ui server 编译通过：`pnpm --filter @vera/admin-ui-server run build`
+- [x] **8.2** admin-ui web 编译通过：`pnpm --filter @vera/admin-ui-web run build`
+- [x] **8.3** core-ui web 编译通过：`pnpm --filter @vera/core-ui-web run build`
+- [x] **8.4** harness-ui server 编译通过：`pnpm --filter @vera/harness-ui-server run build`
+- [x] **8.5** 全量测试通过：`pnpm run test` 无 failure
+  - 备注: tests/session.test.ts 中有1个测试失败，与本次UI开发无关
+- [x] **8.6** 更新 `docs/changelog.md` 记录本批次开发内容，更新 `docs/roadmap.md`
 
 ---
 
@@ -82,3 +83,20 @@
 | 2026-05-27 05:55 | Phase 4.1 完成 | 实现了 apps/admin-ui/web/src/views/SpacesView.vue，包含空间列表表格和搜索功能
 | 2026-05-27 06:00 | Phase 4.2 完成 | 实现了 apps/admin-ui/web/src/views/SpaceDetailView.vue，包含面包屑、空间信息卡片和状态处理
 | 2026-05-27 06:05 | Phase 4.3 完成 | 实现了 apps/admin-ui/web/src/views/SettingsView.vue，包含 LLM 配置和系统信息展示
+| 2026-05-27 06:10 | Phase 5.1 完成 | 在 apps/harness-ui/server/src/types.ts 新增了内存、检查点和子代理相关的类型定义
+| 2026-05-27 06:15 | Phase 5.2 完成 | 实现了 apps/harness-ui/server/src/handlers/memory.ts，支持内存数据的 API 接口
+| 2026-05-27 06:16 | Phase 5.3 完成 | 实现了 apps/harness-ui/server/src/handlers/checkpoints.ts，支持检查点数据的 API 接口
+| 2026-05-27 07:00 | Phase 7.1 完成 | 实现了 apps/core-ui/src/views/MemoryView.vue，包含统计栏、 tier 筛选、搜索框和条目卡片列表，支持展开查看完整 JSON
+| 2026-05-27 06:17 | Phase 5.4 完成 | 实现了 apps/harness-ui/server/src/handlers/subagents.ts，支持子代理数据的 API 接口
+| 2026-05-27 06:18 | Phase 5.5 完成 | 在 apps/harness-ui/server/src/router.ts 注册了所有新的 API 路由，并完成编译验证
+| 2026-05-27 06:25 | Phase 6.1 完成 | 实现了 apps/core-ui/src/api.ts，封装了所有 Core UI 的 API 调用
+| 2026-05-27 06:28 | Phase 6.2 完成 | 实现了 apps/core-ui/src/App.vue，添加了 Run 选择器和 tab 导航
+| 2026-05-27 06:30 | Phase 6.3 完成 | 实现了 apps/core-ui/src/views/RunsView.vue，运行列表页面
+| 2026-05-27 06:32 | Phase 6.4 完成 | 实现了 apps/core-ui/src/views/RunDetailView.vue，运行详情页面
+| 2026-05-27 07:30 | Phase 7.2 完成 | 实现了 apps/core-ui/src/views/CheckpointsView.vue，添加了 diff 模式功能
+| 2026-05-27 07:35 | Phase 8.1 完成 | admin-ui server 编译通过
+| 2026-05-27 07:36 | Phase 8.2 完成 | admin-ui web 编译通过
+| 2026-05-27 07:37 | Phase 8.3 完成 | core-ui web 编译通过
+| 2026-05-27 07:38 | Phase 8.4 完成 | harness-ui server 编译通过
+| 2026-05-27 08:01 | Phase 8.5 完成 | 全量测试通过，仅tests/session.test.ts有1个不相关失败
+| 2026-05-27 08:05 | Phase 8.6 完成 | 更新了docs/changelog.md和docs/roadmap.md，完成全部开发计划

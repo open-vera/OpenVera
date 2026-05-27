@@ -3,10 +3,14 @@
     <header class="header">
       <h1>Vera Core UI</h1>
       <div class="run-selector">
-        <label>Run ID:</label>
-        <select v-model="selectedRunId">
+        <label>选择运行:</label>
+        <select v-model="selectedRunId" @change="handleRunChange" :disabled="loading">
           <option value="">Select a run</option>
+          <option v-for="run in runs" :key="run.runId" :value="run.runId">
+            {{ run.runId }} ({{ run.status }}) - {{ new Date(run.startedAt).toLocaleString() }}
+          </option>
         </select>
+        <span v-if="loading" class="loading-indicator">🔄</span>
       </div>
     </header>
     <nav class="tabs">
@@ -21,11 +25,48 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { fetchRuns, type RunSummary } from './api'
 
 const route = useRoute()
+const router = useRouter()
 const selectedRunId = ref(route.params.runId as string || '')
+const runs = ref<RunSummary[]>([])
+const loading = ref(false)
+
+const loadRuns = async () => {
+  loading.value = true
+  try {
+    runs.value = await fetchRuns()
+    // 如果没有选中的runId，自动选择第一个
+    if (!selectedRunId.value && runs.value.length > 0) {
+      selectedRunId.value = runs.value[0].runId
+      updateRoute()
+    }
+  } catch (error) {
+    console.error('Failed to load runs:', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+const updateRoute = () => {
+  if (selectedRunId.value) {
+    router.push(`/runs/${selectedRunId}/memory`)
+  }
+}
+
+const handleRunChange = () => {
+  updateRoute()
+}
+
+onMounted(() => {
+  loadRuns()
+  // 每5秒刷新一次runs列表
+  const interval = setInterval(loadRuns, 5000)
+  return () => clearInterval(interval)
+})
 </script>
 
 <style>
@@ -61,6 +102,16 @@ const selectedRunId = ref(route.params.runId as string || '')
   padding: 4px 8px;
   border-radius: 4px;
   border: none;
+  min-width: 300px;
+}
+
+.loading-indicator {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 .tabs {

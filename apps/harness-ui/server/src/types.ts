@@ -71,6 +71,50 @@ export interface FlowTemplate {
   steps: string[];
 }
 
+// ── Memory store types ──────────────────────────────────────────────────────────
+
+export interface MemorySnapshot {
+  episodicCount: number;
+  semanticCount: number;
+  workingCount: number;
+}
+
+export interface MemoryEntryItem {
+  id: string;
+  tier: 'episodic' | 'semantic' | 'working';
+  content: string;
+  tags: string[];
+  createdAt: string;
+  importance: number;
+  source: string;
+}
+
+// ── Checkpoint types ────────────────────────────────────────────────────────────
+
+export interface CheckpointIndex {
+  checkpointId: string;
+  flowId: string;
+  state: string;
+  createdAt: string;
+  activeStepId: string;
+}
+
+// ── Subagent types ──────────────────────────────────────────────────────────────
+
+export interface SubagentPoolStatus {
+  totalSlots: number;
+  activeAgents: number;
+  queuedTasks: number;
+}
+
+export interface SubagentCallTreeNode {
+  taskId: string;
+  agentType: string;
+  status: 'pending' | 'running' | 'done' | 'failed';
+  dependsOn?: string[];
+  children?: SubagentCallTreeNode[];
+}
+
 // ── Server context ────────────────────────────────────────────────────────────
 
 export interface ServerContext {
