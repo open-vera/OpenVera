@@ -30,6 +30,7 @@ export type {
 export * from "./errors.js";
 export * from "./storage/index.js";
 export * from "./rag/index.js";
+export * from "./channel/index.js";
 
 const config = loadConfig();
 
