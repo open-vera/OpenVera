@@ -49,6 +49,8 @@ export { computerUseTool } from "./computer-use.js";
 export { createVisualAnalyzeTool } from "./visual-analyze.js";
 export { MultiStepOrchestrator, StepPatterns } from "./multi-step-orchestrator.js";
 export type { StepDefinition, OrchestrationResult, OrchestratorConfig, ToolResolver, ErrorStrategy, StepCondition, StepResult } from "./multi-step-orchestrator.js";
+export { OperationRecorder, replay, serializeRecording, deserializeRecording, executeWithRecording } from "./operation-recorder.js";
+export type { StepRecord, OperationRecording, ReplayOptions, ReplayResult } from "./operation-recorder.js";
 import type { LLMAdapter } from "../adapters/base.js";
 
 export interface CreateToolRegistryOptions {
