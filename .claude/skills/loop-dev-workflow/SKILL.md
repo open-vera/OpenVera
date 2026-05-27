@@ -134,6 +134,7 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - CriticAgent: 317 行，独立批判 + 3 轮辩论机制，16 个单元测试
 - 踩坑：duplicate detection 的 `critiqueSummary` 和 `critiqueKey` 格式不一致导致比较永远 false → 修复为统一 `entryKey()` 解析
 - 经验：并行 agent 可能修改同一文件（如 changelog.md），需检查 diff 后合并
+- 踩坑：loop agent 可能提前创建未实现模块的测试（如 Phase 3 的 failure-attributor.test.ts），导致 test suite 报错 → 删除未跟踪的过早测试文件
 
 ---
 
