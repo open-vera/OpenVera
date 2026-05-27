@@ -271,6 +271,17 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：CI runner 的 agent executor 当前为 mock，集成真实 agent runtime 后才能实际在 CI 中运行
 - 测试总数：~1741 tests（Core 1408 + Harness 643）
 
+### Phase 10.3 SP6 WebUI（2026-05-27，完成）
+
+- SP6: TrainingMonitor — 轻量 HTTP 服务器，SSE 实时推送 + REST API + HTML Dashboard
+- 25 tests, 731 lines added, 3 new files
+- 实现要点：使用 Node 内置 `http` 模块，零新依赖；Chart.js 从 CDN 加载
+- 踩坑：`server.listen(0, host, callback)` 后 `this.config.port` 仍为 0，必须从 `server.address()` 读取实际端口 → 修复为 listen callback 内更新 `this.config.port`
+- 经验：SSE 测试需要控制超时——用 `setTimeout` 在客户端接收 init 事件后关闭连接，避免测试挂起
+- 经验：XSS 测试验证 run name 中的 `<script>` 标签被正确转义为 `&lt;script&gt;`
+- 经验：HTTP 测试 helper 应使用静态 `import http` 而非动态 `import()`，避免模块加载时序问题
+- 测试总数：~1766 tests（Core 1525 + Harness 732）（含 1 个 pre-existing flaky session 分页测试）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*
