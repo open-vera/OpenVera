@@ -157,7 +157,7 @@
   - SWE-bench：2294 个 GitHub issue，评测代码修复能力
   - 评测流程：读 issue → 定位代码 → 生成 patch → 验证测试通过
   - 评测指标：pass rate、patch accuracy、test pass rate
-- [ ] **EV4** ToolBench 评测集集成 — `packages/harness/src/eval/runners/toolbench-runner.ts`
+- [x] **EV4** ToolBench 评测集集成 — `packages/harness/src/eval/runners/toolbench-runner.ts`
   - ToolBench：16464 个任务，评测工具使用能力
   - 评测维度：API 调用准确性、参数正确性、多步工具链
   - 评测指标：tool accuracy、pass rate、avg API calls

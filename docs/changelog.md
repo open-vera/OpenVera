@@ -35,4 +35,5 @@
 | 2026-05-27 · 18:xx | Phase 10 R3-R8：Embedding 适配器、文档加载器、knowledge_search 工具、增量索引器 | [→](./changelog/2026-05-27-18.md) |
 | 2026-05-27 · 18:xx | Phase 10.2 EV2+EV8：GAIA Runner + Eval 框架测试（52 tests）+ change-tracker 修复 | [→](./changelog/2026-05-27-18b.md) |
 | 2026-05-27 · 18:xx | Phase 10.2 EV3：SWE-bench 评测集集成 — SweBenchRunner + 30 tests | [→](./changelog/2026-05-27-18c.md) |
+| 2026-05-27 · 19:xx | Phase 10.2 EV4：ToolBench 评测集集成 — ToolBenchRunner + 40 tests | [→](./changelog/2026-05-27-19.md) |
 | 2026-05-27 · 15:xx | Phase 10 R1：RAG 向量存储抽象接口 — VectorStore / EmbeddingAdapter / 错误层次 | [→](./changelog/2026-05-27-15.md) |

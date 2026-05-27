@@ -251,6 +251,15 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：`includeTestPatch` 和 `includeGoldPatch` 选项用于调试，生产评测默认关闭
 - 测试总数：~1640 tests（Core 1408 + Harness 542）
 
+### Phase 10.2 Eval — EV4（2026-05-27，完成）
+
+- EV4: ToolBench Runner — 16464 任务的工具使用评测集，40 tests
+- 实现要点：支持 single-tool / multi-tool / multi-turn 三类任务，optional tool 标记不计入必须匹配
+- 踩坑：mock agent 的 prompt 匹配逻辑需要确保测试 fixture 中的 `expected_answer` 字段不会覆盖 evalType 选择——当 `expected_answer` 存在时 evalType 变为 `contains` 而非 `tool_match`，导致 partial match 测试失败
+- 经验：ToolBenchMetrics 提供 per-category breakdown 和 avg API calls，比 GAIA/SWE-bench 更关注工具使用效率
+- 经验：category→level 映射结合 category 和 difficulty 两个维度，multi-turn 直接映射到 L3
+- 测试总数：~1680 tests（Core 1408 + Harness 582）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*

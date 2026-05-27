@@ -7,3 +7,12 @@ export type {
   SweBenchRunnerOptions,
   SweBenchMetrics,
 } from "./swe-bench-runner.js";
+
+export { ToolBenchRunner } from "./toolbench-runner.js";
+export type {
+  ToolBenchRawCase,
+  ToolBenchRunnerOptions,
+  ToolBenchMetrics,
+  ToolCallSpec,
+  ToolSpec,
+} from "./toolbench-runner.js";
