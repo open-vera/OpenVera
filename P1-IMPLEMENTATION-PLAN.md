@@ -43,19 +43,19 @@
 
 ## Phase 4: Tool Runtime 增强
 
-- [ ] **T1** 幂等控制 — ToolDef 增加 `idempotent` 标记，重复调用检测
-- [ ] **T2** 可重试错误分类 — ToolResult 增加 `retryable` 字段，retry 策略整合
-- [ ] **T3** dry-run/simulate 能力 — ToolContext 增加 `dryRun` 标记，工具层支持
-- [ ] **T4** shell 输出截断与摘要增强 — bash 工具超长输出自动摘要（接入 context 压缩）
-- [ ] **T5** Tool Runtime 增强测试（12+ tests）
+- [x] **T1** 幂等控制 — ToolDef 增加 `idempotent` 标记，重复调用检测
+- [x] **T2** 可重试错误分类 — ToolResult 增加 `retryable` 字段，retry 策略整合
+- [x] **T3** dry-run/simulate 能力 — ToolContext 增加 `dryRun` 标记，工具层支持
+- [x] **T4** shell 输出截断与摘要增强 — bash 工具超长输出自动摘要（接入 context 压缩）
+- [x] **T5** Tool Runtime 增强测试（12+ tests）
 
 ## Phase 5: Subagent 系统增强
 
-- [ ] **SA1** 并行扇出 — orchestrator 支持 parallel dispatch 多个 worker
-- [ ] **SA2** 共享上下文层 — key-value 按需同步机制
-- [ ] **SA3** 权限继承与 usage 汇总 — 子 agent 继承父 agent 权限，token 用量汇总
-- [ ] **SA4** 递归 subagent — maxDepth 限制（默认 3），防止无限递归
-- [ ] **SA5** Subagent 增强测试（10+ tests）
+- [x] **SA1** 并行扇出 — orchestrator 支持 parallel dispatch 多个 worker
+- [x] **SA2** 共享上下文层 — key-value 按需同步机制
+- [x] **SA3** 权限继承与 usage 汇总 — 子 agent 继承父 agent 权限，token 用量汇总
+- [x] **SA4** 递归 subagent — maxDepth 限制（默认 3），防止无限递归
+- [x] **SA5** Subagent 增强测试（10+ tests）
 
 ---
 
