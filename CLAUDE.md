@@ -82,3 +82,55 @@ Vera = Harness 为内核的 agent runtime。两层结构：
 - 删除：移除对应条目并标注废弃原因（若有替代品）
 
 当前 skills：`agent-changes-report` · `claude-session-review` · `cursor-session-review` · `quality-scan`
+
+## 开发规范与代码治理
+
+### 模块划分原则
+
+- **Core**（`packages/core`）：无状态、单次 LLM 调用闭环。不感知 Harness、Session、Flow。
+- **Harness**（`packages/harness`）：有状态编排。Flow 状态机、Checkpoint、Critique、Self-Loop。
+- **依赖方向**：`harness → core`，Core 永不 import Harness。违反即架构违规。
+
+### 新模块创建规范
+
+1. **先定义接口**（`types.ts`），再写实现。接口文件放在模块根目录。
+2. **barrel export**：每个模块目录必须有 `index.ts`，统一导出公共 API。
+3. **单一职责**：一个文件只做一件事。超过 300 行考虑拆分。
+4. **命名规范**：
+   - 文件名：`kebab-case.ts`（如 `self-loop.ts`、`vector-store.ts`）
+   - 类型/接口：`PascalCase`（如 `SelfLoopRunner`、`VectorStore`）
+   - 函数/变量：`camelCase`（如 `runSelfLoop`、`embeddingAdapter`）
+   - 常量：`UPPER_SNAKE_CASE`（如 `MAX_CYCLES`、`DEFAULT_TIMEOUT`）
+
+### 测试规范
+
+- 测试文件与源文件同目录，放在 `tests/` 子目录下。
+- 测试文件命名：`<module-name>.test.ts`
+- 每个新功能必须有对应测试，覆盖率 ≥ 90%。
+- 测试用 Vitest，使用 `describe` / `it` / `expect`。
+- Mock 仅用于外部 API 调用（LLM adapter、网络请求），不 mock 内部模块。
+- E2E 测试放在 `packages/harness/tests/e2e-*.ts`。
+
+### 代码风格
+
+- TypeScript strict mode，禁止 `any`（用 `unknown` + 类型守卫）。
+- 错误处理：使用类型化错误类（`packages/core/src/errors.ts`），不 `throw new Error(string)`。
+- 异步：优先 `async/await`，避免 raw Promise 链。
+- 注释：仅在 WHY 不明显时写注释，不写 WHAT 注释。
+- 导入：使用 `.js` 后缀（ESM 要求），按 external → internal → relative 排序。
+
+### 提交约束
+
+- 单次提交聚焦一个模块，不超过 500 行 diff（文档/测试除外）。
+- commit message 格式：`<type>(<scope>): <description>`
+  - type: `feat` / `fix` / `refactor` / `test` / `docs` / `chore`
+  - scope: `core` / `harness` / `tool` / `agent` / `memory` / `rag` / `sandbox` / `channel` 等
+- 示例：`feat(memory): add auto-extraction from agent execution`
+
+### 架构约束（硬性）
+
+- Core 包不依赖 harness 包（`tsconfig` 已配置，违反会编译报错）。
+- 新增外部依赖需在 PR 中说明理由，优先使用已有依赖。
+- 存储层抽象接口化：所有持久化通过接口（`VectorStore`、`SessionStore`、`MemoryStore`），不硬编码具体实现。
+- Sandbox 隔离：所有外部代码执行必须通过 Sandbox 抽象层，禁止直接 `child_process.exec` 用户代码。
+- Channel 抽象：所有消息平台通过 `ChannelAdapter` 接口接入，不直接调用平台 SDK。
