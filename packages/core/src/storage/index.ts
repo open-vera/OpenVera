@@ -27,7 +27,7 @@ export { SqliteStorageProvider } from "./sqlite.js";
 
 export {
   UserDataStore,
-  ValidationError,
+  ValidationError as UserDataValidationError,
   createDataSaveTool,
   createDataLoadTool,
   createDataListTool,
@@ -43,6 +43,6 @@ export type {
 } from "./user-data.js";
 
 export { SessionStorageAdapter, migrateJsonlToSqlite } from "./session-adapter.js";
-export type { SessionFilter } from "./session-adapter.js";
+export type { SessionFilter, MigrationVerificationResult } from "./session-adapter.js";
 
 export { MemoryStorageAdapter } from "./memory-adapter.js";

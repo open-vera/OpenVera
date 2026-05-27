@@ -50,6 +50,17 @@ export interface SessionFilter {
   fullTextSearch?: string;
 }
 
+export interface MigrationVerificationResult {
+  ok: boolean;
+  sessionId: string;
+  sourceEntries: number;
+  migratedEntries: number;
+  contentMatch?: boolean;
+  sourceCorruptLines?: number;
+  migratedCorruptLines?: number;
+  reason?: string;
+}
+
 // ── SessionStorageAdapter ───────────────────────────────────────────────────
 
 export class SessionStorageAdapter {
@@ -512,7 +523,7 @@ export class SessionStorageAdapter {
    * List branches of a parent session.
    */
   async listBranches(parentSessionId: string): Promise<SessionSummary[]> {
-    const { sessions } = await this.listSessions({}, { tags: ["fork"] });
+    const { sessions } = await this.listSessions();
     return sessions.filter(
       (s) =>
         s.branch?.parentSessionId === parentSessionId &&
@@ -570,6 +581,80 @@ export class SessionStorageAdapter {
       sessionId,
       stored as unknown as StorageValue,
     );
+  }
+
+  // ── Import / Export / Verification (SQ4) ────────────────────────────────────
+
+  /**
+   * Import a raw JSONL session into SQLite. Used during migration to store
+   * the full original content without going through createSession + appendEntry.
+   */
+  async importSession(stored: StoredSession): Promise<void> {
+    await this.storage.set(
+      NAMESPACE,
+      stored.sessionId,
+      stored as unknown as StorageValue,
+    );
+  }
+
+  /**
+   * Export a session's raw JSONL content for backward compatibility with
+   * tools that expect JSONL files.
+   */
+  async exportJsonl(sessionId: string): Promise<string> {
+    const stored = await this.getStoredSession(sessionId);
+    if (!stored) throw new SessionNotFoundError(sessionId);
+    return stored.content;
+  }
+
+  /**
+   * Verify that a migrated session matches its source JSONL content.
+   * Returns a verification result with entry counts and integrity status.
+   */
+  async verifyMigration(
+    sessionId: string,
+    sourceContent: string,
+  ): Promise<MigrationVerificationResult> {
+    const stored = await this.getStoredSession(sessionId);
+    if (!stored) {
+      return {
+        ok: false,
+        sessionId,
+        reason: "Session not found in SQLite after migration",
+        sourceEntries: 0,
+        migratedEntries: 0,
+      };
+    }
+
+    const sourceLines = sourceContent.split("\n").filter(Boolean);
+    const migratedLines = stored.content.split("\n").filter(Boolean);
+
+    let sourceParseOk = 0;
+    let sourceParseFail = 0;
+    for (const line of sourceLines) {
+      try { JSON.parse(line); sourceParseOk++; } catch { sourceParseFail++; }
+    }
+
+    let migratedParseOk = 0;
+    let migratedParseFail = 0;
+    for (const line of migratedLines) {
+      try { JSON.parse(line); migratedParseOk++; } catch { migratedParseFail++; }
+    }
+
+    const contentMatch = stored.content === sourceContent;
+    const entryCountMatch = sourceParseOk === migratedParseOk;
+    const ok = contentMatch || (entryCountMatch && sourceParseFail === migratedParseFail);
+
+    return {
+      ok,
+      sessionId,
+      sourceEntries: sourceParseOk,
+      migratedEntries: migratedParseOk,
+      ...(contentMatch ? {} : { contentMatch: false }),
+      ...(sourceParseFail > 0 ? { sourceCorruptLines: sourceParseFail } : {}),
+      ...(migratedParseFail > 0 ? { migratedCorruptLines: migratedParseFail } : {}),
+      ...(ok ? {} : { reason: "Entry count mismatch or content differs" }),
+    };
   }
 
   // ── Internal helpers ──────────────────────────────────────────────────────
@@ -686,22 +771,8 @@ export async function migrateJsonlToSqlite(
         metadata: meta,
       };
 
-      // Use internal storage directly via the adapter's public API
-      // We append entries to reconstruct the session
-      await adapter.createSession(
-        sessionId,
-        meta.model ?? "",
-        meta.provider ?? "",
-        meta.cwd ?? "",
-      );
-
-      // Overwrite with the full original content by re-setting
-      // For migration efficiency, we set the stored session directly
-      // through appendEntry won't work since createSession already wrote one entry.
-      // Instead, use the low-level approach: delete then set.
-      await adapter.deleteSession(sessionId);
-      await (adapter as unknown as { storage: { set: (ns: string, key: string, val: StorageValue) => Promise<void> } })
-        .storage.set(NAMESPACE, sessionId, stored as unknown as StorageValue);
+      // Import session directly using the public importSession API
+      await adapter.importSession(stored);
 
       migrated++;
     } catch {

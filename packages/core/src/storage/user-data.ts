@@ -118,7 +118,7 @@ export class UserDataStore {
       namespace: ns,
       description: params.description,
       createdAt: existing
-        ? (existing as StoredUserEntry).createdAt
+        ? (existing as unknown as StoredUserEntry).createdAt
         : now,
       updatedAt: now,
       ttl: params.ttl,

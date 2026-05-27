@@ -23,6 +23,40 @@ import type {
 } from "./types.js";
 import type { SessionStoreBackend } from "./backend.js";
 
+// ── Constants ───────────────────────────────────────────────────────────────
+
+const NAMESPACE = "sessions";
+
+// ── JSONL entry shape (parsed from stored session content) ─────────────────
+
+interface JsonlEntry {
+  type: string;
+  sessionId?: string;
+  timestamp?: string;
+  content?: string | import("../types/message.js").ContentPart[];
+  model?: string;
+  provider?: string;
+  usage?: Usage;
+  turnCount?: number;
+  totalUsage?: Usage;
+  totalCostUsd?: number;
+  customTitle?: string;
+  title?: string;
+  aiTitle?: string;
+  tag?: string;
+  parentSessionId?: string;
+  forkedFromUuid?: string;
+  status?: BranchEntry["status"];
+  worktreePath?: string;
+  worktreeBranch?: string;
+  baseCommit?: string;
+  uuid?: string;
+  parentUuid?: string;
+  toolName?: string;
+  arguments?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
 // ── SQLiteSessionBackend ────────────────────────────────────────────────────
 
 export class SQLiteSessionBackend implements SessionStoreBackend {
@@ -60,50 +94,43 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
   // ── Write operations ──────────────────────────────────────────────────────
 
   writeStart(sessionId: string, cwd: string, model: string, provider: string): void {
-    // Fire-and-forget for synchronous API compatibility;
-    // actual writes are awaited internally by the adapter
-    this.adapter.createSession(sessionId, model, provider, cwd).catch(() => {});
+    const now = new Date().toISOString();
+    const startEntry = {
+      type: "session_start",
+      sessionId,
+      timestamp: now,
+      cwd,
+      model,
+      provider,
+    };
+    const stored: import("../storage/types.js").StoredSession = {
+      sessionId,
+      content: JSON.stringify(startEntry) + "\n",
+      createdAt: now,
+      updatedAt: now,
+      metadata: { model, provider, cwd },
+    };
+    this.storage.setSync(NAMESPACE, sessionId, stored as unknown as import("../storage/types.js").StorageValue);
   }
 
   writeTitle(sessionId: string, _cwd: string, title: string): void {
-    this.adapter.writeTitle(sessionId, title).catch(() => {});
+    this.appendEntrySync(sessionId, { type: "custom-title", sessionId, timestamp: new Date().toISOString(), customTitle: title });
   }
 
   writeAiTitle(sessionId: string, _cwd: string, aiTitle: string): void {
-    // The adapter doesn't have a dedicated writeAiTitle, so we append a raw entry
-    this.adapter.appendEntry(sessionId, {
-      type: "ai-title",
-      sessionId,
-      timestamp: new Date().toISOString(),
-      aiTitle,
-    } as Parameters<typeof this.adapter.appendEntry>[1]).catch(() => {});
+    this.appendEntrySync(sessionId, { type: "ai-title", sessionId, timestamp: new Date().toISOString(), aiTitle });
   }
 
   writeSummary(sessionId: string, _cwd: string, summary: string): void {
-    this.adapter.appendEntry(sessionId, {
-      type: "summary",
-      sessionId,
-      timestamp: new Date().toISOString(),
-      summary,
-    } as Parameters<typeof this.adapter.appendEntry>[1]).catch(() => {});
+    this.appendEntrySync(sessionId, { type: "summary", sessionId, timestamp: new Date().toISOString(), summary });
   }
 
   writeTag(sessionId: string, _cwd: string, tag: string): void {
-    this.adapter.appendEntry(sessionId, {
-      type: "tag",
-      sessionId,
-      timestamp: new Date().toISOString(),
-      tag,
-    } as Parameters<typeof this.adapter.appendEntry>[1]).catch(() => {});
+    this.appendEntrySync(sessionId, { type: "tag", sessionId, timestamp: new Date().toISOString(), tag });
   }
 
   writeGitBranch(sessionId: string, _cwd: string, gitBranch: string): void {
-    this.adapter.appendEntry(sessionId, {
-      type: "git-branch",
-      sessionId,
-      timestamp: new Date().toISOString(),
-      gitBranch,
-    } as Parameters<typeof this.adapter.appendEntry>[1]).catch(() => {});
+    this.appendEntrySync(sessionId, { type: "git-branch", sessionId, timestamp: new Date().toISOString(), gitBranch });
   }
 
   writePrLink(
@@ -111,14 +138,7 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
     _cwd: string,
     p: { prUrl: string; prRepository?: string; prNumber?: number },
   ): void {
-    this.adapter.appendEntry(sessionId, {
-      type: "pr-link",
-      sessionId,
-      timestamp: new Date().toISOString(),
-      prUrl: p.prUrl,
-      ...(p.prRepository ? { prRepository: p.prRepository } : {}),
-      ...(p.prNumber ? { prNumber: p.prNumber } : {}),
-    } as Parameters<typeof this.adapter.appendEntry>[1]).catch(() => {});
+    this.appendEntrySync(sessionId, { type: "pr-link", sessionId, timestamp: new Date().toISOString(), prUrl: p.prUrl, ...(p.prRepository ? { prRepository: p.prRepository } : {}), ...(p.prNumber ? { prNumber: p.prNumber } : {}) });
   }
 
   writeBranch(
@@ -134,12 +154,12 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
       baseCommit?: string;
     },
   ): void {
-    this.adapter.writeBranch(sessionId, p).catch(() => {});
+    this.appendEntrySync(sessionId, { type: "branch", sessionId, timestamp: new Date().toISOString(), parentSessionId: p.parentSessionId, status: p.status ?? "active", ...(p.forkedFromUuid ? { forkedFromUuid: p.forkedFromUuid } : {}), ...(p.title ? { title: p.title } : {}), ...(p.worktreePath ? { worktreePath: p.worktreePath } : {}), ...(p.worktreeBranch ? { worktreeBranch: p.worktreeBranch } : {}), ...(p.baseCommit ? { baseCommit: p.baseCommit } : {}) });
   }
 
   writeUser(sessionId: string, _cwd: string, content: string): string {
     const uuid = crypto.randomUUID();
-    this.adapter.writeUser(sessionId, content).catch(() => {});
+    this.appendEntrySync(sessionId, { type: "user", sessionId, timestamp: new Date().toISOString(), uuid, content });
     return uuid;
   }
 
@@ -160,7 +180,7 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
     },
   ): string {
     const uuid = crypto.randomUUID();
-    this.adapter.writeAssistant(sessionId, { ...p }).catch(() => {});
+    this.appendEntrySync(sessionId, { type: "assistant", sessionId, timestamp: new Date().toISOString(), uuid, ...p });
     return uuid;
   }
 
@@ -175,7 +195,7 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
     },
   ): string {
     const uuid = crypto.randomUUID();
-    this.adapter.writeToolCall(sessionId, p).catch(() => {});
+    this.appendEntrySync(sessionId, { type: "tool_call", sessionId, timestamp: new Date().toISOString(), uuid, ...p });
     return uuid;
   }
 
@@ -188,7 +208,7 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
       content: string;
     },
   ): void {
-    this.adapter.writeToolResult(sessionId, p).catch(() => {});
+    this.appendEntrySync(sessionId, { type: "tool_result", sessionId, timestamp: new Date().toISOString(), uuid: crypto.randomUUID(), ...p });
   }
 
   writeEnd(
@@ -199,7 +219,56 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
     turnCount: number,
     lastPrompt?: string,
   ): void {
-    this.adapter.writeEnd(sessionId, totalUsage, totalCostUsd, turnCount, lastPrompt).catch(() => {});
+    if (lastPrompt) {
+      const normalized = this.preview(lastPrompt);
+      if (normalized) {
+        this.appendEntrySync(sessionId, { type: "last-prompt", sessionId, timestamp: new Date().toISOString(), lastPrompt: normalized });
+      }
+    }
+    this.appendEntrySync(sessionId, { type: "session_end", sessionId, timestamp: new Date().toISOString(), totalUsage, totalCostUsd, turnCount });
+  }
+
+
+  /**
+   * Synchronous entry append — reads the stored session, appends a JSONL line,
+   * updates metadata, and writes back. Uses setSync/getSync for guaranteed
+   * synchronous execution (no fire-and-forget).
+   */
+  private appendEntrySync(sessionId: string, entry: Record<string, unknown>): void {
+    const val = this.storage.getSync(NAMESPACE, sessionId);
+    if (!val) return;
+    const stored = val as unknown as import("../storage/types.js").StoredSession;
+    stored.content += JSON.stringify(entry) + "\n";
+    stored.updatedAt = new Date().toISOString();
+    this.updateMetadataSync(stored, entry);
+    this.storage.setSync(NAMESPACE, sessionId, stored as unknown as import("../storage/types.js").StorageValue);
+  }
+
+  private updateMetadataSync(
+    stored: import("../storage/types.js").StoredSession,
+    entry: Record<string, unknown>,
+  ): void {
+    const meta = stored.metadata;
+    const entryType = entry.type as string;
+    if (entryType === "user" && !meta.firstPrompt) {
+      meta.firstPrompt = this.preview(entry.content as string);
+    } else if (entryType === "assistant") {
+      meta.turnCount = (meta.turnCount ?? 0) + 1;
+      meta.model = (entry.model as string) ?? meta.model;
+      meta.provider = (entry.provider as string) ?? meta.provider;
+    } else if (entryType === "session_end") {
+      meta.turnCount = entry.turnCount as number;
+      meta.totalCostUsd = entry.totalCostUsd as number;
+    } else if (entryType === "custom-title" || entryType === "custom_title") {
+      meta.title = (entry.customTitle as string) ?? (entry.title as string);
+    } else if (entryType === "ai-title") {
+      if (!meta.title) meta.title = entry.aiTitle as string;
+    } else if (entryType === "tag") {
+      const tags = meta.tags ? [...meta.tags] : [];
+      const tag = entry.tag as string;
+      if (!tags.includes(tag)) tags.push(tag);
+      meta.tags = tags;
+    }
   }
 
   // ── Query operations ──────────────────────────────────────────────────────
@@ -295,7 +364,7 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
       const rewritten = { ...entry, sessionId: newSessionId };
       content += JSON.stringify(rewritten) + "\n";
       if (!firstPrompt && entry.type === "user") {
-        firstPrompt = entry.content;
+        firstPrompt = entry.content as string;
       }
     }
 
@@ -338,7 +407,7 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
       },
     };
 
-    this.storage.setSync("sessions", newSessionId, stored);
+    this.storage.setSync("sessions", newSessionId, stored as unknown as import("../storage/types.js").StorageValue);
 
     return {
       sessionId: newSessionId,
@@ -391,8 +460,8 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
     const stored = val as unknown as import("../storage/types.js").StoredSession;
     const entries = this.parseJsonlLines(stored.content);
     const branchEntries = entries.filter(
-      (e): e is Extract<typeof e, { type: "branch" }> => e.type === "branch",
-    );
+      (e) => e.type === "branch",
+    ) as Array<Record<string, unknown>>;
 
     if (branchEntries.length === 0) {
       throw new SessionNotBranchError(sessionId);
@@ -404,18 +473,18 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
       type: "branch",
       sessionId,
       timestamp: now,
-      parentSessionId: lastBranch.parentSessionId,
-      forkedFromUuid: lastBranch.forkedFromUuid,
-      title: lastBranch.title,
+      parentSessionId: lastBranch.parentSessionId as string,
+      forkedFromUuid: lastBranch.forkedFromUuid as string | undefined,
+      title: lastBranch.title as string | undefined,
       status,
-      worktreePath: lastBranch.worktreePath,
-      worktreeBranch: lastBranch.worktreeBranch,
-      baseCommit: lastBranch.baseCommit,
+      worktreePath: lastBranch.worktreePath as string | undefined,
+      worktreeBranch: lastBranch.worktreeBranch as string | undefined,
+      baseCommit: lastBranch.baseCommit as string | undefined,
     };
 
     stored.content += JSON.stringify(newEntry) + "\n";
     stored.updatedAt = now;
-    this.storage.setSync("sessions", sessionId, stored);
+    this.storage.setSync("sessions", sessionId, stored as unknown as import("../storage/types.js").StorageValue);
   }
 
   private extractSummary(stored: import("../storage/types.js").StoredSession): SessionSummary | null {
@@ -433,45 +502,48 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
     let firstPrompt = meta.firstPrompt;
     let lastUserInput: string | undefined;
     let tag: string | undefined;
+    let gitBranch: string | undefined;
     let branch: SessionSummary["branch"];
     let foundEnd = false;
 
     for (const entry of entries) {
       if (entry.type === "session_start") {
-        if (!model) model = entry.model;
-        if (!provider) provider = entry.provider;
+        if (!model) model = entry.model as string;
+        if (!provider) provider = entry.provider as string;
       } else if (entry.type === "user") {
         messageCount++;
-        lastUserInput = entry.content;
-        if (!firstPrompt) firstPrompt = this.preview(entry.content);
+        lastUserInput = entry.content as string;
+        if (!firstPrompt) firstPrompt = this.preview(entry.content as string);
       } else if (entry.type === "assistant") {
         messageCount++;
-        totalUsage = this.addUsage(totalUsage, entry.usage);
+        totalUsage = this.addUsage(totalUsage, entry.usage as Usage);
         if (!foundEnd) {
-          totalCostUsd += this.calculateCost(entry.usage, entry.model);
+          totalCostUsd += this.calculateCost(entry.usage as Usage, entry.model as string);
         }
-        model = entry.model;
-        provider = entry.provider;
+        model = entry.model as string;
+        provider = entry.provider as string;
       } else if (entry.type === "session_end") {
-        turnCount = entry.turnCount;
-        totalUsage = entry.totalUsage;
-        totalCostUsd = entry.totalCostUsd;
+        turnCount = entry.turnCount as number;
+        totalUsage = entry.totalUsage as Usage;
+        totalCostUsd = entry.totalCostUsd as number;
         foundEnd = true;
       } else if (entry.type === "custom-title" || entry.type === "custom_title") {
-        customTitle = entry.customTitle ?? entry.title;
+        customTitle = (entry.customTitle as string) ?? (entry.title as string);
       } else if (entry.type === "ai-title" && !customTitle) {
-        customTitle = entry.aiTitle;
+        customTitle = entry.aiTitle as string;
       } else if (entry.type === "tag") {
-        tag = entry.tag;
+        tag = entry.tag as string;
+      } else if (entry.type === "git-branch") {
+        if (!gitBranch) gitBranch = entry.gitBranch as string;
       } else if (entry.type === "branch") {
         branch = {
-          parentSessionId: entry.parentSessionId,
-          ...(entry.forkedFromUuid ? { forkedFromUuid: entry.forkedFromUuid } : {}),
-          ...(entry.title ? { title: entry.title } : {}),
-          status: entry.status,
-          ...(entry.worktreePath ? { worktreePath: entry.worktreePath } : {}),
-          ...(entry.worktreeBranch ? { worktreeBranch: entry.worktreeBranch } : {}),
-          ...(entry.baseCommit ? { baseCommit: entry.baseCommit } : {}),
+          parentSessionId: entry.parentSessionId as string,
+          ...(entry.forkedFromUuid as string ? { forkedFromUuid: entry.forkedFromUuid as string } : {}),
+          ...(entry.title as string ? { title: entry.title as string } : {}),
+          status: entry.status as BranchEntry["status"],
+          ...(entry.worktreePath as string ? { worktreePath: entry.worktreePath as string } : {}),
+          ...(entry.worktreeBranch as string ? { worktreeBranch: entry.worktreeBranch as string } : {}),
+          ...(entry.baseCommit as string ? { baseCommit: entry.baseCommit as string } : {}),
         };
       }
     }
@@ -500,6 +572,7 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
       ...(firstPrompt ? { firstPrompt: this.preview(firstPrompt) } : {}),
       lastUserInput: this.preview(lastUserInput),
       ...(tag ? { tag } : {}),
+      ...(gitBranch ? { gitBranch } : {}),
       ...(branch ? { branch } : {}),
     };
   }
@@ -516,16 +589,16 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
 
     for (const entry of entries) {
       if (entry.type === "user") {
-        history.push({ role: "user", content: entry.content });
+        history.push({ role: "user", content: entry.content as string });
       } else if (entry.type === "assistant") {
-        history.push({ role: "assistant", content: entry.content });
-        totalUsage = this.addUsage(totalUsage, entry.usage);
-        totalCostUsd += this.calculateCost(entry.usage, entry.model);
+        history.push({ role: "assistant", content: entry.content as string });
+        totalUsage = this.addUsage(totalUsage, entry.usage as Usage);
+        totalCostUsd += this.calculateCost(entry.usage as Usage, entry.model as string);
         turnCount++;
-        model = entry.model;
-        provider = entry.provider;
+        model = entry.model as string;
+        provider = entry.provider as string;
       } else if (entry.type === "session_end") {
-        totalCostUsd = entry.totalCostUsd;
+        totalCostUsd = entry.totalCostUsd as number;
       }
     }
 
@@ -550,32 +623,33 @@ export class SQLiteSessionBackend implements SessionStoreBackend {
 
     for (const entry of entries) {
       if (entry.type === "tool_call") {
-        const existing = toolCallsByParent.get(entry.parentUuid) ?? [];
-        existing.push(entry);
-        toolCallsByParent.set(entry.parentUuid, existing);
+        const parentUuid = entry.parentUuid as string;
+        const existing = toolCallsByParent.get(parentUuid) ?? [];
+        existing.push(entry as unknown as { uuid: string; toolName: string; arguments: Record<string, unknown> });
+        toolCallsByParent.set(parentUuid, existing);
       } else if (entry.type === "tool_result") {
-        toolResultsByCallUuid.set(entry.parentUuid, entry);
+        toolResultsByCallUuid.set(entry.parentUuid as string, entry as unknown as { content: string });
       }
     }
 
     for (const entry of entries) {
       if (entry.type === "user") {
-        messages.push({ role: "user", content: entry.content });
+        messages.push({ role: "user", content: entry.content as string });
       } else if (entry.type === "assistant") {
-        const toolUses = (toolCallsByParent.get(entry.parentUuid) ?? []).map((tc) => {
+        const toolUses = (toolCallsByParent.get(entry.parentUuid as string) ?? []).map((tc) => {
           const result = toolResultsByCallUuid.get(tc.uuid);
           return {
             name: tc.toolName,
             args: tc.arguments,
             result: {
               ok: Boolean(result),
-              content: result?.content ?? "(no tool result recorded)",
+              content: (result?.content as string) ?? "(no tool result recorded)",
             },
           };
         });
         messages.push({
           role: "assistant",
-          content: entry.content,
+          content: entry.content as string,
           ...(toolUses.length ? { toolUses } : {}),
         });
       }

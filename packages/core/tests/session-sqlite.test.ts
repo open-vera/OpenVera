@@ -473,3 +473,245 @@ describe("SessionStore backend delegation", () => {
     await backend.close();
   });
 });
+
+describe("SQ4: importSession / exportJsonl / verifyMigration", () => {
+  let tempDir: string;
+  let dbPath: string;
+  let storage: SqliteStorageProvider;
+  let adapter: SessionStorageAdapter;
+
+  beforeEach(async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "sq4-features-"));
+    dbPath = join(tempDir, "sq4.db");
+    storage = new SqliteStorageProvider({ backend: "sqlite", dbPath });
+    adapter = new SessionStorageAdapter(storage);
+    await adapter.initialize();
+  });
+
+  afterEach(async () => {
+    await adapter.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("should import a raw StoredSession via importSession()", async () => {
+    const sessionId = "imported-session-1";
+    const rawContent = [
+      JSON.stringify({ type: "session_start", sessionId, timestamp: "2026-01-01T00:00:00Z", cwd: "/tmp", model: "gpt-4", provider: "openai" }),
+      JSON.stringify({ type: "user", sessionId, timestamp: "2026-01-01T00:00:01Z", uuid: "u1", content: "Hello" }),
+      JSON.stringify({ type: "assistant", sessionId, timestamp: "2026-01-01T00:00:02Z", uuid: "a1", parentUuid: "u1", content: "Hi!", model: "gpt-4", provider: "openai", stopReason: "end_turn", usage: { input_tokens: 5, output_tokens: 5 }, turn: 1, latencyMs: 100, toolCalls: [], status: "ok" }),
+    ].join("\n") + "\n";
+
+    await adapter.importSession({
+      sessionId,
+      content: rawContent,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:02Z",
+      metadata: { model: "gpt-4", provider: "openai", cwd: "/tmp" },
+    });
+
+    // Verify session exists and is loadable
+    const loaded = await adapter.loadSession(sessionId);
+    expect(loaded.history).toHaveLength(2);
+    expect(loaded.history[0]).toEqual({ role: "user", content: "Hello" });
+  });
+
+  it("should export raw JSONL via exportJsonl()", async () => {
+    await adapter.createSession("export-test", "gpt-4", "openai", "/tmp");
+    await adapter.writeUser("export-test", "Test question");
+    await adapter.writeAssistant("export-test", {
+      parentUuid: "u1",
+      content: "Test answer",
+      model: "gpt-4",
+      provider: "openai",
+      stopReason: "end_turn",
+      usage: { input_tokens: 5, output_tokens: 5 },
+      turn: 1,
+      latencyMs: 100,
+      toolCalls: [],
+      status: "ok",
+    });
+
+    const jsonl = await adapter.exportJsonl("export-test");
+    const lines = jsonl.split("\n").filter(Boolean);
+
+    expect(lines.length).toBeGreaterThanOrEqual(3); // start + user + assistant
+    expect(JSON.parse(lines[0]).type).toBe("session_start");
+    expect(JSON.parse(lines[1]).type).toBe("user");
+    expect(JSON.parse(lines[1]).content).toBe("Test question");
+  });
+
+  it("should throw SessionNotFoundError for exportJsonl on missing session", async () => {
+    await expect(adapter.exportJsonl("nonexistent")).rejects.toThrow();
+  });
+
+  it("should verify a successful migration", async () => {
+    const sessionId = "verify-ok";
+    const rawContent = [
+      JSON.stringify({ type: "session_start", sessionId, timestamp: "2026-01-01T00:00:00Z", cwd: "/tmp", model: "gpt-4", provider: "openai" }),
+      JSON.stringify({ type: "user", sessionId, timestamp: "2026-01-01T00:00:01Z", uuid: "u1", content: "Hello" }),
+    ].join("\n") + "\n";
+
+    await adapter.importSession({
+      sessionId,
+      content: rawContent,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:01Z",
+      metadata: { model: "gpt-4", provider: "openai", cwd: "/tmp" },
+    });
+
+    const result = await adapter.verifyMigration(sessionId, rawContent);
+    expect(result.ok).toBe(true);
+    expect(result.sourceEntries).toBe(2);
+    expect(result.migratedEntries).toBe(2);
+  });
+
+  it("should detect missing session in verification", async () => {
+    const result = await adapter.verifyMigration("missing", "some content\n");
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("not found");
+  });
+
+  it("should detect entry count mismatch in verification", async () => {
+    const sessionId = "verify-mismatch";
+    const storedContent = JSON.stringify({ type: "session_start", sessionId, timestamp: "2026-01-01T00:00:00Z", cwd: "/tmp", model: "gpt-4", provider: "openai" }) + "\n";
+    const sourceContent = storedContent + JSON.stringify({ type: "user", sessionId, timestamp: "2026-01-01T00:00:01Z", uuid: "u1", content: "Hello" }) + "\n";
+
+    await adapter.importSession({
+      sessionId,
+      content: storedContent,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+      metadata: { model: "gpt-4", provider: "openai", cwd: "/tmp" },
+    });
+
+    const result = await adapter.verifyMigration(sessionId, sourceContent);
+    expect(result.ok).toBe(false);
+    expect(result.sourceEntries).toBe(2);
+    expect(result.migratedEntries).toBe(1);
+  });
+
+  it("should round-trip: import → export → re-import", async () => {
+    const sessionId = "roundtrip";
+    const rawContent = [
+      JSON.stringify({ type: "session_start", sessionId, timestamp: "2026-01-01T00:00:00Z", cwd: "/tmp", model: "gpt-4", provider: "openai" }),
+      JSON.stringify({ type: "user", sessionId, timestamp: "2026-01-01T00:00:01Z", uuid: "u1", content: "Round trip test" }),
+      JSON.stringify({ type: "assistant", sessionId, timestamp: "2026-01-01T00:00:02Z", uuid: "a1", parentUuid: "u1", content: "Got it", model: "gpt-4", provider: "openai", stopReason: "end_turn", usage: { input_tokens: 3, output_tokens: 3 }, turn: 1, latencyMs: 50, toolCalls: [], status: "ok" }),
+    ].join("\n") + "\n";
+
+    await adapter.importSession({
+      sessionId,
+      content: rawContent,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:02Z",
+      metadata: { model: "gpt-4", provider: "openai", cwd: "/tmp" },
+    });
+
+    // Export
+    const exported = await adapter.exportJsonl(sessionId);
+    expect(exported).toBe(rawContent);
+
+    // Delete and re-import
+    await adapter.deleteSession(sessionId);
+    expect(await adapter.hasSession(sessionId)).toBe(false);
+
+    await adapter.importSession({
+      sessionId,
+      content: exported,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:02Z",
+      metadata: { model: "gpt-4", provider: "openai", cwd: "/tmp" },
+    });
+
+    const loaded = await adapter.loadSession(sessionId);
+    expect(loaded.history).toHaveLength(2);
+  });
+});
+
+describe("SQ4: SQLiteSessionBackend synchronous writes", () => {
+  let tempDir: string;
+  let backend: SQLiteSessionBackend;
+
+  beforeEach(async () => {
+    tempDir = mkdtempSync(join(tmpdir(), "sq4-sync-"));
+    const dbPath = join(tempDir, "sync.db");
+    backend = new SQLiteSessionBackend(dbPath);
+    await backend.initialize();
+  });
+
+  afterEach(async () => {
+    await backend.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("should write data synchronously — immediately readable", () => {
+    const sid = "sync-test-1";
+    backend.writeStart(sid, "/tmp", "gpt-4", "openai");
+    const uuid = backend.writeUser(sid, "/tmp", "Sync message");
+
+    // Data must be available immediately (no async wait)
+    const loaded = backend.loadSession(sid);
+    expect(loaded.history).toHaveLength(1);
+    expect(loaded.history[0]).toEqual({ role: "user", content: "Sync message" });
+  });
+
+  it("should write multiple entries synchronously", () => {
+    const sid = "sync-multi";
+    backend.writeStart(sid, "/tmp", "gpt-4", "openai");
+    const u1 = backend.writeUser(sid, "/tmp", "Q1");
+    backend.writeAssistant(sid, "/tmp", {
+      parentUuid: u1,
+      content: "A1",
+      model: "gpt-4",
+      provider: "openai",
+      stopReason: "end_turn",
+      usage: { input_tokens: 5, output_tokens: 5 },
+      turn: 1,
+      latencyMs: 100,
+      toolCalls: [],
+      status: "ok",
+    });
+    const u2 = backend.writeUser(sid, "/tmp", "Q2");
+    backend.writeAssistant(sid, "/tmp", {
+      parentUuid: u2,
+      content: "A2",
+      model: "gpt-4",
+      provider: "openai",
+      stopReason: "end_turn",
+      usage: { input_tokens: 3, output_tokens: 3 },
+      turn: 2,
+      latencyMs: 50,
+      toolCalls: [],
+      status: "ok",
+    });
+    backend.writeEnd(sid, "/tmp", { input_tokens: 8, output_tokens: 8 }, 0.01, 2);
+
+    const loaded = backend.loadSession(sid);
+    expect(loaded.history).toHaveLength(4); // 2 user + 2 assistant
+    expect(loaded.turnCount).toBe(2);
+  });
+
+  it("should update metadata synchronously on writeEnd", () => {
+    const sid = "sync-meta";
+    backend.writeStart(sid, "/tmp", "gpt-4", "openai");
+    backend.writeUser(sid, "/tmp", "content");
+    backend.writeEnd(sid, "/tmp", { input_tokens: 10, output_tokens: 20 }, 0.05, 1, "last prompt text");
+
+    const { sessions } = backend.listSessions();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].turnCount).toBe(1);
+    expect(sessions[0].totalCostUsd).toBe(0.05);
+  });
+
+  it("should handle tag accumulation synchronously", () => {
+    const sid = "sync-tags";
+    backend.writeStart(sid, "/tmp", "gpt-4", "openai");
+    backend.writeTag(sid, "/tmp", "important");
+    backend.writeTag(sid, "/tmp", "review");
+    backend.writeUser(sid, "/tmp", "content");
+    backend.writeEnd(sid, "/tmp", { input_tokens: 1, output_tokens: 1 }, 0.01, 1);
+
+    const { sessions } = backend.listSessions();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].tag).toBeDefined();
+  });
+});

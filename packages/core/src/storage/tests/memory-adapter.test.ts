@@ -38,7 +38,7 @@ describe("MemoryStorageAdapter (SQ5)", () => {
     const dbPath = makeDbPath();
     tmpDir = join(dbPath, "..");
     storage = new SqliteStorageProvider({ backend: "sqlite", dbPath, enableFts: true });
-    adapter = new MemoryStorageAdapter(storage);
+    adapter = new MemoryStorageAdapter({ dbPath });
     await adapter.initialize();
   });
 
@@ -95,14 +95,14 @@ describe("MemoryStorageAdapter (SQ5)", () => {
     it("should persist episodic entries across adapter restart", async () => {
       const dbPath = join(tmpDir, "restart-test.db");
       const storage1 = new SqliteStorageProvider({ backend: "sqlite", dbPath, enableFts: true });
-      const adapter1 = new MemoryStorageAdapter(storage1);
+      const adapter1 = new MemoryStorageAdapter({ dbPath });
       await adapter1.initialize();
 
       await adapter1.addEpisodic("test persistence", "success", ["lesson1"], ["persist"]);
       await adapter1.close();
 
       const storage2 = new SqliteStorageProvider({ backend: "sqlite", dbPath, enableFts: true });
-      const adapter2 = new MemoryStorageAdapter(storage2);
+      const adapter2 = new MemoryStorageAdapter({ dbPath });
       await adapter2.initialize();
 
       const all = await adapter2.getEpisodic();
@@ -215,6 +215,7 @@ describe("MemoryStorageAdapter (SQ5)", () => {
       const decayed = await adapter.decayImportance({
         halfLifeDays: 7,
         minImportance: 0.1,
+        minAgeDays: 1,
       });
       expect(typeof decayed).toBe("number");
     });
