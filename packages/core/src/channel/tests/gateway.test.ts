@@ -5,6 +5,7 @@ import type {
   ChannelMessage,
   ChannelStatus,
   ConnectionState,
+  GatewayEvent,
   HistoryOptions,
   MessageCallback,
   SendMessageOptions,
@@ -442,6 +443,192 @@ describe("ChannelGateway", () => {
       expect(eventHandler).toHaveBeenCalledWith(expect.objectContaining({ type: "reconnecting", channelName: "cli" }));
 
       vi.useRealTimers();
+    });
+  });
+
+  // ── Multi-Channel Concurrent Scenarios (CH7) ──────────────────────────────
+
+  describe("multi-channel lifecycle", () => {
+    it("should manage full lifecycle across multiple channels", async () => {
+      const cli = createMockAdapter({ name: "cli-adapter", channelType: "cli" });
+      const api = createMockAdapter({ name: "api-adapter", channelType: "api" });
+      const webhook = createMockAdapter({ name: "webhook-adapter", channelType: "webhook" });
+
+      gateway.addAdapter("cli", cli);
+      gateway.addAdapter("api", api);
+      gateway.addAdapter("webhook", webhook);
+      expect(gateway.listAdapters()).toHaveLength(3);
+
+      // Connect all
+      await gateway.connectAll();
+      expect(cli.connect).toHaveBeenCalledTimes(1);
+      expect(api.connect).toHaveBeenCalledTimes(1);
+      expect(webhook.connect).toHaveBeenCalledTimes(1);
+
+      // Send messages through each channel
+      await gateway.sendMessage("cli", { content: "cli-msg" });
+      await gateway.sendMessage("api", { content: "api-msg" });
+      await gateway.sendMessage("webhook", { content: "webhook-msg" });
+
+      // Disconnect all
+      await gateway.disconnectAll();
+      expect(cli.disconnect).toHaveBeenCalledTimes(1);
+      expect(api.disconnect).toHaveBeenCalledTimes(1);
+      expect(webhook.disconnect).toHaveBeenCalledTimes(1);
+    });
+
+    it("should route messages with correct channel name from different adapters", async () => {
+      const received: Array<{ msg: ChannelMessage; channel: string }> = [];
+      gateway.onMessage((msg, channel) => { received.push({ msg, channel }); });
+
+      gateway.addAdapter("cli", createMockAdapter({ channelType: "cli" }));
+      gateway.addAdapter("api", createMockAdapter({ channelType: "api" }));
+
+      await gateway.dispatchMessage(makeMessage({ id: "m1", content: "from-cli", channelType: "cli" }), "cli");
+      await gateway.dispatchMessage(makeMessage({ id: "m2", content: "from-api", channelType: "api" }), "api");
+
+      expect(received).toHaveLength(2);
+      expect(received[0].channel).toBe("cli");
+      expect(received[0].msg.content).toBe("from-cli");
+      expect(received[1].channel).toBe("api");
+      expect(received[1].msg.content).toBe("from-api");
+    });
+
+    it("should handle concurrent message dispatch from multiple channels", async () => {
+      const received: string[] = [];
+      gateway.onMessage(async (msg) => {
+        await new Promise((r) => setTimeout(r, 5));
+        received.push(msg.content);
+      });
+
+      gateway.addAdapter("cli", createMockAdapter());
+      gateway.addAdapter("api", createMockAdapter());
+
+      // Dispatch concurrently from both channels
+      await Promise.all([
+        gateway.dispatchMessage(makeMessage({ id: "c1", content: "cli-msg-1" }), "cli"),
+        gateway.dispatchMessage(makeMessage({ id: "a1", content: "api-msg-1" }), "api"),
+        gateway.dispatchMessage(makeMessage({ id: "c2", content: "cli-msg-2" }), "cli"),
+        gateway.dispatchMessage(makeMessage({ id: "a2", content: "api-msg-2" }), "api"),
+      ]);
+
+      expect(received).toHaveLength(4);
+      expect(received).toContain("cli-msg-1");
+      expect(received).toContain("api-msg-1");
+      expect(received).toContain("cli-msg-2");
+      expect(received).toContain("api-msg-2");
+    });
+
+    it("should emit events with correct channel names during multi-channel operations", async () => {
+      const events: GatewayEvent[] = [];
+      gateway.onEvent((e) => { events.push(e); });
+
+      gateway.addAdapter("cli", createMockAdapter());
+      gateway.addAdapter("api", createMockAdapter());
+
+      await gateway.connect("cli");
+      await gateway.connect("api");
+      await gateway.sendMessage("cli", { content: "hi" });
+      await gateway.sendMessage("api", { content: "hello" });
+      await gateway.disconnect("cli");
+
+      const connectedEvents = events.filter((e) => e.type === "channel_connected");
+      expect(connectedEvents).toHaveLength(2);
+      expect(connectedEvents.map((e) => e.channelName).sort()).toEqual(["api", "cli"]);
+
+      const sentEvents = events.filter((e) => e.type === "message_sent");
+      expect(sentEvents).toHaveLength(2);
+      expect(sentEvents.map((e) => e.channelName).sort()).toEqual(["api", "cli"]);
+
+      const disconnectedEvents = events.filter((e) => e.type === "channel_disconnected");
+      expect(disconnectedEvents).toHaveLength(1);
+      expect(disconnectedEvents[0].channelName).toBe("cli");
+    });
+
+    it("should isolate errors between channels", async () => {
+      const cli = createMockAdapter();
+      const failingApi = createMockAdapter({
+        sendMessage: vi.fn().mockRejectedValue(new Error("api-down")),
+      });
+
+      gateway.addAdapter("cli", cli);
+      gateway.addAdapter("api", failingApi);
+
+      // CLI send succeeds
+      const result = await gateway.sendMessage("cli", { content: "ok" });
+      expect(result.content).toBe("ok");
+
+      // API send fails but doesn't affect CLI
+      await expect(gateway.sendMessage("api", { content: "fail" })).rejects.toThrow("api-down");
+
+      // CLI still works after API failure
+      const result2 = await gateway.sendMessage("cli", { content: "still-ok" });
+      expect(result2.content).toBe("still-ok");
+    });
+
+    it("should manage session bindings across multiple channels", () => {
+      gateway.addAdapter("cli", createMockAdapter());
+      gateway.addAdapter("api", createMockAdapter());
+      gateway.addAdapter("webhook", createMockAdapter());
+
+      gateway.bindSession("cli", "s1", { user: "alice" });
+      gateway.bindSession("api", "s2", { user: "bob" });
+      gateway.bindSession("webhook", "s3", { user: "charlie" });
+      gateway.bindSession("cli", "s4", { user: "dave" });
+
+      expect(gateway.getSessionsForChannel("cli")).toHaveLength(2);
+      expect(gateway.getSessionsForChannel("api")).toHaveLength(1);
+      expect(gateway.getSessionsForChannel("webhook")).toHaveLength(1);
+
+      expect(gateway.getSession("s1")?.channelName).toBe("cli");
+      expect(gateway.getSession("s2")?.channelName).toBe("api");
+      expect(gateway.getSession("s3")?.channelName).toBe("webhook");
+    });
+
+    it("should handle connectAll with partial failures gracefully", async () => {
+      const ok = createMockAdapter();
+      const failing = createMockAdapter({ connect: vi.fn().mockRejectedValue(new Error("timeout")) });
+
+      gateway.addAdapter("ok-channel", ok);
+      gateway.addAdapter("fail-channel", failing);
+
+      const results = await gateway.connectAll();
+      expect(results).toHaveLength(2);
+
+      // Find which succeeded and which failed regardless of order
+      const statuses = results.map((r) => r.status);
+      expect(statuses).toContain("fulfilled");
+      expect(statuses).toContain("rejected");
+
+      // The successful adapter should have connected
+      expect(ok.connect).toHaveBeenCalledTimes(1);
+    });
+
+    it("should handle removeAdapter while active in multi-channel setup", async () => {
+      const cli = createMockAdapter();
+      const api = createMockAdapter();
+
+      gateway.addAdapter("cli", cli);
+      gateway.addAdapter("api", api);
+
+      await gateway.connectAll();
+      gateway.bindSession("cli", "s1");
+      gateway.bindSession("api", "s2");
+
+      // Remove CLI while API is still active
+      gateway.removeAdapter("cli");
+
+      expect(gateway.listAdapters()).toHaveLength(1);
+      expect(gateway.listAdapters()[0].name).toBe("api");
+
+      // CLI session is cleaned up
+      expect(gateway.getSession("s1")).toBeUndefined();
+      // API session remains
+      expect(gateway.getSession("s2")).toBeDefined();
+
+      // API still works
+      await gateway.sendMessage("api", { content: "still-works" });
+      expect(api.sendMessage).toHaveBeenCalled();
     });
   });
 });
