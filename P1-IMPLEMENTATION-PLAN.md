@@ -143,7 +143,7 @@
 > 引入业界主流 agent 评测集，建立标准化评测流程，量化 agent 能力。
 > 评测维度：工具使用准确性、多步推理、代码生成、信息检索、任务完成率。
 
-- [ ] **EV1** 评测框架 — `packages/harness/src/eval/harness.ts`
+- [x] **EV1** 评测框架 — `packages/harness/src/eval/harness.ts`
   - 评测流程：加载 case → 执行 agent → 收集结果 → 评分 → 生成报告
   - 支持配置：超时、重试、并发数、评测集路径
   - 评测结果格式：`EvalResult { caseId, status, score, duration, toolCalls[], error? }`
@@ -161,18 +161,18 @@
   - ToolBench：16464 个任务，评测工具使用能力
   - 评测维度：API 调用准确性、参数正确性、多步工具链
   - 评测指标：tool accuracy、pass rate、avg API calls
-- [ ] **EV5** 自建评测集 — `packages/harness/src/eval/cases/vera-custom.json`
+- [x] **EV5** 自建评测集 — `packages/harness/src/eval/cases/vera-custom.json`
   - 针对 Vera 特有能力的 custom benchmark cases
   - 覆盖：checkpoint/resume、self-loop、critic agent、failure recovery、memory
   - 至少 20 个 case，覆盖核心功能
-- [ ] **EV6** 评测报告生成 — `packages/harness/src/eval/reporter.ts`
+- [x] **EV6** 评测报告生成 — `packages/harness/src/eval/reporter.ts`
   - 报告格式：markdown，含总分、分维度得分、失败 case 分析
   - 支持对比：不同模型/配置的评测结果对比
   - 输出到 `docs/eval-reports/<date>-<model>.md`
 - [ ] **EV7** 回归检测 — 代码变更后自动跑评测，检测退化
   - 集成到 CI：PR 合并前自动跑 GAIA L1
   - 退化阈值：pass rate 下降 > 5% 则阻断
-- [ ] **EV8** Agent Eval 测试（10+ tests：框架流程、case 加载、评分逻辑、报告生成）
+- [x] **EV8** Agent Eval 测试（10+ tests：框架流程、case 加载、评分逻辑、报告生成）
 
 ## Phase 10.3: Skill 预训练（SP — Skill Pre-training）
 
