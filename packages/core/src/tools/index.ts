@@ -15,6 +15,11 @@ import { listDirTool } from "./list-dir.js";
 import { globTool } from "./glob.js";
 import { bashTool } from "./bash.js";
 import { grepTool } from "./grep.js";
+import { browserTool } from "./browser.js";
+import { desktopScreenshotTool } from "./desktop-screenshot.js";
+import { desktopInputTool } from "./desktop-input.js";
+import { desktopScriptTool } from "./desktop-script.js";
+import { desktopAccessibilityTool } from "./desktop-accessibility.js";
 import { createMemoryWriteTool } from "./memory-write.js";
 import { createMemorySearchTool } from "./memory-search.js";
 import type { MemoryStore } from "../memory/store.js";
@@ -33,6 +38,11 @@ export { ToolStatsCollector } from "./tool-stats.js";
 export { createMemoryWriteTool } from "./memory-write.js";
 export { createMemorySearchTool } from "./memory-search.js";
 export { createKnowledgeSearchTool } from "./knowledge-search.js";
+export { browserTool, closeAllBrowserSessions } from "./browser.js";
+export { desktopScreenshotTool } from "./desktop-screenshot.js";
+export { desktopInputTool } from "./desktop-input.js";
+export { desktopScriptTool } from "./desktop-script.js";
+export { desktopAccessibilityTool } from "./desktop-accessibility.js";
 
 export interface CreateToolRegistryOptions {
   cwd: string;
@@ -74,6 +84,11 @@ export function createToolRegistry(opts: CreateToolRegistryOptions): ToolRegistr
   registry.register(globTool);
   registry.register(bashTool);
   registry.register(grepTool);
+  registry.register(browserTool);
+  registry.register(desktopScreenshotTool);
+  registry.register(desktopInputTool);
+  registry.register(desktopScriptTool);
+  registry.register(desktopAccessibilityTool);
 
   // Register SecurityPlugin (runs first — short-circuits on denial)
   const permissionRules = loadPermissionRules(opts.cwd);

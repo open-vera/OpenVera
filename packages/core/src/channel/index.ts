@@ -51,6 +51,12 @@ export type { TelegramChannelConfig } from "./telegram-channel.js";
 export { DiscordChannelAdapter } from "./discord-channel.js";
 export type { DiscordChannelConfig } from "./discord-channel.js";
 
+export { SlackChannelAdapter } from "./slack-channel.js";
+export type { SlackChannelConfig } from "./slack-channel.js";
+
+export { WhatsAppChannelAdapter } from "./whatsapp-channel.js";
+export type { WhatsAppChannelConfig } from "./whatsapp-channel.js";
+
 export {
   ChannelPluginRegistry,
   PluginAlreadyRegisteredError,

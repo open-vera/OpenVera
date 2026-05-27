@@ -301,11 +301,11 @@
 
 ### 18B: 桌面操作（Mac）
 
-- [ ] **CU5** 截图工具 — `screencapture` 命令封装，支持全屏/窗口/区域截图
-- [ ] **CU6** 鼠标键盘模拟 — 通过 osascript / cliclick 实现点击、输入、快捷键
-- [ ] **CU7** AppleScript 执行 — 封装 osascript，支持操作 Finder/Safari/Terminal 等
-- [ ] **CU8** Accessibility API — 通过 `osascript -l JavaScript` 访问 UI 元素（识别按钮/输入框/文本）
-- [ ] **CU9** 桌面操作测试（6+ tests：截图、点击、AppleScript 执行）
+- [x] **CU5** 截图工具 — `screencapture` 命令封装，支持全屏/窗口/区域截图
+- [x] **CU6** 鼠标键盘模拟 — 通过 osascript / cliclick 实现点击、输入、快捷键
+- [x] **CU7** AppleScript 执行 — 封装 osascript，支持操作 Finder/Safari/Terminal 等
+- [x] **CU8** Accessibility API — 通过 `osascript -l JavaScript` 访问 UI 元素（识别按钮/输入框/文本）
+- [x] **CU9** 桌面操作测试（6+ tests：截图、点击、AppleScript 执行）
 
 ### 18C: Computer Use 工具集成
 

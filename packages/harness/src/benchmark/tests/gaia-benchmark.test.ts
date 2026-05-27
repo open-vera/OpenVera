@@ -4,7 +4,7 @@
  * per-level timeouts, BenchmarkHarness integration.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { GaiaBenchmarkRunner } from "../gaia-benchmark-runner.js";
 import type { GaiaBenchmarkRawCase } from "../gaia-benchmark-runner.js";
@@ -27,6 +27,16 @@ function mockAgent(answerMap: Map<string, string>): AgentExecutor {
       return okResponse("no match");
     },
   };
+}
+
+/** Resolve fixture path — works from both src/ and dist/ */
+function fixturePath(name: string): string {
+  // Try relative to current file (src layout: tests/ → ../cases/)
+  const fromHere = resolve(import.meta.dirname ?? ".", "../cases", name);
+  if (existsSync(fromHere)) return fromHere;
+  // Fallback: from dist/benchmark/tests → ../../src/benchmark/cases
+  const fromRoot = resolve(import.meta.dirname ?? ".", "../../../src/benchmark/cases", name);
+  return fromRoot;
 }
 
 const sampleGaiaCases: GaiaBenchmarkRawCase[] = [
@@ -271,8 +281,7 @@ describe("GaiaBenchmarkRunner", () => {
 
   describe("built-in fixture", () => {
     it("should load the gaia-l1.json fixture file", () => {
-      const fixturePath = resolve(import.meta.dirname ?? ".", "../cases/gaia-l1.json");
-      const content = readFileSync(fixturePath, "utf-8");
+      const content = readFileSync(fixturePath("gaia-l1.json"), "utf-8");
       const cases = JSON.parse(content) as GaiaBenchmarkRawCase[];
       expect(cases.length).toBeGreaterThan(0);
       expect(cases.every((c) => c.level === 1)).toBe(true);
@@ -283,8 +292,7 @@ describe("GaiaBenchmarkRunner", () => {
     });
 
     it("should run fixture cases against a mock agent", async () => {
-      const fixturePath = resolve(import.meta.dirname ?? ".", "../cases/gaia-l1.json");
-      const content = readFileSync(fixturePath, "utf-8");
+      const content = readFileSync(fixturePath("gaia-l1.json"), "utf-8");
       const cases = JSON.parse(content) as GaiaBenchmarkRawCase[];
 
       const runner = new GaiaBenchmarkRunner({ name: "gaia-l1-fixture" });
