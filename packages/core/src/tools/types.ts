@@ -86,6 +86,8 @@ export interface ToolContext {
   llmAdapter?: import("../adapters/base.js").LLMAdapter;
   /** Default model for LLM calls within tools (e.g., vision model). */
   defaultModel?: string;
+  /** Optional sandbox provider for sandbox_exec / sandbox_upload / sandbox_download tools. */
+  sandboxProvider?: import("../sandbox/types.js").SandboxProvider;
 }
 
 // ── ToolVersion ─────────────────────────────────────────────────────────────

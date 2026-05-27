@@ -29,6 +29,8 @@ import { createDataSaveTool, createDataLoadTool, createDataListTool, createDataD
 import type { UserDataStore } from "../storage/user-data.js";
 import { createKnowledgeSearchTool } from "./knowledge-search.js";
 import type { VectorStore, EmbeddingAdapter } from "../rag/types.js";
+import { createSandboxExecTool, createSandboxUploadTool, createSandboxDownloadTool } from "./sandbox.js";
+import type { SandboxProvider } from "../sandbox/types.js";
 
 export { ToolRegistry } from "./registry.js";
 export { SecurityPlugin } from "./security.js";
@@ -51,6 +53,8 @@ export { MultiStepOrchestrator, StepPatterns } from "./multi-step-orchestrator.j
 export type { StepDefinition, OrchestrationResult, OrchestratorConfig, ToolResolver, ErrorStrategy, StepCondition, StepResult } from "./multi-step-orchestrator.js";
 export { OperationRecorder, replay, serializeRecording, deserializeRecording, executeWithRecording } from "./operation-recorder.js";
 export type { StepRecord, OperationRecording, ReplayOptions, ReplayResult } from "./operation-recorder.js";
+export { createSandboxExecTool, createSandboxUploadTool, createSandboxDownloadTool, createSandboxTools } from "./sandbox.js";
+export type { SandboxExecArgs, SandboxUploadArgs, SandboxDownloadArgs, SandboxToolSet } from "./sandbox.js";
 import type { LLMAdapter } from "../adapters/base.js";
 
 export interface CreateToolRegistryOptions {
@@ -66,6 +70,8 @@ export interface CreateToolRegistryOptions {
   llmAdapter?: LLMAdapter;
   /** Default model for LLM calls within tools. */
   defaultModel?: string;
+  /** If provided, registers sandbox_exec / sandbox_upload / sandbox_download tools. */
+  sandboxProvider?: SandboxProvider;
 }
 
 export interface ToolRegistryBundle {
@@ -132,6 +138,13 @@ export function createToolRegistry(opts: CreateToolRegistryOptions): ToolRegistr
   // Register visual analyze tool (optional)
   if (opts.llmAdapter) {
     registry.register(createVisualAnalyzeTool(opts.llmAdapter, opts.defaultModel));
+  }
+
+  // Register sandbox tools (optional)
+  if (opts.sandboxProvider) {
+    registry.register(createSandboxExecTool());
+    registry.register(createSandboxUploadTool());
+    registry.register(createSandboxDownloadTool());
   }
 
   return { registry, security };
