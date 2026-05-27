@@ -1,4 +1,4 @@
-// Session 存储 — JSONL 读写 + 列表 + 恢复
+// Session 存储 — JSONL 读写 + 列表 + 恢复 + SQLite 后端支持
 
 import {
   appendFileSync,
@@ -41,6 +41,7 @@ import type {
   ToolResultEntry,
   UserEntry,
 } from "./types.js";
+import type { SessionStoreBackend, BackendOptions } from "./backend.js";
 
 // ── Path helpers ──────────────────────────────────────────────────────────────
 
@@ -320,6 +321,57 @@ export class SessionStore {
   readonly filePath: string;
   private readonly _cwd: string;
 
+  /** Active backend (null = JSONL file-based, the default). */
+  private static _backend: SessionStoreBackend | null = null;
+
+  /**
+   * Configure a non-default storage backend (e.g., SQLite).
+   * When set, all write/query operations delegate to the backend.
+   * Pass null to revert to the default JSONL file-based storage.
+   */
+  static configure(backend: SessionStoreBackend | null): void {
+    SessionStore._backend = backend;
+  }
+
+  /** Get the currently configured backend (null = JSONL). */
+  static getBackend(): SessionStoreBackend | null {
+    return SessionStore._backend;
+  }
+
+  /**
+   * Initialize a SQLite backend from options, auto-migrate existing JSONL
+   * sessions, and configure it as the active backend.
+   */
+  static async configureSqlite(options: {
+    dbPath: string;
+    enableFts?: boolean;
+    autoMigrate?: boolean;
+    sessionsDir?: string;
+  }): Promise<{ backend: import("./sqlite-backend.js").SQLiteSessionBackend; migrated: number }> {
+    const { SQLiteSessionBackend } = await import("./sqlite-backend.js");
+    const backend = new SQLiteSessionBackend(options.dbPath, options.enableFts);
+    await backend.initialize();
+
+    let migrated = 0;
+    if (options.autoMigrate !== false) {
+      const dir = options.sessionsDir ?? join(homedir(), ".vera", "projects");
+      // Migrate from all project dirs
+      try {
+        const projectDirs = readdirSync(dir, { withFileTypes: true })
+          .filter((e) => e.isDirectory())
+          .map((e) => join(dir, e.name));
+        for (const projectDir of projectDirs) {
+          migrated += await backend.migrateFromJsonl(projectDir);
+        }
+      } catch {
+        // No projects dir yet
+      }
+    }
+
+    SessionStore._backend = backend;
+    return { backend, migrated };
+  }
+
   constructor(opts: { sessionId?: string; cwd?: string } = {}) {
     this._cwd = opts.cwd ?? process.cwd();
     this.sessionId = opts.sessionId ?? crypto.randomUUID();
@@ -345,6 +397,10 @@ export class SessionStore {
   // ── Write API ───────────────────────────────────────────────────────────────
 
   writeStart(model: string, provider: string): void {
+    if (SessionStore._backend) {
+      SessionStore._backend.writeStart(this.sessionId, this._cwd, model, provider);
+      return;
+    }
     this.append({
       type: "session_start",
       sessionId: this.sessionId,
@@ -356,6 +412,10 @@ export class SessionStore {
   }
 
   writeTitle(title: string): void {
+    if (SessionStore._backend) {
+      SessionStore._backend.writeTitle(this.sessionId, this._cwd, title);
+      return;
+    }
     const entry: CustomTitleEntry = {
       type: "custom-title",
       sessionId: this.sessionId,
@@ -366,6 +426,10 @@ export class SessionStore {
   }
 
   writeAiTitle(aiTitle: string): void {
+    if (SessionStore._backend) {
+      SessionStore._backend.writeAiTitle(this.sessionId, this._cwd, aiTitle);
+      return;
+    }
     this.append({
       type: "ai-title",
       sessionId: this.sessionId,
@@ -375,6 +439,10 @@ export class SessionStore {
   }
 
   writeSummary(summary: string): void {
+    if (SessionStore._backend) {
+      SessionStore._backend.writeSummary(this.sessionId, this._cwd, summary);
+      return;
+    }
     this.append({
       type: "summary",
       sessionId: this.sessionId,
@@ -384,6 +452,10 @@ export class SessionStore {
   }
 
   writeTag(tag: string): void {
+    if (SessionStore._backend) {
+      SessionStore._backend.writeTag(this.sessionId, this._cwd, tag);
+      return;
+    }
     this.append({
       type: "tag",
       sessionId: this.sessionId,
@@ -393,6 +465,10 @@ export class SessionStore {
   }
 
   writeGitBranch(gitBranch: string): void {
+    if (SessionStore._backend) {
+      SessionStore._backend.writeGitBranch(this.sessionId, this._cwd, gitBranch);
+      return;
+    }
     this.append({
       type: "git-branch",
       sessionId: this.sessionId,
@@ -406,6 +482,10 @@ export class SessionStore {
     prRepository?: string;
     prNumber?: number;
   }): void {
+    if (SessionStore._backend) {
+      SessionStore._backend.writePrLink(this.sessionId, this._cwd, p);
+      return;
+    }
     this.append({
       type: "pr-link",
       sessionId: this.sessionId,
@@ -425,6 +505,10 @@ export class SessionStore {
     worktreeBranch?: string;
     baseCommit?: string;
   }): void {
+    if (SessionStore._backend) {
+      SessionStore._backend.writeBranch(this.sessionId, this._cwd, p);
+      return;
+    }
     const entry: BranchEntry = {
       type: "branch",
       sessionId: this.sessionId,
@@ -441,6 +525,9 @@ export class SessionStore {
   }
 
   writeUser(content: string): string {
+    if (SessionStore._backend) {
+      return SessionStore._backend.writeUser(this.sessionId, this._cwd, content);
+    }
     const uuid = crypto.randomUUID();
     const entry: UserEntry = {
       type: "user",
@@ -465,6 +552,9 @@ export class SessionStore {
     toolCalls: string[];
     status: "ok" | "error";
   }): string {
+    if (SessionStore._backend) {
+      return SessionStore._backend.writeAssistant(this.sessionId, this._cwd, p);
+    }
     const uuid = crypto.randomUUID();
     const entry: AssistantEntry = {
       type: "assistant",
@@ -492,6 +582,9 @@ export class SessionStore {
     toolCallId: string;
     arguments: Record<string, unknown>;
   }): string {
+    if (SessionStore._backend) {
+      return SessionStore._backend.writeToolCall(this.sessionId, this._cwd, p);
+    }
     const uuid = crypto.randomUUID();
     const entry: ToolCallEntry = {
       type: "tool_call",
@@ -512,6 +605,10 @@ export class SessionStore {
     toolCallId: string;
     content: string;
   }): void {
+    if (SessionStore._backend) {
+      SessionStore._backend.writeToolResult(this.sessionId, this._cwd, p);
+      return;
+    }
     const entry: ToolResultEntry = {
       type: "tool_result",
       sessionId: this.sessionId,
@@ -525,6 +622,10 @@ export class SessionStore {
   }
 
   writeEnd(totalUsage: Usage, totalCostUsd: number, turnCount: number, lastPrompt?: string): void {
+    if (SessionStore._backend) {
+      SessionStore._backend.writeEnd(this.sessionId, this._cwd, totalUsage, totalCostUsd, turnCount, lastPrompt);
+      return;
+    }
     const normalizedLastPrompt = preview(lastPrompt);
     if (normalizedLastPrompt) {
       this.append({
@@ -552,6 +653,9 @@ export class SessionStore {
    * Uses progressive loading: first HEAD_BYTES + last TAIL_BYTES per file.
    */
   static listSessions(cwd?: string): SessionSummary[] {
+    if (SessionStore._backend) {
+      return SessionStore._backend.listSessions({ cwd }).sessions;
+    }
     return SessionStore.listSessionsPaged({ cwd, limit: 0 }).sessions;
   }
 
@@ -593,6 +697,9 @@ export class SessionStore {
   }
 
   static listSessionsPaged(opts: ListSessionsOptions = {}): ListSessionsResult {
+    if (SessionStore._backend) {
+      return SessionStore._backend.listSessions(opts);
+    }
     const limit = opts.limit ?? 0;
     const offset = Math.max(0, opts.offset ?? 0);
     const candidates = SessionStore.listSessionCandidates(opts);
@@ -632,6 +739,9 @@ export class SessionStore {
   }
 
   static forkSession(options: ForkSessionOptions): ForkedSession {
+    if (SessionStore._backend) {
+      return SessionStore._backend.forkSession(options);
+    }
     const cwd = options.cwd ?? process.cwd();
     const sourcePath = resolveSessionFilePath(options.fromSessionId, cwd);
     const raw = readFileSync(sourcePath, "utf8");
@@ -678,6 +788,9 @@ export class SessionStore {
   }
 
   static listBranches(parentSessionId: string, cwd?: string): SessionSummary[] {
+    if (SessionStore._backend) {
+      return SessionStore._backend.listBranches(parentSessionId, cwd);
+    }
     return SessionStore.listSessions(cwd).filter(
       (session) =>
         session.branch?.parentSessionId === parentSessionId &&
@@ -686,6 +799,10 @@ export class SessionStore {
   }
 
   static discardBranch(sessionId: string, cwd?: string): void {
+    if (SessionStore._backend) {
+      SessionStore._backend.discardBranch(sessionId, cwd);
+      return;
+    }
     const loaded = readBranchMetadata(resolveSessionFilePath(sessionId, cwd ?? process.cwd()));
     if (!loaded) {
       throw new SessionNotBranchError(sessionId);
@@ -703,6 +820,10 @@ export class SessionStore {
   }
 
   static adoptBranch(sessionId: string, cwd?: string): void {
+    if (SessionStore._backend) {
+      SessionStore._backend.adoptBranch(sessionId, cwd);
+      return;
+    }
     const loaded = readBranchMetadata(resolveSessionFilePath(sessionId, cwd ?? process.cwd()));
     if (!loaded) {
       throw new SessionNotBranchError(sessionId);
@@ -720,6 +841,10 @@ export class SessionStore {
   }
 
   static markBranchMerged(sessionId: string, cwd?: string): void {
+    if (SessionStore._backend) {
+      SessionStore._backend.markBranchMerged(sessionId, cwd);
+      return;
+    }
     const loaded = readBranchMetadata(resolveSessionFilePath(sessionId, cwd ?? process.cwd()));
     if (!loaded) {
       throw new SessionNotBranchError(sessionId);
@@ -739,6 +864,9 @@ export class SessionStore {
   // ── Static: load session for resume ────────────────────────────────────────
 
   static loadSession(sessionId: string, cwd?: string): LoadedSession {
+    if (SessionStore._backend) {
+      return SessionStore._backend.loadSession(sessionId, cwd);
+    }
     const filePath = resolveSessionFilePath(sessionId, cwd ?? process.cwd());
     const raw = readFileSync(filePath, "utf8");
     const entries = parseJsonlLines(raw);
@@ -776,6 +904,9 @@ export class SessionStore {
   }
 
   static loadTranscriptPreview(sessionId: string, cwd?: string): SessionTranscriptPreview {
+    if (SessionStore._backend) {
+      return SessionStore._backend.loadTranscriptPreview(sessionId, cwd);
+    }
     const filePath = resolveSessionFilePath(sessionId, cwd);
     const raw = readFileSync(filePath, "utf8");
     const entries = parseJsonlLines(raw);

@@ -24,3 +24,25 @@ export { FileStore, createFileStore } from "./file-store.js";
 export type { FileStoreOptions } from "./file-store.js";
 
 export { SqliteStorageProvider } from "./sqlite.js";
+
+export {
+  UserDataStore,
+  ValidationError,
+  createDataSaveTool,
+  createDataLoadTool,
+  createDataListTool,
+  createDataDeleteTool,
+  createUserDataTools,
+} from "./user-data.js";
+export type {
+  DataSaveArgs,
+  DataLoadArgs,
+  DataListArgs,
+  DataDeleteArgs,
+  UserDataToolSet,
+} from "./user-data.js";
+
+export { SessionStorageAdapter, migrateJsonlToSqlite } from "./session-adapter.js";
+export type { SessionFilter } from "./session-adapter.js";
+
+export { MemoryStorageAdapter } from "./memory-adapter.js";
