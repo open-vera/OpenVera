@@ -219,6 +219,19 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：metadata 过滤通过 JS 层 JSON match 实现（SQLite 无 JSON 索引），对大量文档可能有性能问题，但当前规模可接受
 - 测试总数：1489 tests（Core 1221 + Harness 268）
 
+### Phase 10 RAG — R3-R8（2026-05-27，完成）
+
+- R3: Embedding adapters (OpenAI/Voyage/Local + factory), 28 tests
+- R6: DocumentLoader — batch file indexing with chunking, 22 tests
+- R7: knowledge_search tool — RAG vector search via ToolRegistry, 9 tests
+- R8: IncrementalIndexer — mtime-based change detection, 10 tests
+- 踩坑：incremental-indexer.test.ts 使用 `filesScanned` 但接口定义为 `filesChecked`，TS 编译失败 → 统一字段名
+- 踩坑：knowledge-search.test.ts 缺少 `afterEach` import，TS 编译失败 → 补充 import
+- 踩坑：IncrementalIndexer 的 `loadManifest` 参数类型缺少 `version` 可选字段 → 添加 `version?: number`
+- 经验：mtime 检测在快速连续写入时可能因文件系统时间粒度问题无法检测到变更 → 测试中使用 `utimesSync` 显式设置未来时间
+- 经验：R3-R8 实现文件和测试由之前的 agent 创建但未提交，本次主要是修复 TS 错误、更新 checkbox、提交 changelog
+- 测试总数：~1558 tests（Core 1290 + Harness 268）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*
