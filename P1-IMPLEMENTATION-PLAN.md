@@ -147,7 +147,7 @@
   - 评测流程：加载 case → 执行 agent → 收集结果 → 评分 → 生成报告
   - 支持配置：超时、重试、并发数、评测集路径
   - 评测结果格式：`EvalResult { caseId, status, score, duration, toolCalls[], error? }`
-- [ ] **EV2** GAIA 评测集集成 — `packages/harness/src/eval/runners/gaia-runner.ts`
+- [x] **EV2** GAIA 评测集集成 — `packages/harness/src/eval/runners/gaia-runner.ts`
   - GAIA (General AI Assistants)：466 个问题，3 个难度级别
   - L1：单步任务（简单工具调用）
   - L2：多步任务（需要组合多个工具）
