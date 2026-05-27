@@ -347,6 +347,15 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：Plugin 模式比直接 addAdapter 更灵活——metadata（name/version/channelType）支持运行时发现和批量管理，factory 函数支持延迟初始化和配置注入
 - 测试总数：~2674 tests（Core 1942 + Harness 732）
 
+### Phase 16 Channel — CH7（2026-05-27，完成）
+
+- CH7: Channel Multi-Channel Concurrent Tests — 8 integration tests covering Gateway lifecycle, message routing, multi-channel concurrency
+- 实现要点：在已有 gateway.test.ts（41 tests）基础上新增 `multi-channel lifecycle` describe block
+- 测试覆盖：full lifecycle、correct channel routing、concurrent dispatch (Promise.all)、event ordering、error isolation、cross-channel session bindings、partial connect failures、adapter removal during active operation
+- 踩坑：`Array.push()` 返回 `number`，TypeScript strict mode 下作为 `MessageCallback` / `GatewayEventCallback` 的表达式箭头函数返回值会报类型错误 → 用块语句 `{ arr.push(x); }` 替代
+- 经验：CH1-CH6 各自已有独立测试文件（types/gateway/cli-channel/api-channel/webhook-channel/plugin-registry），CH7 聚焦于跨 channel 的集成场景（多 adapter 并发、错误隔离、session 跨 channel 绑定），不需要新文件
+- 测试总数：~2732 tests（Core 2000 + Harness 732）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*
