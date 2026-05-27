@@ -272,9 +272,9 @@
 
 - [x] **CH-FEISHU** 飞书 Channel — 飞书机器人消息接收/发送（参考 OpenClaw 飞书集成）
 - [x] **CH-WECOM** 企业微信 Channel
-- [ ] **CH-TELEGRAM** Telegram Bot Channel
-- [ ] **CH-DISCORD** Discord Bot Channel
-- [ ] **CH-SLACK** Slack App Channel
+- [x] **CH-TELEGRAM** Telegram Bot Channel
+- [x] **CH-DISCORD** Discord Bot Channel
+- [x] **CH-SLACK** Slack App Channel
 - [ ] **CH-WHATSAPP** WhatsApp Business API Channel
 
 ## Phase 17: 自适应策略系统（P3）
