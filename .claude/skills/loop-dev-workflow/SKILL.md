@@ -136,6 +136,17 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：并行 agent 可能修改同一文件（如 changelog.md），需检查 diff 后合并
 - 踩坑：loop agent 可能提前创建未实现模块的测试（如 Phase 3 的 failure-attributor.test.ts），导致 test suite 报错 → 删除未跟踪的过早测试文件
 
+### Phase 3/4/5 并行完成（2026-05-27，完成）
+
+- Phase 3 (F1-F5): FailureAttributor 失败归因模块，12 tests
+- Phase 4 (T1-T5): Tool Runtime 增强 — 幂等控制、可重试错误、dry-run、输出截断，21 tests
+- Phase 5 (SA1-SA5): Subagent 系统增强 — 并行扇出、SharedContext、权限继承、递归深度限制，37 tests
+- 经验：Phase 4 和 Phase 5 可以并行开发，因为它们修改不同文件（core/tools vs core/agent）
+- 经验：两个 agent 同时运行约 5 分钟完成，比串行快一倍
+- 经验：并行完成后需要先 build core 再跑全量测试，确保无冲突
+- 经验：T1-T3 已有部分字段（idempotent/dryRun/retryable），agent 正确识别并补充实现而非重复定义
+- 测试总数：792 tests（Core 558 + Harness 234）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*
