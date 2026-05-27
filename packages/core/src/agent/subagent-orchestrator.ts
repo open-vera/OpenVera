@@ -6,6 +6,7 @@
  */
 
 import { UnknownDependencyError, CircularDependencyError } from "../errors.js";
+import { SharedContext } from "./shared-context.js";
 
 export type OrchestratorStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
@@ -17,6 +18,8 @@ export interface OrchestratorTask {
   dependsOn?: string[];
   /** Inject results from dependencies as context. */
   injectResults?: boolean;
+  /** Key to auto-write task output into SharedContext after completion. */
+  outputKey?: string;
 }
 
 export interface OrchestratorResult {
@@ -29,22 +32,29 @@ export interface OrchestratorResult {
 
 export interface OrchestratorRunOptions {
   /** Execute a single task. Should invoke a subagent and return its output. */
-  executeTask: (task: OrchestratorTask, context: string) => Promise<string>;
+  executeTask: (task: OrchestratorTask, context: string, sharedContext: SharedContext) => Promise<string>;
   /** Called when each task completes. */
   onTaskComplete?: (taskId: string, output: string) => void;
   /** Called when each task fails. */
   onTaskFail?: (taskId: string, error: string) => void;
   /** Abort signal for the entire orchestration. */
   signal?: AbortSignal;
+  /**
+   * When true, ignore dependency ordering and launch all tasks in parallel.
+   * Useful for testing/debugging scenarios where you want to force concurrency.
+   */
+  parallel?: boolean;
 }
 
 export class SubagentOrchestrator {
   private readonly tasks: OrchestratorTask[];
   private readonly results = new Map<string, OrchestratorResult>();
+  private readonly sharedContext: SharedContext;
   private status: OrchestratorStatus = "pending";
 
   constructor(tasks: OrchestratorTask[]) {
     this.tasks = tasks;
+    this.sharedContext = new SharedContext();
     this.validateDeps();
   }
 
@@ -60,7 +70,7 @@ export class SubagentOrchestrator {
           !completed.has(t.id) &&
           !failed.has(t.id) &&
           !this.results.has(t.id) &&
-          (t.dependsOn ?? []).every((dep) => completed.has(dep))
+          (opts.parallel || (t.dependsOn ?? []).every((dep) => completed.has(dep)))
       );
 
     while (true) {
@@ -96,7 +106,12 @@ export class SubagentOrchestrator {
             .filter(Boolean)
             .join("\n\n");
 
-          const output = await opts.executeTask(task, depContext);
+          const output = await opts.executeTask(task, depContext, this.sharedContext);
+
+          // Auto-write output to SharedContext if task defines outputKey
+          if (task.outputKey) {
+            this.sharedContext.set(task.outputKey, output);
+          }
 
           const result: OrchestratorResult = {
             taskId: task.id,
@@ -138,6 +153,11 @@ export class SubagentOrchestrator {
   /** Get orchestrator status. */
   getStatus(): OrchestratorStatus {
     return this.status;
+  }
+
+  /** Get the shared context for cross-task data sharing. */
+  getSharedContext(): SharedContext {
+    return this.sharedContext;
   }
 
   /** Get summary of all task results. */
