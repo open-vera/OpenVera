@@ -246,11 +246,11 @@
 
 ## Phase 15: 多 Agent 协作网络（P3）
 
-- [ ] **MN1** 消息总线 — `packages/core/src/network/message-bus.ts`，跨 agent 通信
-- [ ] **MN2** 任务调度 — 分布式任务分配与负载均衡
-- [ ] **MN3** 共享记忆 — 多 agent 共享 semantic memory 层
-- [ ] **MN4** 权限继承 — 跨 agent 权限传递与隔离
-- [ ] **MN5** 协作网络测试（8+ tests）
+- [x] **MN1** 消息总线 — `packages/core/src/network/message-bus.ts`，跨 agent 通信
+- [x] **MN2** 任务调度 — 分布式任务分配与负载均衡
+- [x] **MN3** 共享记忆 — 多 agent 共享 semantic memory 层
+- [x] **MN4** 权限继承 — 跨 agent 权限传递与隔离
+- [x] **MN5** 协作网络测试（8+ tests）
 
 ## Phase 16: Channel 接入（多平台消息，参考 Hermes/OpenClaw Gateway 架构）
 
