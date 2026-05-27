@@ -78,12 +78,12 @@
 
 ## Phase 8: Skill 自动提取与管理
 
-- [ ] **SK1** Skill 自动提取 — 从成功执行中提取可复用的 skill 模板
-- [ ] **SK2** Skill 自动总结 — 每个 skill 执行后自动生成摘要和效果评分
-- [ ] **SK3** Skill 推荐 — 根据当前任务自动推荐匹配的 skill
-- [ ] **SK4** Skill 版本管理 — skill 变更自动记录版本，支持回滚
-- [ ] **SK5** Skill 热更新 — 运行时动态加载/卸载 skill，无需重启
-- [ ] **SK6** Skill 增强测试（8+ tests）
+- [x] **SK1** Skill 自动提取 — 从成功执行中提取可复用的 skill 模板
+- [x] **SK2** Skill 自动总结 — 每个 skill 执行后自动生成摘要和效果评分
+- [x] **SK3** Skill 推荐 — 根据当前任务自动推荐匹配的 skill
+- [x] **SK4** Skill 版本管理 — skill 变更自动记录版本，支持回滚
+- [x] **SK5** Skill 热更新 — 运行时动态加载/卸载 skill，无需重启
+- [x] **SK6** Skill 增强测试（8+ tests）
 
 ## Phase 9: 本地存储系统（SQLite + 文件）
 
