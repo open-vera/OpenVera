@@ -25,7 +25,8 @@
     "./memory": "./dist/memory/index.js",
     "./session": "./dist/session/index.js",
     "./project-context": "./dist/project-context/index.js",
-    "./prompt": "./dist/prompt/index.js"
+    "./prompt": "./dist/prompt/index.js",
+    "./errors": "./dist/errors.js"
   },
   "scripts": {
     "build": "tsc",

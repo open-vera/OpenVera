@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ToolRegistry } from "../src/tools/registry.js";
 import type { ToolDef, ToolResult, ToolContext } from "../src/tools/types.js";
 import { errorResult } from "../src/tools/types.js";
-import { truncateOutput } from "../../harness/src/runtime/output-truncator.js";
+import { truncateOutput } from "../src/tools/utils/truncate.js";
 
 function makeCtx(overrides?: Partial<ToolContext>): ToolContext {
   return { cwd: "/tmp", sessionId: "test-session", ...overrides };
