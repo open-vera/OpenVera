@@ -12,3 +12,4 @@ export * from "./planner.js";
 export * from "./plan-parser.js";
 export * from "./checkpoint-store.js";
 export * from "./runtime.js";
+export * from "./failure-attributor.js";
