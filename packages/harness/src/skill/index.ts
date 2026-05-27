@@ -15,6 +15,38 @@ export type {
 export type { BuiltinToolProvider } from "./loader.js";
 export type { RegistryLike } from "./registry-provider.js";
 
+// SK1-SK5: Skill Auto-Extraction, Scoring, Recommendation, Versioning, Hot-Reload
+export {
+  SkillAutoExtractor,
+  SkillAutoScorer,
+  type ExecutionTrace,
+  type ToolCallRecord,
+  type ExtractedSkill,
+  type ExtractorConfig,
+  type SkillExecutionRecord,
+  type SkillScore,
+  type ScorerConfig,
+} from "./auto-extractor.js";
+export {
+  SkillRecommender,
+  type TaskContext,
+  type SkillRecommendation,
+  type RecommenderConfig,
+} from "./recommender.js";
+export {
+  SkillVersionManager,
+  type SkillVersion,
+  type SkillSnapshot,
+  type SkillDiff,
+  type DiffEntry,
+} from "./version-manager.js";
+export {
+  SkillHotReloader,
+  type HotReloadEvent,
+  type HotReloadCallback,
+  type HotReloadConfig,
+} from "./hot-reload.js";
+
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SkillResolver } from "./resolver.js";
