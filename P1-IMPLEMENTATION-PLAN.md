@@ -12,26 +12,26 @@
 - [x] **D4** Tool Middleware 完整管线测试 — before→execute→after→onError 全链路（10+ tests）
 - [x] **E3** 未使用导入清理 — grep 检查并移除未使用的 import
 - [x] **E2** CHANGELOG 更新 — 记录 feature 分支所有里程碑
-- [ ] **E1** API 文档 — 为 checkpoint-store、memory store、subagent-pool/orchestrator 生成 README
+- [x] **E1** API 文档 — 为 checkpoint-store、memory store、subagent-pool/orchestrator 生成 README
 
 ---
 
 ## Phase 1: Self-Loop Runtime（P1 核心）
 
-- [ ] **S1** 创建 `packages/harness/src/flow/self-loop.ts` — SelfLoopRunner 类骨架
-- [ ] **S2** 实现循环终止条件：confidence≥0.9 / maxCycles(默认5) / budgetUsd / 连续重复critique检测
-- [ ] **S3** 实现 cycle_end JSONL entry 写入（含 critique 摘要、是否 replan）
+- [x] **S1** 创建 `packages/harness/src/flow/self-loop.ts` — SelfLoopRunner 类骨架
+- [x] **S2** 实现循环终止条件：confidence≥0.9 / maxCycles(默认5) / budgetUsd / 连续重复critique检测
+- [x] **S3** 实现 cycle_end JSONL entry 写入（含 critique 摘要、是否 replan）
 - [ ] **S4** 集成到 HarnessRuntime — 在 runtime.ts 中增加 `runSelfLoop()` 入口
-- [ ] **S5** SelfLoopRunner 单元测试（15+ tests：正常终止、budget 超限、死循环检测、replan 触发）
+- [x] **S5** SelfLoopRunner 单元测试（15+ tests：正常终止、budget 超限、死循环检测、replan 触发）
 - [ ] **S6** E2E 测试：plan→self-loop→critique→replan→complete 全链路
 
 ## Phase 2: Critic Agent（独立批判能力）
 
-- [ ] **CR1** 创建 `packages/harness/src/critic/critic-agent.ts` — 独立 CriticAgent 类
-- [ ] **CR2** 实现 critiquePrompt 模板 — 按 step 产出结构化评分（issues/confidence/nextAction）
-- [ ] **CR3** 实现主 agent 与 critic agent 的有限轮辩论（max 3 轮）
-- [ ] **CR4** CriticAgent 集成到 SelfLoopRunner — 每个 cycle 结束自动 critique
-- [ ] **CR5** CriticAgent 测试（10+ tests：评分、辩论收敛、边界 case）
+- [x] **CR1** 创建 `packages/harness/src/critic/critic-agent.ts` — 独立 CriticAgent 类
+- [x] **CR2** 实现 critiquePrompt 模板 — 按 step 产出结构化评分（issues/confidence/nextAction）
+- [x] **CR3** 实现主 agent 与 critic agent 的有限轮辩论（max 3 轮）
+- [x] **CR4** CriticAgent 集成到 SelfLoopRunner — 每个 cycle 结束自动 critique
+- [x] **CR5** CriticAgent 测试（10+ tests：评分、辩论收敛、边界 case）
 
 ## Phase 3: 失败恢复与归因
 
