@@ -6,7 +6,7 @@
  */
 
 import type { SubagentJobStatus } from "./subagent.js";
-import { DuplicateJobError, QueueFullError } from "../errors.js";
+import { DuplicateJobError, QueueFullError, MaxDepthExceededError } from "../errors.js";
 
 export interface PoolJob {
   jobId: string;
@@ -18,6 +18,12 @@ export interface PoolJob {
   result?: string;
   error?: string;
   cancelToken?: AbortController;
+  /** Permissions inherited from parent agent. */
+  permissions?: string[];
+  /** Token usage accumulated for this job. */
+  usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
+  /** Recursion depth of this job (0 = top-level). */
+  depth?: number;
 }
 
 export interface SubagentPoolOptions {
@@ -25,11 +31,14 @@ export interface SubagentPoolOptions {
   maxConcurrent?: number;
   /** Maximum queued jobs before rejection (default: 10). */
   maxQueue?: number;
+  /** Maximum recursion depth for subagents (default: 3). */
+  maxDepth?: number;
 }
 
 export class SubagentPool {
   private readonly maxConcurrent: number;
   private readonly maxQueue: number;
+  private readonly maxDepth: number;
   private readonly jobs = new Map<string, PoolJob>();
   private readonly queue: string[] = [];
   private runningCount = 0;
@@ -37,12 +46,18 @@ export class SubagentPool {
   constructor(opts?: SubagentPoolOptions) {
     this.maxConcurrent = opts?.maxConcurrent ?? 3;
     this.maxQueue = opts?.maxQueue ?? 10;
+    this.maxDepth = opts?.maxDepth ?? 3;
   }
 
-  /** Submit a job. Returns the jobId. Throws if queue is full. */
-  submit(jobId: string, agentType: string, prompt: string): PoolJob {
+  /** Submit a job. Returns the jobId. Throws if queue is full or depth exceeded. */
+  submit(jobId: string, agentType: string, prompt: string, options?: { depth?: number }): PoolJob {
     if (this.jobs.has(jobId)) {
       throw new DuplicateJobError(jobId);
+    }
+
+    const depth = options?.depth ?? 0;
+    if (depth >= this.maxDepth) {
+      throw new MaxDepthExceededError(depth, this.maxDepth);
     }
 
     const totalSlots = this.maxConcurrent + this.maxQueue;
@@ -58,6 +73,7 @@ export class SubagentPool {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       cancelToken: new AbortController(),
+      depth,
     };
 
     this.jobs.set(jobId, job);
@@ -160,6 +176,38 @@ export class SubagentPool {
       }
     }
     return cleared;
+  }
+
+  /** Aggregate token usage across all jobs. */
+  getTotalUsage(): { promptTokens: number; completionTokens: number; totalTokens: number } {
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let totalTokens = 0;
+    for (const job of this.jobs.values()) {
+      if (job.usage) {
+        promptTokens += job.usage.promptTokens;
+        completionTokens += job.usage.completionTokens;
+        totalTokens += job.usage.totalTokens;
+      }
+    }
+    return { promptTokens, completionTokens, totalTokens };
+  }
+
+  /** Set permissions for a job. */
+  setPermissions(jobId: string, permissions: string[]): void {
+    const job = this.jobs.get(jobId);
+    if (!job) return;
+    job.permissions = permissions;
+  }
+
+  /** Get permissions for a job. */
+  getPermissions(jobId: string): string[] {
+    return this.jobs.get(jobId)?.permissions ?? [];
+  }
+
+  /** Get the recursion depth of a job. */
+  getDepth(jobId: string): number {
+    return this.jobs.get(jobId)?.depth ?? 0;
   }
 
   private processQueue(): void {

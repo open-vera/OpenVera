@@ -87,6 +87,14 @@ export class QueueFullError extends AgentError {
   }
 }
 
+/** Subagent max recursion depth exceeded. */
+export class MaxDepthExceededError extends AgentError {
+  constructor(depth: number, maxDepth: number) {
+    super("MAX_DEPTH_EXCEEDED", `Subagent depth ${depth} exceeds max depth ${maxDepth}`);
+    this.name = "MaxDepthExceededError";
+  }
+}
+
 /** Remote runner execution failure. */
 export class RemoteRunnerError extends AgentError {
   constructor(runnerCmd: string, detail: string) {
