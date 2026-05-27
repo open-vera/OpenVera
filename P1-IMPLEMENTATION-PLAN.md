@@ -122,7 +122,7 @@
   - JSONL 格式存储，按日期分文件：`~/.vera/changes/YYYY-MM-DD.jsonl`
   - 支持按时间范围、agent、工具名、文件路径查询
   - 支持压缩：超过 30 天的记录自动归档
-- [ ] **CT3** 变更查询 skill — `.claude/skills/change-query/SKILL.md`
+- [x] **CT3** 变更查询 skill — `.claude/skills/change-query/SKILL.md`
   - 提供 `change_query` skill，让 agent 可以查询历史变更
   - 支持查询模式：
     - 最近 N 小时的变更

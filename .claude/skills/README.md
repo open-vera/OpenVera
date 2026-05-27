@@ -84,6 +84,26 @@
 
 ---
 
+### `/change-query`
+**查询 Agent 变更追踪数据库**
+
+查询 agent 工具调用历史，了解项目修改记录。支持按时间、文件、agent、工具名查询。
+
+| 项 | 内容 |
+|---|---|
+| 数据源 | `~/.vera/changes/YYYY-MM-DD.jsonl` |
+| 输出 | 终端 markdown 表格 |
+| 实现 | `packages/harness/src/tracking/` |
+
+```
+/change-query --hours 2                     # 最近 2 小时
+/change-query --file src/index.ts           # 某文件修改历史
+/change-query --tool write_file             # 某工具调用记录
+/change-query --agent agent-1               # 某 agent 操作记录
+```
+
+---
+
 ## 输出目录约定
 
 | Skill | 输出路径 |
@@ -92,6 +112,7 @@
 | `claude-session-review` | `docs/agent-changes/claude-YYYY-MM-DD.md` |
 | `cursor-session-review` | 终端（无文件） |
 | `quality-scan` | `docs/code-governance/report-YYYY-MM-DD.md` |
+| `change-query` | 终端（无文件） |
 
 ---
 
