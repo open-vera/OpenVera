@@ -285,6 +285,48 @@ export class FailureAttributor {
   }
 
   /**
+   * Prepare a replay plan: reset failed steps to "pending" and update flow state.
+   * Call this before re-executing failed steps through the runtime.
+   */
+  prepareReplay(handle: FlowHandle): ReplayPlan {
+    const plan = handle.flow.plan;
+    if (!plan) {
+      return { stepsToReplay: [], completedSteps: [], hasReplayableSteps: false };
+    }
+
+    const stepsToReplay: FailedStep[] = [];
+    const completedSteps: string[] = [];
+
+    for (const step of plan.steps) {
+      if (step.status === "failed") {
+        stepsToReplay.push({
+          stepId: step.id,
+          action: step.action,
+          type: step.type,
+          category: "tool",
+          rootCause: `Step ${step.id} failed during execution`,
+          dependsOn: step.dependsOn ?? [],
+        });
+        step.status = "pending";
+      } else if (step.status === "done") {
+        completedSteps.push(step.id);
+      }
+    }
+
+    // Reset flow state so the runtime can re-execute
+    if (stepsToReplay.length > 0) {
+      handle.flow.state = "executing";
+      handle.flow.activeStepId = undefined;
+    }
+
+    return {
+      stepsToReplay,
+      completedSteps,
+      hasReplayableSteps: stepsToReplay.length > 0,
+    };
+  }
+
+  /**
    * Synchronous categorization without timeline recording.
    * Useful for diagnostics and testing.
    */

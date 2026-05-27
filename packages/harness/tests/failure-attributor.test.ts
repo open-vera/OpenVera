@@ -26,6 +26,7 @@ import {
   FailureAttributor,
   type FailureAttribution,
   type FailedStep,
+  type ReplayPlan,
 } from "../src/runtime/failure-attributor.js";
 import type { ArtifactStore, FlowHandle } from "../src/runtime/internal.js";
 
@@ -498,6 +499,158 @@ describe("FailureAttributor", () => {
 
       const failed = attributor.extractFailedSteps(handle);
       expect(failed[0].dependsOn).toEqual([]);
+    });
+  });
+
+  // ── F4: Replay preparation ────────────────────────────────────────────────────
+
+  describe("prepareReplay", () => {
+    it("resets failed steps to pending and returns replay plan", () => {
+      const handle = makeHandle(tmpDir);
+      const replay = attributor.prepareReplay(handle);
+
+      expect(replay.hasReplayableSteps).toBe(true);
+      expect(replay.stepsToReplay).toHaveLength(1);
+      expect(replay.stepsToReplay[0].stepId).toBe("s2");
+      expect(replay.stepsToReplay[0].action).toBe("run tests");
+
+      // Verify step status was reset in the plan
+      const plan = handle.flow.plan!;
+      const s2 = plan.steps.find((s) => s.id === "s2")!;
+      expect(s2.status).toBe("pending");
+    });
+
+    it("sets flow state to executing after replay preparation", () => {
+      const handle = makeHandle(tmpDir, { state: "failed" });
+      attributor.prepareReplay(handle);
+
+      expect(handle.flow.state).toBe("executing");
+      expect(handle.flow.activeStepId).toBeUndefined();
+    });
+
+    it("preserves completed steps in the replay plan", () => {
+      const handle = makeHandle(tmpDir);
+      const replay = attributor.prepareReplay(handle);
+
+      expect(replay.completedSteps).toEqual(["s1"]);
+    });
+
+    it("handles multiple failed steps", () => {
+      const handle = makeHandle(tmpDir, {
+        plan: {
+          planId: "p1",
+          goal: "g",
+          assumptions: [],
+          steps: [
+            { id: "s1", type: "tool", action: "a", status: "failed" },
+            { id: "s2", type: "tool", action: "b", status: "failed" },
+            { id: "s3", type: "tool", action: "c", status: "done" },
+          ],
+          risk: "low",
+        },
+      });
+
+      const replay = attributor.prepareReplay(handle);
+
+      expect(replay.stepsToReplay).toHaveLength(2);
+      expect(replay.stepsToReplay.map((s) => s.stepId)).toEqual(["s1", "s2"]);
+      expect(replay.completedSteps).toEqual(["s3"]);
+
+      // Both failed steps should be reset
+      const plan = handle.flow.plan!;
+      expect(plan.steps[0].status).toBe("pending");
+      expect(plan.steps[1].status).toBe("pending");
+      expect(plan.steps[2].status).toBe("done");
+    });
+
+    it("returns empty replay plan when no failed steps exist", () => {
+      const handle = makeHandle(tmpDir, {
+        plan: {
+          planId: "p1",
+          goal: "g",
+          assumptions: [],
+          steps: [
+            { id: "s1", type: "tool", action: "a", status: "done" },
+            { id: "s2", type: "tool", action: "b", status: "pending" },
+          ],
+          risk: "low",
+        },
+      });
+
+      const replay = attributor.prepareReplay(handle);
+
+      expect(replay.hasReplayableSteps).toBe(false);
+      expect(replay.stepsToReplay).toHaveLength(0);
+      expect(replay.completedSteps).toEqual(["s1"]);
+    });
+
+    it("returns empty replay plan when flow has no plan", () => {
+      const flow: TaskFlow = {
+        flowId: "test-flow",
+        goal: "Test goal",
+        state: "failed",
+        activeStepId: undefined,
+        loopCount: 1,
+        maxLoops: 3,
+        budget: { tokensUsed: 0 },
+        scope: {},
+        assignedAgents: [],
+        artifacts: [],
+      };
+      const handle: FlowHandle = { flow, store: makeStore(tmpDir) };
+      const replay = attributor.prepareReplay(handle);
+
+      expect(replay.hasReplayableSteps).toBe(false);
+      expect(replay.stepsToReplay).toHaveLength(0);
+      expect(replay.completedSteps).toHaveLength(0);
+    });
+
+    it("does not modify flow state when no failed steps", () => {
+      const handle = makeHandle(tmpDir, {
+        state: "completed",
+        plan: {
+          planId: "p1",
+          goal: "g",
+          assumptions: [],
+          steps: [
+            { id: "s1", type: "tool", action: "a", status: "done" },
+          ],
+          risk: "low",
+        },
+      });
+
+      attributor.prepareReplay(handle);
+      expect(handle.flow.state).toBe("completed");
+    });
+
+    it("preserves dependsOn for replayed steps", () => {
+      const handle = makeHandle(tmpDir, {
+        plan: {
+          planId: "p1",
+          goal: "g",
+          assumptions: [],
+          steps: [
+            { id: "s1", type: "tool", action: "a", status: "done" },
+            {
+              id: "s2",
+              type: "analyze",
+              action: "b",
+              status: "failed",
+              dependsOn: ["s1"],
+            },
+          ],
+          risk: "low",
+        },
+      });
+
+      const replay = attributor.prepareReplay(handle);
+      expect(replay.stepsToReplay[0].dependsOn).toEqual(["s1"]);
+    });
+
+    it("resets activeStepId to undefined for clean replay", () => {
+      const handle = makeHandle(tmpDir, { activeStepId: "s2" });
+      attributor.prepareReplay(handle);
+      expect(handle.flow.activeStepId).toBeUndefined();
     });
   });
 
