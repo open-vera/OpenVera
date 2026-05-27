@@ -102,11 +102,13 @@ Vera = Harness 为内核的 agent runtime。两层结构：
    - 函数/变量：`camelCase`（如 `runSelfLoop`、`embeddingAdapter`）
    - 常量：`UPPER_SNAKE_CASE`（如 `MAX_CYCLES`、`DEFAULT_TIMEOUT`）
 
-### 测试规范
+### 测试规范（强制）
 
+- **无测试 = 未完成，不允许 commit。** 每项任务必须有对应测试用例。
 - 测试文件与源文件同目录，放在 `tests/` 子目录下。
 - 测试文件命名：`<module-name>.test.ts`
 - 每个新功能必须有对应测试，覆盖率 ≥ 90%。
+- 每个模块至少 8-15 个测试用例，覆盖：正常路径、边界条件、错误处理、并发/竞态。
 - 测试用 Vitest，使用 `describe` / `it` / `expect`。
 - Mock 仅用于外部 API 调用（LLM adapter、网络请求），不 mock 内部模块。
 - E2E 测试放在 `packages/harness/tests/e2e-*.ts`。
