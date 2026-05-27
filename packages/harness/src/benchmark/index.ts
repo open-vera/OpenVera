@@ -18,3 +18,9 @@ export type {
   CIGateOptions,
   CIGateResult,
 } from "./ci-gate.js";
+
+export { GaiaBenchmarkRunner } from "./gaia-benchmark-runner.js";
+export type {
+  GaiaBenchmarkRawCase,
+  GaiaBenchmarkOptions,
+} from "./gaia-benchmark-runner.js";

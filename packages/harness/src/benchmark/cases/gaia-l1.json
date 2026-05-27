@@ -1,0 +1,66 @@
+[
+  {
+    "task_id": "gaia-l1-001",
+    "question": "What is the capital of France?",
+    "level": 1,
+    "final_answer": "Paris"
+  },
+  {
+    "task_id": "gaia-l1-002",
+    "question": "Read the file README.md and tell me the project name.",
+    "level": 1,
+    "final_answer": "OpenVera",
+    "file_name": "README.md"
+  },
+  {
+    "task_id": "gaia-l1-003",
+    "question": "Run 'echo hello world' and report the output exactly.",
+    "level": 1,
+    "final_answer": "hello world"
+  },
+  {
+    "task_id": "gaia-l1-004",
+    "question": "What is 2 + 2?",
+    "level": 1,
+    "final_answer": "4"
+  },
+  {
+    "task_id": "gaia-l1-005",
+    "question": "List the files in the current directory.",
+    "level": 1,
+    "final_answer": "package.json",
+    "annotator_metadata": { "Category": "file-ops" }
+  },
+  {
+    "task_id": "gaia-l1-006",
+    "question": "What programming language is TypeScript a superset of?",
+    "level": 1,
+    "final_answer": "JavaScript"
+  },
+  {
+    "task_id": "gaia-l1-007",
+    "question": "Search for the word 'export' in all .ts files.",
+    "level": 1,
+    "final_answer": "export",
+    "annotator_metadata": { "Category": "search" }
+  },
+  {
+    "task_id": "gaia-l1-008",
+    "question": "What is the current date in YYYY-MM-DD format?",
+    "level": 1,
+    "final_answer": "2026"
+  },
+  {
+    "task_id": "gaia-l1-009",
+    "question": "Read the file package.json and tell me the 'name' field value.",
+    "level": 1,
+    "final_answer": "open-vera",
+    "file_name": "package.json"
+  },
+  {
+    "task_id": "gaia-l1-010",
+    "question": "Run 'node --version' and report the major version number.",
+    "level": 1,
+    "final_answer": "v"
+  }
+]
