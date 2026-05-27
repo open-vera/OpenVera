@@ -45,6 +45,12 @@ export type { FeishuChannelConfig } from "./feishu-channel.js";
 export { WeComChannelAdapter } from "./wecom-channel.js";
 export type { WeComChannelConfig } from "./wecom-channel.js";
 
+export { TelegramChannelAdapter } from "./telegram-channel.js";
+export type { TelegramChannelConfig } from "./telegram-channel.js";
+
+export { DiscordChannelAdapter } from "./discord-channel.js";
+export type { DiscordChannelConfig } from "./discord-channel.js";
+
 export {
   ChannelPluginRegistry,
   PluginAlreadyRegisteredError,
