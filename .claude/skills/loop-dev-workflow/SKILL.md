@@ -282,6 +282,16 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：HTTP 测试 helper 应使用静态 `import http` 而非动态 `import()`，避免模块加载时序问题
 - 测试总数：~1766 tests（Core 1525 + Harness 732）（含 1 个 pre-existing flaky session 分页测试）
 
+### Phase 16 Channel — CH1（2026-05-27，完成）
+
+- CH1: Channel 抽象层 — types.ts 定义 ChannelAdapter 接口、ChannelMessage 统一格式、连接状态、Gateway 事件类型、错误层次
+- 32 tests, 743 lines added, 3 new files
+- 实现要点：10 种 ChannelType（cli/api/webhook/feishu/wecom/telegram/discord/slack/whatsapp/custom），5 种 AttachmentType，4 种 ConnectionState
+- 经验：Channel 模块放在 `packages/core/src/channel/`（与 rag/storage/network 同级），barrel export 到 core index.ts
+- 经验：接口合规性测试用 mock implementation 验证结构，包含 connect/disconnect 生命周期、消息收发、历史检索的交互测试
+- 经验：Gateway 事件类型用 discriminated union（`type` 字段区分），TypeScript 自动 narrow
+- 测试总数：~1821 tests（Core 1557 + Harness 732）（含 1 个 pre-existing flaky session 分页测试）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*
