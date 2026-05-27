@@ -12,6 +12,7 @@
 
 | 日期批次 | 摘要 | 详细 |
 |---|---|---|
+| 2026-05-27 · 19:xx | Phase 11 B3：GAIA L1 Benchmark Runner — GAIA 评测集自动跑分 | [→](./changelog/2026-05-27-19c.md) |
 | 2026-05-27 · 19:xx | Phase 10.2 EV7：回归检测 — CIGate + CI workflow + 61 tests | [→](./changelog/2026-05-27-19b.md) |
 | 2026-05-27 · 11:xx | UI Refinement：主题统一、Vue 3 生命周期修复、数据驱动图表、交互打磨、响应式布局 | [→](./changelog/2026-05-27-11.md) |
 | 2026-05-27 · 08:xx | 完成全部管理端 UI 和 Core UI 开发，实现内存、检查点、子代理管理功能 | [→](./changelog/2026-05-27-08.md) |

@@ -213,7 +213,7 @@
 
 - [x] **B1** Benchmark Harness — `packages/harness/src/benchmark/harness.ts`，case 加载 + agent 执行 + 评估
 - [x] **B2** 评估器增强 — 在 evaluator.ts 基础上增加 llm_judge / tool_match / semantic_similarity
-- [ ] **B3** GAIA L1 集成 — 导入 GAIA 评测集，自动跑分
+- [x] **B3** GAIA L1 集成 — 导入 GAIA 评测集，自动跑分
 - [x] **B4** 自建评测集 — 针对 Vera 特有能力的 custom benchmark cases
 - [x] **B5** 报告生成 — 自动产出 benchmark 报告（pass rate、tool accuracy、flaky rate）
 - [x] **B6** 回归检测 — 代码变更后自动跑 benchmark，检测退化
