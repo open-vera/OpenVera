@@ -260,6 +260,17 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：category→level 映射结合 category 和 difficulty 两个维度，multi-turn 直接映射到 L3
 - 测试总数：~1680 tests（Core 1408 + Harness 582）
 
+### Phase 10.2 Eval — EV7（2026-05-27，完成）
+
+- EV7: Regression Detection — CIGate + CI workflow + 61 tests
+- CIGate: 包装 RegressionDetector，提供 CI 友好的 run/check/formatReport API，返回 exit code
+- ci-runner.ts: CLI 入口，加载 GAIA L1 cases，检查回归，写 report
+- GitHub Actions workflow: eval-regression.yml，PR 合并前自动跑 GAIA L1，pass rate 下降 >5% 阻断
+- 经验：RegressionDetector 和 BenchmarkHarness.checkRegression() 已存在但无测试——"代码存在"不等于"已测试"，always check test coverage
+- 踩坑：CIGate 回归测试中，mock agent 的返回值必须匹配 EvalCase.expected，否则 pass rate 始终为 0，无法触发回归——确保 baseline agent 能真正通过评估
+- 经验：CI runner 的 agent executor 当前为 mock，集成真实 agent runtime 后才能实际在 CI 中运行
+- 测试总数：~1741 tests（Core 1408 + Harness 643）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*
