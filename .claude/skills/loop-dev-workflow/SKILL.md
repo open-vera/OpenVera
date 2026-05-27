@@ -127,11 +127,13 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：并行 agent 修改不同文件时无冲突，合并很顺利
 - 经验：agent 不会自动写测试，prompt 里必须明确要求
 
-### Phase 1 SelfLoopRunner（2026-05-27，进行中）
+### Phase 1 SelfLoopRunner（2026-05-27，完成）
 
-- S1-S3 实现完成，测试 agent 运行中
-- SelfLoopRunner: 451 行，含 cycle 执行、4 种终止条件、JSONL 写入
-- CriticAgent: 独立批判 + 3 轮辩论机制
+- S1-S6 全部完成：骨架、终止条件、JSONL 写入、runtime 集成、单元测试、E2E 测试
+- SelfLoopRunner: 469 行，含 cycle 执行、4 种终止条件、JSONL 写入、duplicate detection
+- CriticAgent: 317 行，独立批判 + 3 轮辩论机制，16 个单元测试
+- 踩坑：duplicate detection 的 `critiqueSummary` 和 `critiqueKey` 格式不一致导致比较永远 false → 修复为统一 `entryKey()` 解析
+- 经验：并行 agent 可能修改同一文件（如 changelog.md），需检查 diff 后合并
 
 ---
 

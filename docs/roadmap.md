@@ -272,7 +272,7 @@ P1 的目标是让 Vera 从受控执行器，升级为能自己推进复杂 Flow
 - 焦点模式：持续转录（terminal focus 场景）
 - 限制：仅支持 Anthropic OAuth，远程环境禁用
 
-**7. Self-Loop Runtime**（`packages/harness/src/flow/loop.ts`）
+**7. Self-Loop Runtime**（`packages/harness/src/flow/loop.ts`） ✅
 - `SelfLoopRunner`：在无用户输入的情况下驱动 `Plan → Act → Critique → Replan → Act` 循环
 - 循环终止条件（任意一个触发即停）：
   - `CritiqueResult.next_action === "stop"`
@@ -284,7 +284,7 @@ P1 的目标是让 Vera 从受控执行器，升级为能自己推进复杂 Flow
 - 每个 cycle 写一条 `cycle_end` JSONL entry（含 critique 摘要、是否 replan）
 - 人工接管点：`waitingApproval` 状态下挂起，收到确认信号后继续
 
-**8. Critic Agent**
+**8. Critic Agent** ✅
 - 独立 critic agent 对执行结果做 Critique
 - 发现 Plan 偏差、遗漏测试、风险点
 - 支持主 agent 与 critic agent 的有限轮辩论
