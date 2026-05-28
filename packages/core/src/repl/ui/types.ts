@@ -30,6 +30,7 @@ export interface ToolUse {
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  thinking?: string;
   streaming?: boolean;
   toolUses?: ToolUse[];
   /** Plan mode — set when executing a multi-step plan */

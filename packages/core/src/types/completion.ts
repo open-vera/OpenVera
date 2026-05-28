@@ -13,6 +13,7 @@ export interface CompletionRequest {
   temperature?: number;
   system?: string;
   signal?: AbortSignal;
+  thinking_budget?: number;
 }
 
 export interface Usage {
@@ -20,6 +21,7 @@ export interface Usage {
   output_tokens: number;
   cache_creation_input_tokens?: number;
   cache_read_input_tokens?: number;
+  reasoning_tokens?: number;
 }
 
 export interface CompletionResponse {
@@ -31,5 +33,6 @@ export interface CompletionResponse {
 // Streaming 事件 — 适配器内部累积 tool call 参数，对外只发完整事件
 export type StreamEvent =
   | { type: "text"; text: string }
+  | { type: "thinking"; text: string }
   | { type: "tool_call"; id: string; name: string; arguments: string }
   | { type: "done"; stop_reason: StopReason; usage?: Usage };

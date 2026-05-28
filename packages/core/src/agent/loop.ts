@@ -108,6 +108,8 @@ export interface AgentOptions {
   tools?: Tool[];
   onToolCall?: ToolHandler;
   onUsage?: (usage: Usage) => void;
+  /** Called with each thinking/reasoning delta from the LLM. */
+  onThinking?: (delta: string) => void;
   system?: string;
   maxTurns?: number;
   /**
@@ -546,6 +548,7 @@ export async function streamAgent(
     tools = [],
     onToolCall,
     onUsage,
+    onThinking,
     system,
     maxTurns = DEFAULT_MAX_TURNS,
     runDir,
@@ -625,6 +628,8 @@ export async function streamAgent(
           if (event.type === "text") {
             onText(event.text);
             turnText += event.text;
+          } else if (event.type === "thinking") {
+            onThinking?.(event.text);
           } else if (event.type === "tool_call") {
             collectedToolCalls.push(event);
           } else if (event.type === "done") {

@@ -51,6 +51,10 @@ export function estimateMessageLines(
   const raw = msg.content + (msg.streaming ? "▌" : "");
   const rawLines = raw.split("\n");
   let lineCount = 0;
+  // Thinking preview (up to 2 lines when present)
+  if (msg.thinking?.trim()) {
+    lineCount += Math.min(msg.thinking.split("\n").length, 2);
+  }
   for (const rawLine of rawLines) lineCount += wrapLineCount(rawLine, wrapWidth);
   lineCount += estimateToolUseLines(msg.toolUses ?? [], expandToolOutput);
   lineCount += 1;
@@ -69,6 +73,7 @@ export function messageHeightCacheKey(
     index,
     msg.role,
     msg.content.length,
+    msg.thinking?.length ?? 0,
     msg.streaming ? "streaming" : "static",
     msg.planMode ? "plan" : "message",
     toolCount,

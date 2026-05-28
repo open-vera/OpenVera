@@ -25,7 +25,12 @@ export interface ToolResultPart {
   content: string;
 }
 
-export type ContentPart = TextPart | ImagePart | ToolCallPart | ToolResultPart;
+export interface ThinkingPart {
+  type: "thinking";
+  thinking: string;
+}
+
+export type ContentPart = TextPart | ImagePart | ToolCallPart | ToolResultPart | ThinkingPart;
 
 export interface Message {
   role: Role;

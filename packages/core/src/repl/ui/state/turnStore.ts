@@ -9,6 +9,7 @@ export interface ActiveToolState {
 export interface ActiveTurnState {
   active: boolean;
   text: string;
+  thinkingText: string;
   tools: ToolUse[];
   outputTokens: number;
   status: "idle" | "streaming" | "failed" | "completed";
@@ -18,6 +19,7 @@ export interface ActiveTurnState {
 export const emptyActiveTurn = (): ActiveTurnState => ({
   active: false,
   text: "",
+  thinkingText: "",
   tools: [],
   outputTokens: 0,
   status: "idle",
@@ -26,17 +28,27 @@ export const emptyActiveTurn = (): ActiveTurnState => ({
 export function reduceActiveTurn(state: ActiveTurnState, event: UiEvent): ActiveTurnState {
   switch (event.type) {
     case "assistant.started":
-      return { active: true, text: "", tools: [], outputTokens: 0, status: "streaming" };
+      return { active: true, text: "", thinkingText: "", tools: [], outputTokens: 0, status: "streaming" };
+
+    case "assistant.thinking.delta":
+      return state.active
+        ? { ...state, thinkingText: state.thinkingText + event.delta }
+        : { active: true, text: "", thinkingText: event.delta, tools: [], outputTokens: 0, status: "streaming" };
+
+    case "assistant.thinking.updated":
+      return state.active
+        ? { ...state, thinkingText: event.text }
+        : { active: true, text: "", thinkingText: event.text, tools: [], outputTokens: 0, status: "streaming" };
 
     case "assistant.delta":
       return state.active
         ? { ...state, text: state.text + event.delta, status: "streaming" }
-        : { active: true, text: event.delta, tools: [], outputTokens: 0, status: "streaming" };
+        : { active: true, text: event.delta, thinkingText: "", tools: [], outputTokens: 0, status: "streaming" };
 
     case "assistant.updated":
       return state.active
         ? { ...state, text: event.text, status: "streaming" }
-        : { active: true, text: event.text, tools: [], outputTokens: 0, status: "streaming" };
+        : { active: true, text: event.text, thinkingText: "", tools: [], outputTokens: 0, status: "streaming" };
 
     case "tool.started":
       return state.active
@@ -56,7 +68,7 @@ export function reduceActiveTurn(state: ActiveTurnState, event: UiEvent): Active
     case "tool.completed":
       return state.active
         ? { ...state, tools: [...state.tools, event.tool], activeTool: undefined }
-        : { active: true, text: "", tools: [event.tool], outputTokens: 0, status: "streaming", activeTool: undefined };
+        : { active: true, text: "", thinkingText: "", tools: [event.tool], outputTokens: 0, status: "streaming", activeTool: undefined };
 
     case "assistant.completed":
       return { ...state, active: false, text: event.text, status: "completed" };

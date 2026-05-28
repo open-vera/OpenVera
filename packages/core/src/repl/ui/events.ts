@@ -6,6 +6,8 @@ import { emptyActiveTurn } from "./state/turnStore.js";
 export type UiEvent =
   | { type: "user.submitted"; text: string }
   | { type: "assistant.started"; planMode?: false }
+  | { type: "assistant.thinking.delta"; delta: string }
+  | { type: "assistant.thinking.updated"; text: string }
   | { type: "assistant.delta"; delta: string }
   | { type: "assistant.updated"; text: string }
   | { type: "assistant.completed"; text: string }

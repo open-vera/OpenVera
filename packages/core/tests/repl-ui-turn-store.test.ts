@@ -13,6 +13,7 @@ describe("reduceActiveTurn", () => {
     expect(state).toEqual({
       active: true,
       text: "hello",
+      thinkingText: "",
       tools: [],
       outputTokens: 0,
       status: "streaming",

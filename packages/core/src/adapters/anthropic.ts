@@ -43,6 +43,9 @@ export class AnthropicAdapter implements LLMAdapter {
       system: request.system,
       messages: this.toAnthropicMessages(request.messages),
       tools: this.toAnthropicTools(request),
+      ...(request.thinking_budget
+        ? { thinking: { type: "enabled" as const, budget_tokens: request.thinking_budget } }
+        : {}),
     }, { signal: request.signal });
 
     try {
@@ -57,7 +60,9 @@ export class AnthropicAdapter implements LLMAdapter {
             arguments: "",
           };
         } else if (event.type === "content_block_delta") {
-          if (event.delta.type === "text_delta") {
+          if (event.delta.type === "thinking_delta") {
+            yield { type: "thinking", text: event.delta.thinking };
+          } else if (event.delta.type === "text_delta") {
             yield { type: "text", text: event.delta.text };
           } else if (event.delta.type === "input_json_delta") {
             const tc = toolCalls[event.index];
@@ -163,6 +168,7 @@ export class AnthropicAdapter implements LLMAdapter {
     const parts: ContentPart[] = response.content.flatMap(
       (block): ContentPart[] => {
         if (block.type === "text") return [{ type: "text", text: block.text }];
+        if (block.type === "thinking") return [{ type: "thinking", thinking: block.thinking }];
         if (block.type === "tool_use") {
           return [
             {

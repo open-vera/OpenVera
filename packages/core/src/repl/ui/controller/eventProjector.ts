@@ -12,6 +12,7 @@ function archiveAssistantMessage(state: ReplViewModel, content: string): ChatMes
     {
       role: "assistant",
       content,
+      ...(state.activeTurn.thinkingText ? { thinking: state.activeTurn.thinkingText } : {}),
       ...(state.activeTurn.tools.length ? { toolUses: state.activeTurn.tools } : {}),
     },
   ];
@@ -31,6 +32,13 @@ export function projectUiEvent(state: ReplViewModel, event: UiEvent): ReplViewMo
       });
 
     case "assistant.started":
+      return withActiveTurn({
+        ...state,
+        messages: state.messages,
+      });
+
+    case "assistant.thinking.delta":
+    case "assistant.thinking.updated":
       return withActiveTurn({
         ...state,
         messages: state.messages,

@@ -10,6 +10,7 @@ export interface StreamRuntimeBridgeOptions {
   agentOptions: AgentOptions;
   streamAgentImpl?: typeof streamAgent;
   onTextDelta: (delta: string) => void;
+  onThinkingDelta: (delta: string) => void;
   dispatchUiEvent: (event: UiEvent) => void;
   streamingBufferRef: { current: string };
   rafRef: { current: ReturnType<typeof setTimeout> | null };
@@ -42,6 +43,7 @@ export async function runStreamRuntime(options: StreamRuntimeBridgeOptions): Pro
     agentOptions,
     streamAgentImpl = streamAgent,
     onTextDelta,
+    onThinkingDelta,
     dispatchUiEvent,
     streamingBufferRef,
     rafRef,
@@ -60,6 +62,7 @@ export async function runStreamRuntime(options: StreamRuntimeBridgeOptions): Pro
       line,
       {
         ...agentOptions,
+        onThinking: onThinkingDelta,
         onToolCall: async (name, args) => {
           if (rafRef.current !== null) {
             clearTimeout(rafRef.current);

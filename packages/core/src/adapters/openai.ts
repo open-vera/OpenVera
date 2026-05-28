@@ -46,6 +46,7 @@ export class OpenAIAdapter implements LLMAdapter {
 
     let finishReason: string | null = null;
     let usage: { input_tokens: number; output_tokens: number } | undefined;
+    let reasoningTokens: number | undefined;
 
     try {
       for await (const chunk of apiStream) {
@@ -57,10 +58,20 @@ export class OpenAIAdapter implements LLMAdapter {
             input_tokens: chunk.usage.prompt_tokens,
             output_tokens: chunk.usage.completion_tokens,
           };
+          const details = (chunk.usage as unknown as Record<string, unknown>).completion_tokens_details as Record<string, unknown> | undefined;
+          if (details?.reasoning_tokens != null) {
+            reasoningTokens = details.reasoning_tokens as number;
+          }
         }
 
         if (delta?.content) {
           yield { type: "text", text: delta.content };
+        }
+
+        // DeepSeek / OpenAI-compatible reasoning_content
+        const deltaAny = delta as Record<string, unknown> | undefined;
+        if (typeof deltaAny?.reasoning_content === "string" && deltaAny.reasoning_content) {
+          yield { type: "thinking", text: deltaAny.reasoning_content };
         }
 
         for (const tc of delta?.tool_calls ?? []) {
@@ -90,7 +101,7 @@ export class OpenAIAdapter implements LLMAdapter {
     yield {
       type: "done",
       stop_reason: finishReason === "tool_calls" ? "tool_use" : "end_turn",
-      usage,
+      usage: usage ? { ...usage, reasoning_tokens: reasoningTokens } : undefined,
     };
   }
 

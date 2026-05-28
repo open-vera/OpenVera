@@ -38,14 +38,27 @@ export function ActivityLane({ turn }: ActivityLaneProps) {
   const text = formatActivityText(turn.text);
   const tools = formatActivityTools(turn);
   const activeTool = turn.activeTool;
+  const hasThinking = turn.thinkingText.length > 0;
+  const hasText = text.length > 0;
 
   // If there's an active tool with live output, show it prominently
   const liveLines = activeTool ? formatLiveOutput(activeTool.liveOutput) : [];
 
-  if (!text && !tools && !activeTool) return null;
+  if (!hasThinking && !text && !tools && !activeTool) return null;
 
   return (
     <Box flexDirection="column">
+      {/* Thinking indicator */}
+      {hasThinking && !activeTool && (
+        <Box>
+          <Text color={theme.thinkingLabel} dimColor italic>think </Text>
+          <Text color={theme.thinkingText} dimColor wrap="truncate-end">
+            {formatActivityText(turn.thinkingText, 80)}
+          </Text>
+        </Box>
+      )}
+
+      {/* If there's an active tool with live output, show it prominently */}
       {activeTool ? (
         <Box flexDirection="column">
           <Box>
@@ -65,7 +78,7 @@ export function ActivityLane({ turn }: ActivityLaneProps) {
           <Text color={theme.textDim}>{tools}</Text>
         </Box>
       ) : null}
-      {text && !activeTool ? (
+      {hasText && !activeTool ? (
         <Box>
           <Text color={theme.brand}>live  </Text>
           <Text color={theme.textDim} wrap="truncate-end">{text}</Text>

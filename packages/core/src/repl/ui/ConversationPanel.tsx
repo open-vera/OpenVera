@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Box, Text } from "ink";
 import type { ChatMessage, PlanStepUI } from "./types.js";
 import { ToolResultView } from "./ToolResultView.js";
+import { ThinkingView } from "./ThinkingView.js";
 import { theme } from "./theme.js";
 import {
   toolUsesForDisplay,
@@ -244,6 +245,11 @@ export function ConversationPanel({
 
         return (
           <Box key={msgIdx} flexDirection="column" marginBottom={1}>
+            {/* Thinking block — shown before tool uses and text */}
+            {msg.thinking && msg.thinking.trim() && (
+              <ThinkingView thinking={msg.thinking} width={width} maxPreviewLines={2} />
+            )}
+
             {/* Tool uses — shown before assistant text */}
             {msg.toolUses && msg.toolUses.length > 0 && (
               <Box flexDirection="column" marginBottom={1} paddingLeft={2}>

@@ -8,6 +8,7 @@ import type { UiEvent } from "../events.js";
 
 export interface StreamingHelpersProps {
   streamingBufferRef: MutableRefObject<string>;
+  thinkingBufferRef: MutableRefObject<string>;
   rafRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
   abortRef: MutableRefObject<AbortController | null>;
   costRef: MutableRefObject<AccumulatedCost>;
@@ -22,17 +23,18 @@ export interface StreamingHelpersProps {
   setInputValue: React.Dispatch<React.SetStateAction<string>>;
   prependPendingInput?: (input: string) => void;
   onAssistantUpdate?: (text: string) => void;
+  onThinkingUpdate?: (text: string) => void;
   onUiEvent?: (event: UiEvent) => void;
 }
 
 export function useStreamingHelpers(props: StreamingHelpersProps) {
   const {
-    streamingBufferRef, rafRef, abortRef,
+    streamingBufferRef, thinkingBufferRef, rafRef, abortRef,
     costRef, latestInputTokensRef,
     routing, inputValue, streamStatus, rows,
     setMessages, setUsage,
     setScrollOffset, setInputValue, prependPendingInput,
-    onAssistantUpdate, onUiEvent,
+    onAssistantUpdate, onThinkingUpdate, onUiEvent,
   } = props;
 
   const SCROLL_STEP = Math.max(5, Math.floor((rows - 4) / 2));
@@ -49,15 +51,35 @@ export function useStreamingHelpers(props: StreamingHelpersProps) {
     });
   }, [onAssistantUpdate, setMessages, streamingBufferRef]);
 
+  const flushThinkingBuffer = useCallback(() => {
+    if (onThinkingUpdate) {
+      onThinkingUpdate(thinkingBufferRef.current);
+    } else if (onUiEvent) {
+      onUiEvent({ type: "assistant.thinking.updated", text: thinkingBufferRef.current });
+    }
+  }, [onThinkingUpdate, onUiEvent, thinkingBufferRef]);
+
   const onTextDelta = useCallback((delta: string) => {
     streamingBufferRef.current += delta;
     if (rafRef.current === null) {
       rafRef.current = setTimeout(() => {
         flushBuffer();
+        flushThinkingBuffer();
         rafRef.current = null;
       }, 16);
     }
-  }, [flushBuffer, rafRef, streamingBufferRef]);
+  }, [flushBuffer, flushThinkingBuffer, rafRef, streamingBufferRef]);
+
+  const onThinkingDelta = useCallback((delta: string) => {
+    thinkingBufferRef.current += delta;
+    if (rafRef.current === null) {
+      rafRef.current = setTimeout(() => {
+        flushBuffer();
+        flushThinkingBuffer();
+        rafRef.current = null;
+      }, 16);
+    }
+  }, [flushBuffer, flushThinkingBuffer, rafRef, thinkingBufferRef]);
 
   const onUsage = useCallback((u: Usage) => {
     const updated = accumulateCost(costRef.current, u, routing.model, routing.provider);
@@ -110,5 +132,5 @@ export function useStreamingHelpers(props: StreamingHelpersProps) {
     });
   }, [SCROLL_STEP, setScrollOffset]);
 
-  return { flushBuffer, onTextDelta, onUsage, handleCancel, handleScrollUp, handleScrollDown };
+  return { flushBuffer, onTextDelta, onThinkingDelta, onUsage, handleCancel, handleScrollUp, handleScrollDown };
 }

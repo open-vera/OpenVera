@@ -73,6 +73,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
 
   const ctxRef = useRef<ReplContext>(ctx);
   const streamingBufferRef = useRef("");
+  const thinkingBufferRef = useRef("");
   const rafRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const historyRef = useRef<Message[]>([]);
@@ -146,14 +147,15 @@ export function App({ ctx, resumeSessionId }: AppProps) {
 
   // ── Streaming helpers ────────────────────────────────────────────────────────
 
-  const { onTextDelta, onUsage, handleCancel, handleScrollUp, handleScrollDown } = useStreamingHelpers({
-    streamingBufferRef, rafRef, abortRef,
+  const { onTextDelta, onThinkingDelta, onUsage, handleCancel, handleScrollUp, handleScrollDown } = useStreamingHelpers({
+    streamingBufferRef, thinkingBufferRef, rafRef, abortRef,
     costRef, latestInputTokensRef,
     routing, inputValue, streamStatus, rows: dimensions.rows,
     setMessages, setUsage,
     setScrollOffset, setInputValue,
     prependPendingInput: prepend,
     onAssistantUpdate: (text) => dispatchUiEvent({ type: "assistant.updated", text }),
+    onThinkingUpdate: (text) => dispatchUiEvent({ type: "assistant.thinking.updated", text }),
     onUiEvent: dispatchUiEvent,
   });
 
@@ -347,9 +349,10 @@ export function App({ ctx, resumeSessionId }: AppProps) {
         streamingBufferRef,
         rafRef,
         toolCallHandler: (name, args, onOutput) => toolCallHandler(name, args, onOutput),
+        onThinkingDelta,
       },
     });
-  }, [dispatchUiEvent, dispatchOverlay, openBlockingPrompt, enqueue, onTextDelta, onUsage, exit, routing, usage, streamStatus, queue.items, clearQueue, removeQueued, updateQueued]);
+  }, [dispatchUiEvent, dispatchOverlay, openBlockingPrompt, enqueue, onTextDelta, onThinkingDelta, onUsage, exit, routing, usage, streamStatus, queue.items, clearQueue, removeQueued, updateQueued]);
 
   useEffect(() => {
     if (streamStatus !== "idle" || queue.items.length === 0) return;

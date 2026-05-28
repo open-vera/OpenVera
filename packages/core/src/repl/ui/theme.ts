@@ -59,6 +59,10 @@ export const theme = {
   toolLabel:    "rgb(153,153,153)",
   toolOk:       "rgb(78,186,101)",
   toolError:    "rgb(255,107,128)",
+
+  // ── Thinking / reasoning ──────────────────────────────────────────────────
+  thinkingText:  "rgb(120,120,120)",
+  thinkingLabel: "rgb(100,100,100)",
 } as const;
 
 export type ThemeColor = (typeof theme)[keyof typeof theme];

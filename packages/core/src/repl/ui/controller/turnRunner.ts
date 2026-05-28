@@ -58,6 +58,7 @@ export interface PreparedTurnRunnerOptions {
     streamingBufferRef: RefLike<string>;
     rafRef: RefLike<ReturnType<typeof setTimeout> | null>;
     toolCallHandler: (name: string, args: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<ToolResult>;
+    onThinkingDelta: (delta: string) => void;
   };
 }
 
@@ -130,6 +131,7 @@ async function runPreparedStreamTurn(options: PreparedTurnRunnerOptions): Promis
     agentOptions: options.stream.agentOptions,
     streamAgentImpl: options.stream.streamAgentImpl,
     onTextDelta: options.onTextDelta,
+    onThinkingDelta: options.stream.onThinkingDelta,
     dispatchUiEvent: options.dispatchUiEvent,
     streamingBufferRef: options.stream.streamingBufferRef,
     rafRef: options.stream.rafRef,
