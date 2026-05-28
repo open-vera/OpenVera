@@ -1,5 +1,7 @@
 # Vera — Accelerate Human Creativity, Achieve SOTA AGI
 
+[中文文档](./README-zh.md)
+
 ---
 
 ## What is Vera?
@@ -292,6 +294,29 @@ This is **not** "agent rewrites itself." This is a principled evolution pipeline
 
 ## Getting Started
 
+### Install (Recommended)
+
+```bash
+npm i @open-vera/openvera@latest -g
+```
+
+Then launch the REPL:
+
+```bash
+vera
+```
+
+On first run, an interactive setup wizard will guide you through selecting an LLM provider and entering your API key.
+
+### Install from Source
+
+```bash
+git clone https://github.com/open-vera/OpenVera.git
+cd OpenVera
+pnpm install
+pnpm build
+```
+
 ```bash
 # Copy config template
 cp .vera/settings.example.json .vera/settings.json
@@ -317,12 +342,63 @@ pnpm ui      # frontend
 
 ### Key Configuration
 
+Configuration file: `.vera/settings.json` (auto-created by the setup wizard on first run).
+
+```jsonc
+{
+  // LLM providers — add API keys for the providers you want to use
+  "providers": {
+    "anthropic": {
+      "adapter": "anthropic",       // or "openai" / "gemini"
+      "api_key": "sk-ant-..."
+    },
+    "openai": {
+      "adapter": "openai",
+      "api_key": "sk-..."
+    },
+    "deepseek": {
+      "adapter": "openai",          // OpenAI-compatible
+      "api_key": "...",
+      "base_url": "https://api.deepseek.com/v1"
+    }
+  },
+
+  // Default provider & model (used when routing is disabled)
+  "default_provider": "anthropic",
+  "default_model": "claude-sonnet-4-6",
+
+  // Intent routing — automatically select model by task complexity
+  "routing": {
+    "enabled": true,
+    "classifier": { "provider": "anthropic", "model": "claude-haiku-4-5-20251001" },
+    "l0": { "provider": "anthropic", "model": "claude-haiku-4-5-20251001" },    // casual chat
+    "l1": { "provider": "anthropic", "model": "claude-sonnet-4-6" },            // single-step
+    "l2": { "provider": "anthropic", "model": "claude-sonnet-4-6" },            // multi-step
+    "l3": { "provider": "anthropic", "model": "claude-opus-4-6" }               // complex planning
+  },
+
+  // Session — AI-generated title for each session
+  "session": {
+    "ai_title": {
+      "enabled": true,
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001"
+    }
+  }
+}
+```
+
 | Field | Description |
 |---|---|
 | `providers` | LLM provider configs: anthropic / openai / gemini / deepseek / groq / azure |
 | `default_provider` | Which provider to use when not overridden |
+| `default_model` | Default model name (provider-specific) |
 | `routing` | Intent routing config — enable/disable, per-level model overrides |
-| `mcp_servers` | MCP server definitions for external tool integration |
+| `session` | Session metadata settings (AI title generation) |
+
+Supported adapters: `anthropic` (Claude native), `openai` (OpenAI-compatible, including DeepSeek/Groq/Azure), `gemini`.
+
+To use a custom endpoint (e.g. company proxy), add `"base_url": "https://your-proxy.com/v1"` to the provider config.
 
 ---
 
