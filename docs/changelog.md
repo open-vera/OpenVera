@@ -12,6 +12,7 @@
 
 | 日期批次 | 摘要 | 详细 |
 |---|---|---|
+| 2026-05-28 · 19:xx | REPL live output + setup wizard + CubeSandbox + thinking/reasoning token 支持 | [→](./changelog/2026-05-28-19.md) |
 | 2026-05-27 · 23:xx | Phase 17 AD4+AD5：A/B Testing — 并行策略对比 + 统计显著性检验（25 tests） | [→](./changelog/2026-05-27-23c.md) |
 | 2026-05-27 · 23:xx | Phase 17 AD3：Auto-Tuner — UCB1 策略选择、复合评分、优化周期（37 tests） | [→](./changelog/2026-05-27-23b.md) |
 | 2026-05-27 · 23:xx | Phase 17 AD2：Historical Success Rate — 时间窗口统计、趋势检测、自动调优（17 tests） | [→](./changelog/2026-05-27-23.md) |
