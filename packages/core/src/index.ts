@@ -32,6 +32,7 @@ export * from "./storage/index.js";
 export * from "./rag/index.js";
 export * from "./channel/index.js";
 export * from "./sandbox/index.js";
+export * from "./skill-evolution/index.js";
 
 const config = loadConfig();
 

@@ -398,11 +398,11 @@
 
 ### 20D: Skill 自动创建与反思进化
 
-- [ ] **OC13** SkillAutoCreator — 从复杂任务中自动提取可复用 skill 模板（非 skill 执行场景，≥N 轮迭代）
-- [ ] **OC14** SkillReflector — skill 执行后自动反思：指令是否清晰？边界 case 是否覆盖？
-- [ ] **OC15** Skill 版本更新 — 反思发现改进时自动更新 SKILL.md（版本号递增）
-- [ ] **OC16** 跳过系统 skill — default/brand skill 不允许自动进化，只进化用户自定义 skill
-- [ ] **OC17** Skill 进化测试（6+ tests：自动创建准确性、反思质量、版本管理）
+- [x] **OC13** SkillAutoCreator — 从复杂任务中自动提取可复用 skill 模板（非 skill 执行场景，≥N 轮迭代）
+- [x] **OC14** SkillReflector — skill 执行后自动反思：指令是否清晰？边界 case 是否覆盖？
+- [x] **OC15** Skill 版本更新 — 反思发现改进时自动更新 SKILL.md（版本号递增）
+- [x] **OC16** 跳过系统 skill — default/brand skill 不允许自动进化，只进化用户自定义 skill
+- [x] **OC17** Skill 进化测试（6+ tests：自动创建准确性、反思质量、版本管理）
 
 ### 20E: Time Machine（任务级 undo/redo）
 
