@@ -8,6 +8,7 @@ import type { PlanStepUI } from "../../plan/index.js";
 import { accumulateCost, emptyAccumulatedCost } from "../../session/index.js";
 import type { AccumulatedCost } from "../../session/index.js";
 import type { ReplContext } from "../context.js";
+import { debugLog } from "../debugLog.js";
 import type { Usage, Message } from "../../types/index.js";
 import { MemoryTracker } from "../../memory/index.js";
 import type { MemoryFile } from "../../memory/index.js";
@@ -177,6 +178,8 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     // ── Commands ──────────────────────────────────────────────────────────────
 
     if (slashCommand) {
+      debugLog(`[handleSubmit] slash command: /${slashCommand.cmd} args=${JSON.stringify(slashCommand.args)}`);
+      const t0 = Date.now();
       await handleSlashCommandSubmission({
         line,
         slashCommand,
@@ -198,6 +201,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
         dispatchOverlay,
         exit,
       });
+      debugLog(`[handleSubmit] /${slashCommand.cmd} completed in ${Date.now() - t0}ms, overlay=${overlay.type}`);
       return;
     }
 
@@ -342,7 +346,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
         },
         streamingBufferRef,
         rafRef,
-        toolCallHandler: (name, args) => toolCallHandler(name, args),
+        toolCallHandler: (name, args, onOutput) => toolCallHandler(name, args, onOutput),
       },
     });
   }, [dispatchUiEvent, dispatchOverlay, openBlockingPrompt, enqueue, onTextDelta, onUsage, exit, routing, usage, streamStatus, queue.items, clearQueue, removeQueued, updateQueued]);
@@ -384,6 +388,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
   }, [setMessages]);
 
   if (overlay.type === "diff" || overlay.type === "sessionPicker") {
+    debugLog(`[App] rendering full-screen overlay: ${overlay.type}`);
     return (
       <OverlayHost
         overlay={overlay}

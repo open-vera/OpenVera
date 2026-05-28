@@ -92,7 +92,9 @@ export const bashTool: ToolDef<BashArgs> = {
       // 流式收集 stdout
       child.stdout.on("data", (chunk: Buffer | string) => {
         if (killed) return;
-        stdoutBuf += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+        const str = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+        stdoutBuf += str;
+        ctx.onOutput?.(str);
         if (stdoutBuf.length > STREAMING_OUTPUT_LIMIT) {
           killed = true;
           killReason = "size";
@@ -103,7 +105,9 @@ export const bashTool: ToolDef<BashArgs> = {
       // 流式收集 stderr
       child.stderr.on("data", (chunk: Buffer | string) => {
         if (killed) return;
-        stderrBuf += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+        const str = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+        stderrBuf += str;
+        ctx.onOutput?.(str);
         if (stderrBuf.length > STREAMING_OUTPUT_LIMIT) {
           killed = true;
           killReason = "size";

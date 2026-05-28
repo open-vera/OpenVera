@@ -75,6 +75,12 @@ export function projectUiEvent(state: ReplViewModel, event: UiEvent): ReplViewMo
         messages: state.messages,
       });
 
+    case "tool.output":
+      return withActiveTurn({
+        ...state,
+        messages: state.messages,
+      });
+
     case "routing.failed":
       return withActiveTurn({
         ...state,

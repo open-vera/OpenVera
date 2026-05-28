@@ -17,12 +17,12 @@ describe("commandCapture", () => {
     expect(output).toBe("out arg\nerr");
   });
 
-  it("falls back to unknown command message when handler is silent", async () => {
+  it("returns null when handler produces no output (overlay opened)", async () => {
     await expect(captureCommandOutput(
       "silent",
       [],
       {} as ReplContext,
       async () => {},
-    )).resolves.toBe("Unknown command: /silent");
+    )).resolves.toBeNull();
   });
 });

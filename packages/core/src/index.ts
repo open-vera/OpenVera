@@ -1,4 +1,5 @@
 import { loadConfig } from "./config/index.js";
+import { isConfigEmpty, runSetupWizard } from "./config/setup.js";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline";
 import { AnthropicAdapter } from "./adapters/anthropic.js";
@@ -33,7 +34,17 @@ export * from "./rag/index.js";
 export * from "./channel/index.js";
 export * from "./sandbox/index.js";
 
-const config = loadConfig();
+let config = loadConfig();
+
+// ── First-run setup wizard ───────────────────────────────────────────────────
+// When config is empty (no API key) and stdin is a TTY, launch the interactive
+// setup wizard so the user can get started without manually editing config files.
+if (isConfigEmpty(config) && process.stdin.isTTY) {
+  const selectedProvider = await runSetupWizard(process.cwd());
+  if (selectedProvider) {
+    config = loadConfig(); // Reload the freshly-written config
+  }
+}
 
 export function buildAdapter(providerName?: string): LLMAdapter {
   const name = providerName ?? config.default_provider ?? "anthropic";

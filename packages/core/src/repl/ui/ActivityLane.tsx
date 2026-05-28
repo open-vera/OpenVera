@@ -4,6 +4,7 @@ import type { ActiveTurnState } from "./state/turnStore.js";
 
 const MAX_TEXT_CHARS = 120;
 const MAX_TOOL_NAMES = 4;
+const MAX_LIVE_LINES = 5;
 
 export function formatActivityText(text: string, maxChars = MAX_TEXT_CHARS): string {
   const compact = text.replace(/\s+/g, " ").trim();
@@ -19,6 +20,14 @@ export function formatActivityTools(turn: ActiveTurnState): string {
   return `${prefix}${visible.join(" · ")}`;
 }
 
+function formatLiveOutput(output: string): string[] {
+  const lines = output.split("\n");
+  // Remove trailing empty line (common from data chunks)
+  while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  if (lines.length <= MAX_LIVE_LINES) return lines;
+  return lines.slice(-MAX_LIVE_LINES);
+}
+
 interface ActivityLaneProps {
   turn: ActiveTurnState;
 }
@@ -28,18 +37,35 @@ export function ActivityLane({ turn }: ActivityLaneProps) {
 
   const text = formatActivityText(turn.text);
   const tools = formatActivityTools(turn);
+  const activeTool = turn.activeTool;
 
-  if (!text && !tools) return null;
+  // If there's an active tool with live output, show it prominently
+  const liveLines = activeTool ? formatLiveOutput(activeTool.liveOutput) : [];
+
+  if (!text && !tools && !activeTool) return null;
 
   return (
     <Box flexDirection="column">
-      {tools ? (
+      {activeTool ? (
+        <Box flexDirection="column">
+          <Box>
+            <Text color={theme.toolName}>exec </Text>
+            <Text color={theme.suggestion} bold>{activeTool.name}</Text>
+            {liveLines.length > 0 && (
+              <Text color={theme.textDim}> {"\u2026"}</Text>
+            )}
+          </Box>
+          {liveLines.map((line, i) => (
+            <Text key={i} color={theme.textDim} wrap="truncate-end">  {"\u2502"} {line}</Text>
+          ))}
+        </Box>
+      ) : tools ? (
         <Box>
           <Text color={theme.toolName}>tools </Text>
           <Text color={theme.textDim}>{tools}</Text>
         </Box>
       ) : null}
-      {text ? (
+      {text && !activeTool ? (
         <Box>
           <Text color={theme.brand}>live  </Text>
           <Text color={theme.textDim} wrap="truncate-end">{text}</Text>
@@ -48,4 +74,3 @@ export function ActivityLane({ turn }: ActivityLaneProps) {
     </Box>
   );
 }
-

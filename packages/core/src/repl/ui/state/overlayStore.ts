@@ -1,4 +1,5 @@
 import type { BlockingPrompt } from "./blockingPrompt.js";
+import { debugLog } from "../../debugLog.js";
 
 export type OverlayState =
   | { type: "none" }
@@ -16,7 +17,8 @@ export function emptyOverlay(): OverlayState {
   return { type: "none" };
 }
 
-export function reduceOverlay(_state: OverlayState, action: OverlayAction): OverlayState {
+export function reduceOverlay(state: OverlayState, action: OverlayAction): OverlayState {
+  debugLog(`[overlay] ${state.type} → ${action.type}`);
   switch (action.type) {
     case "open.diff":
       return { type: "diff" };

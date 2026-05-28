@@ -20,7 +20,7 @@ export function FileListView({ content, expanded }: FileListViewProps) {
         <Text key={i} color={line.startsWith("📁") ? theme.suggestion : undefined}>{line}</Text>
       ))}
       {truncated && (
-        <Text color={theme.textDim}>[... +{remaining} items]</Text>
+        <Text color={theme.textDim}>[... +{remaining} items (⌥O to expand)]</Text>
       )}
     </Box>
   );

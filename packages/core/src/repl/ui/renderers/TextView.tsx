@@ -20,7 +20,7 @@ export function TextView({ content, width, expanded }: TextViewProps) {
         <Text key={i} wrap="wrap">{line}</Text>
       ))}
       {truncated && (
-        <Text color="gray">[... +{remaining} lines]</Text>
+        <Text color="gray">[... +{remaining} lines (⌥O to expand)]</Text>
       )}
     </Box>
   );

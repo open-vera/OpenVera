@@ -74,6 +74,8 @@ export interface ToolContext {
   env?: Record<string, string>;
   signal?: AbortSignal;
   dryRun?: boolean;
+  /** Optional streaming output callback — tools can call this to emit intermediate output to the UI. */
+  onOutput?: (chunk: string) => void;
   /** Optional memory store for memory_write / memory_search tools. */
   memoryStore?: import("../memory/store.js").MemoryStore;
   /** Optional user data store for data_save / data_load / data_list / data_delete tools. */

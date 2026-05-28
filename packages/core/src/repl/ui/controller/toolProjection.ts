@@ -32,6 +32,13 @@ export function compactToolSummary(toolName: string, result: ToolResult): string
     const match = firstLine.match(/\((\d+) lines?\)/);
     return match ? `Read ${match[1]} ${match[1] === "1" ? "line" : "lines"}` : firstLine;
   }
+  if (toolName === "grep") {
+    const firstLine = result.content.split("\n")[0] ?? "";
+    const matchCount = firstLine.match(/^(\d+) match/);
+    if (matchCount) return `Found ${matchCount[1]} ${matchCount[1] === "1" ? "match" : "matches"}`;
+    if (firstLine.startsWith("No matches")) return firstLine;
+    return undefined;
+  }
   if (result.metadata?.renderHint?.type === "file-list") {
     const count = result.content.split("\n").filter(Boolean).length;
     return `${count} ${count === 1 ? "entry" : "entries"}`;

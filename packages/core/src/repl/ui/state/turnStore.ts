@@ -1,12 +1,18 @@
 import type { ToolUse } from "../types.js";
 import type { UiEvent } from "../events.js";
 
+export interface ActiveToolState {
+  name: string;
+  liveOutput: string;
+}
+
 export interface ActiveTurnState {
   active: boolean;
   text: string;
   tools: ToolUse[];
   outputTokens: number;
   status: "idle" | "streaming" | "failed" | "completed";
+  activeTool?: ActiveToolState;
 }
 
 export const emptyActiveTurn = (): ActiveTurnState => ({
@@ -33,12 +39,24 @@ export function reduceActiveTurn(state: ActiveTurnState, event: UiEvent): Active
         : { active: true, text: event.text, tools: [], outputTokens: 0, status: "streaming" };
 
     case "tool.started":
-      return state.active ? { ...state, text: "" } : state;
+      return state.active
+        ? { ...state, text: "", activeTool: { name: event.name, liveOutput: "" } }
+        : state;
+
+    case "tool.output":
+      if (!state.active || !state.activeTool) return state;
+      return {
+        ...state,
+        activeTool: {
+          ...state.activeTool,
+          liveOutput: state.activeTool.liveOutput + event.chunk,
+        },
+      };
 
     case "tool.completed":
       return state.active
-        ? { ...state, tools: [...state.tools, event.tool] }
-        : { active: true, text: "", tools: [event.tool], outputTokens: 0, status: "streaming" };
+        ? { ...state, tools: [...state.tools, event.tool], activeTool: undefined }
+        : { active: true, text: "", tools: [event.tool], outputTokens: 0, status: "streaming", activeTool: undefined };
 
     case "assistant.completed":
       return { ...state, active: false, text: event.text, status: "completed" };

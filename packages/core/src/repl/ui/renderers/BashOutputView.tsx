@@ -1,7 +1,7 @@
 import { Box, Text } from "ink";
 import { theme } from "../theme.js";
 
-const MAX_LINES = 3;
+const MAX_LINES = 5;
 
 interface BashOutputViewProps {
   content: string;
@@ -28,7 +28,7 @@ export function BashOutputView({ content, exitCode, width, expanded }: BashOutpu
         <Text key={i} wrap="wrap">{line}</Text>
       ))}
       {truncated && (
-        <Text color={theme.textDim}>[... +{remaining} lines]</Text>
+        <Text color={theme.textDim}>[... +{remaining} lines (⌥O to expand)]</Text>
       )}
     </Box>
   );

@@ -57,7 +57,7 @@ export interface PreparedTurnRunnerOptions {
     streamAgentImpl?: typeof streamAgent;
     streamingBufferRef: RefLike<string>;
     rafRef: RefLike<ReturnType<typeof setTimeout> | null>;
-    toolCallHandler: (name: string, args: Record<string, unknown>) => Promise<ToolResult>;
+    toolCallHandler: (name: string, args: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<ToolResult>;
   };
 }
 

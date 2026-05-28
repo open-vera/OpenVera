@@ -13,7 +13,7 @@ export interface StreamRuntimeBridgeOptions {
   dispatchUiEvent: (event: UiEvent) => void;
   streamingBufferRef: { current: string };
   rafRef: { current: ReturnType<typeof setTimeout> | null };
-  toolCallHandler: (name: string, args: Record<string, unknown>) => Promise<ToolResult>;
+  toolCallHandler: (name: string, args: Record<string, unknown>, onOutput?: (chunk: string) => void) => Promise<ToolResult>;
   formatError: (err: unknown) => string;
   onComplete?: (fullText: string) => void;
   onError?: (message: string, err: unknown, isAbort: boolean) => void;
@@ -68,7 +68,8 @@ export async function runStreamRuntime(options: StreamRuntimeBridgeOptions): Pro
           const preface = streamingBufferRef.current.trim();
           streamingBufferRef.current = "";
           dispatchUiEvent({ type: "tool.started", name, args, preface });
-          const toolResult = await toolCallHandler(name, args);
+          const onOutput = (chunk: string) => dispatchUiEvent({ type: "tool.output", chunk });
+          const toolResult = await toolCallHandler(name, args, onOutput);
           const toolUse: ToolUse = { name, args, result: toolResult, ...(preface ? { preface } : {}) };
           dispatchUiEvent({ type: "tool.completed", tool: toolUse });
           return toolResult.content;

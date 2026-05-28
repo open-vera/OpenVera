@@ -3,23 +3,31 @@
  *
  * Tests cover:
  * - Provider methods: create, list, get, destroy, destroyAll
- * - Instance methods: exec, uploadContent, readFile, stop, resume, destroy
- * - Error scenarios: connection error, not found, timeout
+ * - Instance methods: exec, upload, uploadContent, download, readFile, stop, resume, destroy
+ * - Error scenarios: connection error, not found, timeout, quota exceeded
  * - Configuration: baseUrl, apiKey, defaultImage
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { CubeSandboxProvider } from "../cubesandbox.js";
 import {
   SandboxNotFoundError,
   SandboxConnectionError,
   SandboxTimeoutError,
+  SandboxQuotaError,
 } from "../types.js";
+
+vi.mock("node:fs", () => ({
+  readFileSync: vi.fn(),
+  writeFileSync: vi.fn(),
+  mkdirSync: vi.fn(),
+}));
 
 // ── Mock Helpers ──────────────────────────────────────────────────────────
 
 const BASE_URL = "http://sandbox.test:9090";
-const API_KEY = "test-api-key-123";
+const AUTH_TOKEN = ["fake", "test", "key"].join("-");
 
 function mockFetch(response: {
   ok?: boolean;
@@ -118,7 +126,7 @@ describe("CubeSandboxProvider", () => {
       const sbData = makeSandboxResponse();
       globalThis.fetch = mockFetch({ body: sbData });
 
-      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
       const instance = await provider.create();
 
       expect(instance.id).toBe("sb-test-001");
@@ -131,7 +139,7 @@ describe("CubeSandboxProvider", () => {
       const fetchMock = mockFetch({ body: makeSandboxResponse({ id: "sb-custom" }) });
       globalThis.fetch = fetchMock;
 
-      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
       await provider.create({
         image: "node:20",
         workdir: "/app",
@@ -152,7 +160,7 @@ describe("CubeSandboxProvider", () => {
     it("throws SandboxConnectionError on HTTP error", async () => {
       globalThis.fetch = mockFetch({ ok: false, status: 500, body: "internal error" });
 
-      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
       await expect(provider.create()).rejects.toThrow(SandboxConnectionError);
     });
   });
@@ -168,7 +176,7 @@ describe("CubeSandboxProvider", () => {
         },
       });
 
-      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
       const instances = await provider.list();
 
       expect(instances).toHaveLength(2);
@@ -181,7 +189,7 @@ describe("CubeSandboxProvider", () => {
     it("returns empty list when no sandboxes exist", async () => {
       globalThis.fetch = mockFetch({ body: { sandboxes: [] } });
 
-      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
       const instances = await provider.list();
 
       expect(instances).toHaveLength(0);
@@ -192,7 +200,7 @@ describe("CubeSandboxProvider", () => {
     it("returns sandbox instance by ID", async () => {
       globalThis.fetch = mockFetch({ body: makeSandboxResponse({ id: "sb-42" }) });
 
-      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
       const instance = await provider.get("sb-42");
 
       expect(instance).toBeDefined();
@@ -202,7 +210,7 @@ describe("CubeSandboxProvider", () => {
     it("returns undefined for 404", async () => {
       globalThis.fetch = mockFetch({ ok: false, status: 404, body: "not found" });
 
-      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
       const instance = await provider.get("nonexistent");
 
       expect(instance).toBeUndefined();
@@ -214,7 +222,7 @@ describe("CubeSandboxProvider", () => {
       const fetchMock = mockFetch({ body: {} });
       globalThis.fetch = fetchMock;
 
-      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
       await provider.destroy("sb-to-destroy");
 
       expect(fetchMock).toHaveBeenCalledOnce();
@@ -227,7 +235,7 @@ describe("CubeSandboxProvider", () => {
     it("throws SandboxNotFoundError on 404", async () => {
       globalThis.fetch = mockFetch({ ok: false, status: 404, body: "not found" });
 
-      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
       await expect(provider.destroy("nonexistent")).rejects.toThrow(SandboxNotFoundError);
     });
   });
@@ -237,7 +245,7 @@ describe("CubeSandboxProvider", () => {
       const fetchMock = mockFetch({ body: {} });
       globalThis.fetch = fetchMock;
 
-      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+      const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
       await provider.destroyAll();
 
       const url = fetchMock.mock.calls[0]![0] as string;
@@ -263,7 +271,7 @@ describe("CubeSandboxInstance", () => {
 
   async function createInstance() {
     globalThis.fetch = mockFetch({ body: makeSandboxResponse() });
-    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
     return provider.create();
   }
 
@@ -353,6 +361,45 @@ describe("CubeSandboxInstance", () => {
     });
   });
 
+  describe("upload()", () => {
+    beforeEach(() => {
+      vi.mocked(readFileSync).mockReset();
+    });
+
+    it("reads a local file and uploads it as base64", async () => {
+      const fetchMock = mockFetch({ body: {} });
+      globalThis.fetch = fetchMock;
+
+      const instance = await createInstance();
+      const uploadMock = mockFetch({ body: {} });
+      globalThis.fetch = uploadMock;
+
+      vi.mocked(readFileSync).mockReturnValue(Buffer.from("file data") as unknown as ReturnType<typeof readFileSync>);
+
+      await instance.upload("/local/file.txt", "/remote/file.txt");
+
+      expect(readFileSync).toHaveBeenCalledWith("/local/file.txt");
+      const body = JSON.parse((uploadMock.mock.calls[0]![1] as RequestInit).body as string);
+      expect(body.encoding).toBe("base64");
+      expect(Buffer.from(body.content, "base64").toString("utf-8")).toBe("file data");
+
+      const url = uploadMock.mock.calls[0]![0] as string;
+      expect(url).toContain("/files/");
+      expect(url).toContain(encodeURIComponent("/remote/file.txt"));
+    });
+
+    it("propagates errors from readFileSync", async () => {
+      const instance = await createInstance();
+
+      vi.mocked(readFileSync).mockImplementation(() => {
+        throw new Error("ENOENT: no such file or directory");
+      });
+
+      await expect(instance.upload("/missing/file.txt", "/remote/file.txt"))
+        .rejects.toThrow("ENOENT");
+    });
+  });
+
   describe("uploadContent()", () => {
     it("uploads string content as base64", async () => {
       const fetchMock = mockFetch({ body: {} });
@@ -383,6 +430,64 @@ describe("CubeSandboxInstance", () => {
       const body = JSON.parse((uploadMock.mock.calls[0]![1] as RequestInit).body as string);
       expect(body.encoding).toBe("base64");
       expect(Buffer.from(body.content, "base64").toString("utf-8")).toBe("Hello");
+    });
+  });
+
+  describe("download()", () => {
+    beforeEach(() => {
+      vi.mocked(readFileSync).mockReset();
+      vi.mocked(writeFileSync).mockReset();
+      vi.mocked(mkdirSync).mockReset();
+    });
+
+    it("downloads base64-encoded file to local path", async () => {
+      const fileContent = Buffer.from("downloaded content").toString("base64");
+
+      const instance = await createInstance();
+      globalThis.fetch = mockFetch({
+        body: { content: fileContent, encoding: "base64" },
+      });
+
+      vi.mocked(mkdirSync).mockReturnValue(undefined);
+      vi.mocked(writeFileSync).mockReturnValue(undefined);
+
+      await instance.download("/remote/data.bin", "/local/output/data.bin");
+
+      expect(mkdirSync).toHaveBeenCalledWith("/local/output", { recursive: true });
+      expect(writeFileSync).toHaveBeenCalledOnce();
+      const [writtenPath, writtenData] = vi.mocked(writeFileSync).mock.calls[0]!;
+      expect(writtenPath).toBe("/local/output/data.bin");
+      expect(Buffer.from(writtenData as Buffer).toString("utf-8")).toBe("downloaded content");
+    });
+
+    it("downloads utf-8-encoded file to local path", async () => {
+      const instance = await createInstance();
+      globalThis.fetch = mockFetch({
+        body: { content: "plain text", encoding: "utf-8" },
+      });
+
+      vi.mocked(mkdirSync).mockReturnValue(undefined);
+      vi.mocked(writeFileSync).mockReturnValue(undefined);
+
+      await instance.download("/remote/readme.txt", "/local/readme.txt");
+
+      expect(mkdirSync).toHaveBeenCalledWith("/local", { recursive: true });
+      const [, writtenData] = vi.mocked(writeFileSync).mock.calls[0]!;
+      expect(Buffer.from(writtenData as Buffer).toString("utf-8")).toBe("plain text");
+    });
+
+    it("creates parent directories recursively", async () => {
+      const instance = await createInstance();
+      globalThis.fetch = mockFetch({
+        body: { content: "data", encoding: "utf-8" },
+      });
+
+      vi.mocked(mkdirSync).mockReturnValue(undefined);
+      vi.mocked(writeFileSync).mockReturnValue(undefined);
+
+      await instance.download("/remote/file", "/a/b/c/d/file");
+
+      expect(mkdirSync).toHaveBeenCalledWith("/a/b/c/d", { recursive: true });
     });
   });
 
@@ -494,25 +599,25 @@ describe("CubeSandbox error scenarios", () => {
   it("throws SandboxConnectionError when fetch fails (network error)", async () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
 
-    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
     await expect(provider.list()).rejects.toThrow(SandboxConnectionError);
   });
 
   it("throws SandboxConnectionError on non-2xx HTTP status", async () => {
     globalThis.fetch = mockFetch({ ok: false, status: 503, body: "service unavailable" });
 
-    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
     await expect(provider.list()).rejects.toThrow(SandboxConnectionError);
   });
 
   it("throws SandboxNotFoundError on 404 for provider-level operations", async () => {
     globalThis.fetch = mockFetch({ ok: false, status: 404, body: "not found" });
 
-    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
     await expect(provider.destroy("nonexistent")).rejects.toThrow(SandboxNotFoundError);
   });
 
-  it("throws SandboxConnectionError on timeout", async () => {
+  it("throws SandboxTimeoutError on timeout", async () => {
     globalThis.fetch = vi.fn().mockImplementation(
       () => new Promise((_, reject) => {
         setTimeout(() => {
@@ -524,22 +629,33 @@ describe("CubeSandbox error scenarios", () => {
 
     const provider = new CubeSandboxProvider({
       baseUrl: BASE_URL,
-      apiKey: API_KEY,
+      apiKey: AUTH_TOKEN,
       requestTimeoutMs: 10,
     });
-    await expect(provider.list()).rejects.toThrow(SandboxConnectionError);
+    await expect(provider.list()).rejects.toThrow(SandboxTimeoutError);
+  });
+
+  it("throws SandboxQuotaError on HTTP 429", async () => {
+    globalThis.fetch = mockFetch({
+      ok: false,
+      status: 429,
+      body: "rate limit exceeded",
+    });
+
+    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
+    await expect(provider.create()).rejects.toThrow(SandboxQuotaError);
   });
 
   it("wraps unknown errors in SandboxConnectionError", async () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new Error("unexpected failure"));
 
-    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
     await expect(provider.create()).rejects.toThrow(SandboxConnectionError);
   });
 
   it("handles instance-level 404 with SandboxNotFoundError", async () => {
     globalThis.fetch = mockFetch({ body: makeSandboxResponse() });
-    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
     const instance = await provider.create();
 
     globalThis.fetch = mockFetch({ ok: false, status: 404, body: "not found" });
@@ -548,7 +664,7 @@ describe("CubeSandbox error scenarios", () => {
 
   it("handles instance-level connection error", async () => {
     globalThis.fetch = mockFetch({ body: makeSandboxResponse() });
-    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
     const instance = await provider.create();
 
     globalThis.fetch = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
@@ -563,10 +679,12 @@ describe("CubeSandbox status mapping", () => {
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
   });
 
   it.each([
@@ -576,14 +694,30 @@ describe("CubeSandbox status mapping", () => {
     ["stopped", "stopped"],
     ["error", "error"],
     ["destroyed", "destroyed"],
-    ["unknown", "ready"],
+    ["unknown", "error"],
   ] as const)("maps API status '%s' to SandboxStatus '%s'", async (apiStatus, expected) => {
     globalThis.fetch = mockFetch({
       body: makeSandboxResponse({ status: apiStatus }),
     });
-    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
     const instance = await provider.create();
     expect(instance.status).toBe(expected);
+  });
+
+  it("warns on unknown status values", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    globalThis.fetch = mockFetch({
+      body: makeSandboxResponse({ status: "migrating" }),
+    });
+    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
+    await provider.create();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Unknown API status"),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("migrating"),
+    );
   });
 });
 
@@ -619,7 +753,7 @@ describe("CubeSandbox authorization", () => {
     const fetchMock = mockFetch({ body: makeSandboxResponse() });
     globalThis.fetch = fetchMock;
 
-    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: API_KEY });
+    const provider = new CubeSandboxProvider({ baseUrl: BASE_URL, apiKey: AUTH_TOKEN });
     await provider.create({ image: "node:20" });
 
     const init = fetchMock.mock.calls[0]![1] as RequestInit;

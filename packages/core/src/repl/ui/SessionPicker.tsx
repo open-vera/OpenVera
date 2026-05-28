@@ -2,6 +2,7 @@ import { Box, Text, useStdin } from "ink";
 import { useState, useRef, useLayoutEffect, useCallback, useEffect } from "react";
 import { SessionStore } from "../../session/index.js";
 import type { SessionSummary, SessionTranscriptPreview } from "../../session/index.js";
+import { debugLog } from "../debugLog.js";
 import { ConversationPanel } from "./ConversationPanel.js";
 import { parseInputKey } from "./inputKeys.js";
 import type { ChatMessage } from "./types.js";
@@ -169,6 +170,7 @@ export function SessionPicker({
   onClose,
   width: _width,
 }: SessionPickerProps) {
+  debugLog(`[SessionPicker] ▸ mount, ${initialSessions.length} initial sessions, cwd=${cwd}`);
   const [sessions, setSessions] = useState(initialSessions);
   const [nextOffset, setNextOffset] = useState<number | undefined>(initialNextOffset);
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -183,6 +185,10 @@ export function SessionPicker({
   const [branchCompare, setBranchCompare] = useState<SessionSummary[]>([]);
   const selectedIdxRef = useRef(0);
   selectedIdxRef.current = selectedIdx;
+
+  useEffect(() => {
+    return () => { debugLog("[SessionPicker] ◂ unmount"); };
+  }, []);
 
   const searchFilter = parseSearchFilter(search);
   const filteredSessions = search ? sessions.filter((s) => matchesSession(s, searchFilter)) : sessions;
@@ -305,16 +311,25 @@ export function SessionPicker({
     }
     if (key.return) {
       const s = visibleRef.current[selectedIdxRef.current];
-      if (s) onSelect(s.sessionId);
+      debugLog(`[SessionPicker] Enter pressed, selectedIdx=${selectedIdxRef.current}, session=${s?.sessionId ?? "(none)"}`);
+      if (s) {
+        debugLog(`[SessionPicker] → calling onSelect(${s.sessionId})`);
+        onSelect(s.sessionId);
+        debugLog(`[SessionPicker] ← onSelect returned`);
+      }
       return;
     }
   }, [loadMore, onClose, onSelect, searchMode]);
 
   const { internal_eventEmitter } = useStdin();
   useLayoutEffect(() => {
+    debugLog("[SessionPicker] stdin handler attached");
     const onData = (chunk: string) => handleKey(chunk);
     internal_eventEmitter.on("input", onData);
-    return () => { internal_eventEmitter.off("input", onData); };
+    return () => {
+      debugLog("[SessionPicker] stdin handler detached");
+      internal_eventEmitter.off("input", onData);
+    };
   }, [internal_eventEmitter, handleKey]);
 
   const selected = filteredSessions[selectedIdx];

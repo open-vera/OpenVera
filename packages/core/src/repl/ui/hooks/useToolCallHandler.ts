@@ -47,7 +47,7 @@ export function buildToolCallHandler(params: ToolCallHandlerParams) {
 
   const runDir = dirname(store.filePath);
 
-  const executeOnce = async (n: string, a: Record<string, unknown>): Promise<ToolResult> => {
+  const executeOnce = async (n: string, a: Record<string, unknown>, onOutput?: (chunk: string) => void): Promise<ToolResult> => {
     if (n === SUBAGENT_TOOL_NAME) {
       const result = await runSubagentTool({
         args: a,
@@ -102,14 +102,14 @@ export function buildToolCallHandler(params: ToolCallHandlerParams) {
     // Registry tools must always go through registry.execute so security hooks
     // (including needsConfirm) run. activeExecutors wraps registry tools via
     // RegistryToolProvider but drops ToolResult metadata — skip it for known tools.
-    if (registry?.has(n)) return registry.execute(n, a, { cwd: ctxRef.current.cwd, sessionId: store.sessionId });
+    if (registry?.has(n)) return registry.execute(n, a, { cwd: ctxRef.current.cwd, sessionId: store.sessionId, onOutput });
 
     if (activeExecutors?.has(n)) {
       const content = await activeExecutors.get(n)!(a);
       return { ok: true, content };
     }
 
-    if (registry) return registry.execute(n, a, { cwd: ctxRef.current.cwd, sessionId: store.sessionId });
+    if (registry) return registry.execute(n, a, { cwd: ctxRef.current.cwd, sessionId: store.sessionId, onOutput });
     return { ok: false, content: `Tool "${n}" is not implemented yet.`, error: { code: "UNKNOWN", message: `Tool "${n}" is not implemented yet.`, retryable: false } };
   };
 
@@ -150,10 +150,10 @@ export function buildToolCallHandler(params: ToolCallHandlerParams) {
     return result;
   };
 
-  return async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
+  return async (name: string, args: Record<string, unknown>, onOutput?: (chunk: string) => void): Promise<ToolResult> => {
     turnToolCalls.push(name);
     const toolCallUuid = store.writeToolCall({ parentUuid: userUuid, toolName: name, toolCallId: name, arguments: args });
-    const toolResult = await finalizeToolResult(name, args, await executeOnce(name, args));
+    const toolResult = await finalizeToolResult(name, args, await executeOnce(name, args, onOutput));
     store.writeToolResult({ parentUuid: toolCallUuid, toolCallId: name, content: toolResult.content });
     return toolResult;
   };

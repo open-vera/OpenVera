@@ -1,5 +1,6 @@
 import type { AccumulatedCost } from "../../../session/index.js";
 import type { ReplContext } from "../../context.js";
+import { debugLog } from "../../debugLog.js";
 import type { ChatMessage, RoutingInfo, TokenUsage } from "../types.js";
 import type { OverlayAction } from "../state/overlayStore.js";
 import {
@@ -93,7 +94,15 @@ export async function handleSlashCommandSubmission(
     return { handled: true };
   }
 
+  debugLog(`[commandSubmission] /${cmd} — dispatching to captureCommandOutput, args=${JSON.stringify(args)}`);
+  const t0 = Date.now();
   const output = await (options.captureCommand ?? captureCommandOutput)(cmd, args, options.ctx);
-  options.setMessages((prev) => [...prev, { role: "assistant", content: output }]);
+  debugLog(`[commandSubmission] /${cmd} — returned in ${Date.now() - t0}ms, output=${output === null ? "null (overlay)" : `${output.length} chars`}`);
+  if (output) {
+    debugLog(`[commandSubmission] /${cmd} — adding assistant message with captured output`);
+    options.setMessages((prev) => [...prev, { role: "assistant", content: output }]);
+  } else {
+    debugLog(`[commandSubmission] /${cmd} — no output to add (overlay should be open)`);
+  }
   return { handled: true };
 }

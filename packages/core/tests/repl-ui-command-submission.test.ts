@@ -106,4 +106,22 @@ describe("commandSubmission", () => {
       { role: "assistant", content: "title set" },
     ]);
   });
+
+  it("does not add assistant message when command returns null (overlay opened)", async () => {
+    const captureCommand = vi.fn(async () => null);
+    const base = baseOptions({
+      line: "/resume",
+      slashCommand: { cmd: "resume", args: [] },
+      captureCommand,
+    });
+
+    const result = await handleSlashCommandSubmission(base.options);
+
+    expect(result).toEqual({ handled: true });
+    expect(captureCommand).toHaveBeenCalledWith("resume", [], base.options.ctx);
+    // Only the user message; no spurious assistant message
+    expect(base.messagesRef.current).toEqual([
+      { role: "user", content: "/resume" },
+    ]);
+  });
 });

@@ -2,16 +2,20 @@
 
 import { SessionStore } from "../../session/index.js";
 import type { ReplContext } from "../context.js";
+import { debugLog } from "../debugLog.js";
 
 export async function resumeCommand(
   args: string[],
   ctx: ReplContext
 ): Promise<void> {
   const prefix = args[0];
+  debugLog(`[resumeCommand] args=${JSON.stringify(args)} prefix=${prefix ?? "(none)"} onShowSessionPicker=${!!ctx.onShowSessionPicker} onResume=${!!ctx.onResume}`);
   if (!prefix) {
     // No prefix: open interactive session picker if available
     if (ctx.onShowSessionPicker) {
+      debugLog("[resumeCommand] → calling onShowSessionPicker (will dispatch overlay open)");
       ctx.onShowSessionPicker();
+      debugLog("[resumeCommand] ← onShowSessionPicker returned, returning null output");
       return;
     }
     // Fallback: list sessions as hint
@@ -44,12 +48,16 @@ export async function resumeCommand(
 
   const target = matches[0]!;
   try {
+    debugLog(`[resumeCommand] loading session ${target.sessionId} from disk`);
     const loaded = SessionStore.loadSession(target.sessionId, ctx.cwd);
+    debugLog(`[resumeCommand] loaded: turns=${loaded.turnCount} history=${loaded.history.length} cost=${loaded.totalCostUsd.toFixed(4)}`);
     if (!ctx.onResume) {
       console.log("Resume is not available in this context.");
       return;
     }
+    debugLog("[resumeCommand] → calling onResume");
     ctx.onResume(loaded);
+    debugLog("[resumeCommand] ← onResume returned");
     console.log(
       `Resumed session ${target.sessionId.slice(0, 8)} — ` +
       `${loaded.turnCount} turns, $${loaded.totalCostUsd.toFixed(4)} spent.`

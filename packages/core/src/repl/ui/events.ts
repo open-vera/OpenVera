@@ -11,6 +11,7 @@ export type UiEvent =
   | { type: "assistant.completed"; text: string }
   | { type: "assistant.failed"; message: string; preservePartial?: boolean }
   | { type: "tool.started"; name: string; args: Record<string, unknown>; preface?: string }
+  | { type: "tool.output"; chunk: string }
   | { type: "tool.completed"; tool: ToolUse }
   | { type: "routing.failed"; message: string }
   | { type: "status.changed"; status: StreamStatus }

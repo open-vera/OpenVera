@@ -7,6 +7,7 @@ import {
 } from "../../../context/index.js";
 import { resolveResumeWorkspace } from "../../workspace.js";
 import type { ReplContext } from "../../context.js";
+import { debugLog } from "../../debugLog.js";
 import type { Message } from "../../../types/index.js";
 import type { CompressionState, MicroCompactState } from "../../../context/index.js";
 import type { MemoryTracker, MemoryFile } from "../../../memory/index.js";
@@ -49,10 +50,17 @@ export function useSessionLifecycle(props: SessionLifecycleProps): void {
   } = props;
 
   useEffect(() => {
+    debugLog("[useSessionLifecycle] effect running — registering onResume / onShowSessionPicker / onSwitchWorkspace");
+
     ctxRef.current.onResume = (loaded) => {
+      const t0 = Date.now();
+      debugLog(`[onResume] ▸ called: sessionId=${loaded.sessionId} turns=${loaded.turnCount} history=${loaded.history.length} msgs`);
       const workspace = resolveResumeWorkspace(loaded, ctxRef.current.cwd);
+      debugLog(`[onResume] resolved workspace: cwd=${workspace.cwd}${workspace.warning ? " (warning: " + workspace.warning + ")" : ""}`);
       const resumedStore = new SessionStore({ sessionId: loaded.sessionId, cwd: loaded.cwd });
+      debugLog(`[onResume] → onSwitchWorkspace`);
       ctxRef.current.onSwitchWorkspace?.(workspace.cwd, resumedStore);
+      debugLog(`[onResume] ← onSwitchWorkspace done`);
       ctxRef.current.sessionStore = resumedStore;
       historyRef.current = loaded.history;
       compressionStateRef.current = createCompressionState();
@@ -66,6 +74,7 @@ export function useSessionLifecycle(props: SessionLifecycleProps): void {
       );
       costRef.current = { totalUsd: loaded.totalCostUsd, byModel: {}, totalUsage: loaded.totalUsage };
       turnCountRef.current = loaded.turnCount;
+      debugLog(`[onResume] → setUsage`);
       setUsage((prev) => ({
         ...prev,
         inputTotal: loaded.totalUsage.input_tokens,
@@ -74,17 +83,24 @@ export function useSessionLifecycle(props: SessionLifecycleProps): void {
         cacheReadTotal: loaded.totalUsage.cache_read_input_tokens ?? 0,
         costUsd: loaded.totalCostUsd,
       }));
+      debugLog(`[onResume] → writeStart`);
       resumedStore.writeStart(
         loaded.model || ctxRef.current.model,
         loaded.provider || (ctxRef.current.config.default_provider ?? "anthropic"),
       );
       maybeWriteGitBranch(resumedStore, ctxRef.current.cwd);
-      if (workspace.warning) console.log(workspace.warning);
+      if (workspace.warning) debugLog(`[onResume] warning: ${workspace.warning}`);
+      debugLog(`[onResume] ◂ complete (${Date.now() - t0}ms)`);
     };
 
-    ctxRef.current.onShowSessionPicker = () => setSessionPickerOpen(true);
+    ctxRef.current.onShowSessionPicker = () => {
+      debugLog("[onShowSessionPicker] called → dispatching overlay open");
+      setSessionPickerOpen(true);
+      debugLog("[onShowSessionPicker] returned (state dispatch is async)");
+    };
 
     ctxRef.current.onSwitchWorkspace = (cwd, sessionStore) => {
+      debugLog(`[onSwitchWorkspace] cwd=${cwd}`);
       ctxRef.current.cwd = cwd;
       const bundle = ctxRef.current.createToolRegistry?.({ cwd, sessionStore });
       if (bundle) {
@@ -95,15 +111,21 @@ export function useSessionLifecycle(props: SessionLifecycleProps): void {
       projectContextRef.current = null;
       loadedVeraContextPathsRef.current = new Set();
       memoryTrackerRef.current = null;
+      debugLog(`[onSwitchWorkspace] done`);
     };
 
     if (resumeSessionId) {
+      debugLog(`[useSessionLifecycle] resumeSessionId=${resumeSessionId} — loading on startup`);
       try {
+        const t0 = Date.now();
         const loaded = SessionStore.loadSession(resumeSessionId, ctxRef.current.cwd);
         const preview = SessionStore.loadTranscriptPreview(resumeSessionId, ctxRef.current.cwd);
+        debugLog(`[useSessionLifecycle] loaded session+preview in ${Date.now() - t0}ms`);
         ctxRef.current.onResume!(loaded);
         setMessages(resumedVisibleMessages(resumeSessionId, preview, loaded));
+        debugLog(`[useSessionLifecycle] startup resume complete`);
       } catch (err) {
+        debugLog(`[useSessionLifecycle] startup resume FAILED: ${err}`);
         setMessages([{ role: "assistant", content: `Failed to resume session: ${err instanceof Error ? err.message : String(err)}` }]);
       }
     } else {

@@ -20,7 +20,7 @@ import {
   SandboxConnectionError,
   SandboxNotFoundError,
   SandboxTimeoutError,
-  SandboxExecError,
+  SandboxQuotaError,
 } from "./types.js";
 
 // ── Configuration ─────────────────────────────────────────────────────────
@@ -65,6 +65,89 @@ interface FileUploadBody {
   encoding: "utf-8" | "base64";
 }
 
+// ── Shared HTTP Request Utility ───────────────────────────────────────────
+
+interface CubeRequestContext {
+  baseUrl: string;
+  apiKey: string;
+  requestTimeoutMs: number;
+}
+
+async function requestCubeSandbox<T>(
+  ctx: CubeRequestContext,
+  method: string,
+  path: string,
+  body?: unknown,
+  sandboxId?: string,
+): Promise<T> {
+  const url = `${ctx.baseUrl}${path}`;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${ctx.apiKey}`,
+  };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ctx.requestTimeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+
+    if (response.status === 404) {
+      throw new SandboxNotFoundError(sandboxId ?? path);
+    }
+
+    if (response.status === 429) {
+      const text = await response.text().catch(() => "rate limited");
+      throw new SandboxQuotaError("cubesandbox", `HTTP 429: ${text}`);
+    }
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "unknown error");
+      throw new SandboxConnectionError(
+        "cubesandbox",
+        `HTTP ${response.status}: ${text}`,
+      );
+    }
+
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      return (await response.json()) as T;
+    }
+    return (await response.text()) as unknown as T;
+  } catch (err) {
+    if (
+      err instanceof SandboxNotFoundError ||
+      err instanceof SandboxConnectionError ||
+      err instanceof SandboxQuotaError
+    ) {
+      throw err;
+    }
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new SandboxTimeoutError(
+        sandboxId ?? "provider",
+        Math.round(ctx.requestTimeoutMs / 1000),
+      );
+    }
+    if (err instanceof TypeError && err.message.includes("fetch")) {
+      throw new SandboxConnectionError("cubesandbox", err.message, { cause: err });
+    }
+    throw new SandboxConnectionError(
+      "cubesandbox",
+      err instanceof Error ? err.message : String(err),
+      { cause: err },
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ── CubeSandbox Instance ──────────────────────────────────────────────────
 
 class CubeSandboxInstance implements SandboxInstance {
@@ -72,13 +155,15 @@ class CubeSandboxInstance implements SandboxInstance {
   readonly provider = "cubesandbox";
   readonly createdAt: Date;
   private _status: SandboxStatus;
+  private readonly ctx: CubeRequestContext;
 
   constructor(
-    private readonly baseUrl: string,
-    private readonly apiKey: string,
-    private readonly requestTimeoutMs: number,
+    baseUrl: string,
+    apiKey: string,
+    requestTimeoutMs: number,
     sandboxData: SandboxApiResponse,
   ) {
+    this.ctx = { baseUrl, apiKey, requestTimeoutMs };
     this.id = sandboxData.id;
     this._status = mapStatus(sandboxData.status);
     this.createdAt = sandboxData.createdAt ? new Date(sandboxData.createdAt) : new Date();
@@ -96,10 +181,12 @@ class CubeSandboxInstance implements SandboxInstance {
     if (options?.stdin) body.stdin = options.stdin;
     if (options?.background) body.background = options.background;
 
-    const result = await this.request<ExecApiResponse>(
+    const result = await requestCubeSandbox<ExecApiResponse>(
+      this.ctx,
       "POST",
       `/sandboxes/${this.id}/exec`,
       body,
+      this.id,
     );
 
     if (result.exitCode !== null && result.exitCode !== 0 && !options?.background) {
@@ -133,17 +220,22 @@ class CubeSandboxInstance implements SandboxInstance {
       encoding: "base64",
     };
 
-    await this.request<unknown>(
+    await requestCubeSandbox<unknown>(
+      this.ctx,
       "POST",
       `/sandboxes/${this.id}/files/${encodeURIComponent(remotePath)}`,
       body,
+      this.id,
     );
   }
 
   async download(remotePath: string, localPath: string): Promise<void> {
-    const content = await this.request<{ content: string; encoding: string }>(
+    const content = await requestCubeSandbox<{ content: string; encoding: string }>(
+      this.ctx,
       "GET",
       `/sandboxes/${this.id}/files/${encodeURIComponent(remotePath)}`,
+      undefined,
+      this.id,
     );
 
     const { writeFileSync, mkdirSync } = await import("node:fs");
@@ -158,9 +250,12 @@ class CubeSandboxInstance implements SandboxInstance {
   }
 
   async readFile(remotePath: string): Promise<string> {
-    const result = await this.request<{ content: string; encoding: string }>(
+    const result = await requestCubeSandbox<{ content: string; encoding: string }>(
+      this.ctx,
       "GET",
       `/sandboxes/${this.id}/files/${encodeURIComponent(remotePath)}`,
+      undefined,
+      this.id,
     );
 
     if (result.encoding === "base64") {
@@ -170,79 +265,18 @@ class CubeSandboxInstance implements SandboxInstance {
   }
 
   async stop(): Promise<void> {
-    await this.request<unknown>("POST", `/sandboxes/${this.id}/stop`);
+    await requestCubeSandbox<unknown>(this.ctx, "POST", `/sandboxes/${this.id}/stop`, undefined, this.id);
     this._status = "stopped";
   }
 
   async resume(): Promise<void> {
-    await this.request<unknown>("POST", `/sandboxes/${this.id}/resume`);
+    await requestCubeSandbox<unknown>(this.ctx, "POST", `/sandboxes/${this.id}/resume`, undefined, this.id);
     this._status = "ready";
   }
 
   async destroy(): Promise<void> {
-    await this.request<unknown>("DELETE", `/sandboxes/${this.id}`);
+    await requestCubeSandbox<unknown>(this.ctx, "DELETE", `/sandboxes/${this.id}`, undefined, this.id);
     this._status = "destroyed";
-  }
-
-  private async request<T>(
-    method: string,
-    path: string,
-    body?: unknown,
-  ): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.apiKey}`,
-    };
-    if (body !== undefined) {
-      headers["Content-Type"] = "application/json";
-    }
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
-
-    try {
-      const response = await fetch(url, {
-        method,
-        headers,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
-      });
-
-      if (response.status === 404) {
-        throw new SandboxNotFoundError(this.id);
-      }
-
-      if (!response.ok) {
-        const text = await response.text().catch(() => "unknown error");
-        throw new SandboxConnectionError(
-          "cubesandbox",
-          `HTTP ${response.status}: ${text}`,
-        );
-      }
-
-      const contentType = response.headers.get("content-type") ?? "";
-      if (contentType.includes("application/json")) {
-        return (await response.json()) as T;
-      }
-      return (await response.text()) as unknown as T;
-    } catch (err) {
-      if (err instanceof SandboxNotFoundError || err instanceof SandboxConnectionError) {
-        throw err;
-      }
-      if (err instanceof DOMException && err.name === "AbortError") {
-        throw new SandboxTimeoutError(this.id, Math.round(this.requestTimeoutMs / 1000));
-      }
-      if (err instanceof TypeError && err.message.includes("fetch")) {
-        throw new SandboxConnectionError("cubesandbox", err.message, { cause: err });
-      }
-      throw new SandboxConnectionError(
-        "cubesandbox",
-        err instanceof Error ? err.message : String(err),
-        { cause: err },
-      );
-    } finally {
-      clearTimeout(timer);
-    }
   }
 }
 
@@ -251,16 +285,14 @@ class CubeSandboxInstance implements SandboxInstance {
 export class CubeSandboxProvider implements SandboxProvider {
   readonly name = "cubesandbox";
 
-  private readonly baseUrl: string;
-  private readonly apiKey: string;
+  private readonly ctx: CubeRequestContext;
   private readonly defaultImage: string;
-  private readonly requestTimeoutMs: number;
 
   constructor(options?: CubeSandboxOptions) {
-    this.baseUrl = (options?.baseUrl ?? process.env.CUBESANDBOX_URL ?? "http://localhost:8080").replace(/\/+$/, "");
-    this.apiKey = options?.apiKey ?? process.env.CUBESANDBOX_API_KEY ?? "";
+    const baseUrl = (options?.baseUrl ?? process.env.CUBESANDBOX_URL ?? "http://localhost:8080").replace(/\/+$/, "");
+    const apiKey = options?.apiKey ?? process.env.CUBESANDBOX_API_KEY ?? "";
+    this.ctx = { baseUrl, apiKey, requestTimeoutMs: options?.requestTimeoutMs ?? 30_000 };
     this.defaultImage = options?.defaultImage ?? "ubuntu:22.04";
-    this.requestTimeoutMs = options?.requestTimeoutMs ?? 30_000;
   }
 
   async create(options?: SandboxCreateOptions): Promise<SandboxInstance> {
@@ -275,21 +307,23 @@ export class CubeSandboxProvider implements SandboxProvider {
     if (options?.networkMode) body.networkMode = options.networkMode;
     if (options?.volumes) body.volumes = options.volumes;
 
-    const data = await this.request<SandboxApiResponse>("POST", "/sandboxes", body);
-    return new CubeSandboxInstance(this.baseUrl, this.apiKey, this.requestTimeoutMs, data);
+    const data = await requestCubeSandbox<SandboxApiResponse>(this.ctx, "POST", "/sandboxes", body);
+    return new CubeSandboxInstance(this.ctx.baseUrl, this.ctx.apiKey, this.ctx.requestTimeoutMs, data);
   }
 
   async list(): Promise<SandboxInstance[]> {
-    const data = await this.request<ListApiResponse>("GET", "/sandboxes");
+    const data = await requestCubeSandbox<ListApiResponse>(this.ctx, "GET", "/sandboxes");
     return data.sandboxes.map(
-      (sb) => new CubeSandboxInstance(this.baseUrl, this.apiKey, this.requestTimeoutMs, sb),
+      (sb) => new CubeSandboxInstance(this.ctx.baseUrl, this.ctx.apiKey, this.ctx.requestTimeoutMs, sb),
     );
   }
 
   async get(sandboxId: string): Promise<SandboxInstance | undefined> {
     try {
-      const data = await this.request<SandboxApiResponse>("GET", `/sandboxes/${sandboxId}`);
-      return new CubeSandboxInstance(this.baseUrl, this.apiKey, this.requestTimeoutMs, data);
+      const data = await requestCubeSandbox<SandboxApiResponse>(
+        this.ctx, "GET", `/sandboxes/${sandboxId}`, undefined, sandboxId,
+      );
+      return new CubeSandboxInstance(this.ctx.baseUrl, this.ctx.apiKey, this.ctx.requestTimeoutMs, data);
     } catch (err) {
       if (err instanceof SandboxNotFoundError) return undefined;
       throw err;
@@ -297,75 +331,11 @@ export class CubeSandboxProvider implements SandboxProvider {
   }
 
   async destroy(sandboxId: string): Promise<void> {
-    await this.request<unknown>("DELETE", `/sandboxes/${sandboxId}`);
+    await requestCubeSandbox<unknown>(this.ctx, "DELETE", `/sandboxes/${sandboxId}`, undefined, sandboxId);
   }
 
   async destroyAll(): Promise<void> {
-    await this.request<unknown>("DELETE", "/sandboxes");
-  }
-
-  private async request<T>(
-    method: string,
-    path: string,
-    body?: unknown,
-  ): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.apiKey}`,
-    };
-    if (body !== undefined) {
-      headers["Content-Type"] = "application/json";
-    }
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
-
-    try {
-      const response = await fetch(url, {
-        method,
-        headers,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
-      });
-
-      if (response.status === 404) {
-        throw new SandboxNotFoundError(path);
-      }
-
-      if (!response.ok) {
-        const text = await response.text().catch(() => "unknown error");
-        throw new SandboxConnectionError(
-          "cubesandbox",
-          `HTTP ${response.status}: ${text}`,
-        );
-      }
-
-      const contentType = response.headers.get("content-type") ?? "";
-      if (contentType.includes("application/json")) {
-        return (await response.json()) as T;
-      }
-      return (await response.text()) as unknown as T;
-    } catch (err) {
-      if (err instanceof SandboxNotFoundError || err instanceof SandboxConnectionError) {
-        throw err;
-      }
-      if (err instanceof DOMException && err.name === "AbortError") {
-        throw new SandboxConnectionError(
-          "cubesandbox",
-          `Request timed out after ${this.requestTimeoutMs}ms`,
-        );
-      }
-      if (err instanceof TypeError && err.message.includes("fetch")) {
-        throw new SandboxConnectionError("cubesandbox", err.message, { cause: err });
-      }
-      throw new SandboxConnectionError(
-        "cubesandbox",
-        err instanceof Error ? err.message : String(err),
-        { cause: err },
-      );
-    } finally {
-      clearTimeout(timer);
-    }
+    await requestCubeSandbox<unknown>(this.ctx, "DELETE", "/sandboxes");
   }
 }
 
@@ -379,7 +349,9 @@ function mapStatus(raw: string): SandboxStatus {
     case "stopped": return "stopped";
     case "error": return "error";
     case "destroyed": return "destroyed";
-    default: return "ready";
+    default:
+      console.warn(`[CubeSandbox] Unknown API status "${raw}", treating as error`);
+      return "error";
   }
 }
 

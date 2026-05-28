@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 
-const MAX_LINES = 3;
+const MAX_LINES = 10;
 
 // Keywords to highlight per language family
 const TS_KEYWORDS = new Set([
@@ -30,7 +30,7 @@ export function CodeView({ content, width, expanded }: CodeViewProps) {
         <CodeLine key={i} line={line} />
       ))}
       {truncated && (
-        <Text color="gray">[... +{remaining} lines]</Text>
+        <Text color="gray">[... +{remaining} lines (⌥O to expand)]</Text>
       )}
     </Box>
   );

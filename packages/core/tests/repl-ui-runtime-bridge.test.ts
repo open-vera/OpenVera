@@ -57,7 +57,7 @@ describe("runtimeBridge", () => {
 
     await runStreamRuntime(options);
 
-    expect(options.toolCallHandler).toHaveBeenCalledWith("read_file", { path: "a.ts" });
+    expect(options.toolCallHandler).toHaveBeenCalledWith("read_file", { path: "a.ts" }, expect.any(Function));
     expect(events.map((event) => event.type)).toEqual([
       "assistant.started",
       "status.changed",
