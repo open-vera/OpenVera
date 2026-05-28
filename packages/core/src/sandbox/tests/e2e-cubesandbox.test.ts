@@ -55,7 +55,7 @@ function textResponse(body: string, status = 200): Response {
 
 function setupMockFetch(): void {
   globalThis.fetch = vi.fn().mockImplementation(
-    async (url: string, init?: RequestInit): Promise<Response> => {
+    async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
       const method = init?.method ?? "GET";
       const body = init?.body ? JSON.parse(init.body as string) : undefined;
       const urlStr = typeof url === "string" ? url : url.toString();

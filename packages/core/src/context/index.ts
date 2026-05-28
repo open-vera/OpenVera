@@ -30,6 +30,11 @@ export {
   isPromptTooLongError,
   findRelevantSegments,
   expandSegment,
+  buildCompressionInstruction,
+  parseCompressionResponse,
+  buildSyntheticFromOutput,
+  insertCompressionInstruction,
+  resolveInsertCompress,
 } from "./compression.js";
 export type {
   CompressionOptions,
@@ -37,4 +42,12 @@ export type {
   CompressionState,
   MicroCompactOptions,
   MicroCompactState,
+  InsertCompressPending,
 } from "./compression.js";
+
+export { IdleCompressionTimer } from "./idle-compression.js";
+export type {
+  IdleCompressionOptions,
+  IdleCompressionResult,
+  IdleCompressionStatus,
+} from "./idle-compression.js";

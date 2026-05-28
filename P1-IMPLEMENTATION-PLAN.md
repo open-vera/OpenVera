@@ -377,10 +377,10 @@
 
 ### 20A: Insert-then-Compress 策略（缓存友好压缩）
 
-- [ ] **OC1** 压缩指令注入 — 不单独调 API 压缩，而是在当前对话流中插入压缩指令消息，复用已有 cache
-- [ ] **OC2** 压缩后只重建一次 cache — 对比旧方案（两次 cache rebuild），节省 ~50% 冷启动成本
-- [ ] **OC3** `<topics>` + `<summary>` 结构化压缩输出 — 压缩结果带 topics 标签，支持后续检索
-- [ ] **OC4** 压缩集成测试（5+ tests：缓存命中、压缩质量、topics 提取）
+- [x] **OC1** 压缩指令注入 — 不单独调 API 压缩，而是在当前对话流中插入压缩指令消息，复用已有 cache
+- [x] **OC2** 压缩后只重建一次 cache — 对比旧方案（两次 cache rebuild），节省 ~50% 冷启动成本
+- [x] **OC3** `<topics>` + `<summary>` 结构化压缩输出 — 压缩结果带 topics 标签，支持后续检索
+- [x] **OC4** 压缩集成测试（5+ tests：缓存命中、压缩质量、topics 提取）
 
 ### 20B: 空闲自动压缩（IdleCompressionTimer）
 

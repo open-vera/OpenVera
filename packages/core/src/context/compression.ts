@@ -22,6 +22,13 @@ export interface CompressionOptions {
    * Default: same as the main model.
    */
   model?: string;
+  /**
+   * Use insert-then-compress strategy (OC1): insert a compression instruction
+   * into the conversation flow instead of making a separate API call.
+   * This reuses the existing prompt cache, saving ~50% cold-start cost (OC2).
+   * Default: false (uses the traditional separate-call approach).
+   */
+  insertCompress?: boolean;
 }
 
 export interface CompressedSegment {
@@ -33,6 +40,8 @@ export interface CompressedSegment {
   findings: string[];
   /** Items that were not yet resolved. */
   pending: string[];
+  /** Topic tags extracted from the compressed segment. */
+  topics: string[];
   /** Which original turn range this segment covers (0-indexed). */
   turnRange: { start: number; end: number };
   /** Estimated token count of the original messages before compression. */
@@ -126,7 +135,12 @@ Precise description of what was being worked on immediately before this summary,
 ### 9. Optional Next Step
 Only if directly in line with the user's most recent explicit requests. Include verbatim quotes showing exactly what task was in progress and where it left off.
 
-After the summary, the conversation will continue. The agent reading this summary will pick up where it left off — do NOT ask it to acknowledge the summary or recap.`;
+After the summary, the conversation will continue. The agent reading this summary will pick up where it left off — do NOT ask it to acknowledge the summary or recap.
+
+## <topics> block
+After the </summary> tag, add a <topics> block listing 2–6 key topic tags (lowercase, hyphenated) that describe the conversation segment. These tags are used for retrieval.
+Example:
+<topics>auth-bugfix database-migration typescript refactoring</topics>`;
 
 // ── Turn detection ──────────────────────────────────────────────────────────
 
@@ -196,11 +210,24 @@ interface CompressionOutput {
   decisions: string[];
   findings: string[];
   pending: string[];
+  topics: string[];
+}
+
+function parseTopics(text: string): string[] {
+  const match = text.match(/<topics>(.*?)<\/topics>/s);
+  if (!match) return [];
+  return match[1]!
+    .split(/[\s,]+/)
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length > 0);
 }
 
 function parseCompressionOutput(text: string): CompressionOutput {
   // Strip <analysis> block first
   const summaryText = stripAnalysis(text);
+
+  // Extract topics from <topics> block
+  const topics = parseTopics(text);
 
   // Try JSON fence
   const fence = summaryText.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -211,6 +238,7 @@ function parseCompressionOutput(text: string): CompressionOutput {
     decisions: [],
     findings: [],
     pending: [],
+    topics,
   });
 
   try {
@@ -228,6 +256,7 @@ function parseCompressionOutput(text: string): CompressionOutput {
       pending: Array.isArray(obj.pending)
         ? obj.pending.map(String)
         : [],
+      topics,
     };
   } catch {
     return fallback();
@@ -367,6 +396,7 @@ export async function compressMessages(
     decisions: output.decisions,
     findings: output.findings,
     pending: output.pending,
+    topics: output.topics,
     turnRange: { start: 0, end: turnsToCompress - 1 },
     originalTokenCount: estimateMessageTokens(oldMessages),
   };
@@ -379,6 +409,170 @@ export async function compressMessages(
     messages: [synthetic, ...recentMessages],
     state: { segments: [...state.segments, segment] },
     usage: compressionUsage,
+  };
+}
+
+// ── Insert-then-Compress (OC1) ──────────────────────────────────────────────
+
+/**
+ * Build a compression instruction message that can be inserted into the
+ * conversation flow. The next API call will process this instruction as
+ * part of the normal turn, reusing the existing prompt cache (OC1/OC2).
+ *
+ * After the API call returns the compression output, use
+ * {@link parseCompressionOutput} to extract the structured result and
+ * replace the old messages with the synthetic summary.
+ *
+ * @param turnCount - Number of turns to compress (for the instruction text)
+ * @returns A user message with compression instructions
+ */
+export function buildCompressionInstruction(turnCount: number): Message {
+  const turnLabel = turnCount === 1 ? "1 turn" : `${turnCount} turns`;
+  return {
+    role: "user",
+    content:
+      `[SYSTEM: Compress the oldest ${turnLabel} of this conversation.]\n\n` +
+      COMPRESSION_SYSTEM,
+  };
+}
+
+/**
+ * Parse a compression response that was produced by the insert-then-compress
+ * flow (OC1). Returns the structured output including topics, or null if
+ * the response doesn't contain valid compression output.
+ */
+export function parseCompressionResponse(
+  responseText: string,
+): CompressionOutput | null {
+  const output = parseCompressionOutput(responseText);
+  return output.summary ? output : null;
+}
+
+/**
+ * Build a synthetic summary message from a parsed compression output (OC1).
+ * This replaces the old turns after compression.
+ */
+export function buildSyntheticFromOutput(
+  turnLabel: string,
+  output: CompressionOutput,
+  isReactive: boolean,
+): Message {
+  return buildSyntheticMessage(turnLabel, output, isReactive);
+}
+
+/**
+ * Result of inserting a compression instruction into the message flow.
+ * Used by the agent loop to track pending compression that will be resolved
+ * after the next API call returns.
+ */
+export interface InsertCompressPending {
+  /** Number of old turns that were targeted for compression. */
+  turnCount: number;
+  /** Turn label for the synthetic message (e.g., "turns 1–5"). */
+  turnLabel: string;
+  /** Index where the old turns end (exclusive) in the original message array. */
+  splitIndex: number;
+  /** Estimated token count of the old messages being compressed. */
+  originalTokenCount: number;
+}
+
+/**
+ * Insert a compression instruction into the conversation flow (OC1).
+ *
+ * Instead of making a separate API call for compression, this inserts an
+ * instruction message before the recent turns. The next normal API call
+ * will process the instruction as part of the turn, reusing the existing
+ * prompt cache (OC2: single cache rebuild).
+ *
+ * After the API call returns, use {@link resolveInsertCompress} to extract
+ * the compression output from the response and replace old turns with the
+ * synthetic summary.
+ *
+ * Returns null if compression is not needed (too few turns or under threshold).
+ */
+export function insertCompressionInstruction(
+  messages: Message[],
+  options: CompressionOptions,
+  isReactive = false,
+): { messages: Message[]; pending: InsertCompressPending } | null {
+  const {
+    triggerTokens = 100_000,
+    keepRecentTurns = 6,
+  } = options;
+
+  if (!isReactive) {
+    const currentTokens = estimateMessageTokens(messages);
+    if (currentTokens <= triggerTokens) return null;
+  }
+
+  const turnStarts = findTurnStarts(messages);
+  const totalTurns = turnStarts.length;
+
+  const effectiveKeep = isReactive
+    ? Math.max(2, Math.floor(keepRecentTurns / 2))
+    : keepRecentTurns;
+
+  if (totalTurns <= effectiveKeep + 1) return null;
+
+  const turnsToCompress = totalTurns - effectiveKeep;
+  if (turnsToCompress <= 0) return null;
+
+  const splitIndex = turnStarts[turnsToCompress]!;
+  const oldMessages = messages.slice(0, splitIndex);
+  const recentMessages = messages.slice(splitIndex);
+
+  const turnLabel =
+    turnsToCompress === 1 ? "1 turn" : `${turnsToCompress} turns`;
+
+  const instruction = buildCompressionInstruction(turnsToCompress);
+
+  return {
+    messages: [...oldMessages, instruction, ...recentMessages],
+    pending: {
+      turnCount: turnsToCompress,
+      turnLabel: `turns 1–${turnsToCompress}`,
+      splitIndex,
+      originalTokenCount: estimateMessageTokens(oldMessages),
+    },
+  };
+}
+
+/**
+ * Resolve a pending insert-then-compress operation (OC1).
+ *
+ * After the API call returns, call this with the assistant's response text.
+ * If the response contains valid compression output (<summary> + <topics>),
+ * the old turns are replaced with a synthetic summary message.
+ *
+ * Returns the updated messages and compression state, or null if the
+ * response didn't contain valid compression output.
+ */
+export function resolveInsertCompress(
+  messages: Message[],
+  responseText: string,
+  pending: InsertCompressPending,
+  state: CompressionState,
+): { messages: Message[]; state: CompressionState } | null {
+  const output = parseCompressionResponse(responseText);
+  if (!output) return null;
+
+  const synthetic = buildSyntheticMessage(pending.turnLabel, output, false);
+
+  // Keep everything after the split point (recent turns) + the synthetic summary
+  const recentMessages = messages.slice(pending.splitIndex + 1); // +1 to skip the instruction message
+  const segment: CompressedSegment = {
+    summary: output.summary,
+    decisions: output.decisions,
+    findings: output.findings,
+    pending: output.pending,
+    topics: output.topics,
+    turnRange: { start: 0, end: pending.turnCount - 1 },
+    originalTokenCount: pending.originalTokenCount,
+  };
+
+  return {
+    messages: [synthetic, ...recentMessages],
+    state: { segments: [...state.segments, segment] },
   };
 }
 
@@ -499,6 +693,7 @@ export function findRelevantSegments(
       seg.summary,
       ...seg.decisions,
       ...seg.findings,
+      ...seg.topics,
     ].join(" ");
     const count = (haystack.match(new RegExp(q, "gi")) ?? []).length;
     return { seg, count };
