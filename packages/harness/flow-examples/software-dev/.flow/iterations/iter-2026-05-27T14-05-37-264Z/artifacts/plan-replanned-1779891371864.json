@@ -1,0 +1,72 @@
+{
+  "planId": "harness-revised-plan-1",
+  "goal": "实现 task/goal.md 中定义的需求，包括需求分析、设计、开发、测试和部署全流程",
+  "assumptions": [
+    "项目目录结构存在且可访问，包括 ../project/docs/ 和 flows/design/output/ 等路径",
+    "所需角色（developer, designer, tester, ops）可用且具备必要技能",
+    "开发、测试和部署的工具和环境已设置完毕",
+    "设计文档可以在指定路径创建，无权限问题",
+    "需求分析产物（如 prd.md, user-stories.md）已准备就绪并可供设计阶段使用"
+  ],
+  "steps": [
+    {
+      "id": "flows/requirement",
+      "type": "delegate",
+      "action": "Execute \"需求分析\" — agents: pm, user",
+      "dependsOn": [],
+      "assignedAgent": "pm",
+      "status": "done"
+    },
+    {
+      "id": "flows/requirement-redo",
+      "type": "delegate",
+      "action": "重新执行需求分析：根据 goal.md 内容，进行需求分析、优先级排序和用户故事拆解，生成 prd.md（含功能列表、P0-P3优先级、验收标准）、user-stories.md（标准格式用户故事）和 summary.md（执行摘要）",
+      "dependsOn": [
+        "flows/requirement"
+      ],
+      "assignedAgent": "pm",
+      "status": "done"
+    },
+    {
+      "id": "flows/design",
+      "type": "delegate",
+      "action": "Execute '方案设计' — agents: developer, designer",
+      "dependsOn": [
+        "flows/requirement-redo"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "flows/implement",
+      "type": "delegate",
+      "action": "Execute '开发实现' — agents: developer",
+      "dependsOn": [
+        "flows/design"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/testing",
+      "type": "delegate",
+      "action": "Execute '测试验证' — agents: tester, developer",
+      "dependsOn": [
+        "flows/implement"
+      ],
+      "assignedAgent": "tester",
+      "status": "pending"
+    },
+    {
+      "id": "flows/deploy",
+      "type": "delegate",
+      "action": "Execute '发布上线' — agents: developer, ops",
+      "dependsOn": [
+        "flows/testing"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    }
+  ],
+  "risk": "medium"
+}

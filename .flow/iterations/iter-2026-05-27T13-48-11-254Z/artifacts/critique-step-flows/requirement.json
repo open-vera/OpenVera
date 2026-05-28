@@ -1,0 +1,49 @@
+{
+  "critique": {
+    "confidence": 0.3,
+    "issues": [
+      "[critical] Missing required deliverable: The step definition explicitly requires the creation of `output/summary.md` containing the requirement document (functional points, priorities, acceptance criteria, boundary conditions). The PM's output shows no evidence that this file was created. -> Create the `summary.md` file in the `.flow/flows/requirement/output/` directory containing the structured requirement analysis as specified.",
+      "[major] No requirement analysis performed: The PM performed reconnaissance (reading CLAUDE.md, exploring directory structure, understanding flow definition) but did not actually analyze the task/goal.md content to derive functional requirements, priorities, or acceptance criteria. -> Read the content from one of the found goal.md files, analyze it, and structure the requirements into the required output format.",
+      "[minor] Incomplete step execution: The PM only performed file exploration and reading but stopped before completing the core analysis work specified in the step definition. -> Complete the full workflow: 1) Read goal.md content, 2) Analyze requirements, 3) Define P0 functional points, 4) Set acceptance criteria, 5) Identify boundary conditions, 6) Generate summary.md output."
+    ],
+    "missingChecks": [
+      "Create `.flow/flows/requirement/output/summary.md` with complete requirement analysis",
+      "Define at least 3 P0 functional points with clear descriptions",
+      "Specify measurable acceptance criteria for each requirement",
+      "Identify boundary conditions and edge cases",
+      "Establish priority matrix for functional requirements"
+    ],
+    "nextAction": "replan",
+    "rationale": "The PM failed to produce the required deliverable. While reconnaissance was performed, no actual requirement analysis was completed, and the critical output file `summary.md` was not created. The step cannot pass without the primary deliverable."
+  },
+  "raw": {
+    "passed": false,
+    "score": 0.3,
+    "action": "reject",
+    "critiques": [
+      {
+        "severity": "critical",
+        "issue": "Missing required deliverable: The step definition explicitly requires the creation of `output/summary.md` containing the requirement document (functional points, priorities, acceptance criteria, boundary conditions). The PM's output shows no evidence that this file was created.",
+        "suggestion": "Create the `summary.md` file in the `.flow/flows/requirement/output/` directory containing the structured requirement analysis as specified."
+      },
+      {
+        "severity": "major",
+        "issue": "No requirement analysis performed: The PM performed reconnaissance (reading CLAUDE.md, exploring directory structure, understanding flow definition) but did not actually analyze the task/goal.md content to derive functional requirements, priorities, or acceptance criteria.",
+        "suggestion": "Read the content from one of the found goal.md files, analyze it, and structure the requirements into the required output format."
+      },
+      {
+        "severity": "minor",
+        "issue": "Incomplete step execution: The PM only performed file exploration and reading but stopped before completing the core analysis work specified in the step definition.",
+        "suggestion": "Complete the full workflow: 1) Read goal.md content, 2) Analyze requirements, 3) Define P0 functional points, 4) Set acceptance criteria, 5) Identify boundary conditions, 6) Generate summary.md output."
+      }
+    ],
+    "verdict": "The PM failed to produce the required deliverable. While reconnaissance was performed, no actual requirement analysis was completed, and the critical output file `summary.md` was not created. The step cannot pass without the primary deliverable.",
+    "requiredFixes": [
+      "Create `.flow/flows/requirement/output/summary.md` with complete requirement analysis",
+      "Define at least 3 P0 functional points with clear descriptions",
+      "Specify measurable acceptance criteria for each requirement",
+      "Identify boundary conditions and edge cases",
+      "Establish priority matrix for functional requirements"
+    ]
+  }
+}

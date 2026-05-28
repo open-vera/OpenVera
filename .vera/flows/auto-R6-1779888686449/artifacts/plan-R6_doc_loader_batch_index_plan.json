@@ -1,0 +1,90 @@
+{
+  "planId": "R6_doc_loader_batch_index_plan",
+  "goal": "实现文档加载器，支持Markdown、JSON、TypeScript和文本文件的批量索引，集成到Phase 10 RAG知识库能力中，基于工作目录 /Users/yang.zhou/workspace/open-vera。",
+  "assumptions": [
+    "现有代码使用TypeScript，项目结构清晰，模块化组织",
+    "有可用的测试框架如Jest，并已配置",
+    "依赖管理工具如npm或yarn已安装，项目可正常构建"
+  ],
+  "steps": [
+    {
+      "id": "step_1",
+      "type": "analyze",
+      "action": "使用list_dir和read_file工具分析 /Users/yang.zhou/workspace/open-vera/src 目录下的现有代码架构，识别模块结构、依赖关系，并设计文档加载器的集成方案，包括文件路径如 src/modules/。",
+      "dependsOn": [],
+      "assignedAgent": "architect",
+      "status": "pending"
+    },
+    {
+      "id": "step_2",
+      "type": "tool",
+      "action": "在 /Users/yang.zhou/workspace/open-vera/src/modules/document-loader 目录下，使用write_file创建核心加载器代码，实现Markdown和JSON文件的解析功能，例如创建 loader.ts 文件。",
+      "dependsOn": [
+        "step_1"
+      ],
+      "assignedAgent": "engineer",
+      "status": "pending"
+    },
+    {
+      "id": "step_3",
+      "type": "tool",
+      "action": "扩展加载器以支持TypeScript和文本文件，使用edit_file修改 /Users/yang.zhou/workspace/open-vera/src/modules/document-loader/loader.ts，添加TypeScript解析和文本文件读取逻辑。",
+      "dependsOn": [
+        "step_2"
+      ],
+      "assignedAgent": "engineer",
+      "status": "pending"
+    },
+    {
+      "id": "step_4",
+      "type": "tool",
+      "action": "实现批量索引功能，使用write_file在 /Users/yang.zhou/workspace/open-vera/src/modules/document-loader/batch-indexer.ts 中创建批量处理函数，支持目录扫描和多文件索引。",
+      "dependsOn": [
+        "step_3"
+      ],
+      "assignedAgent": "engineer",
+      "status": "pending"
+    },
+    {
+      "id": "step_5",
+      "type": "test",
+      "action": "在 /Users/yang.zhou/workspace/open-vera/tests/document-loader 目录下，使用write_file编写单元测试和集成测试，覆盖所有文件类型加载和批量索引功能，例如创建 loader.test.ts 文件。",
+      "dependsOn": [
+        "step_4"
+      ],
+      "assignedAgent": "tester",
+      "status": "pending"
+    },
+    {
+      "id": "step_6",
+      "type": "test",
+      "action": "使用bash运行测试套件，执行命令如 npm test 或 yarn test，检查测试结果和覆盖率报告，确保所有测试通过且覆盖率达到标准。",
+      "dependsOn": [
+        "step_5"
+      ],
+      "assignedAgent": "tester",
+      "status": "pending"
+    },
+    {
+      "id": "step_7",
+      "type": "critique",
+      "action": "审查代码质量、安全性和性能，使用read_file检查 /Users/yang.zhou/workspace/open-vera/src/modules/document-loader 中的实现代码，评估是否符合项目编码规范、无安全漏洞，并提供建议。",
+      "dependsOn": [
+        "step_6"
+      ],
+      "assignedAgent": "reviewer",
+      "status": "pending"
+    },
+    {
+      "id": "step_8",
+      "type": "finalize",
+      "action": "最终验证所有测试通过、代码审查无重大问题，确认文档加载器功能完整并正确集成到RAG知识库中，输出验证报告。",
+      "dependsOn": [
+        "step_7"
+      ],
+      "assignedAgent": "reviewer",
+      "status": "pending"
+    }
+  ],
+  "risk": "medium"
+}

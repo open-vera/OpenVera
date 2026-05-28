@@ -1,0 +1,66 @@
+{
+  "planId": "iter-2026-05-27T13-45-04-104Z",
+  "goal": "参考 task/goal.md",
+  "assumptions": [],
+  "steps": [
+    {
+      "id": "flows/requirement",
+      "type": "delegate",
+      "action": "Execute \"需求分析\" — agents: pm",
+      "dependsOn": [],
+      "assignedAgent": "pm",
+      "status": "pending"
+    },
+    {
+      "id": "flows/analyze",
+      "type": "delegate",
+      "action": "Execute \"架构分析\" — agents: architect",
+      "dependsOn": [
+        "flows/requirement"
+      ],
+      "assignedAgent": "architect",
+      "status": "pending"
+    },
+    {
+      "id": "flows/design",
+      "type": "delegate",
+      "action": "Execute \"接口设计\" — agents: architect",
+      "dependsOn": [
+        "flows/analyze"
+      ],
+      "assignedAgent": "architect",
+      "status": "pending"
+    },
+    {
+      "id": "flows/implement",
+      "type": "delegate",
+      "action": "Execute \"编码实现\" — agents: engineer",
+      "dependsOn": [
+        "flows/design"
+      ],
+      "assignedAgent": "engineer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/test",
+      "type": "delegate",
+      "action": "Execute \"编写测试\" — agents: tester",
+      "dependsOn": [
+        "flows/implement"
+      ],
+      "assignedAgent": "tester",
+      "status": "pending"
+    },
+    {
+      "id": "flows/review",
+      "type": "delegate",
+      "action": "Execute \"代码审查\" — agents: reviewer",
+      "dependsOn": [
+        "flows/test"
+      ],
+      "assignedAgent": "reviewer",
+      "status": "pending"
+    }
+  ],
+  "risk": "medium"
+}

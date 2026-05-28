@@ -1,0 +1,90 @@
+{
+  "planId": "rag-document-loader",
+  "goal": "实现文档加载器，支持 Markdown、JSON、TypeScript 和文本文件的批量索引功能，集成到 RAG 知识库能力中。",
+  "assumptions": [
+    "项目结构为 monorepo，相关代码位于 `packages/core/src/` 下。",
+    "已有一个基础的 `DocumentLoader` 类位于 `packages/core/src/rag/document-loader.ts`，新加载器应与其集成或扩展，而非完全重复。",
+    "TypeScript 和文本文件的加载功能、批量索引逻辑将在后续步骤中实现，本计划聚焦于修正 Markdown 和 JSON 加载器的实现失败。"
+  ],
+  "steps": [
+    {
+      "id": "step_1",
+      "type": "analyze",
+      "action": "分析现有代码架构，使用 list_dir 查看 /Users/yang.zhou/workspace/open-vera 目录结构，并用 read_file 和 grep 查找与文档加载、RAG 知识库相关的文件（如 src/ 或 libs/ 下的模块）。",
+      "dependsOn": [],
+      "assignedAgent": "architect",
+      "status": "done"
+    },
+    {
+      "id": "step_2",
+      "type": "analyze",
+      "action": "基于分析结果，设计文档加载器实现方案，确定要支持的文件类型（Markdown/JSON/TypeScript/文本），并指定新增或修改的文件路径（如 src/loaders/docLoader.ts、src/loaders/markdownLoader.ts），确保批量索引逻辑与现有架构集成。",
+      "dependsOn": [
+        "step_1"
+      ],
+      "assignedAgent": "architect",
+      "status": "done"
+    },
+    {
+      "id": "step_3",
+      "type": "tool",
+      "action": "实现 Markdown 和 JSON 文件加载功能，使用 write_file 或 edit_file 创建或修改 src/loaders/markdownLoader.ts 和 src/loaders/jsonLoader.ts，包括文件解析、内容提取和错误处理。",
+      "dependsOn": [
+        "step_2"
+      ],
+      "assignedAgent": "engineer",
+      "status": "done"
+    },
+    {
+      "id": "step_4",
+      "type": "tool",
+      "action": "实现 TypeScript 和文本文件加载功能，以及批量索引逻辑。创建 `packages/core/src/loaders/typescriptLoader.ts`、`packages/core/src/loaders/textLoader.ts` 和 `packages/core/src/loaders/batchIndexer.ts`。`batchIndexer.ts` 应能接收多个文件路径，使用对应的加载器并发处理，并支持增量索引更新。确保与已有加载器模式一致。",
+      "dependsOn": [
+        "step_3"
+      ],
+      "assignedAgent": "engineer",
+      "status": "pending"
+    },
+    {
+      "id": "step_5",
+      "type": "test",
+      "action": "为所有四个加载器 (`markdownLoader`, `jsonLoader`, `typescriptLoader`, `textLoader`) 以及 `batchIndexer` 编写全面的单元测试。在 `tests/loaders/` 目录下创建对应测试文件（如 `docLoader.test.ts`），覆盖正常文件解析、错误处理（损坏文件、空文件、权限问题）、批量索引功能（并发、成功/失败混合）和边界情况。",
+      "dependsOn": [
+        "step_4"
+      ],
+      "assignedAgent": "tester",
+      "status": "pending"
+    },
+    {
+      "id": "step_6",
+      "type": "test",
+      "action": "运行完整的测试套件并检查代码覆盖率。执行 `npm test` 或类似命令，生成详细的覆盖率报告。确保所有关键逻辑（特别是错误处理路径和批量操作）都被测试覆盖，且测试通过。",
+      "dependsOn": [
+        "step_5"
+      ],
+      "assignedAgent": "tester",
+      "status": "pending"
+    },
+    {
+      "id": "step_7",
+      "type": "critique",
+      "action": "对加载器实现和测试代码进行全面审查。检查代码质量（清晰度、一致性）、安全性（验证所有用户/文件输入，防止路径遍历等）、可维护性（模块化、文档）、以及与现有 `DocumentLoader` 管道的集成方式。提出具体的改进建议。",
+      "dependsOn": [
+        "step_6"
+      ],
+      "assignedAgent": "reviewer",
+      "status": "pending"
+    },
+    {
+      "id": "step_8",
+      "type": "finalize",
+      "action": "进行最终验证：确认所有单元测试通过、代码审查意见已采纳、功能符合目标。确保加载器模块已正确导出，并更新项目文档（如 README.md），说明新加载器的使用方式。提交最终代码。",
+      "dependsOn": [
+        "step_7"
+      ],
+      "assignedAgent": "reviewer",
+      "status": "pending"
+    }
+  ],
+  "risk": "medium"
+}

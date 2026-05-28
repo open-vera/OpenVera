@@ -1,0 +1,60 @@
+{
+  "planId": "R6_doc_loader_plan",
+  "goal": "实现文档加载器，支持 Markdown/JSON/TypeScript/文本文件批量索引，符合项目规范",
+  "assumptions": [
+    "现有项目结构支持 TypeScript strict 模式和 ESM 导入",
+    "测试框架为 Vitest，测试文件放置在 tests/ 子目录",
+    "packages/core 中已有相关代码或基础架构可供参考"
+  ],
+  "steps": [
+    {
+      "id": "step_1",
+      "type": "analyze",
+      "action": "使用 read_file, list_dir, grep 阅读 packages/core 中相关代码，理解现有文档处理架构和规范",
+      "dependsOn": [],
+      "assignedAgent": "default",
+      "status": "pending"
+    },
+    {
+      "id": "step_2",
+      "type": "tool",
+      "action": "使用 write_file 实现文档加载器功能代码，支持 Markdown/JSON/TypeScript/文本文件批量索引，确保使用 .js 后缀导入和类型化错误处理",
+      "dependsOn": [
+        "step_1"
+      ],
+      "assignedAgent": "default",
+      "status": "pending"
+    },
+    {
+      "id": "step_3",
+      "type": "tool",
+      "action": "使用 write_file 编写测试代码，放在 tests/ 子目录，使用 Vitest 覆盖文档加载器功能，确保测试覆盖率 ≥ 90%",
+      "dependsOn": [
+        "step_2"
+      ],
+      "assignedAgent": "default",
+      "status": "pending"
+    },
+    {
+      "id": "step_4",
+      "type": "tool",
+      "action": "使用 bash 运行 pnpm test 执行测试，检查测试结果和覆盖率，如有失败则使用 edit_file 修复代码",
+      "dependsOn": [
+        "step_3"
+      ],
+      "assignedAgent": "default",
+      "status": "pending"
+    },
+    {
+      "id": "step_5",
+      "type": "finalize",
+      "action": "验证所有测试通过、覆盖率达标，并确认代码符合 TypeScript strict、ESM 和项目约束",
+      "dependsOn": [
+        "step_4"
+      ],
+      "assignedAgent": "default",
+      "status": "pending"
+    }
+  ],
+  "risk": "medium"
+}

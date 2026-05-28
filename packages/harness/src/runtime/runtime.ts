@@ -454,6 +454,16 @@ export class HarnessRuntime {
 
       const dispatched = this.dispatchStep(handle, pendingStepId);
       handle = dispatched.handle;
+
+      // Enrich assignment with step README if available
+      const stepReadme = options.stepReadmeByStepId?.[pendingStepId];
+      if (stepReadme) {
+        dispatched.assignment = {
+          ...dispatched.assignment,
+          instruction: `${dispatched.assignment.instruction}\n\n## 步骤详细说明\n\n${stepReadme}`,
+        };
+      }
+
       options.onEvent?.({ type: "step_start", stepId: pendingStepId });
 
       const executed = await this.runAgentAssignment(

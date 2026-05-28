@@ -1,0 +1,57 @@
+{
+  "critique": {
+    "confidence": 0.2,
+    "issues": [
+      "[critical] Step execution is incomplete: No actual migration or file creation operations were performed. -> The step requires execution of a migration. The output only contains analysis (listing and reading files), but no evidence of: 1) Creating task/goal.md; 2) Cleaning/renaming duplicate files in server/src; 3) Moving/copying source files from server/src to src/; 4) Creating docs/dev-notes.md; 5) Creating flows/implement/output/summary.md. The tool_calls must include write_file, move_file, or similar operations to effect the migration.",
+      "[critical] The required target directory 'src/' for migration does not exist and was not created. -> The goal is to migrate server/src/ to src/. The root directory listing shows no 'src/' directory. The step must include operations to create the target directory structure and copy/move files into it, while updating internal import paths accordingly.",
+      "[critical] Duplicate files in server/src were identified but not resolved. -> The output lists duplicate pairs (e.g., auth-controller.ts & authController.ts) but performs no action. The step must select one version (likely the kebab-case version based on the controller reading), delete the other, and ensure all imports reference the standard name. A migration should also update any files that import the non-standard name.",
+      "[major] The analysis reveals inconsistent error handling patterns (returning error objects vs. throwing errors) between duplicate file versions. -> The migration must standardize on one error handling approach (e.g., throwing errors with createAppError). This requires reviewing and potentially modifying the service and controller logic to ensure consistency across the entire codebase after cleanup.",
+      "[minor] The output does not demonstrate the creation of the required documentation files (docs/dev-notes.md, flows/implement/output/summary.md). -> Even if the migration steps were completed, the output must show the content or creation of these files to prove the step's goals were met."
+    ],
+    "missingChecks": [
+      "Implement all file system operations required by the step definition: create task/goal.md, delete duplicate files, move server/src/* to src/, create docs/dev-notes.md, create flows/implement/output/summary.md.",
+      "Ensure the src/ directory exists at the root and contains the migrated, cleaned server source code.",
+      "Update all internal import paths within the migrated code to reflect the new root-level src/ location and standardized file names."
+    ],
+    "nextAction": "replan",
+    "rationale": "The step failed to execute any of the defined migration operations. It only performed a read-only analysis, which is insufficient. The output shows a clear problem (duplicate files) but provides no solution or evidence of change. This cannot be considered a completed step."
+  },
+  "raw": {
+    "passed": false,
+    "score": 0.2,
+    "action": "reject",
+    "critiques": [
+      {
+        "severity": "critical",
+        "issue": "Step execution is incomplete: No actual migration or file creation operations were performed.",
+        "suggestion": "The step requires execution of a migration. The output only contains analysis (listing and reading files), but no evidence of: 1) Creating task/goal.md; 2) Cleaning/renaming duplicate files in server/src; 3) Moving/copying source files from server/src to src/; 4) Creating docs/dev-notes.md; 5) Creating flows/implement/output/summary.md. The tool_calls must include write_file, move_file, or similar operations to effect the migration."
+      },
+      {
+        "severity": "critical",
+        "issue": "The required target directory 'src/' for migration does not exist and was not created.",
+        "suggestion": "The goal is to migrate server/src/ to src/. The root directory listing shows no 'src/' directory. The step must include operations to create the target directory structure and copy/move files into it, while updating internal import paths accordingly."
+      },
+      {
+        "severity": "critical",
+        "issue": "Duplicate files in server/src were identified but not resolved.",
+        "suggestion": "The output lists duplicate pairs (e.g., auth-controller.ts & authController.ts) but performs no action. The step must select one version (likely the kebab-case version based on the controller reading), delete the other, and ensure all imports reference the standard name. A migration should also update any files that import the non-standard name."
+      },
+      {
+        "severity": "major",
+        "issue": "The analysis reveals inconsistent error handling patterns (returning error objects vs. throwing errors) between duplicate file versions.",
+        "suggestion": "The migration must standardize on one error handling approach (e.g., throwing errors with createAppError). This requires reviewing and potentially modifying the service and controller logic to ensure consistency across the entire codebase after cleanup."
+      },
+      {
+        "severity": "minor",
+        "issue": "The output does not demonstrate the creation of the required documentation files (docs/dev-notes.md, flows/implement/output/summary.md).",
+        "suggestion": "Even if the migration steps were completed, the output must show the content or creation of these files to prove the step's goals were met."
+      }
+    ],
+    "verdict": "The step failed to execute any of the defined migration operations. It only performed a read-only analysis, which is insufficient. The output shows a clear problem (duplicate files) but provides no solution or evidence of change. This cannot be considered a completed step.",
+    "requiredFixes": [
+      "Implement all file system operations required by the step definition: create task/goal.md, delete duplicate files, move server/src/* to src/, create docs/dev-notes.md, create flows/implement/output/summary.md.",
+      "Ensure the src/ directory exists at the root and contains the migrated, cleaned server source code.",
+      "Update all internal import paths within the migrated code to reflect the new root-level src/ location and standardized file names."
+    ]
+  }
+}

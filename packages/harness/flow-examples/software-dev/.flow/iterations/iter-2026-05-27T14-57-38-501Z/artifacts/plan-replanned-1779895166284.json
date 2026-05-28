@@ -1,0 +1,151 @@
+{
+  "planId": "taskflow-sdlc-revised-001",
+  "goal": "Complete the software development lifecycle for a task management application, ensuring all mandatory deliverables are produced and the codebase is functional and deployable",
+  "assumptions": [
+    "The `docs/architecture.md` and API specifications are sufficient to guide implementation.",
+    "Development dependencies for the server (e.g., express, vitest) are installed in `server/node_modules`.",
+    "A developer agent is available and capable of writing TypeScript server code and tests."
+  ],
+  "steps": [
+    {
+      "id": "flows/requirement",
+      "type": "delegate",
+      "action": "Execute \"需求分析\" — agents: pm, user",
+      "dependsOn": [],
+      "assignedAgent": "pm",
+      "status": "done"
+    },
+    {
+      "id": "flows/design",
+      "type": "delegate",
+      "action": "Execute \"方案设计\" — agents: developer, designer",
+      "dependsOn": [
+        "flows/requirement"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "flows/implement",
+      "type": "delegate",
+      "action": "Execute \"开发实现\" — agents: developer",
+      "dependsOn": [
+        "flows/design"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "flows/implement_v2",
+      "type": "delegate",
+      "action": "Execute revised \"编码实现\" to address all critique issues. Must: 1) Create `docs/dev-notes.md` and `flows/implement/output/summary.md`. 2) Implement all P0 features (auth, CRUD, filtering, status, UI). 3) Ensure TypeScript compilation. 4) Implement SQLite database layer and complete REST API backend. 5) Structure source code in `src/` per architecture.",
+      "dependsOn": [
+        "flows/design"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "flows/testing",
+      "type": "delegate",
+      "action": "Execute testing verification including unit, integration, and end-to-end tests to ensure functionality and quality",
+      "dependsOn": [
+        "flows/implement_v2"
+      ],
+      "assignedAgent": "tester",
+      "status": "done"
+    },
+    {
+      "id": "flows/testing_v2",
+      "type": "delegate",
+      "action": "Execute comprehensive testing with test creation, execution, and reporting - REDO: Create tests/ directory with Vitest test files for core functionalities (auth, task CRUD, validation, API endpoints). Run 'pnpm test' and verify coverage ≥70%. Generate docs/test-report.md with test cases, pass rate, and coverage. Create flows/testing/output/summary.md with execution summary. Address any P0 defects found.",
+      "dependsOn": [
+        "flows/implement_v2"
+      ],
+      "assignedAgent": "tester",
+      "status": "done"
+    },
+    {
+      "id": "flows/testing/create-test-files",
+      "type": "delegate",
+      "action": "Create tests/ directory with comprehensive Vitest test files covering authentication, task CRUD operations, validation logic, and API endpoints for TaskFlow application",
+      "dependsOn": [
+        "flows/testing"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "flows/implement/create-core-server-code",
+      "type": "delegate",
+      "action": "Implement the core server application code in `server/src/`. This includes creating `app.ts` (Express app setup), `server.ts` (entry point), and the necessary directories and files for `controllers/`, `services/`, `routes/`, `middleware/`, and `models/` based on `docs/architecture.md`.",
+      "dependsOn": [
+        "flows/testing/create-test-files"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/testing/configure-test-env",
+      "type": "delegate",
+      "action": "Create `server/vitest.config.ts` (e.g., `environment: 'node'`) and add test scripts (`\"test\": \"vitest run\"`, `\"test:coverage\": \"vitest run --coverage\"`) to `server/package.json`.",
+      "dependsOn": [
+        "flows/testing/create-test-files"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/testing/create-test-files-revised",
+      "type": "delegate",
+      "action": "Create comprehensive Vitest test files in `server/src/tests/` covering authentication, task CRUD, validation logic, and API endpoints as per `docs/architecture.md`. Files: `auth.test.ts`, `task.test.ts`, `validation.test.ts`, `api.test.ts`.",
+      "dependsOn": [
+        "flows/implement/create-core-server-code",
+        "flows/testing/configure-test-env"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/testing/execute-tests",
+      "type": "delegate",
+      "action": "Execute 'pnpm test' command within the `server/` directory, verify test coverage meets ≥70% requirement, and ensure all test cases pass.",
+      "dependsOn": [
+        "flows/testing/create-test-files-revised"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/testing/generate-reports",
+      "type": "delegate",
+      "action": "Generate `docs/test-report.md` with test cases, pass rate, and coverage metrics, and create `flows/testing/output/summary.md` with testing execution summary.",
+      "dependsOn": [
+        "flows/testing/execute-tests"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/testing/address-defects",
+      "type": "delegate",
+      "action": "Address any P0 defects discovered during testing and re-run affected tests to ensure fixes work.",
+      "dependsOn": [
+        "flows/testing/generate-reports"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/deploy",
+      "type": "delegate",
+      "action": "Execute deployment to production environment, ensuring the application is deployable and operational.",
+      "dependsOn": [
+        "flows/testing/address-defects"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    }
+  ],
+  "risk": "high"
+}

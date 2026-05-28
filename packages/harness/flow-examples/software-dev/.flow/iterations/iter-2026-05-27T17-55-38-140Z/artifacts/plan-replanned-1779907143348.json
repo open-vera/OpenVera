@@ -1,0 +1,300 @@
+{
+  "planId": "todo-app-structure-fix",
+  "goal": "完成todo应用的所有剩余任务（测试验证与发布上线），通过修订失败的结构迁移步骤，确保迁移目标明确、分析深入，从而指导后续可靠的结构迁移和验证。",
+  "assumptions": [
+    "TypeScript项目使用kebab-case命名约定",
+    "服务层应使用createAppError统一错误格式",
+    "控制器应依赖服务层抛出的标准化错误",
+    "项目根目录下应存在task/goal.md文件"
+  ],
+  "steps": [
+    {
+      "id": "flows/requirement",
+      "type": "delegate",
+      "action": "Execute \"需求分析\" — agents: pm, user",
+      "dependsOn": [],
+      "assignedAgent": "pm",
+      "status": "done"
+    },
+    {
+      "id": "flows/design",
+      "type": "delegate",
+      "action": "Execute \"方案设计\" — agents: developer, designer",
+      "dependsOn": [
+        "flows/requirement"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "flows/implement",
+      "type": "delegate",
+      "action": "Execute \"开发实现\" — agents: developer",
+      "dependsOn": [
+        "flows/design"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "flows/implement-fix-create-files",
+      "type": "tool",
+      "action": "使用 write_file 创建 docs/dev-notes.md 和 flows/implement/output/summary.md，并确保按架构文档组织 src/ 目录结构。",
+      "dependsOn": [],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "flows/implement-fix-structure-and-files",
+      "type": "tool",
+      "action": "根据架构文档 `docs/architecture.md` 重组项目目录结构并创建必要文件。具体操作：1) 分析当前 `client/` 和 `server/` 结构与架构文档中 `src/frontend/` 和 `src/backend/` 的映射关系；2) 创建或迁移代码到统一的 `src/` 目录下；3) 使用 `write_file` 工具严格创建 `docs/dev-notes.md`（内容基于 `goal.md` 和 `architecture.md`）和 `flows/implement/output/summary.md`（初始内容）。",
+      "dependsOn": [
+        "flows/implement-fix-create-files"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "flows/implement-fix-structure-analysis",
+      "type": "analyze",
+      "action": "详细分析当前 `client/` 和 `server/` 目录结构，与 `docs/architecture.md` 中定义的 `src/frontend/` 和 `src/backend/` 规范进行对比，输出一份迁移计划报告。",
+      "dependsOn": [
+        "flows/implement-fix-structure-and-files"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "analyze-structure-detailed",
+      "type": "analyze",
+      "action": "解决Critique问题：1.检查或创建task/goal.md明确迁移目标；2.深入探索代码库读取client/package.json和server/src关键文件；3.编制详细对比表；4.输出结构化迁移计划报告",
+      "dependsOn": [
+        "flows/implement-fix-structure-and-files"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "analyze-structure-detailed-revised",
+      "type": "analyze",
+      "action": "修订并完成深入的结构分析：1. 首先检查或创建 task/goal.md，明确定义迁移的具体目标（从当前结构迁移到标准src目录、迁移动机、成功标准）；2. 系统性深入探索代码库：完整列出 client/src 目录结构并读取关键文件（如入口、组件、路由、状态管理），深入读取 server/src 下 controllers/、models/、routes/、services/ 等关键模块的典型实现文件；3. 基于收集的信息进行结构化分析，归纳当前架构特点；4. 编制详细的现有结构与目标结构的对比表；5. 输出最终的、结构化的迁移计划报告，涵盖目标、详细操作步骤、文件映射关系和风险。",
+      "dependsOn": [
+        "analyze-structure-detailed"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "flows/implement-fix-structure-migration",
+      "type": "tool",
+      "action": "根据修订后的迁移计划报告执行文件操作，迁移代码到src目录并创建docs/dev-notes.md和flows/implement/output/summary.md",
+      "dependsOn": [
+        "analyze-structure-detailed-revised"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "implement-fix-structure-migration-revised",
+      "type": "tool",
+      "action": "根据修订后的迁移计划报告执行文件操作：1) 检查或创建 task/goal.md；2) 清理 server/src/ 中的重复文件并标准化命名；3) 将 server/src/ 下的所有源代码文件迁移到 src/ 目录；4) 创建 docs/dev-notes.md，包含本地运行步骤、环境配置和实现细节；5) 创建 flows/implement/output/summary.md 作为本次重组过程的执行摘要。",
+      "dependsOn": [
+        "analyze-structure-detailed-revised"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "implement-fix-structure-migration-revised-v2",
+      "type": "tool",
+      "action": "执行完整的迁移操作：1) 检查或创建 task/goal.md 文件；2) 清理 server/src/ 中的重复文件（如 auth-controller.ts 和 authController.ts）并标准化命名；3) 将 server/src/ 下的所有源代码文件迁移到 src/ 目录；4) 创建 docs/dev-notes.md 文件，包含本地运行步骤、环境配置和实现细节；5) 创建 flows/implement/output/summary.md 作为执行摘要，记录迁移过程和结果",
+      "dependsOn": [
+        "flows/implement-fix-structure-migration"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "implement-fix-structure-cleanup-and-prepare",
+      "type": "tool",
+      "action": "执行文件清理与标准化：1) 检查或创建 task/goal.md；2) 识别并清理 server/src/ 中的重复文件（如 auth-controller.ts 与 authController.ts），选择 kebab-case 版本并删除另一个版本，更新所有相关导入；3) 统一错误处理模式，确保所有服务和控制器使用 createAppError 抛出错误而非返回错误对象；4) 创建目标目录 src/（如不存在）。",
+      "dependsOn": [
+        "implement-fix-structure-migration-revised-v2"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "implement-fix-structure-cleanup-and-prepare-revised",
+      "type": "tool",
+      "action": "彻底解决前序步骤批评，确保迁移前置条件完备：1) 在项目根目录创建 task/goal.md 文件，明确记录应用目标；2) 彻底清理 server/src/ 目录中的重复控制器文件：保留所有 kebab-case 文件（如 auth-controller.ts），删除所有 camelCase 文件（如 authController.ts），并递归更新整个代码库中所有引用已删除文件的导入语句；3) 标准化错误处理：重构所有控制器，确保它们不返回错误对象，而是使用 createAppError 抛出异常，并确保所有服务层函数统一使用 createAppError；4) 明确创建根目录 src/ 文件夹（如果尚不存在），为后续迁移做准备。",
+      "dependsOn": [
+        "implement-fix-structure-cleanup-and-prepare"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "implement-fix-structure-cleanup-comprehensive",
+      "type": "tool",
+      "action": "执行全面的迁移前置清理与准备，彻底解决前序批评：1) 在项目根目录创建 task/goal.md 文件，基于现有文档总结应用目标；2) 彻底清理 server/src/controllers 目录，保留所有 kebab-case 文件（如 auth-controller.ts），删除所有 camelCase 文件（如 authController.ts），并递归更新整个代码库中所有引用已删除文件的导入语句；3) 标准化错误处理，重构所有控制器使其不返回错误对象而是通过 next 传递，重构所有服务层函数使用 createAppError 抛出异常；4) 在项目根目录创建空的 src/ 文件夹。",
+      "dependsOn": [
+        "implement-fix-structure-cleanup-and-prepare-revised"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "implement-fix-structure-cleanup-comprehensive-revised",
+      "type": "tool",
+      "action": "执行彻底的清理与准备，解决所有critique问题：1) 创建 task/goal.md；2) 清理 controllers 目录，删除 camelCase 文件并更新所有导入；3) 重构控制器使用 next(error) 和服务层使用 createAppError；4) 统一中间件命名并更新导入；5) 创建 src/ 目录；6) 检查并统一 models 目录命名；7) 修复 app.ts 中的类型定义冲突。确保所有修改都有记录。",
+      "dependsOn": [
+        "implement-fix-structure-cleanup-comprehensive"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "implement-fix-delete-duplicate-files",
+      "type": "tool",
+      "action": "删除重复的camelCase文件：1) 扫描并删除 controllers 目录下所有camelCase文件（authController.ts、taskController.ts等）；2) 删除 middleware 目录下所有camelCase文件（authMiddleware.ts、errorHandler.ts等）；3) 删除 models 目录下所有camelCase文件（taskModel.ts等）；4) 记录所有已删除的文件清单",
+      "dependsOn": [
+        "implement-fix-structure-cleanup-comprehensive-revised"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "implement-fix-update-imports-kebab-case",
+      "type": "tool",
+      "action": "更新所有导入路径为kebab-case版本：1) 修改所有路由文件（authRoutes.ts、taskRoutes.ts等）的导入语句，将camelCase控制器引用改为kebab-case（如 '../controllers/authController.js' → '../controllers/auth-controller.js'）；2) 更新中间件导入路径为kebab-case版本；3) 更新models相关导入；4) 搜索并更新所有其他可能引用旧文件名的位置",
+      "dependsOn": [
+        "implement-fix-delete-duplicate-files"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "implement-fix-refactor-controllers-error-handling",
+      "type": "tool",
+      "action": "重构控制器错误处理：1) 修改 task-controller.ts 中的 getTaskById 等函数，移除 result.error.code 条件判断；2) 统一使用 try/catch 模式，让服务层抛出标准化错误；3) 简化控制器逻辑为：res.status(200).json({ success: true, data: result.data })；4) 同样重构 auth-controller.ts 中的错误处理；5) 确保所有控制器都通过 next(error) 传递错误",
+      "dependsOn": [
+        "implement-fix-update-imports-kebab-case"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "implement-fix-verify-service-layer-createAppError",
+      "type": "tool",
+      "action": "验证并展示服务层使用createAppError：1) 打开并检查 authService.ts 和 taskService.ts；2) 验证服务层函数已使用 createAppError 创建标准化错误；3) 提供服务层代码片段作为证据；4) 如未使用，重构服务层代码使用 createAppError",
+      "dependsOn": [
+        "implement-fix-refactor-controllers-error-handling"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "implement-fix-create-task-goal-md",
+      "type": "tool",
+      "action": "创建task/goal.md文件在正确位置：1) 检查项目根目录下是否存在task/目录；2) 在项目根目录下创建task/goal.md文件，记录任务目标和验收标准；3) 如果.flow/task/目录下已有goal.md，删除或移动该文件",
+      "dependsOn": [
+        "implement-fix-update-imports-kebab-case"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "implement-fix-cleanup-validation",
+      "type": "tool",
+      "action": "清理验证：1) 运行TypeScript编译检查是否还有重复定义错误；2) 验证controllers、middleware、models目录只保留kebab-case文件；3) 验证所有导入路径已更新；4) 验证task/goal.md已创建在正确位置；5) 生成清理验证报告",
+      "dependsOn": [
+        "implement-fix-verify-service-layer-createAppError",
+        "implement-fix-create-task-goal-md"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "implement-fix-structure-migration-execute",
+      "type": "tool",
+      "action": "执行核心迁移操作：1) 将 server/src/ 目录下的所有源代码文件（包括清理后的文件）移动或复制到项目根目录下的 src/ 目录；2) 递归更新所有 .ts 文件中的内部导入路径，将 './' 或 '../' 开头的路径调整为反映新的 src/ 位置；3) 确保 package.json 或 tsconfig.json 中的路径引用（如 paths, rootDirs）已正确更新；4) 创建备份记录",
+      "dependsOn": [
+        "implement-fix-cleanup-validation"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "implement-fix-structure-migration-finalize",
+      "type": "tool",
+      "action": "完成迁移并记录：1) 创建 docs/dev-notes.md 文件，详细记录本地运行步骤、环境配置和实现细节；2) 创建 flows/implement/output/summary.md 文件，作为执行摘要，详细记录迁移过程、清理的重复文件、移动的文件列表、路径更新情况以及遇到的问题与解决方案；3) 验证迁移后 src/ 目录结构完整",
+      "dependsOn": [
+        "implement-fix-structure-migration-execute"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/implement-fix-compile",
+      "type": "tool",
+      "action": "运行TypeScript编译器验证所有源代码编译通过无错误",
+      "dependsOn": [
+        "implement-fix-structure-migration-finalize"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/implement-fix-security",
+      "type": "tool",
+      "action": "执行安全检查包括依赖漏洞扫描和代码静态分析",
+      "dependsOn": [
+        "flows/implement-fix-compile"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/implement-fix-verify-p0",
+      "type": "delegate",
+      "action": "验证所有P0功能已实现并提供测试证据或报告",
+      "dependsOn": [
+        "flows/implement-fix-security"
+      ],
+      "assignedAgent": "tester",
+      "status": "pending"
+    },
+    {
+      "id": "flows/implement-fix-summary",
+      "type": "tool",
+      "action": "更新summary.md记录重组过程新文件创建结果编译结果安全检查结果和功能验证状态",
+      "dependsOn": [
+        "flows/implement-fix-verify-p0"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/testing",
+      "type": "delegate",
+      "action": "Execute 测试验证",
+      "dependsOn": [
+        "flows/implement-fix-summary"
+      ],
+      "assignedAgent": "tester",
+      "status": "pending"
+    },
+    {
+      "id": "flows/deploy",
+      "type": "delegate",
+      "action": "Execute 发布上线",
+      "dependsOn": [
+        "flows/testing"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    }
+  ],
+  "risk": "medium"
+}

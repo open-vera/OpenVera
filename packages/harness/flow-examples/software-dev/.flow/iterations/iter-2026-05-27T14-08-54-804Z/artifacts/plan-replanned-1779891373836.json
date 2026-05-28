@@ -1,0 +1,60 @@
+{
+  "planId": "replan-2025-06-06-01",
+  "goal": "完成[task/goal.md]中定义的任务，交付一个完整的需求分析产出，并确保后续步骤可以顺利执行。",
+  "assumptions": [
+    "失败的根本原因是需求分析步骤未产出或产出路径错误，导致设计步骤无输入",
+    "后续步骤均依赖于设计步骤的成功输出，因此当前状态也应重置",
+    "所有步骤的产出路径和准出标准均遵循项目上下文中的定义"
+  ],
+  "steps": [
+    {
+      "id": "flows/requirement",
+      "type": "delegate",
+      "action": "Execute \"需求分析\" — agents: pm, user",
+      "dependsOn": [],
+      "assignedAgent": "pm",
+      "status": "done"
+    },
+    {
+      "id": "flows/design",
+      "type": "delegate",
+      "action": "Execute \"方案设计\" — agents: developer, designer",
+      "dependsOn": [
+        "flows/requirement"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "flows/implement",
+      "type": "delegate",
+      "action": "执行开发实现",
+      "dependsOn": [
+        "flows/design"
+      ],
+      "assignedAgent": "developer",
+      "status": "blocked"
+    },
+    {
+      "id": "flows/testing",
+      "type": "delegate",
+      "action": "执行测试验证",
+      "dependsOn": [
+        "flows/implement"
+      ],
+      "assignedAgent": "tester",
+      "status": "blocked"
+    },
+    {
+      "id": "flows/deploy",
+      "type": "delegate",
+      "action": "执行发布上线",
+      "dependsOn": [
+        "flows/testing"
+      ],
+      "assignedAgent": "developer",
+      "status": "blocked"
+    }
+  ],
+  "risk": "medium"
+}

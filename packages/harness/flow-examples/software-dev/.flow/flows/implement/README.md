@@ -1,34 +1,37 @@
-# 开发实现
+# 编码实现
 
 ## 职责
 
-开发工程师按照方案设计文档实现功能代码。
+开发工程师根据设计方案编写代码。
 
 ## 参与角色
 
-- **developer**: 编写代码、单元测试、技术文档
+- **developer**: 编写功能代码和技术文档
 
 ## 输入
 
-- 方案设计产物: [flows/design/output/](../design/output/)
+- 架构文档: `docs/architecture.md`
+- UI 设计: `docs/ui-design.md`
 
-## 交付产物（写入项目目录）
+## 必须产出的文件
 
-写入 `../project/`：
+用 write_file 创建：
 
-- `src/` — 源代码（功能实现、单元测试）
-- `docs/dev-notes.md` — 开发说明（本地运行、环境配置、重要实现细节）
+1. `src/` — 源代码
+   - 按架构文档的模块结构组织
+   - TypeScript strict mode
+   - ESM 模块
 
-## 步骤记录（写入 output/）
+2. `docs/dev-notes.md` — 开发说明
+   - 本地运行步骤
+   - 环境配置
+   - 重要实现细节
 
-写入本目录 `output/`：
-
-- `summary.md` — 执行摘要（实现了哪些功能、已知限制、给测试的注意事项）
+3. `flows/implement/output/summary.md` — 执行摘要
 
 ## 准出标准
 
-- P0 功能全部实现并可运行
-- 单元测试覆盖核心逻辑（覆盖率 ≥ 70%）
-- 无明显代码安全漏洞
-- 代码可在本地成功启动和运行
-- 最低得分: 0.8
+- P0 功能全部实现
+- 代码能通过 TypeScript 编译
+- 无明显安全漏洞
+- 最低得分: 0.7

@@ -1,0 +1,35 @@
+{
+  "critique": {
+    "confidence": 0.5,
+    "issues": [
+      "[critical] 缺少必需输出文件 `flows/design/output/summary.md`，步骤定义要求用 write_file 创建该文件，但未在输出中执行。 -> 立即创建 `flows/design/output/summary.md` 文件，包含执行摘要内容，例如：总结架构设计要点、UI 设计决策、技术选型理由和覆盖的 P0 功能。",
+      "[minor] `docs/architecture.md` 文件已存在，非步骤执行中新建，可能依赖先前步骤输出，但步骤定义要求用 write_file 创建，这可能导致文件管理不一致。 -> 确保在步骤执行中通过 write_file 更新或确认 `docs/architecture.md` 内容，以保持步骤完整性。"
+    ],
+    "missingChecks": [
+      "创建 `flows/design/output/summary.md` 文件，包含执行摘要"
+    ],
+    "nextAction": "replan",
+    "rationale": "步骤执行部分完成，架构、UI 设计和技术选型内容符合准出标准，但缺少关键输出文件 summary.md，导致步骤不完整，无法通过准出检查。"
+  },
+  "raw": {
+    "passed": false,
+    "score": 0.5,
+    "action": "reject",
+    "critiques": [
+      {
+        "severity": "critical",
+        "issue": "缺少必需输出文件 `flows/design/output/summary.md`，步骤定义要求用 write_file 创建该文件，但未在输出中执行。",
+        "suggestion": "立即创建 `flows/design/output/summary.md` 文件，包含执行摘要内容，例如：总结架构设计要点、UI 设计决策、技术选型理由和覆盖的 P0 功能。"
+      },
+      {
+        "severity": "minor",
+        "issue": "`docs/architecture.md` 文件已存在，非步骤执行中新建，可能依赖先前步骤输出，但步骤定义要求用 write_file 创建，这可能导致文件管理不一致。",
+        "suggestion": "确保在步骤执行中通过 write_file 更新或确认 `docs/architecture.md` 内容，以保持步骤完整性。"
+      }
+    ],
+    "verdict": "步骤执行部分完成，架构、UI 设计和技术选型内容符合准出标准，但缺少关键输出文件 summary.md，导致步骤不完整，无法通过准出检查。",
+    "requiredFixes": [
+      "创建 `flows/design/output/summary.md` 文件，包含执行摘要"
+    ]
+  }
+}

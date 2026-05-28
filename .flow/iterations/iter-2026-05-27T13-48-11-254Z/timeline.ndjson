@@ -1,0 +1,7 @@
+{"ts":"2026-05-27T13:48:11.257Z","type":"flow_started","flowId":"iter-2026-05-27T13-48-11-254Z"}
+{"ts":"2026-05-27T13:48:36.075Z","type":"critique_completed","flowId":"iter-2026-05-27T13-48-11-254Z","confidence":0.85,"detail":"plan"}
+{"ts":"2026-05-27T13:48:36.076Z","type":"step_dispatched","flowId":"iter-2026-05-27T13-48-11-254Z","stepId":"flows/requirement","agentId":"pm"}
+{"ts":"2026-05-27T13:49:23.012Z","type":"critique_completed","flowId":"iter-2026-05-27T13-48-11-254Z","confidence":0.3,"detail":"flows/requirement"}
+{"ts":"2026-05-27T13:49:48.342Z","type":"critique_completed","flowId":"iter-2026-05-27T13-48-11-254Z","confidence":0.3,"detail":"replan:flows/requirement preserved=1 modified=[flows/analyze,flows/design,flows/implement,flows/test,flows/review] added=[] removed=[]"}
+{"ts":"2026-05-27T13:49:48.342Z","type":"step_dispatched","flowId":"iter-2026-05-27T13-48-11-254Z","stepId":"flows/analyze","agentId":"architect"}
+{"ts":"2026-05-27T13:50:59.048Z","type":"critique_completed","flowId":"iter-2026-05-27T13-48-11-254Z","confidence":0.2,"detail":"flows/analyze"}

@@ -1,0 +1,6 @@
+{"ts":"2026-05-27T13:31:26.450Z","type":"flow_started","flowId":"auto-R6-1779888686449"}
+{"ts":"2026-05-27T13:31:26.453Z","type":"step_dispatched","flowId":"auto-R6-1779888686449","stepId":"step_1","agentId":"architect"}
+{"ts":"2026-05-27T13:32:37.342Z","type":"critique_completed","flowId":"auto-R6-1779888686449","confidence":0.9,"detail":"step_1"}
+{"ts":"2026-05-27T13:33:02.001Z","type":"critique_completed","flowId":"auto-R6-1779888686449","confidence":0.9,"detail":"retrospective:step_1"}
+{"ts":"2026-05-27T13:33:02.004Z","type":"step_dispatched","flowId":"auto-R6-1779888686449","stepId":"step_2","agentId":"engineer"}
+{"ts":"2026-05-27T13:35:51.728Z","type":"critique_completed","flowId":"auto-R6-1779888686449","confidence":0.2,"detail":"step_2"}

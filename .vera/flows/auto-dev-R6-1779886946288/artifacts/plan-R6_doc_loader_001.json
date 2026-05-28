@@ -1,0 +1,61 @@
+{
+  "planId": "R6_doc_loader_001",
+  "goal": "实现文档加载器，支持 Markdown/JSON/TypeScript/文本文件批量索引",
+  "assumptions": [
+    "packages/core 目录已存在且有基础架构",
+    "项目使用 pnpm 管理依赖",
+    "Vitest 已配置或可在 package.json 中添加",
+    "现有项目遵循 ESM 规范"
+  ],
+  "steps": [
+    {
+      "id": "step_1",
+      "type": "analyze",
+      "action": "分析现有项目结构：1) list_dir 查看 packages/core 目录结构；2) glob 搜索 *.ts 文件了解代码组织；3) grep 搜索 loader|index|document 等关键词了解现有实现；4) read_file 阅读 tsconfig.json、package.json 确认项目规范",
+      "dependsOn": [],
+      "assignedAgent": "default",
+      "status": "pending"
+    },
+    {
+      "id": "step_2",
+      "type": "tool",
+      "action": "实现文档加载器核心模块：1) 在 packages/core/src/ 创建 DocumentLoader 类，支持 .md/.json/.ts/.txt 文件解析；2) 实现 FileParser 接口和各格式解析器；3) 实现批量索引方法 batchIndex()；4) 创建类型化错误类 DocumentLoadError；5) 导出 index.ts 入口文件",
+      "dependsOn": [
+        "step_1"
+      ],
+      "assignedAgent": "default",
+      "status": "pending"
+    },
+    {
+      "id": "step_3",
+      "type": "tool",
+      "action": "编写测试用例：1) 在 packages/core/tests/ 创建 document-loader.test.ts；2) 测试各文件格式解析（Markdown/JSON/TypeScript/文本）；3) 测试批量索引功能；4) 测试错误场景（文件不存在、格式错误、权限问题）；5) 确保边界条件覆盖",
+      "dependsOn": [
+        "step_2"
+      ],
+      "assignedAgent": "default",
+      "status": "pending"
+    },
+    {
+      "id": "step_4",
+      "type": "tool",
+      "action": "运行测试并迭代修复：1) 执行 pnpm test 运行测试套件；2) 分析失败测试原因并修复代码；3) 补充缺失测试用例提升覆盖率；4) 重复执行直到所有测试通过",
+      "dependsOn": [
+        "step_3"
+      ],
+      "assignedAgent": "default",
+      "status": "pending"
+    },
+    {
+      "id": "step_5",
+      "type": "finalize",
+      "action": "最终验证：1) 执行 pnpm test --coverage 确认测试覆盖率 ≥ 90%；2) 检查代码是否符合 TypeScript strict 模式；3) 确认所有导入使用 .js 后缀；4) 验证无循环依赖（packages/core 不依赖 packages/harness）",
+      "dependsOn": [
+        "step_4"
+      ],
+      "assignedAgent": "default",
+      "status": "pending"
+    }
+  ],
+  "risk": "medium"
+}

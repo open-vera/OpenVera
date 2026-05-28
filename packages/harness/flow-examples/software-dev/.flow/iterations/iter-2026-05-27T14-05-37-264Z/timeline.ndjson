@@ -1,0 +1,14 @@
+{"ts":"2026-05-27T14:05:37.266Z","type":"flow_started","flowId":"iter-2026-05-27T14-05-37-264Z"}
+{"ts":"2026-05-27T14:05:37.267Z","type":"step_dispatched","flowId":"iter-2026-05-27T14-05-37-264Z","stepId":"flows/requirement","agentId":"pm"}
+{"ts":"2026-05-27T14:06:43.299Z","type":"critique_completed","flowId":"iter-2026-05-27T14-05-37-264Z","confidence":0,"detail":"flows/requirement"}
+{"ts":"2026-05-27T14:08:06.811Z","type":"critique_completed","flowId":"iter-2026-05-27T14-05-37-264Z","confidence":0,"detail":"replan:flows/requirement preserved=1 modified=[flows/design,flows/implement,flows/testing,flows/deploy] added=[flows/requirement-redo] removed=[]"}
+{"ts":"2026-05-27T14:08:06.812Z","type":"step_dispatched","flowId":"iter-2026-05-27T14-05-37-264Z","stepId":"flows/requirement-redo","agentId":"pm"}
+{"ts":"2026-05-27T14:12:04.301Z","type":"critique_completed","flowId":"iter-2026-05-27T14-05-37-264Z","confidence":0,"detail":"flows/requirement-redo"}
+{"ts":"2026-05-27T14:13:43.212Z","type":"critique_completed","flowId":"iter-2026-05-27T14-05-37-264Z","confidence":0,"detail":"replan:flows/requirement-redo preserved=2 modified=[flows/design,flows/implement,flows/testing,flows/deploy] added=[] removed=[]"}
+{"ts":"2026-05-27T14:13:43.213Z","type":"step_dispatched","flowId":"iter-2026-05-27T14-05-37-264Z","stepId":"flows/design","agentId":"developer"}
+{"ts":"2026-05-27T14:14:49.040Z","type":"critique_completed","flowId":"iter-2026-05-27T14-05-37-264Z","confidence":0,"detail":"flows/design"}
+{"ts":"2026-05-27T14:16:11.865Z","type":"critique_completed","flowId":"iter-2026-05-27T14-05-37-264Z","confidence":0,"detail":"replan:flows/design preserved=3 modified=[flows/implement,flows/testing,flows/deploy] added=[] removed=[]"}
+{"ts":"2026-05-27T14:16:11.866Z","type":"step_dispatched","flowId":"iter-2026-05-27T14-05-37-264Z","stepId":"flows/implement","agentId":"developer"}
+{"ts":"2026-05-27T14:17:43.192Z","type":"critique_completed","flowId":"iter-2026-05-27T14-05-37-264Z","confidence":0,"detail":"flows/implement"}
+{"ts":"2026-05-27T14:18:08.269Z","type":"critique_completed","flowId":"iter-2026-05-27T14-05-37-264Z","confidence":0,"detail":"replan:flows/implement preserved=4 modified=[flows/testing,flows/deploy] added=[] removed=[]"}
+{"ts":"2026-05-27T14:18:08.271Z","type":"flow_completed","flowId":"iter-2026-05-27T14-05-37-264Z"}

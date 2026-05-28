@@ -1,0 +1,35 @@
+{
+  "critique": {
+    "confidence": 1,
+    "issues": [
+      "[major] 所有步骤的type均设置为'delegate'，但步骤上下文显示每个步骤应为执行性活动（如'需求分析'、'方案设计'等）。'delegate'类型通常指将任务分配给其他代理，而此计划中步骤本身已指定了具体代理（assignedAgent）和行动（action），逻辑存在矛盾。 -> 将所有步骤的type从'delegate'更改为更符合语义的类型，例如'execute'或'responsible'，以准确反映步骤的性质。",
+      "[minor] 计划中的'准出'标准仅以'参考 flows/xxx/README.md'的形式给出，未确保这些README.md文件实际存在或包含明确的准出条件。这可能导致执行时标准不明确或缺失。 -> 在计划中明确说明每个步骤的准出标准（例如列出关键检查项），或确保在执行前已验证对应README.md文件的存在和内容。"
+    ],
+    "missingChecks": [
+      "修正所有步骤的type字段，使其正确反映步骤性质（如将'delegate'改为'execute'）。"
+    ],
+    "nextAction": "replan",
+    "rationale": "计划框架合理，流程依赖正确，但步骤类型定义错误影响执行准确性，且准出标准引用不够具体。建议修正步骤类型并明确准出标准细节后再执行。"
+  },
+  "raw": {
+    "passed": false,
+    "score": 65,
+    "action": "reject",
+    "critiques": [
+      {
+        "severity": "major",
+        "issue": "所有步骤的type均设置为'delegate'，但步骤上下文显示每个步骤应为执行性活动（如'需求分析'、'方案设计'等）。'delegate'类型通常指将任务分配给其他代理，而此计划中步骤本身已指定了具体代理（assignedAgent）和行动（action），逻辑存在矛盾。",
+        "suggestion": "将所有步骤的type从'delegate'更改为更符合语义的类型，例如'execute'或'responsible'，以准确反映步骤的性质。"
+      },
+      {
+        "severity": "minor",
+        "issue": "计划中的'准出'标准仅以'参考 flows/xxx/README.md'的形式给出，未确保这些README.md文件实际存在或包含明确的准出条件。这可能导致执行时标准不明确或缺失。",
+        "suggestion": "在计划中明确说明每个步骤的准出标准（例如列出关键检查项），或确保在执行前已验证对应README.md文件的存在和内容。"
+      }
+    ],
+    "verdict": "计划框架合理，流程依赖正确，但步骤类型定义错误影响执行准确性，且准出标准引用不够具体。建议修正步骤类型并明确准出标准细节后再执行。",
+    "requiredFixes": [
+      "修正所有步骤的type字段，使其正确反映步骤性质（如将'delegate'改为'execute'）。"
+    ]
+  }
+}

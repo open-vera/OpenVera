@@ -1,0 +1,8 @@
+{"ts":"2026-05-27T14:30:13.025Z","type":"flow_started","flowId":"iter-2026-05-27T14-30-13-022Z"}
+{"ts":"2026-05-27T14:30:13.025Z","type":"step_dispatched","flowId":"iter-2026-05-27T14-30-13-022Z","stepId":"flows/requirement","agentId":"pm"}
+{"ts":"2026-05-27T14:36:27.961Z","type":"critique_completed","flowId":"iter-2026-05-27T14-30-13-022Z","confidence":1,"detail":"flows/requirement"}
+{"ts":"2026-05-27T14:36:58.949Z","type":"critique_completed","flowId":"iter-2026-05-27T14-30-13-022Z","confidence":1,"detail":"retrospective:flows/requirement"}
+{"ts":"2026-05-27T14:36:58.950Z","type":"step_dispatched","flowId":"iter-2026-05-27T14-30-13-022Z","stepId":"flows/design","agentId":"developer"}
+{"ts":"2026-05-27T14:42:52.724Z","type":"critique_completed","flowId":"iter-2026-05-27T14-30-13-022Z","confidence":0.5,"detail":"flows/design"}
+{"ts":"2026-05-27T14:43:25.252Z","type":"critique_completed","flowId":"iter-2026-05-27T14-30-13-022Z","confidence":0.5,"detail":"replan:flows/design preserved=2 modified=[flows/implement,flows/testing,flows/deploy] added=[flows/design-fix-ui,flows/design-fix-summary] removed=[]"}
+{"ts":"2026-05-27T14:43:25.253Z","type":"step_dispatched","flowId":"iter-2026-05-27T14-30-13-022Z","stepId":"flows/design-fix-ui","agentId":"designer"}

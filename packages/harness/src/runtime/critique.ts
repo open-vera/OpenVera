@@ -24,10 +24,14 @@ function toIssueText(issue: LegacyChallengeIssue): string {
 export function adaptChallengeToCritique(
   result: LegacyChallengeResult
 ): CritiqueResult {
+  // Normalize score: if > 1, assume 0-10 scale and divide by 10
+  const rawScore = Number.isFinite(result.score) ? result.score : 0;
+  const normalizedScore = rawScore > 1 ? rawScore / 10 : rawScore;
+
   return {
-    confidence: Number.isFinite(result.score) ? result.score : 0,
-    issues: result.critiques.map(toIssueText),
-    missingChecks: [...result.requiredFixes],
+    confidence: Math.max(0, Math.min(1, normalizedScore)),
+    issues: Array.isArray(result.critiques) ? result.critiques.map(toIssueText) : [],
+    missingChecks: Array.isArray(result.requiredFixes) ? [...result.requiredFixes] : [],
     nextAction: result.passed ? "complete" : "replan",
     rationale: result.verdict,
   };

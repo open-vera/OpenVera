@@ -414,7 +414,13 @@ export async function runAgent(
       const assistantText = extractText(response.message);
       await hooks?.onTurnEnd?.(turn, response.usage, assistantText);
 
-      messages.push(response.message);
+      // Filter out empty assistant messages that would cause API errors
+      const isEmptyAssistant = response.message.role === "assistant" &&
+        !extractText(response.message).trim() &&
+        extractToolCalls(response.message).length === 0;
+      if (!isEmptyAssistant) {
+        messages.push(response.message);
+      }
       if (microCompactState) microCompactState = { ...microCompactState, lastAssistantTs: Date.now() };
       options.onContextUpdate?.(messages, { compressionState, microCompactState });
 
@@ -616,13 +622,16 @@ export async function streamAgent(
           arguments: tc.arguments,
         });
       }
-      messages.push({
-        role: "assistant",
-        content:
-          assistantContent.length === 1 && assistantContent[0]?.type === "text"
-            ? turnText
-            : assistantContent,
-      });
+      // Filter out empty assistant messages that would cause API errors
+      if (assistantContent.length > 0 || turnText.trim()) {
+        messages.push({
+          role: "assistant",
+          content:
+            assistantContent.length === 1 && assistantContent[0]?.type === "text"
+              ? turnText
+              : assistantContent,
+        });
+      }
       if (microCompactState) microCompactState = { ...microCompactState, lastAssistantTs: Date.now() };
       options.onContextUpdate?.(messages, { compressionState, microCompactState });
 

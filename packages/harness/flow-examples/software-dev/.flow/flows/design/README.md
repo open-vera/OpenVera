@@ -2,35 +2,38 @@
 
 ## 职责
 
-开发工程师和设计师共同制定技术方案和 UI 设计方案。
+开发工程师设计技术方案，设计师设计 UI 交互。
 
 ## 参与角色
 
-- **developer**: 系统架构设计、技术选型、API 设计
-- **designer**: 交互设计、视觉规范、组件设计
+- **developer**: 系统架构、API 设计、数据模型
+- **designer**: 交互设计、页面结构、组件规范
 
 ## 输入
 
-- 需求分析产物: [flows/requirement/output/](../requirement/output/)
+- 需求文档: `docs/prd.md`
+- 用户故事: `docs/user-stories.md`
 
-## 交付产物（写入项目目录）
+## 必须产出的文件
 
-写入 `../project/docs/`：
+用 write_file 创建：
 
-- `architecture.md` — 系统架构设计文档（模块划分、数据流、技术栈）
-- `api-design.md` — API 接口设计文档
-- `ui-design.md` — UI 交互设计说明、组件规范
+1. `docs/architecture.md` — 技术架构
+   - 模块划分
+   - 技术栈选型
+   - 数据流设计
+   - API 接口列表
 
-## 步骤记录（写入 output/）
+2. `docs/ui-design.md` — UI 设计
+   - 页面结构
+   - 交互流程
+   - 组件规范
 
-写入本目录 `output/`：
-
-- `summary.md` — 执行摘要（方案要点、关键决策、给开发的注意事项）
+3. `flows/design/output/summary.md` — 执行摘要
 
 ## 准出标准
 
-- 架构覆盖所有 P0 功能模块
-- API 定义完整（请求/响应格式、状态码、鉴权方式）
-- UI 设计覆盖核心页面和交互流程
-- 技术选型有明确的理由说明
-- 最低得分: 0.75
+- 架构覆盖所有 P0 功能
+- API 定义完整
+- 技术选型有理由
+- 最低得分: 0.7

@@ -1,0 +1,56 @@
+{
+  "planId": "iter-2026-05-27T13-57-22-877Z",
+  "goal": "参考 [task/goal.md](task/goal.md)",
+  "assumptions": [],
+  "steps": [
+    {
+      "id": "flows/requirement",
+      "type": "delegate",
+      "action": "Execute \"需求分析\" — agents: pm, user",
+      "dependsOn": [],
+      "assignedAgent": "pm",
+      "status": "pending"
+    },
+    {
+      "id": "flows/design",
+      "type": "delegate",
+      "action": "Execute \"方案设计\" — agents: developer, designer",
+      "dependsOn": [
+        "flows/requirement"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/implement",
+      "type": "delegate",
+      "action": "Execute \"开发实现\" — agents: developer",
+      "dependsOn": [
+        "flows/design"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/testing",
+      "type": "delegate",
+      "action": "Execute \"测试验证\" — agents: tester, developer",
+      "dependsOn": [
+        "flows/implement"
+      ],
+      "assignedAgent": "tester",
+      "status": "pending"
+    },
+    {
+      "id": "flows/deploy",
+      "type": "delegate",
+      "action": "Execute \"发布上线\" — agents: developer, ops",
+      "dependsOn": [
+        "flows/testing"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    }
+  ],
+  "risk": "medium"
+}

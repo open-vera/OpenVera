@@ -1,0 +1,70 @@
+{
+  "planId": "harness-runtime-replan",
+  "goal": "实现 task/goal.md 中定义的需求，包括需求分析、设计、开发、测试和部署全流程",
+  "assumptions": [
+    "需求分析、方案设计文档已经完成并验证",
+    "开发环境（Node.js/npm 或其他）已就绪",
+    "项目目录 ../project/ 存在且可写"
+  ],
+  "steps": [
+    {
+      "id": "flows/requirement",
+      "type": "delegate",
+      "action": "Execute \"需求分析\" — agents: pm, user",
+      "dependsOn": [],
+      "assignedAgent": "pm",
+      "status": "done"
+    },
+    {
+      "id": "flows/requirement-redo",
+      "type": "delegate",
+      "action": "重新执行需求分析：根据 goal.md 内容，进行需求分析、优先级排序和用户故事拆解，生成 prd.md（含功能列表、P0-P3优先级、验收标准）、user-stories.md（标准格式用户故事）和 summary.md（执行摘要）",
+      "dependsOn": [
+        "flows/requirement"
+      ],
+      "assignedAgent": "pm",
+      "status": "done"
+    },
+    {
+      "id": "flows/design",
+      "type": "delegate",
+      "action": "Execute '方案设计' — agents: developer, designer",
+      "dependsOn": [
+        "flows/requirement-redo"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "flows/implement",
+      "type": "delegate",
+      "action": "Execute '开发实现' — agents: developer",
+      "dependsOn": [
+        "flows/design"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "flows/testing",
+      "type": "delegate",
+      "action": "Execute '测试验证' — agents: tester, developer",
+      "dependsOn": [
+        "flows/implement"
+      ],
+      "assignedAgent": "tester",
+      "status": "blocked"
+    },
+    {
+      "id": "flows/deploy",
+      "type": "delegate",
+      "action": "Execute '发布上线' — agents: developer, ops",
+      "dependsOn": [
+        "flows/testing"
+      ],
+      "assignedAgent": "developer",
+      "status": "blocked"
+    }
+  ],
+  "risk": "high"
+}

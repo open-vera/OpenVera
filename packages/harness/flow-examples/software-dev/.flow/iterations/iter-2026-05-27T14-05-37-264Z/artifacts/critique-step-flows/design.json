@@ -1,0 +1,49 @@
+{
+  "critique": {
+    "confidence": 0,
+    "issues": [
+      "[critical] 方案设计步骤的三个核心交付产物（architecture.md, api-design.md, ui-design.md）均不存在于项目目录 `../project/docs/` 中。该目录下仅存在需求分析阶段的产物（prd.md, user-stories.md），表明本步骤未执行或未产出任何设计文档。 -> 必须根据步骤定义，由 developer 和 designer 角色协作，创建并填充 `../project/docs/architecture.md`、`../project/docs/api-design.md` 和 `../project/docs/ui-design.md` 这三个文件。",
+      "[critical] 由于核心交付产物完全缺失，所有准出标准均无法评估。无法验证架构是否覆盖所有P0功能模块、API定义是否完整、UI设计是否覆盖核心页面、技术选型是否有理由说明。 -> 在补全所有设计文档后，重新运行准出标准评估。确保文档内容详实、覆盖所有要求（如P0功能模块、API细节、响应式设计等）。",
+      "[major] 步骤记录 `output/summary.md` 也不存在。虽然这不是准出的硬性要求，但根据步骤定义，应有执行摘要记录方案要点、关键决策和给开发的注意事项，以指导后续步骤。 -> 在完成设计文档后，在 `flows/design/output/` 目录下创建 `summary.md`，总结设计阶段的决策、要点和需要注意的事项。"
+    ],
+    "missingChecks": [
+      "在 `../project/docs/` 目录下创建并完成 `architecture.md`，包含系统架构、模块划分、数据流、技术栈说明，并确保覆盖所有P0功能模块（用户认证、任务CRUD、列表筛选、状态流转、响应式界面）。",
+      "在 `../project/docs/` 目录下创建并完成 `api-design.md`，为所有必需的API端点（至少覆盖P0功能所需的接口）定义完整的请求/响应格式、HTTP状态码和JWT鉴权方式。",
+      "在 `../project/docs/` 目录下创建并完成 `ui-design.md`，涵盖核心页面（登录、注册、任务列表、任务详情、仪表盘）的UI交互设计说明和关键组件规范，并考虑响应式布局。",
+      "在以上三个文档中，为技术选型（如前端框架、后端框架、数据库、状态管理等）提供明确的理由说明。",
+      "在 `flows/design/output/` 目录下创建 `summary.md` 作为步骤执行摘要。"
+    ],
+    "nextAction": "replan",
+    "rationale": "方案设计步骤完全没有执行，没有产出任何必需的交付产物（设计文档），导致无法满足任何一条准出标准。必须在继续开发流程之前补全所有缺失的设计文档。"
+  },
+  "raw": {
+    "passed": false,
+    "score": 0,
+    "action": "reject",
+    "critiques": [
+      {
+        "severity": "critical",
+        "issue": "方案设计步骤的三个核心交付产物（architecture.md, api-design.md, ui-design.md）均不存在于项目目录 `../project/docs/` 中。该目录下仅存在需求分析阶段的产物（prd.md, user-stories.md），表明本步骤未执行或未产出任何设计文档。",
+        "suggestion": "必须根据步骤定义，由 developer 和 designer 角色协作，创建并填充 `../project/docs/architecture.md`、`../project/docs/api-design.md` 和 `../project/docs/ui-design.md` 这三个文件。"
+      },
+      {
+        "severity": "critical",
+        "issue": "由于核心交付产物完全缺失，所有准出标准均无法评估。无法验证架构是否覆盖所有P0功能模块、API定义是否完整、UI设计是否覆盖核心页面、技术选型是否有理由说明。",
+        "suggestion": "在补全所有设计文档后，重新运行准出标准评估。确保文档内容详实、覆盖所有要求（如P0功能模块、API细节、响应式设计等）。"
+      },
+      {
+        "severity": "major",
+        "issue": "步骤记录 `output/summary.md` 也不存在。虽然这不是准出的硬性要求，但根据步骤定义，应有执行摘要记录方案要点、关键决策和给开发的注意事项，以指导后续步骤。",
+        "suggestion": "在完成设计文档后，在 `flows/design/output/` 目录下创建 `summary.md`，总结设计阶段的决策、要点和需要注意的事项。"
+      }
+    ],
+    "verdict": "方案设计步骤完全没有执行，没有产出任何必需的交付产物（设计文档），导致无法满足任何一条准出标准。必须在继续开发流程之前补全所有缺失的设计文档。",
+    "requiredFixes": [
+      "在 `../project/docs/` 目录下创建并完成 `architecture.md`，包含系统架构、模块划分、数据流、技术栈说明，并确保覆盖所有P0功能模块（用户认证、任务CRUD、列表筛选、状态流转、响应式界面）。",
+      "在 `../project/docs/` 目录下创建并完成 `api-design.md`，为所有必需的API端点（至少覆盖P0功能所需的接口）定义完整的请求/响应格式、HTTP状态码和JWT鉴权方式。",
+      "在 `../project/docs/` 目录下创建并完成 `ui-design.md`，涵盖核心页面（登录、注册、任务列表、任务详情、仪表盘）的UI交互设计说明和关键组件规范，并考虑响应式布局。",
+      "在以上三个文档中，为技术选型（如前端框架、后端框架、数据库、状态管理等）提供明确的理由说明。",
+      "在 `flows/design/output/` 目录下创建 `summary.md` 作为步骤执行摘要。"
+    ]
+  }
+}

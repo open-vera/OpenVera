@@ -1,0 +1,75 @@
+{
+  "flowId": "iter-2026-05-27T13-48-11-254Z",
+  "stepId": "flows/requirement",
+  "output": "",
+  "toolCalls": [
+    {
+      "name": "read_file",
+      "arguments": {
+        "path": "task/goal.md"
+      },
+      "result": "File not found: task/goal.md"
+    },
+    {
+      "name": "list_dir",
+      "arguments": {
+        "path": "task"
+      },
+      "result": "Directory not found: task"
+    },
+    {
+      "name": "list_dir",
+      "arguments": {},
+      "result": ".\n──────────────────────────────\n📄 .DS_Store    8.0KB\n📁 .claude/      (4 items)\n📁 .flow/      (4 items)\n📁 .gemini/      (1 item)\n📁 .git/      (17 items)\n📄 .gitignore    642B\n📁 .hooks/      (1 item)\n📄 .npmrc    37B\n📄 .prettierignore    516B\n📄 .prettierrc.json    69B\n📁 .qwen/      (2 items)\n📁 .vera/      (4 items)\n📄 CHANGELOG.md    4.1KB\n📄 CLAUDE.md    8.4KB\n📄 LICENSE    1.1KB\n📄 P0-IMPROVEMENT-PLAN.md    5.5KB\n📄 P1-IMPLEMENTATION-PLAN.md    27.2KB\n📄 README.md    18.2KB\n📄 README.zh.md    16.6KB\n📁 apps/      (5 items)\n📁 docs/      (19 items)\n📄 eslint.config.js    1.6KB\n📁 node_modules/      (18 items)\n📄 package.json    1.7KB\n📁 packages/      (4 items)\n📄 pnpm-lock.yaml    187.7KB\n📄 pnpm-workspace.yaml    145B\n📁 references/      (5 items)\n📁 scripts/      (2 items)\n📄 tsconfig.base.json    269B"
+    },
+    {
+      "name": "glob",
+      "arguments": {
+        "pattern": "**/goal.md"
+      },
+      "result": "8 file(s) matching **/goal.md:\n.claude/worktrees/infinite-context/packages/harness/flow-examples/annotation-qa/.flow/task/goal.md\n.claude/worktrees/infinite-context/packages/harness/flow-examples/financial-research/.flow/task/goal.md\n.claude/worktrees/infinite-context/packages/harness/flow-examples/software-dev/.flow/task/goal.md\n.claude/worktrees/infinite-context/packages/harness/flow-examples/travel-planning/.flow/task/goal.md\npackages/harness/flow-examples/annotation-qa/.flow/task/goal.md\npackages/harness/flow-examples/financial-research/.flow/task/goal.md\npackages/harness/flow-examples/software-dev/.flow/task/goal.md\npackages/harness/flow-examples/travel-planning/.flow/task/goal.md"
+    },
+    {
+      "name": "read_file",
+      "arguments": {
+        "path": "CLAUDE.md"
+      },
+      "result": "CLAUDE.md (179 lines)\n   1\t# Vera — 项目约束\n   2\t\n   3\t## 敏感文件保护\n   4\t\n   5\t以下文件/目录包含本地密钥或临时数据，**任何情况下都不得提交**：\n   6\t\n   7\t| 路径 | 原因 |\n   8\t|---|---|\n   9\t| `.vera/settings.json` | LLM API Key，已 gitignore |\n  10\t| `.qwen/` | Qwen 本地配置，已 gitignore |\n  11\t| `.claude/settings.local.json` | Claude Code 本地设置，已 gitignore |\n  12\t| `.claude/worktrees/` | 临时 worktree，已 gitignore |\n  13\t| `.gemini/` | Gemini 本地配置，已 gitignore |\n  14\t| `*.orig` | 合并/备份临时文件 |\n  15\t\n  16\t**规则：**\n  17\t- 提交前检查 `git status`，确认上述文件不在 staged 中\n  18\t- 不要 `git add .` 或 `git add -A` 无脑全加，按文件/目录选择性添加\n  19\t- 如果 `git status` 显示上述文件有修改，用 `git restore` 丢弃或保持 unstaged\n  20\t- 写 `.vera/settings.json` 时永远用 `settings.example.json` 的占位符，不要填入真实 Key\n  21\t- 永远不要在 CLAUDE.md、README、代码注释、commit message 中粘贴 API Key\n  22\t\n  23\t## 项目架构\n  24\t\n  25\tVera = Harness 为内核的 agent runtime。两层结构：\n  26\t\n  27\t- **Core** (`packages/core`)：单次 LLM 调用闭环。adapter → loop → tool → result。不感知 Harness。\n  28\t- **Harness** (`packages/harness`)：多步 workflow。ExecutionPlan 状态机 → Flow State → Critique → Replan。依赖 Core。\n  29\t\n  30\t依赖方向：`harness → core`，Core 不可 import Harness。\n  31\t\n  32\t## 技术栈\n  33\t\n  34\t- TypeScript ESM（`module: \"nodenext\"`）\n  35\t- pnpm workspace monorepo\n  36\t- React + Ink（REPL UI）\n  37\t- 默认 LLM adapter：Anthropic Claude API\n  38\t\n  39\t## 提交风格\n  40\t\n  41\t- 英文 commit message\n  42\t- `feat:` / `fix:` / `docs:` / `chore:` 前缀\n  43\t- 单次提交聚焦一个功能模块\n  44\t\n  45\t## 文档\n  46\t\n  47\t- 入口：`docs/README.md`\n  48\t- 路线图：`docs/roadmap.md`\n  49\t- 变更日志：`docs/changelog.md`（入口索引）+ `docs/changelog/<YYYY-MM-DD-HH>.md`（详细）\n  50\t- 当前 P0 进度：全部完成 ✅（intent routing / tool runtime / rendering / session / infinite context / plan mode / critique / flow control）\n  51\t\n  52\t## 提交前检查清单\n  53\t\n  54\t提交代码前必须按顺序完成以下步骤：\n  55\t\n  56\t### 1. 测试与质量\n  57\t\n  58\t- **覆盖率 ≥ 90%**：运行 `pnpm --filter @vera/core run test:coverage`，确认 lines 覆盖率不低于 90%\n  59\t- **无 error 级别质量问题**：运行 `bash .claude/skills/quality-scan/scan.sh`，oxlint / sonarjs 不允许任何 `error` 级别发现（warning 可接受）\n  60\t- 新增业务逻辑必须有对应 unit test；纯类型定义、配置文件、文档除外\n  61\t\n  62\t### 2. Roadmap 同步\n  63\t\n  64\t- 本次提交完成了 roadmap 中的某项能力 → 在 `docs/roadmap.md` 对应条目标记 ✅\n  65\t- 发现新的遗留问题或技术债 → 追加到 roadmap 的\"已知缺陷与技术债\"或\"P0 后对齐项\"对应分区\n  66\t\n  67\t### 3. Changelog 更新\n  68\t\n  69\t- 在 `docs/changelog.md` 索引表追加一行（`YYYY-MM-DD · HH:xx` + 一句话摘要 + 链接）\n  70\t- 在 `docs/changelog/<YYYY-MM-DD-HH>.md` 写入本批次详细记录，格式：\n  71\t  - **变更**：commit 表格（hash / 模块 / 内容）\n  72\t  - **Roadmap 同步**：标记了哪些条目\n  73\t  - **遗留事项**：本次未完成、已知待修复的问题\n  74\t\n  75\t## Skills 维护规则\n  76\t\n  77\t项目 skills 位于 `.claude/skills/`，索引文档为 `.claude/skills/README.md`。\n  78\t\n  79\t**每次新增或修改 skill 后，必须同步更新 `.claude/skills/README.md`**，包括：\n  80\t- 新增：在对应分类下追加条目（名称、描述、数据源、输出路径、用法示例）\n  81\t- 修改：更新受影响的描述或参数说明\n  82\t- 删除：移除对应条目并标注废弃原因（若有替代品）\n  83\t\n  84\t当前 skills：`agent-changes-report` · `claude-session-review` · `cursor-session-review` · `quality-scan`\n  85\t\n  86\t## 开发规范与代码治理\n  87\t\n  88\t### 模块划分原则\n  89\t\n  90\t- **Core**（`packages/core`）：无状态、单次 LLM 调用闭环。不感知 Harness、Session、Flow。\n  91\t- **Harness**（`packages/harness`）：有状态编排。Flow 状态机、Checkpoint、Critique、Self-Loop。\n  92\t- **依赖方向**：`harness → core`，Core 永不 import Harness。违反即架构违规。\n  93\t\n  94\t### 新模块创建规范\n  95\t\n  96\t1. **先定义接口**（`types.ts`），再写实现。接口文件放在模块根目录。\n  97\t2. **barrel export**：每个模块目录必须有 `index.ts`，统一导出公共 API。\n  98\t3. **单一职责**：一个文件只做一件事。超过 300 行考虑拆分。\n  99\t4. **命名规范**：\n 100\t   - 文件名：`kebab-case.ts`（如 `self-loop.ts`、`vector-store.ts`）\n 101\t   - 类型/接口：`PascalCase`（如 `SelfLoopRunner`、`VectorStore`）\n 102\t   - 函数/变量：`camelCase`（如 `runSelfLoop`、`embeddingAdapter`）\n 103\t   - 常量：`UPPER_SNAKE_CASE`（如 `MAX_CYCLES`、`DEFAULT_TIMEOUT`）\n 104\t\n 105\t### 测试规范（强制）\n 106\t\n 107\t- **无测试 = 未完成，不允许 commit。** 每项任务必须有对应测试用例。\n 108\t- 测试文件与源文件同目录，放在 `tests/` 子目录下。\n 109\t- 测试文件命名：`<module-name>.test.ts`\n 110\t- 每个新功能必须有对应测试，覆盖率 ≥ 90%。\n 111\t- 测试数量不卡死，按实际代码内容、分支覆盖、改动点来决定，确保所有关键路径都有覆盖。\n 112\t- 测试用 Vitest，使用 `describe` / `it` / `expect`。\n 113\t- Mock 仅用于外部 API 调用（LLM adapter、网络请求），不 mock 内部模块。\n 114\t- E2E 测试放在 `packages/harness/tests/e2e-*.ts`。\n 115\t\n 116\t### 代码风格\n 117\t\n 118\t- TypeScript strict mode，禁止 `any`（用 `unknown` + 类型守卫）。\n 119\t- 错误处理：使用类型化错误类（`packages/core/src/errors.ts`），不 `throw new Error(string)`。\n 120\t- 异步：优先 `async/await`，避免 raw Promise 链。\n 121\t- 注释：仅在 WHY 不明显时写注释，不写 WHAT 注释。\n 122\t- 导入：使用 `.js` 后缀（ESM 要求），按 external → internal → relative 排序。\n 123\t\n 124\t### 提交约束\n 125\t\n 126\t- 单次提交聚焦一个模块，不超过 500 行 diff（文档/测试除外）。\n 127\t- commit message 格式：`<type>(<scope>): <description>`\n 128\t  - type: `feat` / `fix` / `refactor` / `test` / `docs` / `chore`\n 129\t  - scope: `core` / `harness` / `tool` / `agent` / `memory` / `rag` / `sandbox` / `channel` 等\n 130\t- 示例：`feat(memory): add auto-extraction from agent execution`\n 131\t\n 132\t### 架构约束（硬性）\n 133\t\n 134\t- Core 包不依赖 harness 包（`tsconfig` 已配置，违反会编译报错）。\n 135\t- 新增外部依赖需在 PR 中说明理由，优先使用已有依赖。\n 136\t- 存储层抽象接口化：所有持久化通过接口（`VectorStore`、`SessionStore`、`MemoryStore`），不硬编码具体实现。\n 137\t- Sandbox 隔离：所有外部代码执行必须通过 Sandbox 抽象层，禁止直接 `child_process.exec` 用户代码。\n 138\t- Channel 抽象：所有消息平台通过 `ChannelAdapter` 接口接入，不直接调用平台 SDK。\n 139\t\n 140\t## Agent 工作流程（强制）\n 141\t\n 142\t### 开始编码前\n 143\t\n 144\t1. **读取 `docs/changelog.md`** — 了解最近变更，避免重复工作或踩同样的坑\n 145\t2. **读取 `P1-IMPLEMENTATION-PLAN.md`** — 找到下一个未完成的 checkbox 任务\n 146\t3. **读取 `P0-IMPROVEMENT-PLAN.md`** — 检查是否有遗留修复项\n 147\t\n 148\t### 编码过程中\n 149\t\n 150\t4. 每完成一项任务，立即勾选对应 checkbox\n 151\t5. 每完成一个 Phase 或重要变更，运行 `pnpm --filter @open-vera/core build && pnpm test` 确认无 regression\n 152\t6. 测试通过后 git commit，message 格式：`<type>(<scope>): <description>`\n 153\t\n 154\t### 编码完成后\n 155\t\n 156\t7. **更新 `docs/changelog.md`** — 追加本批次摘要行\n 157\t8. **创建 `docs/changelog/<YYYY-MM-DD-HH>.md`** — 详细记录 commit 表格、Roadmap 同步、遗留事项\n 158\t9. **更新 roadmap** — 在 `docs/roadmap.md` 标记已完成的条目\n 159\t\n 160\t> **重要**：不读 changelog 就开始编码 = 违反项目规范。\n 161\t\n 162\t### 并行开发策略（效率优先）\n 163\t\n 164\t当一个 Phase 内有多个独立任务时，**必须使用并行子 agent** 开发：\n 165\t\n 166\t1. **规划阶段**：主 agent 读取 P1-IMPLEMENTATION-PLAN.md，识别当前 Phase 内可并行的任务\n 167\t2. **拆分阶段**：按依赖关系分组 — 无依赖的任务可并行，有依赖的串行\n 168\t3. **并行执行**：用 Agent 工具同时启动多个子 agent，每个负责一个独立任务\n 169\t4. **汇总合并**：所有子 agent 完成后，主 agent 合并代码、解决冲突、运行全量测试\n 170\t5. **提交**：测试通过后统一提交，更新 changelog\n 171\t\n 172\t**并行判断标准**：\n 173\t- 修改不同文件 → 可并行\n 174\t- 修改同一文件的不同函数 → 可并行（需手动合并）\n 175\t- 修改同一文件的同一函数 → 必须串行\n 176\t- 有数据依赖（A 的输出是 B 的输入）→ 必须串行\n 177\t\n 178\t**示例**：Phase 1 的 S1-S3（SelfLoopRunner 骨架）和 Phase 2 的 CR1-CR2（CriticAgent 骨架）可以并行开发，因为它们修改不同的文件。\n 179\t"
+    },
+    {
+      "name": "list_dir",
+      "arguments": {
+        "path": ".flow"
+      },
+      "result": ".flow\n──────────────────────────────\n📁 agents/      (5 items)\n📄 flow.md    1.1KB\n📁 flows/      (6 items)\n📁 iterations/      (3 items)"
+    },
+    {
+      "name": "read_file",
+      "arguments": {
+        "path": ".flow/flow.md"
+      },
+      "result": ".flow/flow.md (48 lines)\n   1\t---\n   2\tname: 自动化开发流程\n   3\tworkspace: ..\n   4\tmax_retries: 2\n   5\t---\n   6\t\n   7\t# 目标\n   8\t\n   9\t参考 task/goal.md\n  10\t\n  11\t# 交付目录\n  12\t\n  13\t所有步骤产物（代码、测试等）统一输出到项目根目录，各 agent 在此目录协作。\n  14\t\n  15\t每个步骤的 `flows/*/output/` 仅存放步骤执行记录（做了什么、准出评分、给下一步的注意事项）。\n  16\t\n  17\t# 步骤\n  18\t\n  19\t## 1. 需求分析 → flows/requirement/\n  20\t- 参与: pm\n  21\t- 输入: task/goal.md\n  22\t- 准出: 参考 flows/requirement/README.md\n  23\t\n  24\t## 2. 架构分析 → flows/analyze/\n  25\t- 参与: architect\n  26\t- 输入: flows/requirement/output/\n  27\t- 准出: 参考 flows/analyze/README.md\n  28\t\n  29\t## 3. 接口设计 → flows/design/\n  30\t- 参与: architect\n  31\t- 输入: flows/analyze/output/\n  32\t- 准出: 参考 flows/design/README.md\n  33\t\n  34\t## 4. 编码实现 → flows/implement/\n  35\t- 参与: engineer\n  36\t- 输入: flows/design/output/\n  37\t- 准出: 参考 flows/implement/README.md\n  38\t\n  39\t## 5. 编写测试 → flows/test/\n  40\t- 参与: tester\n  41\t- 输入: flows/implement/output/\n  42\t- 准出: 参考 flows/test/README.md\n  43\t\n  44\t## 6. 代码审查 → flows/review/\n  45\t- 参与: reviewer\n  46\t- 输入: flows/implement/output/, flows/test/output/\n  47\t- 准出: 参考 flows/review/README.md\n  48\t"
+    },
+    {
+      "name": "list_dir",
+      "arguments": {
+        "path": ".flow/flows"
+      },
+      "result": ".flow/flows\n──────────────────────────────\n📁 analyze/      (1 item)\n📁 design/      (1 item)\n📁 implement/      (1 item)\n📁 requirement/      (1 item)\n📁 review/      (1 item)\n📁 test/      (1 item)"
+    },
+    {
+      "name": "list_dir",
+      "arguments": {
+        "path": ".flow/agents"
+      },
+      "result": ".flow/agents\n──────────────────────────────\n📁 architect/      (1 item)\n📁 engineer/      (1 item)\n📁 pm/      (1 item)\n📁 reviewer/      (1 item)\n📁 tester/      (1 item)"
+    },
+    {
+      "name": "list_dir",
+      "arguments": {
+        "path": ".flow/iterations"
+      },
+      "result": ".flow/iterations\n──────────────────────────────\n📁 iter-2026-05-27T13-43-29-850Z/      (2 items)\n📁 iter-2026-05-27T13-45-04-104Z/      (2 items)\n📁 iter-2026-05-27T13-48-11-254Z/      (2 items)"
+    }
+  ]
+}

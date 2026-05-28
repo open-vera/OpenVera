@@ -1,0 +1,71 @@
+{
+  "planId": "r6_doc_loader_plan_001",
+  "goal": "实现一个支持Markdown、JSON、TypeScript和文本文件批量索引的文档加载器，满足TypeScript strict模式、ESM及.js后缀导入要求，测试覆盖率≥90%",
+  "assumptions": [
+    "项目已有基础TypeScript/Node.js环境及pnpm配置",
+    "已有相关工具函数（如read_file）可用于实现加载",
+    "测试框架（如Vitest/Jest）已配置并可用",
+    "项目使用ESM模块系统"
+  ],
+  "steps": [
+    {
+      "id": "step_1",
+      "type": "analyze",
+      "action": "分析项目结构：使用list_dir和glob查看源码目录（src/），用read_file阅读package.json、tsconfig.json，了解现有模块划分、类型定义、依赖及构建配置，确定新模块的最佳位置。",
+      "dependsOn": [],
+      "assignedAgent": "default",
+      "status": "pending"
+    },
+    {
+      "id": "step_2",
+      "type": "tool",
+      "action": "实现文档加载器核心：基于分析结果，用write_file创建src/loaders/目录及基础接口（如IDocumentLoader）。分别用write_file实现MarkdownLoader、JsonLoader、TypeScriptLoader和TextLoader，每个加载器处理对应文件的读取和解析，并统一返回标准化文档数据。",
+      "dependsOn": [
+        "step_1"
+      ],
+      "assignedAgent": "default",
+      "status": "pending"
+    },
+    {
+      "id": "step_3",
+      "type": "tool",
+      "action": "实现批量索引功能：用write_file创建src/indexer.ts，实现BatchIndexer类或函数，它能接收目录路径，使用glob遍历文件，根据扩展名（.md, .json, .ts, .txt）调用对应加载器，并聚合结果。确保导入路径使用.js后缀。",
+      "dependsOn": [
+        "step_2"
+      ],
+      "assignedAgent": "default",
+      "status": "pending"
+    },
+    {
+      "id": "step_4",
+      "type": "tool",
+      "action": "编写全面单元测试：用write_file在tests/loaders/和tests/indexer.ts下创建测试文件。使用测试框架（如Vitest）为每个加载器和批量索引功能编写测试，覆盖正常文件、空文件、格式错误文件、目录遍历等场景，目标覆盖率≥90%。",
+      "dependsOn": [
+        "step_3"
+      ],
+      "assignedAgent": "default",
+      "status": "pending"
+    },
+    {
+      "id": "step_5",
+      "type": "tool",
+      "action": "运行测试与修复：用bash执行`pnpm test`运行测试套件，根据结果用edit_file修复代码或测试中发现的错误，直至所有测试通过。",
+      "dependsOn": [
+        "step_4"
+      ],
+      "assignedAgent": "default",
+      "status": "pending"
+    },
+    {
+      "id": "step_6",
+      "type": "finalize",
+      "action": "最终验证与清理：再次用bash运行`pnpm test`确认100%通过，检查测试覆盖率报告。用read_file快速审查关键文件，确保无TypeScript strict错误，所有导入使用.js后缀，代码结构清晰。",
+      "dependsOn": [
+        "step_5"
+      ],
+      "assignedAgent": "default",
+      "status": "pending"
+    }
+  ],
+  "risk": "medium"
+}

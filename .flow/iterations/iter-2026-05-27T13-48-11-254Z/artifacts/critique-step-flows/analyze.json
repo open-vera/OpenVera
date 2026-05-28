@@ -1,0 +1,49 @@
+{
+  "critique": {
+    "confidence": 0.2,
+    "issues": [
+      "[critical] Required output file `output/summary.md` was never created. The step definition explicitly requires writing `summary.md` to the `output/` directory containing the analysis report. -> After gathering all architectural information, synthesize findings into `output/summary.md` covering: existing architecture overview, relevant module locations, files that need to be added/modified, and implementation suggestions.",
+      "[critical] The agent failed to locate `task/goal.md` and never recovered — it read an unrelated example goal file (`packages/harness/flow-examples/software-dev/.flow/task/goal.md`) instead of determining the actual task objective for this flow. -> When the expected input file is missing, ask for clarification or infer the task from context (e.g., the flow name, parent directory structure). Do not treat a template example file as the actual goal.",
+      "[major] No analysis report was produced at all. The agent collected raw data (CLAUDE.md, roadmap, implementation plan, directory listings) but never synthesized it into structured findings about architecture, relevant modules, or implementation suggestions. -> Follow the step definition's required deliverables: (1) identify relevant code locations and structure, (2) list files to add/modify, (3) provide concrete implementation suggestions. Write these as a coherent report.",
+      "[minor] Excessive exploration without output — the agent read 5 large files and listed 4 directories but produced zero written analysis, suggesting the step was either interrupted prematurely or lacked a clear workflow. -> After reading 2-3 key documents, begin drafting the report incrementally rather than reading everything first. This ensures partial progress even if the step is interrupted."
+    ],
+    "missingChecks": [
+      "Create `output/summary.md` with: existing architecture overview, relevant module locations, files to add/modify, and implementation suggestions",
+      "Correctly identify or infer the task objective (the root `task/goal.md` does not exist — determine the actual task from flow context)"
+    ],
+    "nextAction": "replan",
+    "rationale": "The architect gathered substantial architectural context (CLAUDE.md, roadmap, P1 plan, P0 plan, directory structure) but produced zero output — the mandatory `output/summary.md` was never written, none of the three exit criteria were met, and the task objective itself was never correctly identified. This step must be re-executed from the analysis phase onward."
+  },
+  "raw": {
+    "passed": false,
+    "score": 0.2,
+    "action": "reject",
+    "critiques": [
+      {
+        "severity": "critical",
+        "issue": "Required output file `output/summary.md` was never created. The step definition explicitly requires writing `summary.md` to the `output/` directory containing the analysis report.",
+        "suggestion": "After gathering all architectural information, synthesize findings into `output/summary.md` covering: existing architecture overview, relevant module locations, files that need to be added/modified, and implementation suggestions."
+      },
+      {
+        "severity": "critical",
+        "issue": "The agent failed to locate `task/goal.md` and never recovered — it read an unrelated example goal file (`packages/harness/flow-examples/software-dev/.flow/task/goal.md`) instead of determining the actual task objective for this flow.",
+        "suggestion": "When the expected input file is missing, ask for clarification or infer the task from context (e.g., the flow name, parent directory structure). Do not treat a template example file as the actual goal."
+      },
+      {
+        "severity": "major",
+        "issue": "No analysis report was produced at all. The agent collected raw data (CLAUDE.md, roadmap, implementation plan, directory listings) but never synthesized it into structured findings about architecture, relevant modules, or implementation suggestions.",
+        "suggestion": "Follow the step definition's required deliverables: (1) identify relevant code locations and structure, (2) list files to add/modify, (3) provide concrete implementation suggestions. Write these as a coherent report."
+      },
+      {
+        "severity": "minor",
+        "issue": "Excessive exploration without output — the agent read 5 large files and listed 4 directories but produced zero written analysis, suggesting the step was either interrupted prematurely or lacked a clear workflow.",
+        "suggestion": "After reading 2-3 key documents, begin drafting the report incrementally rather than reading everything first. This ensures partial progress even if the step is interrupted."
+      }
+    ],
+    "verdict": "The architect gathered substantial architectural context (CLAUDE.md, roadmap, P1 plan, P0 plan, directory structure) but produced zero output — the mandatory `output/summary.md` was never written, none of the three exit criteria were met, and the task objective itself was never correctly identified. This step must be re-executed from the analysis phase onward.",
+    "requiredFixes": [
+      "Create `output/summary.md` with: existing architecture overview, relevant module locations, files to add/modify, and implementation suggestions",
+      "Correctly identify or infer the task objective (the root `task/goal.md` does not exist — determine the actual task from flow context)"
+    ]
+  }
+}

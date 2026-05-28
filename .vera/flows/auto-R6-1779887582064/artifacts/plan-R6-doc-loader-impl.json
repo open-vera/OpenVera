@@ -1,0 +1,70 @@
+{
+  "planId": "R6-doc-loader-impl",
+  "goal": "实现支持 Markdown/JSON/TypeScript/文本文件批量索引的文档加载器模块，满足 TypeScript strict、ESM 和 90% 测试覆盖率要求。",
+  "assumptions": [
+    "项目已有 pnpm 作为包管理器和测试框架配置",
+    "代码库使用 ESM 模块系统",
+    "存在或即将创建用于测试的示例文档文件"
+  ],
+  "steps": [
+    {
+      "id": "step_1",
+      "type": "analyze",
+      "action": "使用 list_dir、glob 和 read_file 了解项目结构，特别是 src/ 和 test/ 目录，以及现有的工具函数、类型定义和 tsconfig 配置。",
+      "dependsOn": [],
+      "assignedAgent": "default",
+      "status": "pending"
+    },
+    {
+      "id": "step_2",
+      "type": "analyze",
+      "action": "设计文档加载器的核心接口（例如 `Document`, `LoadResult`, `DocumentLoader`）和实现方案，确定支持的文件类型解析逻辑（Markdown 转纯文本、JSON/TypeScript 解析、文本读取）以及批量索引流程。",
+      "dependsOn": [
+        "step_1"
+      ],
+      "assignedAgent": "default",
+      "status": "pending"
+    },
+    {
+      "id": "step_3",
+      "type": "tool",
+      "action": "使用 write_file 创建文档加载器的主要实现文件（例如 `src/loader.ts`），包括文件类型检测、各类型解析器和批量索引函数。确保代码符合 TypeScript strict 模式并使用 ESM `.js` 后缀导入。",
+      "dependsOn": [
+        "step_2"
+      ],
+      "assignedAgent": "default",
+      "status": "pending"
+    },
+    {
+      "id": "step_4",
+      "type": "tool",
+      "action": "使用 write_file 创建全面的单元测试文件（例如 `test/loader.test.ts`），覆盖所有文件类型解析、错误处理、边界情况和批量索引逻辑，旨在达到 ≥90% 覆盖率。",
+      "dependsOn": [
+        "step_3"
+      ],
+      "assignedAgent": "default",
+      "status": "pending"
+    },
+    {
+      "id": "step_5",
+      "type": "tool",
+      "action": "使用 bash 执行 `pnpm test` 命令，运行测试套件并验证所有测试是否通过，同时检查测试覆盖率报告（如使用 Jest 的 `--coverage`）是否满足 90% 的要求。",
+      "dependsOn": [
+        "step_4"
+      ],
+      "assignedAgent": "default",
+      "status": "pending"
+    },
+    {
+      "id": "step_6",
+      "type": "finalize",
+      "action": "根据测试结果，如有必要使用 edit_file 或 write_file 修复失败的测试或提高覆盖率。最终确认代码功能完整，测试全部通过且覆盖率达到目标，并清理任何临时文件。",
+      "dependsOn": [
+        "step_5"
+      ],
+      "assignedAgent": "default",
+      "status": "pending"
+    }
+  ],
+  "risk": "medium"
+}

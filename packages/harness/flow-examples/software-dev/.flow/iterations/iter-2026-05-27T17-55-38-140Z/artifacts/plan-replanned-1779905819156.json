@@ -1,0 +1,159 @@
+{
+  "planId": "plan-revised-analyze-structure-detailed",
+  "goal": "完成todo应用的所有剩余任务（测试验证与发布上线），确保实现满足准出标准",
+  "assumptions": [
+    "代码库存在目录结构不清晰或需要整理的问题，导致迁移目标不明确。",
+    "‘迁移’的目标是从当前可能存在的不理想目录结构（如代码散落在根目录或不规范的子目录中）迁移到清晰、符合项目规范的src目录结构，并补充必要的项目文档。",
+    "分析步骤的输出必须足以支撑后续的代码迁移计划，且迁移操作必须安全可逆。",
+    "所有剩余步骤依赖于对代码库结构的准确、完整理解，该理解将由修订后的分析步骤提供。"
+  ],
+  "steps": [
+    {
+      "id": "flows/requirement",
+      "type": "delegate",
+      "action": "Execute \"需求分析\" — agents: pm, user",
+      "dependsOn": [],
+      "assignedAgent": "pm",
+      "status": "done"
+    },
+    {
+      "id": "flows/design",
+      "type": "delegate",
+      "action": "Execute \"方案设计\" — agents: developer, designer",
+      "dependsOn": [
+        "flows/requirement"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "flows/implement",
+      "type": "delegate",
+      "action": "Execute \"开发实现\" — agents: developer",
+      "dependsOn": [
+        "flows/design"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "flows/implement-fix-create-files",
+      "type": "tool",
+      "action": "使用 write_file 创建 docs/dev-notes.md 和 flows/implement/output/summary.md，并确保按架构文档组织 src/ 目录结构。",
+      "dependsOn": [],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "flows/implement-fix-structure-and-files",
+      "type": "tool",
+      "action": "根据架构文档 `docs/architecture.md` 重组项目目录结构并创建必要文件。具体操作：1) 分析当前 `client/` 和 `server/` 结构与架构文档中 `src/frontend/` 和 `src/backend/` 的映射关系；2) 创建或迁移代码到统一的 `src/` 目录下；3) 使用 `write_file` 工具严格创建 `docs/dev-notes.md`（内容基于 `goal.md` 和 `architecture.md`）和 `flows/implement/output/summary.md`（初始内容）。",
+      "dependsOn": [
+        "flows/implement-fix-create-files"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "flows/implement-fix-structure-analysis",
+      "type": "analyze",
+      "action": "详细分析当前 `client/` 和 `server/` 目录结构，与 `docs/architecture.md` 中定义的 `src/frontend/` 和 `src/backend/` 规范进行对比，输出一份迁移计划报告。",
+      "dependsOn": [
+        "flows/implement-fix-structure-and-files"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "analyze-structure-detailed",
+      "type": "analyze",
+      "action": "解决Critique问题：1.检查或创建task/goal.md明确迁移目标；2.深入探索代码库读取client/package.json和server/src关键文件；3.编制详细对比表；4.输出结构化迁移计划报告",
+      "dependsOn": [
+        "flows/implement-fix-structure-and-files"
+      ],
+      "assignedAgent": "developer",
+      "status": "done"
+    },
+    {
+      "id": "analyze-structure-detailed-revised",
+      "type": "analyze",
+      "action": "修订并完成深入的结构分析：1. 首先检查或创建 task/goal.md，明确定义迁移的具体目标（从当前结构迁移到标准src目录、迁移动机、成功标准）；2. 系统性深入探索代码库：完整列出 client/src 目录结构并读取关键文件（如入口、组件、路由、状态管理），深入读取 server/src 下 controllers/、models/、routes/、services/ 等关键模块的典型实现文件；3. 基于收集的信息进行结构化分析，归纳当前架构特点；4. 编制详细的现有结构与目标结构的对比表；5. 输出最终的、结构化的迁移计划报告，涵盖目标、详细操作步骤、文件映射关系和风险。",
+      "dependsOn": [
+        "analyze-structure-detailed"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/implement-fix-structure-migration",
+      "type": "tool",
+      "action": "根据迁移计划报告执行文件操作迁移代码到src目录并创建docs/dev-notes.md和flows/implement/output/summary.md",
+      "dependsOn": [
+        "analyze-structure-detailed-revised"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/implement-fix-compile",
+      "type": "tool",
+      "action": "运行TypeScript编译器验证所有源代码编译通过无错误",
+      "dependsOn": [
+        "flows/implement-fix-structure-migration"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/implement-fix-security",
+      "type": "tool",
+      "action": "执行安全检查包括依赖漏洞扫描和代码静态分析",
+      "dependsOn": [
+        "flows/implement-fix-compile"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/implement-fix-verify-p0",
+      "type": "delegate",
+      "action": "验证所有P0功能已实现并提供测试证据或报告",
+      "dependsOn": [
+        "flows/implement-fix-security"
+      ],
+      "assignedAgent": "tester",
+      "status": "pending"
+    },
+    {
+      "id": "flows/implement-fix-summary",
+      "type": "tool",
+      "action": "更新summary.md记录重组过程新文件创建结果编译结果安全检查结果和功能验证状态",
+      "dependsOn": [
+        "flows/implement-fix-verify-p0"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/testing",
+      "type": "delegate",
+      "action": "Execute 测试验证",
+      "dependsOn": [
+        "flows/implement-fix-summary"
+      ],
+      "assignedAgent": "tester",
+      "status": "pending"
+    },
+    {
+      "id": "flows/deploy",
+      "type": "delegate",
+      "action": "Execute 发布上线",
+      "dependsOn": [
+        "flows/testing"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    }
+  ],
+  "risk": "medium"
+}

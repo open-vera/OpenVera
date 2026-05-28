@@ -1,0 +1,43 @@
+{
+  "critique": {
+    "confidence": 0.2,
+    "issues": [
+      "[critical] Goal is not explicitly defined in the plan; only referenced to an external file (task/goal.md), making the plan's objective unclear and incomplete. -> Add a clear, self-contained description of the goal in the 'Goal' section of the plan, summarizing what is to be achieved.",
+      "[major] Risk is identified as medium, but no mitigation, contingency plans, or response strategies are provided, which could lead to unmanaged risks during execution. -> Include a risk mitigation section that lists specific risks, their likelihood, impact, and corresponding mitigation actions.",
+      "[minor] Action descriptions in steps (e.g., 'Execute \"需求分析\"') are vague and lack detail on deliverables, activities, or success criteria, reducing clarity. -> Elaborate action descriptions to specify key activities, expected outputs, and acceptance criteria for each step."
+    ],
+    "missingChecks": [
+      "Define the goal explicitly within the plan.",
+      "Add comprehensive risk mitigation strategies."
+    ],
+    "nextAction": "replan",
+    "rationale": "The plan fails due to critical gaps in goal definition and risk management, rendering it unsuitable for execution without significant revisions."
+  },
+  "raw": {
+    "passed": false,
+    "score": 2,
+    "action": "reject",
+    "critiques": [
+      {
+        "severity": "critical",
+        "issue": "Goal is not explicitly defined in the plan; only referenced to an external file (task/goal.md), making the plan's objective unclear and incomplete.",
+        "suggestion": "Add a clear, self-contained description of the goal in the 'Goal' section of the plan, summarizing what is to be achieved."
+      },
+      {
+        "severity": "major",
+        "issue": "Risk is identified as medium, but no mitigation, contingency plans, or response strategies are provided, which could lead to unmanaged risks during execution.",
+        "suggestion": "Include a risk mitigation section that lists specific risks, their likelihood, impact, and corresponding mitigation actions."
+      },
+      {
+        "severity": "minor",
+        "issue": "Action descriptions in steps (e.g., 'Execute \"需求分析\"') are vague and lack detail on deliverables, activities, or success criteria, reducing clarity.",
+        "suggestion": "Elaborate action descriptions to specify key activities, expected outputs, and acceptance criteria for each step."
+      }
+    ],
+    "verdict": "The plan fails due to critical gaps in goal definition and risk management, rendering it unsuitable for execution without significant revisions.",
+    "requiredFixes": [
+      "Define the goal explicitly within the plan.",
+      "Add comprehensive risk mitigation strategies."
+    ]
+  }
+}

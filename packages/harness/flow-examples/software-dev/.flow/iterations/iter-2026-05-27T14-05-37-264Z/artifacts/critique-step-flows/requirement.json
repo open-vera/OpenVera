@@ -1,0 +1,41 @@
+{
+  "critique": {
+    "confidence": 0,
+    "issues": [
+      "[critical] 步骤职责未执行。输出记录显示代理仅尝试定位并读取输入文件 `task/goal.md`，但在成功读取后，未执行核心的“需求分析”职责，也未生成任何规定的交付产物。 -> 代理必须根据读取到的 `goal.md` 内容，执行产品经理和用户代表的角色职责，进行需求分析、优先级排序和用户故事拆解，并将结果写入规定的交付文件中。",
+      "[critical] 所有关键交付产物缺失。根据步骤定义，必须在 `../project/docs/` 目录下生成 `prd.md` 和 `user-stories.md`，并在本目录的 `output/` 下生成 `summary.md`。输出记录中完全没有这些文件的创建或写入操作。 -> 必须立即创建并填充以下文件：1. `../project/docs/prd.md`，包含功能列表、P0-P3优先级、验收标准。2. `../project/docs/user-stories.md`，包含标准格式的用户故事。3. `flows/requirement/output/summary.md`，包含执行摘要。",
+      "[major] 准出标准无法验证。由于没有产出物，无法评估是否“覆盖 goal.md 中全部核心功能”、“每个功能有 P0-P3 优先级标注”等任何准出标准。 -> 完成步骤执行并生成交付物后，评审才能基于产出内容验证准出标准。当前状态表明步骤执行完全失败。"
+    ],
+    "missingChecks": [
+      "重新执行 `flows/requirement` 步骤。确保：1. 完整分析 `goal.md` 中的所有功能。2. 将分析结果整理成结构化的 `prd.md` 和 `user-stories.md` 并写入 `../project/docs/`。3. 生成执行摘要 `summary.md` 到 `flows/requirement/output/`。"
+    ],
+    "nextAction": "replan",
+    "rationale": "步骤执行彻底失败。代理未能履行“需求分析”的核心职责，没有产出任何要求的交付物。所有准出标准均未满足，得分应为0。此步骤结果必须拒绝，并要求重新执行完整的分析流程。"
+  },
+  "raw": {
+    "passed": false,
+    "score": 0,
+    "action": "reject",
+    "critiques": [
+      {
+        "severity": "critical",
+        "issue": "步骤职责未执行。输出记录显示代理仅尝试定位并读取输入文件 `task/goal.md`，但在成功读取后，未执行核心的“需求分析”职责，也未生成任何规定的交付产物。",
+        "suggestion": "代理必须根据读取到的 `goal.md` 内容，执行产品经理和用户代表的角色职责，进行需求分析、优先级排序和用户故事拆解，并将结果写入规定的交付文件中。"
+      },
+      {
+        "severity": "critical",
+        "issue": "所有关键交付产物缺失。根据步骤定义，必须在 `../project/docs/` 目录下生成 `prd.md` 和 `user-stories.md`，并在本目录的 `output/` 下生成 `summary.md`。输出记录中完全没有这些文件的创建或写入操作。",
+        "suggestion": "必须立即创建并填充以下文件：1. `../project/docs/prd.md`，包含功能列表、P0-P3优先级、验收标准。2. `../project/docs/user-stories.md`，包含标准格式的用户故事。3. `flows/requirement/output/summary.md`，包含执行摘要。"
+      },
+      {
+        "severity": "major",
+        "issue": "准出标准无法验证。由于没有产出物，无法评估是否“覆盖 goal.md 中全部核心功能”、“每个功能有 P0-P3 优先级标注”等任何准出标准。",
+        "suggestion": "完成步骤执行并生成交付物后，评审才能基于产出内容验证准出标准。当前状态表明步骤执行完全失败。"
+      }
+    ],
+    "verdict": "步骤执行彻底失败。代理未能履行“需求分析”的核心职责，没有产出任何要求的交付物。所有准出标准均未满足，得分应为0。此步骤结果必须拒绝，并要求重新执行完整的分析流程。",
+    "requiredFixes": [
+      "重新执行 `flows/requirement` 步骤。确保：1. 完整分析 `goal.md` 中的所有功能。2. 将分析结果整理成结构化的 `prd.md` 和 `user-stories.md` 并写入 `../project/docs/`。3. 生成执行摘要 `summary.md` 到 `flows/requirement/output/`。"
+    ]
+  }
+}

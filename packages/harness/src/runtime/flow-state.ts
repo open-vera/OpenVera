@@ -5,7 +5,7 @@ import type { HarnessState, TaskFlow } from "@open-vera/core/types";
 const VALID_TRANSITIONS: Record<HarnessState, Set<HarnessState>> = {
   intaking:          new Set(["planning", "completed"]),
   planning:          new Set(["dispatching", "failed"]),
-  dispatching:       new Set(["executing", "completed", "waiting_approval"]),
+  dispatching:       new Set(["executing", "completed", "waiting_approval", "failed"]),
   executing:         new Set(["waiting_tool", "waiting_approval", "critiquing", "failed"]),
   waiting_tool:      new Set(["executing", "failed"]),
   waiting_approval:  new Set(["executing", "dispatching", "failed", "paused"]),

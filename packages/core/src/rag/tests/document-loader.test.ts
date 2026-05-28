@@ -169,6 +169,130 @@ describe("DocumentLoader", () => {
       expect(result.filesLoaded).toBe(0);
       expect(result.documents).toEqual([]);
     });
+
+    it("should load JavaScript files as text type", () => {
+      writeFile(tmpDir, "app.js", "console.log('hello');");
+      writeFile(tmpDir, "ui.jsx", "<div/>");
+      const loader = new DocumentLoader({ rootDir: tmpDir });
+      const result = loader.load();
+
+      expect(result.filesLoaded).toBe(2);
+      for (const doc of result.documents) {
+        expect(doc.metadata?.fileType).toBe("text");
+      }
+    });
+
+    it("should load JSONL files as json type", () => {
+      writeFile(tmpDir, "data.jsonl", '{"id":1}\n{"id":2}');
+      const loader = new DocumentLoader({ rootDir: tmpDir });
+      const result = loader.load();
+
+      expect(result.filesLoaded).toBe(1);
+      expect(result.documents[0].metadata?.fileType).toBe("json");
+    });
+
+    it("should load MDX files as markdown type", () => {
+      writeFile(tmpDir, "page.mdx", "# MDX\n\nexport const meta = {}");
+      const loader = new DocumentLoader({ rootDir: tmpDir });
+      const result = loader.load();
+
+      expect(result.filesLoaded).toBe(1);
+      expect(result.documents[0].metadata?.fileType).toBe("markdown");
+    });
+
+    it("should load TSX files as typescript type", () => {
+      writeFile(tmpDir, "Component.tsx", "export const App = () => <div/>");
+      const loader = new DocumentLoader({ rootDir: tmpDir });
+      const result = loader.load();
+
+      expect(result.filesLoaded).toBe(1);
+      expect(result.documents[0].metadata?.fileType).toBe("typescript");
+    });
+
+    it("should skip empty files (size 0)", () => {
+      writeFile(tmpDir, "empty.md", "");
+      writeFile(tmpDir, "nonempty.md", "content");
+      const loader = new DocumentLoader({ rootDir: tmpDir });
+      const result = loader.load();
+
+      expect(result.filesScanned).toBe(2);
+      expect(result.filesLoaded).toBe(1);
+    });
+
+    it("should skip files with unsupported extensions", () => {
+      writeFile(tmpDir, "image.png", "binarydata");
+      writeFile(tmpDir, "readme.md", "# Hello");
+      const loader = new DocumentLoader({ rootDir: tmpDir });
+      const result = loader.load();
+
+      expect(result.filesScanned).toBe(1);
+      expect(result.filesLoaded).toBe(1);
+      expect(result.documents[0].metadata?.source).toBe("readme.md");
+    });
+
+    it("should exclude multiple default patterns", () => {
+      writeFile(tmpDir, "src/main.ts", "code");
+      writeFile(tmpDir, "dist/bundle.js", "built");
+      writeFile(tmpDir, "build/output.js", "built");
+      writeFile(tmpDir, ".next/cache", "next");
+      writeFile(tmpDir, "coverage/report.html", "cov");
+      const loader = new DocumentLoader({ rootDir: tmpDir });
+      const result = loader.load();
+
+      expect(result.filesLoaded).toBe(1);
+      expect(result.documents[0].metadata?.source).toBe("src/main.ts");
+    });
+
+    it("should handle glob patterns in exclude with wildcards", () => {
+      writeFile(tmpDir, "src/main.ts", "code");
+      writeFile(tmpDir, "temp-data/temp.ts", "temp");
+      writeFile(tmpDir, "other/data.ts", "other");
+      const loader = new DocumentLoader({
+        rootDir: tmpDir,
+        exclude: ["temp-*"],
+      });
+      const result = loader.load();
+
+      expect(result.filesLoaded).toBe(2);
+    });
+
+    it("should handle glob patterns with question mark wildcards", () => {
+      writeFile(tmpDir, "src/a.ts", "code");
+      writeFile(tmpDir, "tmp/b.ts", "temp");
+      writeFile(tmpDir, "tmp2/c.ts", "temp2");
+      const loader = new DocumentLoader({
+        rootDir: tmpDir,
+        exclude: ["tm?"],
+      });
+      const result = loader.load();
+
+      expect(result.filesLoaded).toBe(2);
+    });
+
+    it("should exclude dist directory by default", () => {
+      writeFile(tmpDir, "src/index.ts", "code");
+      writeFile(tmpDir, "dist/index.js", "built");
+      const loader = new DocumentLoader({ rootDir: tmpDir });
+      const result = loader.load();
+
+      expect(result.filesLoaded).toBe(1);
+    });
+
+    it("should load multiple file types in mixed directory", () => {
+      writeFile(tmpDir, "README.md", "# Project");
+      writeFile(tmpDir, "config.json", '{"name":"test"}');
+      writeFile(tmpDir, "src/index.ts", "export {}");
+      writeFile(tmpDir, "notes.txt", "notes");
+      const loader = new DocumentLoader({ rootDir: tmpDir });
+      const result = loader.load();
+
+      expect(result.filesLoaded).toBe(4);
+      const types = result.documents.map((d) => d.metadata?.fileType);
+      expect(types).toContain("markdown");
+      expect(types).toContain("json");
+      expect(types).toContain("typescript");
+      expect(types).toContain("text");
+    });
   });
 
   // ── Chunking ───────────────────────────────────────────────────────────────
@@ -242,6 +366,43 @@ describe("DocumentLoader", () => {
 
       expect(result.documents[0].id).toMatch(/^myproject:/);
     });
+
+    it("should break at paragraph boundaries when possible", () => {
+      // Create text that's longer than chunkSize with paragraph breaks
+      const paragraph1 = "a".repeat(400);
+      const paragraph2 = "b".repeat(400);
+      const paragraph3 = "c".repeat(400);
+      const content = `${paragraph1}\n\n${paragraph2}\n\n${paragraph3}`;
+      writeFile(tmpDir, "para.md", content);
+      const loader = new DocumentLoader({
+        rootDir: tmpDir,
+        chunkSize: 600,
+        chunkOverlap: 50,
+      });
+      const result = loader.load();
+
+      // Should produce multiple chunks, and one of them should break at \n\n
+      expect(result.chunksProduced).toBeGreaterThan(1);
+    });
+
+    it("should break at sentence boundaries when no paragraph break", () => {
+      // Create text with sentence breaks but no paragraph breaks
+      const sentence1 = "This is sentence one. ";
+      const sentence2 = "This is sentence two. ";
+      const sentence3 = "This is sentence three. ";
+      const sentence4 = "This is sentence four. ";
+      const sentence5 = "This is sentence five. ";
+      const content = (sentence1 + sentence2 + sentence3 + sentence4 + sentence5).repeat(10);
+      writeFile(tmpDir, "sent.md", content);
+      const loader = new DocumentLoader({
+        rootDir: tmpDir,
+        chunkSize: 150,
+        chunkOverlap: 20,
+      });
+      const result = loader.load();
+
+      expect(result.chunksProduced).toBeGreaterThan(1);
+    });
   });
 
   // ── loadFile ───────────────────────────────────────────────────────────────
@@ -273,6 +434,34 @@ describe("DocumentLoader", () => {
       const docs = loader.loadFile(join(tmpDir, "big.md"));
 
       expect(docs.length).toBeGreaterThan(1);
+    });
+
+    it("should return empty array for empty file", () => {
+      writeFile(tmpDir, "empty.md", "");
+      const loader = new DocumentLoader({ rootDir: tmpDir });
+      const docs = loader.loadFile(join(tmpDir, "empty.md"));
+      expect(docs).toEqual([]);
+    });
+
+    it("should use idPrefix for single file load", () => {
+      writeFile(tmpDir, "test.md", "content");
+      const loader = new DocumentLoader({
+        rootDir: tmpDir,
+        idPrefix: "proj",
+      });
+      const docs = loader.loadFile(join(tmpDir, "test.md"));
+
+      expect(docs).toHaveLength(1);
+      expect(docs[0].id).toMatch(/^proj:/);
+    });
+
+    it("should handle single file without idPrefix", () => {
+      writeFile(tmpDir, "test.md", "content");
+      const loader = new DocumentLoader({ rootDir: tmpDir });
+      const docs = loader.loadFile(join(tmpDir, "test.md"));
+
+      expect(docs).toHaveLength(1);
+      expect(docs[0].id).toMatch(/^test\.md:0$/);
     });
   });
 

@@ -1,0 +1,6 @@
+{"ts":"2026-05-27T13:45:04.108Z","type":"flow_started","flowId":"iter-2026-05-27T13-45-04-104Z"}
+{"ts":"2026-05-27T13:45:39.755Z","type":"critique_completed","flowId":"iter-2026-05-27T13-45-04-104Z","confidence":0.65,"detail":"plan"}
+{"ts":"2026-05-27T13:45:39.756Z","type":"step_dispatched","flowId":"iter-2026-05-27T13-45-04-104Z","stepId":"flows/requirement","agentId":"pm"}
+{"ts":"2026-05-27T13:46:32.481Z","type":"critique_completed","flowId":"iter-2026-05-27T13-45-04-104Z","confidence":0,"detail":"flows/requirement"}
+{"ts":"2026-05-27T13:47:58.786Z","type":"critique_completed","flowId":"iter-2026-05-27T13-45-04-104Z","confidence":0,"detail":"replan:flows/requirement preserved=1 modified=[flows/analyze,flows/design,flows/implement,flows/test,flows/review] added=[create_goal_file] removed=[]"}
+{"ts":"2026-05-27T13:47:58.786Z","type":"step_dispatched","flowId":"iter-2026-05-27T13-45-04-104Z","stepId":"create_goal_file","agentId":"pm"}

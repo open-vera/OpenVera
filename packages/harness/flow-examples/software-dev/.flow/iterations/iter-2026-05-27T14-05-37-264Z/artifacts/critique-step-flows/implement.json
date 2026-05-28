@@ -1,0 +1,53 @@
+{
+  "critique": {
+    "confidence": 0,
+    "issues": [
+      "[critical] No source code was written to the project directory (../project/src/). The development implementation step appears not to have been executed. -> Implement all P0 features as specified in the design documents and write the code to ../project/src/, including frontend and backend code.",
+      "[critical] No unit tests were created or executed. There is no evidence of test coverage for core logic. -> Write unit tests for core functionality (backend API routes, authentication, task CRUD, etc.) and ensure test coverage ≥ 70%.",
+      "[critical] Due to the absence of code, no security analysis could be performed. There is no assurance against common vulnerabilities (e.g., SQL injection, XSS). -> After implementing the code, conduct a security review to ensure proper input validation, authentication, and protection against common web vulnerabilities.",
+      "[critical] The application cannot be started locally as required because no code exists. -> Write the complete application code and verify that it can be started locally with 'npm start' or equivalent, and that it functions correctly.",
+      "[major] The step execution summary (output/summary.md) was not generated, violating the step definition. -> Write a summary of the implementation to .flow/flows/implement/output/summary.md, detailing what was implemented, known limitations, and notes for testing."
+    ],
+    "missingChecks": [
+      "Execute the development implementation step by writing code, unit tests, and documentation as specified in the step definition and design artifacts."
+    ],
+    "nextAction": "replan",
+    "rationale": "The development implementation step has not been executed. No code, tests, or documentation have been produced. Consequently, none of the exit criteria (P0 functionality, test coverage, security, local run) are met. The step fails entirely."
+  },
+  "raw": {
+    "passed": false,
+    "score": 0,
+    "action": "reject",
+    "critiques": [
+      {
+        "severity": "critical",
+        "issue": "No source code was written to the project directory (../project/src/). The development implementation step appears not to have been executed.",
+        "suggestion": "Implement all P0 features as specified in the design documents and write the code to ../project/src/, including frontend and backend code."
+      },
+      {
+        "severity": "critical",
+        "issue": "No unit tests were created or executed. There is no evidence of test coverage for core logic.",
+        "suggestion": "Write unit tests for core functionality (backend API routes, authentication, task CRUD, etc.) and ensure test coverage ≥ 70%."
+      },
+      {
+        "severity": "critical",
+        "issue": "Due to the absence of code, no security analysis could be performed. There is no assurance against common vulnerabilities (e.g., SQL injection, XSS).",
+        "suggestion": "After implementing the code, conduct a security review to ensure proper input validation, authentication, and protection against common web vulnerabilities."
+      },
+      {
+        "severity": "critical",
+        "issue": "The application cannot be started locally as required because no code exists.",
+        "suggestion": "Write the complete application code and verify that it can be started locally with 'npm start' or equivalent, and that it functions correctly."
+      },
+      {
+        "severity": "major",
+        "issue": "The step execution summary (output/summary.md) was not generated, violating the step definition.",
+        "suggestion": "Write a summary of the implementation to .flow/flows/implement/output/summary.md, detailing what was implemented, known limitations, and notes for testing."
+      }
+    ],
+    "verdict": "The development implementation step has not been executed. No code, tests, or documentation have been produced. Consequently, none of the exit criteria (P0 functionality, test coverage, security, local run) are met. The step fails entirely.",
+    "requiredFixes": [
+      "Execute the development implementation step by writing code, unit tests, and documentation as specified in the step definition and design artifacts."
+    ]
+  }
+}

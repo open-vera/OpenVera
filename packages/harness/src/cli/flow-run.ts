@@ -9,6 +9,7 @@ import { markdownToPlan } from "./plan.js";
 import { createSkillResolver, RegistryToolProvider } from "../skill/index.js";
 import { createToolRegistry } from "@open-vera/core/tools";
 import { SessionStore } from "@open-vera/core/session";
+import { loadAgents, createRunnersFromAgents } from "./agent-loader.js";
 
 export interface FlowRunArgs {
   dir?: string;
@@ -82,8 +83,22 @@ export async function runFlowCommand(args: FlowRunArgs): Promise<void> {
     "You are Vera, an AI agent that executes structured workflows."
   );
 
+  // ── Agent roles setup ───────────────────────────────────────────────────
+  // Load agent definitions from .flow/agents/*/main.md
+  const agentDefs = await loadAgents(flowDir);
+  let agents: Map<string, import("../agent/types.js").AgentRunner> | undefined;
+
+  if (agentDefs.length > 0) {
+    dim(`Loading ${agentDefs.length} agent roles from .flow/agents/...`);
+    agents = createRunnersFromAgents(agentDefs, adapter, model);
+    for (const def of agentDefs) {
+      dim(`  ✓ ${def.id}: ${def.name}${def.model ? ` (model: ${def.model})` : ""}`);
+    }
+  }
+
   const runtime = new HarnessRuntime(adapter, model, {
     artifactsRootDir: args.artifactsDir ?? join(flowDir, "iterations"),
+    agents,
   });
 
   const flowInput = await runtime.loadMarkdownFlow(flowDir);
@@ -99,11 +114,19 @@ export async function runFlowCommand(args: FlowRunArgs): Promise<void> {
   info(`Artifacts: ${join(artifactsBase, flowId)}`);
   console.log("");
 
-  // Load step READMEs (.flow/flows/<step>/README.md)
+  // Load step READMEs and extract exit criteria for challenger
   const stepReadmeByStepId: Record<string, string> = {};
+  const stepPromptByStepId: Record<string, string> = {};
   for (const step of plan.steps) {
     const readme = await tryReadFile(join(flowDir, step.id, "README.md"));
-    if (readme) stepReadmeByStepId[step.id] = readme;
+    if (readme) {
+      stepReadmeByStepId[step.id] = readme;
+      // Extract "准出标准" section as challenger prompt
+      const exitMatch = readme.match(/## 准出标准\n([\s\S]*?)(?=\n## |\n$)/);
+      if (exitMatch) {
+        stepPromptByStepId[step.id] = `请根据以下准出标准评估本步骤的执行结果：\n${exitMatch[1]!.trim()}`;
+      }
+    }
   }
 
   // Start flow
@@ -149,6 +172,7 @@ export async function runFlowCommand(args: FlowRunArgs): Promise<void> {
   const loopOptions: RunFlowLoopOptions = {
     maxSteps: args.maxSteps ?? totalSteps * (flowInput.maxRetries + 1),
     stepReadmeByStepId,
+    stepPromptByStepId,
     tools: bundle.tools,
     system: bundle.system,
     executors: bundle.executors,

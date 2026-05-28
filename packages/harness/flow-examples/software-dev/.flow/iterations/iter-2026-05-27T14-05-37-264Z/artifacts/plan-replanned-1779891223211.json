@@ -1,0 +1,70 @@
+{
+  "planId": "plan-requirement-redo-fix",
+  "goal": "实现 task/goal.md 中定义的需求，包括需求分析、设计、开发、测试和部署全流程",
+  "assumptions": [
+    "All necessary tools and agents are available and functional.",
+    "File paths are correctly resolved relative to the working directory.",
+    "The project structure includes ../project/docs/ as the requirement output directory."
+  ],
+  "steps": [
+    {
+      "id": "flows/requirement",
+      "type": "delegate",
+      "action": "Execute \"需求分析\" — agents: pm, user",
+      "dependsOn": [],
+      "assignedAgent": "pm",
+      "status": "done"
+    },
+    {
+      "id": "flows/requirement-redo",
+      "type": "delegate",
+      "action": "重新执行需求分析：根据 goal.md 内容，进行需求分析、优先级排序和用户故事拆解，生成 prd.md（含功能列表、P0-P3优先级、验收标准）、user-stories.md（标准格式用户故事）和 summary.md（执行摘要）",
+      "dependsOn": [
+        "flows/requirement"
+      ],
+      "assignedAgent": "pm",
+      "status": "done"
+    },
+    {
+      "id": "flows/design",
+      "type": "delegate",
+      "action": "Execute '方案设计' — agents: developer, designer",
+      "dependsOn": [
+        "flows/requirement-redo"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/implement",
+      "type": "delegate",
+      "action": "Execute '开发实现' — agents: developer",
+      "dependsOn": [
+        "flows/design"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    },
+    {
+      "id": "flows/testing",
+      "type": "delegate",
+      "action": "Execute '测试验证' — agents: tester, developer",
+      "dependsOn": [
+        "flows/implement"
+      ],
+      "assignedAgent": "tester",
+      "status": "pending"
+    },
+    {
+      "id": "flows/deploy",
+      "type": "delegate",
+      "action": "Execute '发布上线' — agents: developer, ops",
+      "dependsOn": [
+        "flows/testing"
+      ],
+      "assignedAgent": "developer",
+      "status": "pending"
+    }
+  ],
+  "risk": "medium"
+}
