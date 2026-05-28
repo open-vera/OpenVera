@@ -345,9 +345,9 @@
 
 ### 19C: Sandbox 集成测试
 
-- [ ] **SB10** CubeSandbox E2E — 真实沙箱创建/执行/销毁全流程
-- [ ] **SB11** Docker 本地沙箱 E2E
-- [ ] **SB12** 蜂群压力测试 — 10 个并发沙箱执行同一任务
+- [x] **SB10** CubeSandbox E2E — 真实沙箱创建/执行/销毁全流程
+- [x] **SB11** Docker 本地沙箱 E2E
+- [x] **SB12** 蜂群压力测试 — 10 个并发沙箱执行同一任务
 
 ## Phase 19.5: 存储插件（OSS/S3/TOS）
 
@@ -361,8 +361,8 @@
 - [x] **SP7** 自动上传 — agent 产出的大文件（报告/数据集/截图）自动上传到对象存储
 - [x] **SP8** 存储插件测试（8+ tests：CRUD、presign URL、多适配器切换）
 
-- [ ] **V1** 全量测试通过 — `pnpm test` 无 failure
-- [ ] **V2** E2E 完整冒烟 — plan→self-loop→critique→replan→checkpoint→resume→memory→RAG
+- [x] **V1** 全量测试通过 — `pnpm test` 无 failure
+- [x] **V2** E2E 完整冒烟 — plan→self-loop→critique→replan→checkpoint→resume→memory→RAG
 - [ ] **V3** 覆盖率检查 — core 包 ≥ 90%，harness 包 ≥ 85%
 - [ ] **V4** Benchmark 报告 — GAIA L1 pass rate ≥ 70%
 - [ ] **V5** 最终 CHANGELOG + roadmap 同步 + 版本号 bump
