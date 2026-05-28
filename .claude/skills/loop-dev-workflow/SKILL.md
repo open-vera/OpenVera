@@ -219,6 +219,171 @@ scope: core / harness / tool / agent / memory / rag / sandbox / channel
 - 经验：metadata 过滤通过 JS 层 JSON match 实现（SQLite 无 JSON 索引），对大量文档可能有性能问题，但当前规模可接受
 - 测试总数：1489 tests（Core 1221 + Harness 268）
 
+### Phase 10 RAG — R3-R8（2026-05-27，完成）
+
+- R3: Embedding adapters (OpenAI/Voyage/Local + factory), 28 tests
+- R6: DocumentLoader — batch file indexing with chunking, 22 tests
+- R7: knowledge_search tool — RAG vector search via ToolRegistry, 9 tests
+- R8: IncrementalIndexer — mtime-based change detection, 10 tests
+- 踩坑：incremental-indexer.test.ts 使用 `filesScanned` 但接口定义为 `filesChecked`，TS 编译失败 → 统一字段名
+- 踩坑：knowledge-search.test.ts 缺少 `afterEach` import，TS 编译失败 → 补充 import
+- 踩坑：IncrementalIndexer 的 `loadManifest` 参数类型缺少 `version` 可选字段 → 添加 `version?: number`
+- 经验：mtime 检测在快速连续写入时可能因文件系统时间粒度问题无法检测到变更 → 测试中使用 `utimesSync` 显式设置未来时间
+- 经验：R3-R8 实现文件和测试由之前的 agent 创建但未提交，本次主要是修复 TS 错误、更新 checkbox、提交 changelog
+- 测试总数：~1558 tests（Core 1290 + Harness 268）
+
+### Phase 10.2 Eval — EV2+EV8（2026-05-27，完成）
+
+- EV2: GAIA Runner — GAIA 原始格式转 EvalCase，按级别过滤，per-level 超时
+- EV8: 52 tests — EvalHarness（所有 eval 类型、错误处理、report）、EvalReporter（markdown、comparison）、GaiaRunner
+- 踩坑：`eval/index.ts` 的类型导出与 `types.ts` 的 `EvalResult` 冲突 → 不将 eval 子模块 re-export 到 harness 主 index，保持独立子路径
+- 踩坑：`change-tracker.ts` 有两个 `generateSummary` 方法（public async + private），tsc 报 duplicate function → 重命名 private 为 `generateToolSummary`
+- 经验：eval 框架（EV1）和 reporter（EV6）代码已存在但无测试，先补测试再做 EV2 更稳妥
+- 经验：GAIA runner 设计为轻量包装层，核心逻辑（评分、report）全复用 EvalHarness，只做格式转换和配置
+- 测试总数：~1610 tests（Core 1290 + Harness 320）
+
+### Phase 10.2 Eval — EV3（2026-05-27，完成）
+
+- EV3: SWE-bench Runner — GitHub issue 格式转 EvalCase，按 difficulty/repo 过滤，per-difficulty 超时
+- 30 tests：loading/filtering、prompt building、evaluation、metrics
+- 经验：SWE-bench Runner 和 GAIA Runner 结构几乎一致（都是 EvalHarness 的轻量包装），新增 `SweBenchMetrics` 提供 benchmark-specific 指标（resolved rate、patch rate、patch accuracy）
+- 经验：SWE-bench 的评估核心是 patch 匹配，当前用 `contains` eval type 近似——真实场景需要沙箱环境应用 patch 并运行 test_patch
+- 经验：`includeTestPatch` 和 `includeGoldPatch` 选项用于调试，生产评测默认关闭
+- 测试总数：~1640 tests（Core 1408 + Harness 542）
+
+### Phase 10.2 Eval — EV4（2026-05-27，完成）
+
+- EV4: ToolBench Runner — 16464 任务的工具使用评测集，40 tests
+- 实现要点：支持 single-tool / multi-tool / multi-turn 三类任务，optional tool 标记不计入必须匹配
+- 踩坑：mock agent 的 prompt 匹配逻辑需要确保测试 fixture 中的 `expected_answer` 字段不会覆盖 evalType 选择——当 `expected_answer` 存在时 evalType 变为 `contains` 而非 `tool_match`，导致 partial match 测试失败
+- 经验：ToolBenchMetrics 提供 per-category breakdown 和 avg API calls，比 GAIA/SWE-bench 更关注工具使用效率
+- 经验：category→level 映射结合 category 和 difficulty 两个维度，multi-turn 直接映射到 L3
+- 测试总数：~1680 tests（Core 1408 + Harness 582）
+
+### Phase 10.2 Eval — EV7（2026-05-27，完成）
+
+- EV7: Regression Detection — CIGate + CI workflow + 61 tests
+- CIGate: 包装 RegressionDetector，提供 CI 友好的 run/check/formatReport API，返回 exit code
+- ci-runner.ts: CLI 入口，加载 GAIA L1 cases，检查回归，写 report
+- GitHub Actions workflow: eval-regression.yml，PR 合并前自动跑 GAIA L1，pass rate 下降 >5% 阻断
+- 经验：RegressionDetector 和 BenchmarkHarness.checkRegression() 已存在但无测试——"代码存在"不等于"已测试"，always check test coverage
+- 踩坑：CIGate 回归测试中，mock agent 的返回值必须匹配 EvalCase.expected，否则 pass rate 始终为 0，无法触发回归——确保 baseline agent 能真正通过评估
+- 经验：CI runner 的 agent executor 当前为 mock，集成真实 agent runtime 后才能实际在 CI 中运行
+- 测试总数：~1741 tests（Core 1408 + Harness 643）
+
+### Phase 10.3 SP6 WebUI（2026-05-27，完成）
+
+- SP6: TrainingMonitor — 轻量 HTTP 服务器，SSE 实时推送 + REST API + HTML Dashboard
+- 25 tests, 731 lines added, 3 new files
+- 实现要点：使用 Node 内置 `http` 模块，零新依赖；Chart.js 从 CDN 加载
+- 踩坑：`server.listen(0, host, callback)` 后 `this.config.port` 仍为 0，必须从 `server.address()` 读取实际端口 → 修复为 listen callback 内更新 `this.config.port`
+- 经验：SSE 测试需要控制超时——用 `setTimeout` 在客户端接收 init 事件后关闭连接，避免测试挂起
+- 经验：XSS 测试验证 run name 中的 `<script>` 标签被正确转义为 `&lt;script&gt;`
+- 经验：HTTP 测试 helper 应使用静态 `import http` 而非动态 `import()`，避免模块加载时序问题
+- 测试总数：~1766 tests（Core 1525 + Harness 732）（含 1 个 pre-existing flaky session 分页测试）
+
+### Phase 16 Channel — CH1（2026-05-27，完成）
+
+- CH1: Channel 抽象层 — types.ts 定义 ChannelAdapter 接口、ChannelMessage 统一格式、连接状态、Gateway 事件类型、错误层次
+- 32 tests, 743 lines added, 3 new files
+- 实现要点：10 种 ChannelType（cli/api/webhook/feishu/wecom/telegram/discord/slack/whatsapp/custom），5 种 AttachmentType，4 种 ConnectionState
+- 经验：Channel 模块放在 `packages/core/src/channel/`（与 rag/storage/network 同级），barrel export 到 core index.ts
+- 经验：接口合规性测试用 mock implementation 验证结构，包含 connect/disconnect 生命周期、消息收发、历史检索的交互测试
+- 经验：Gateway 事件类型用 discriminated union（`type` 字段区分），TypeScript 自动 narrow
+- 测试总数：~1821 tests（Core 1557 + Harness 732）（含 1 个 pre-existing flaky session 分页测试）
+
+### Phase 16 Channel — CH2（2026-05-27，完成）
+
+- CH2: Channel Gateway — ChannelGateway 类管理多 adapter、连接生命周期、消息路由、session 绑定、自动重连
+- 41 tests, 319 lines added, 1 new file (gateway.ts)
+- 踩坑：`ChannelAdapter` 接口用 `state` 而非 `connectionState`，`sendMessage()` 接受 `SendMessageOptions` 而非 `ChannelMessage` — 必须先读实际接口再编码
+- 踩坑：`GatewayEvent` 是 discriminated union，不能发明新的 event type（如 `adapter_added`），必须用已定义的类型
+- 踩坑：`gateway.connect()` 是 async，测试中必须 `await`，否则 event callback 在断言时还未触发
+- 经验：`dispatchMessage` 设计为 public，供外部系统注入消息到 gateway（不仅限内部路由）
+- 经验：session binding 在 adapter 移除时自动清理，避免悬挂引用
+- 经验：auto-reconnect 用 `setTimeout` + 递归重试，不阻塞 `connectAll()` 返回
+- 测试总数：~1862 tests（Core 1598 + Harness 732）（含 1 个 pre-existing flaky session 分页测试）
+
+### Phase 16 Channel — CH3（2026-05-27，完成）
+
+- CH3: CLI Channel — CliChannelAdapter 实现 ChannelAdapter 接口，支持 interactive/pipe/non-interactive 三种模式
+- 24 tests, 703 lines added, 2 new files (cli-channel.ts + cli-channel.test.ts)
+- 实现要点：interactive 模式用 node:readline 的 createInterface，pipe 模式用 stream events 读取所有 stdin 直到 EOF，non-interactive 模式暴露 processInput() 供编程式调用
+- 踩坑：pipe 模式下 connect() 是 async，必须等 stdin 'end' 事件后才 resolve——测试中用 PassThrough stream 模拟 stdin，写入后立即 end()
+- 经验：CliChannelAdapter 的 sendMessage 用 output.write() 而非 console.log()，方便测试中捕获输出（PassThrough stream）
+- 经验：interactive 模式 readline 的 'line' 事件回调中空行需要跳过（`if (trimmed)`），否则会产生空消息
+- 经验：disconnect() 需要安全地支持多次调用（不抛错），因为 readline.close() 在已关闭的接口上可能抛异常
+- 测试总数：~2474 tests（Core 1742 + Harness 732）
+
+### Phase 16 Channel — CH4（2026-05-27，完成）
+
+- CH4: API Channel — ApiChannelAdapter 实现 ChannelAdapter 接口，REST HTTP + WebSocket 双协议
+- 30 tests, 482 lines added, 2 new files (api-channel.ts + api-channel.test.ts)
+- 实现要点：REST 用 node:http createServer，WebSocket 用 RFC 6455 最小实现（frame parsing、mask/unmask、ping/pong/close），端口 0 自动分配
+- 踩坑：`Array.push()` 返回 `number`，TypeScript strict mode 下作为 `MessageCallback`（返回 `void | Promise<void>`）的回调时会报类型错误 → 用 `{ arr.push(msg); }` 块语句替代表达式箭头
+- 踩坑：WS 认证拒绝测试 — 服务端用 `socket.write()` + `socket.destroy()` 会导致客户端收到 ECONNRESET 而非 HTTP 401 → 改用 `socket.end()` 确保 401 响应被完整发送
+- 踩坑：WS 认证拒绝测试中，客户端 `http.request` 的 `upgrade` 事件不会触发（因为服务端返回普通 HTTP 响应）→ 需要监听 `response` 事件而非 `upgrade`
+- 经验：`node:crypto` 的 `createHash` 必须用 static import（ESM 不支持 `require()`）
+- 经验：REST API 的 `readBody` 需要限制 body 大小（maxBodyBytes），防止 DoS
+- 测试总数：~2534 tests（Core 1802 + Harness 732）
+
+### Phase 16 Channel — CH5（2026-05-27，完成）
+
+- CH5: Webhook Channel — WebhookChannelAdapter 实现 ChannelAdapter 接口，HTTP webhook 接收器 + HMAC-SHA256 签名验证
+- 49 tests, 743 lines added, 2 new files (webhook-channel.ts + webhook-channel.test.ts)
+- 实现要点：支持 4 种签名策略（GitHub/Stripe/Slack/Custom），timingSafeEqual 防时序攻击，内置 GitHub push/issue 和 Stripe payload parser
+- 踩坑：签名验证测试中，`httpRequest` helper 发送 JSON body 时 Content-Length 由 helper 内部计算，但签名需要基于**原始 JSON 字符串**计算。如果先用 `httpRequest` 再用 `rawPost` 发两次请求，第一次会因签名校验失败导致服务器挂起 → 必须用 `rawPost` 一次发送，确保签名和 body 一致
+- 经验：Webhook adapter 是纯 HTTP server（无 WebSocket），实现比 API Channel 简单，但签名验证逻辑需要仔细测试每种策略
+- 经验：GitHub/Stripe payload parser 作为内部函数实现，通过 `STRATEGY_PARSERS` map 按 strategy name 查找，比 OOP 继承更灵活
+- 经验：timingSafeEqual 要求两个 Buffer 长度相等，否则直接返回 false（不抛错），这是正确的安全行为
+- 测试总数：~2632 tests（Core 1900 + Harness 732）
+
+### Phase 16 Channel — CH6（2026-05-27，完成）
+
+- CH6: ChannelPluginRegistry — 运行时动态加载/卸载 channel adapter
+- 42 tests, 355 lines added, 2 new files (plugin-registry.ts + plugin-registry.test.ts)
+- 实现要点：Plugin 注册/注销 + Adapter 实例加载/卸载 + 批量操作 + 按 plugin/channelType 查询
+- 踩坑：测试中 `createMockAdapter()` 在外部创建，但 `factory` 函数内部又调用 `createMockAdapter()` 创建新实例 → 断言检查的是外部创建的 mock，而实际加载的是 factory 内部创建的新 mock → 断言永远失败。修复：让 factory 闭包捕获外部创建的 mock adapter
+- 经验：Plugin 模式比直接 addAdapter 更灵活——metadata（name/version/channelType）支持运行时发现和批量管理，factory 函数支持延迟初始化和配置注入
+- 测试总数：~2674 tests（Core 1942 + Harness 732）
+
+### Phase 16 Channel — CH7（2026-05-27，完成）
+
+- CH7: Channel Multi-Channel Concurrent Tests — 8 integration tests covering Gateway lifecycle, message routing, multi-channel concurrency
+- 实现要点：在已有 gateway.test.ts（41 tests）基础上新增 `multi-channel lifecycle` describe block
+- 测试覆盖：full lifecycle、correct channel routing、concurrent dispatch (Promise.all)、event ordering、error isolation、cross-channel session bindings、partial connect failures、adapter removal during active operation
+- 踩坑：`Array.push()` 返回 `number`，TypeScript strict mode 下作为 `MessageCallback` / `GatewayEventCallback` 的表达式箭头函数返回值会报类型错误 → 用块语句 `{ arr.push(x); }` 替代
+- 经验：CH1-CH6 各自已有独立测试文件（types/gateway/cli-channel/api-channel/webhook-channel/plugin-registry），CH7 聚焦于跨 channel 的集成场景（多 adapter 并发、错误隔离、session 跨 channel 绑定），不需要新文件
+- 测试总数：~2732 tests（Core 2000 + Harness 732）
+
+### Phase 17 Adaptive Strategy — AD1（2026-05-27，完成）
+
+- AD1: Strategy Store — 按任务域存储策略配置 + 成果追踪 + 统计对比，44 tests
+- 实现要点：策略类型（10 种 domain、4 种 status）+ JSON 持久化 + outcome-based 统计
+- 踩坑：测试中用 `await import("node:fs")` 在非 async 回调中导致 parse error → 改用已 import 的 `writeFileSync`
+- 经验：StrategyStore 模式与 ProposalStore 一致（JSON 文件持久化 + filter + CRUD），新模块可以快速复用模式
+- 经验：outcomes 单独存储（strategy-outcomes.json）比嵌入 strategy 对象更好——策略配置变更不影响历史统计数据
+- 测试总数：~2776 tests（Core 2000 + Harness 776）
+
+### Phase 17 Adaptive Strategy — AD2（2026-05-27，完成）
+
+- AD2: Historical Success Rate — 时间窗口统计、趋势检测、自动调优，17 tests
+- 实现要点：`getStatsWindowed()` 按 TimeWindow（1h/6h/24h/7d/30d）过滤 outcomes 后复用 `computeStats()`；`getTrend()` 比较 recent vs older 两个窗口；`autoTune()` 自动 promote/deprecate
+- 经验：AD1 已有 `getStats()`、`getBestForDomain()`、`findUnderperforming()` 等基础统计方法，AD2 是在此基础上增加时间维度和自动化——先检查已有代码再动手
+- 经验：重构 `getStats()` 为 `computeStats(strategyId, outcomes[])` 私有方法，windowed 和 overall 统计共用同一逻辑，避免代码重复
+- 经验：趋势检测的阈值（5% delta）和 auto-tune 的 promote/deprecate 阈值应可配置，不同场景需要不同灵敏度
+- 测试总数：~2793 tests（Core 2000 + Harness 793）
+
+### Phase 17 Adaptive Strategy — AD3（2026-05-27，完成）
+
+- AD3: Auto-Tuner — UCB1 策略选择、复合评分、优化周期、推荐引擎，37 tests
+- 实现要点：`AutoTuner` 类包装 `StrategyStore`，用 UCB1（Upper Confidence Bound）平衡探索与利用；复合评分 = successWeight×成功率 + speedWeight×速度 + costWeight×成本效率；`runOptimizationCycle()` 遍历所有 domain 生成推荐
+- 踩坑：速度归一化用 `referenceDurationMs / avgDurationMs` 并 clamp 到 [0,1]，测试中 500ms 和 5000ms 都被 clamp 到 1（参考值 5000ms）→ 改为 500ms vs 50000ms 才能区分
+- 经验：未尝试的策略（0 runs）获得无限探索奖励（`Infinity`），确保新策略有机会被试用
+- 经验：`selectOptimal()` 只考虑 active 和 candidate 策略，deprecated/retired 自动排除
+- 经验：推荐稳定性追踪最近 5 次 cycle 的推荐变化，用于检测 oscillation
+- 测试总数：~2830 tests（Core 2000 + Harness 830）
+
 ---
 
 *本文件由 loop 任务和手动开发共同维护。每完成一个 Phase 后必须更新。*

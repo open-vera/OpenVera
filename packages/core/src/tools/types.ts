@@ -78,6 +78,18 @@ export interface ToolContext {
   memoryStore?: import("../memory/store.js").MemoryStore;
   /** Optional user data store for data_save / data_load / data_list / data_delete tools. */
   userDataStore?: import("../storage/user-data.js").UserDataStore;
+  /** Optional vector store for knowledge_search tool. */
+  vectorStore?: import("../rag/types.js").VectorStore;
+  /** Optional embedding adapter for knowledge_search tool. */
+  embeddingAdapter?: import("../rag/types.js").EmbeddingAdapter;
+  /** Optional LLM adapter for visual_analyze and other AI-powered tools. */
+  llmAdapter?: import("../adapters/base.js").LLMAdapter;
+  /** Default model for LLM calls within tools (e.g., vision model). */
+  defaultModel?: string;
+  /** Optional sandbox provider for sandbox_exec / sandbox_upload / sandbox_download tools. */
+  sandboxProvider?: import("../sandbox/types.js").SandboxProvider;
+  /** Optional object store for file_upload / file_download / file_list tools. */
+  objectStore?: import("../storage/object-store.js").ObjectStore;
 }
 
 // ── ToolVersion ─────────────────────────────────────────────────────────────

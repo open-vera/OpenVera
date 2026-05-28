@@ -20,6 +20,7 @@ export {
   SkillAutoExtractor,
   SkillAutoScorer,
   type ExecutionTrace,
+  type SkillToolCallRecord,
   type ExtractedSkill,
   type ExtractorConfig,
   type SkillExecutionRecord,

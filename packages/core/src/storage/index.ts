@@ -46,3 +46,33 @@ export { SessionStorageAdapter, migrateJsonlToSqlite } from "./session-adapter.j
 export type { SessionFilter, MigrationVerificationResult } from "./session-adapter.js";
 
 export { MemoryStorageAdapter } from "./memory-adapter.js";
+
+export type {
+  ObjectStore,
+  PutOptions,
+  GetResult,
+  ObjectMetadata,
+  ListOptions,
+  ObjectListing,
+  PresignOptions,
+  ObjectStoreConfig,
+  LocalFsConfig,
+  OssConfig,
+  S3Config,
+  TosConfig,
+} from "./object-store.js";
+
+export {
+  ObjectStoreError,
+  ObjectNotFoundError,
+  ObjectAlreadyExistsError,
+  ObjectStoreConnectionError,
+} from "./object-store.js";
+
+export { LocalFsObjectStore, createLocalFsStore } from "./local-fs-adapter.js";
+export { OssObjectStore } from "./oss-adapter.js";
+export { S3ObjectStore } from "./s3-adapter.js";
+export { TosObjectStore } from "./tos-adapter.js";
+
+export { ArtifactUploader, createArtifactUploader } from "./artifact-uploader.js";
+export type { ArtifactUploaderOptions, UploadedArtifact, UploadReport } from "./artifact-uploader.js";

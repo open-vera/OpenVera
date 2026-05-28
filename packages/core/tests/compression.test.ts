@@ -9,11 +9,17 @@ import {
   microCompact,
   createMicroCompactState,
   isPromptTooLongError,
+  buildCompressionInstruction,
+  parseCompressionResponse,
+  buildSyntheticFromOutput,
+  insertCompressionInstruction,
+  resolveInsertCompress,
 } from "../src/context/compression.js";
 import type {
   CompressionOptions,
   CompressionState,
   MicroCompactState,
+  InsertCompressPending,
 } from "../src/context/compression.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -67,7 +73,7 @@ describe("compressMessages", () => {
     decisions: ["Use OAuth 2.0 with PKCE", "Store tokens in secure cookie"],
     findings: ["Express middleware needed for token refresh"],
     pending: ["Add rate limiting", "Write integration tests"],
-  });
+  }) + "\n<topics>authentication oauth typescript web-development</topics>";
 
   beforeEach(() => {
     adapter = makeMockAdapter(compressionJson);
@@ -255,6 +261,7 @@ describe("findRelevantSegments", () => {
           decisions: ["Use TypeScript", "Use React Router v7"],
           findings: ["Vite HMR is fast", "CSS modules work"],
           pending: [],
+          topics: ["react", "vite", "frontend"],
           turnRange: { start: 0, end: 3 },
           originalTokenCount: 5000,
         },
@@ -263,6 +270,7 @@ describe("findRelevantSegments", () => {
           decisions: ["Use PKCE flow"],
           findings: ["Token refresh needed"],
           pending: ["Add logout"],
+          topics: ["authentication", "oauth"],
           turnRange: { start: 4, end: 7 },
           originalTokenCount: 3000,
         },
@@ -282,6 +290,7 @@ describe("findRelevantSegments", () => {
           decisions: ["Use TypeScript"],
           findings: [],
           pending: [],
+          topics: ["react"],
           turnRange: { start: 0, end: 2 },
           originalTokenCount: 1000,
         },
@@ -299,6 +308,7 @@ describe("findRelevantSegments", () => {
           decisions: ["Jest"],
           findings: [],
           pending: [],
+          topics: ["testing"],
           turnRange: { start: 0, end: 2 },
           originalTokenCount: 1000,
         },
@@ -307,6 +317,7 @@ describe("findRelevantSegments", () => {
           decisions: ["OAuth"],
           findings: [],
           pending: [],
+          topics: ["authentication"],
           turnRange: { start: 3, end: 5 },
           originalTokenCount: 1000,
         },
@@ -317,6 +328,26 @@ describe("findRelevantSegments", () => {
     expect(results).toHaveLength(2);
     // Second segment mentions "auth" twice, should be first
     expect(results[0]!.summary).toContain("Auth system");
+  });
+
+  it("matches topics in query", () => {
+    const state: CompressionState = {
+      segments: [
+        {
+          summary: "Generic work",
+          decisions: [],
+          findings: [],
+          pending: [],
+          topics: ["database-migration", "postgresql"],
+          turnRange: { start: 0, end: 2 },
+          originalTokenCount: 1000,
+        },
+      ],
+    };
+
+    const results = findRelevantSegments(state, "database");
+    expect(results).toHaveLength(1);
+    expect(results[0]!.topics).toContain("database-migration");
   });
 });
 
@@ -486,5 +517,318 @@ describe("createMicroCompactState", () => {
     const state = createMicroCompactState();
     expect(state.toolUseIds).toEqual([]);
     expect(state.lastAssistantTs).toBe(0);
+  });
+});
+
+// ── OC1-OC4: Insert-then-Compress ────────────────────────────────────────────
+
+describe("buildCompressionInstruction", () => {
+  it("builds instruction for single turn", () => {
+    const msg = buildCompressionInstruction(1);
+    expect(msg.role).toBe("user");
+    expect(typeof msg.content).toBe("string");
+    expect(msg.content).toContain("Compress the oldest 1 turn");
+    expect(msg.content).toContain("<summary>");
+    expect(msg.content).toContain("<topics>");
+  });
+
+  it("builds instruction for multiple turns", () => {
+    const msg = buildCompressionInstruction(5);
+    expect(msg.content).toContain("Compress the oldest 5 turns");
+  });
+
+  it("includes CRITICAL no-tools preamble", () => {
+    const msg = buildCompressionInstruction(3);
+    expect(msg.content).toContain("CRITICAL");
+    expect(msg.content).toContain("Do NOT call any tools");
+  });
+});
+
+describe("parseCompressionResponse", () => {
+  const validResponse =
+    `<analysis>User asked about auth.</analysis>\n` +
+    `<summary>\n### 1. Primary Request\nAuth implementation\n</summary>\n` +
+    `<topics>authentication oauth typescript</topics>`;
+
+  it("parses valid compression output with topics", () => {
+    const result = parseCompressionResponse(validResponse);
+    expect(result).not.toBeNull();
+    expect(result!.summary).toContain("Auth implementation");
+    expect(result!.topics).toEqual(["authentication", "oauth", "typescript"]);
+  });
+
+  it("returns fallback for unstructured text", () => {
+    const result = parseCompressionResponse("just random text, no tags");
+    expect(result).not.toBeNull();
+    expect(result!.summary).toBe("just random text, no tags");
+    expect(result!.topics).toEqual([]);
+  });
+
+  it("strips analysis block", () => {
+    const result = parseCompressionResponse(validResponse);
+    expect(result).not.toBeNull();
+    expect(result!.summary).not.toContain("User asked about auth");
+    expect(result!.summary).toContain("Primary Request");
+  });
+
+  it("handles JSON in summary", () => {
+    const jsonResponse =
+      `<summary>\n\`\`\`json\n${JSON.stringify({
+        summary: "Auth flow implemented",
+        decisions: ["Use OAuth 2.0"],
+        findings: ["Express middleware needed"],
+        pending: ["Rate limiting"],
+      })}\n\`\`\`\n</summary>\n` +
+      `<topics>auth oauth</topics>`;
+
+    const result = parseCompressionResponse(jsonResponse);
+    expect(result).not.toBeNull();
+    expect(result!.summary).toBe("Auth flow implemented");
+    expect(result!.decisions).toEqual(["Use OAuth 2.0"]);
+    expect(result!.findings).toEqual(["Express middleware needed"]);
+    expect(result!.pending).toEqual(["Rate limiting"]);
+    expect(result!.topics).toEqual(["auth", "oauth"]);
+  });
+});
+
+describe("buildSyntheticFromOutput", () => {
+  it("builds synthetic message with all fields", () => {
+    const output = {
+      summary: "Auth flow implemented with OAuth 2.0",
+      decisions: ["Use PKCE", "Secure cookies"],
+      findings: ["Middleware needed"],
+      pending: ["Rate limiting"],
+      topics: ["auth", "oauth"],
+    };
+    const msg = buildSyntheticFromOutput("turns 1–5", output, false);
+    expect(msg.role).toBe("user");
+    expect(typeof msg.content).toBe("string");
+    expect(msg.content).toContain("Auth flow implemented");
+    expect(msg.content).toContain("Decisions:");
+    expect(msg.content).toContain("Use PKCE");
+    expect(msg.content).toContain("Findings:");
+    expect(msg.content).toContain("Pending:");
+    expect(msg.content).toContain("Continue the conversation");
+  });
+
+  it("uses reactive preamble when isReactive", () => {
+    const output = { summary: "test", decisions: [], findings: [], pending: [], topics: [] };
+    const msg = buildSyntheticFromOutput("turns 1–3", output, true);
+    expect(msg.content).toContain("Context compressed after prompt overflow");
+  });
+
+  it("uses normal preamble when not reactive", () => {
+    const output = { summary: "test", decisions: [], findings: [], pending: [], topics: [] };
+    const msg = buildSyntheticFromOutput("turns 1–3", output, false);
+    expect(msg.content).toContain("Compressed context");
+  });
+});
+
+describe("insertCompressionInstruction", () => {
+  function makeMessages(turnCount: number): Message[] {
+    const msgs: Message[] = [];
+    for (let i = 0; i < turnCount; i++) {
+      msgs.push({ role: "user", content: `User message ${i + 1} ${longText("x", 200)}` });
+      msgs.push({ role: "assistant", content: `Assistant response ${i + 1}` });
+    }
+    return msgs;
+  }
+
+  it("returns null when under token threshold", () => {
+    const messages = makeMessages(3);
+    const result = insertCompressionInstruction(messages, {
+      enabled: true,
+      triggerTokens: 1_000_000,
+      keepRecentTurns: 2,
+    });
+    expect(result).toBeNull();
+  });
+
+  it("returns null when too few turns", () => {
+    const messages = makeMessages(2);
+    const result = insertCompressionInstruction(messages, {
+      enabled: true,
+      triggerTokens: 100,
+      keepRecentTurns: 6,
+    });
+    expect(result).toBeNull();
+  });
+
+  it("inserts instruction message at correct position", () => {
+    const messages = makeMessages(8);
+    const result = insertCompressionInstruction(messages, {
+      enabled: true,
+      triggerTokens: 100,
+      keepRecentTurns: 4,
+    });
+    expect(result).not.toBeNull();
+    const { messages: newMessages, pending } = result!;
+    // Should have original messages + 1 instruction
+    expect(newMessages.length).toBe(messages.length + 1);
+    // Instruction should be a user message with compression content
+    const instructionIdx = pending.splitIndex;
+    const instruction = newMessages[instructionIdx];
+    expect(instruction.role).toBe("user");
+    expect(typeof instruction.content).toBe("string");
+    expect(instruction.content).toContain("Compress the oldest");
+    expect(instruction.content).toContain("<topics>");
+  });
+
+  it("preserves recent turns after instruction", () => {
+    const messages = makeMessages(8);
+    const result = insertCompressionInstruction(messages, {
+      enabled: true,
+      triggerTokens: 100,
+      keepRecentTurns: 4,
+    });
+    expect(result).not.toBeNull();
+    const { messages: newMessages, pending } = result!;
+    // Recent turns should be after the instruction
+    const recentStart = pending.splitIndex + 1;
+    const recent = newMessages.slice(recentStart);
+    expect(recent.length).toBeGreaterThan(0);
+    // First recent message should be a user message
+    expect(recent[0].role).toBe("user");
+  });
+
+  it("tracks pending metadata correctly", () => {
+    const messages = makeMessages(10);
+    const result = insertCompressionInstruction(messages, {
+      enabled: true,
+      triggerTokens: 100,
+      keepRecentTurns: 4,
+    });
+    expect(result).not.toBeNull();
+    const { pending } = result!;
+    expect(pending.turnCount).toBeGreaterThan(0);
+    expect(pending.turnLabel).toContain("turns");
+    expect(pending.splitIndex).toBeGreaterThan(0);
+    expect(pending.originalTokenCount).toBeGreaterThan(0);
+  });
+});
+
+describe("resolveInsertCompress", () => {
+  it("resolves valid compression response", () => {
+    const state = createCompressionState();
+    const responseText =
+      `<summary>\n### 1. Primary Request\nAuth implementation\n</summary>\n` +
+      `<topics>auth oauth</topics>`;
+
+    // Simulate messages: old turns + instruction + recent turn
+    const messages: Message[] = [
+      { role: "user", content: "Old message 1" },
+      { role: "assistant", content: "Old response 1" },
+      { role: "user", content: "Old message 2" },
+      { role: "assistant", content: "Old response 2" },
+      { role: "user", content: "[SYSTEM: Compress...]" }, // instruction
+      { role: "user", content: "Recent message" },
+      { role: "assistant", content: "Recent response" },
+    ];
+
+    const pending: InsertCompressPending = {
+      turnCount: 2,
+      turnLabel: "turns 1–2",
+      splitIndex: 4,
+      originalTokenCount: 100,
+    };
+
+    const result = resolveInsertCompress(messages, responseText, pending, state);
+    expect(result).not.toBeNull();
+    expect(result!.messages.length).toBeLessThan(messages.length);
+    // First message should be the synthetic summary
+    expect(result!.messages[0].role).toBe("user");
+    expect(typeof result!.messages[0].content).toBe("string");
+    expect(result!.messages[0].content).toContain("Auth implementation");
+    // Should have the segment in state
+    expect(result!.state.segments).toHaveLength(1);
+    expect(result!.state.segments[0].topics).toEqual(["auth", "oauth"]);
+    expect(result!.state.segments[0].originalTokenCount).toBe(100);
+  });
+
+  it("returns fallback result for unstructured compression response", () => {
+    const state = createCompressionState();
+    const messages: Message[] = [
+      { role: "user", content: "Old" },
+      { role: "user", content: "[SYSTEM: Compress...]" },
+      { role: "user", content: "Recent" },
+    ];
+    const pending: InsertCompressPending = {
+      turnCount: 1,
+      turnLabel: "turn 1",
+      splitIndex: 1,
+      originalTokenCount: 50,
+    };
+
+    const result = resolveInsertCompress(messages, "just random text", pending, state);
+    expect(result).not.toBeNull();
+    expect(result!.messages).toHaveLength(2); // synthetic + "Recent"
+    expect(result!.state.segments).toHaveLength(1);
+  });
+
+  it("preserves recent turns after resolution", () => {
+    const state = createCompressionState();
+    const responseText =
+      `<summary>\nSummary text\n</summary>\n<topics>test</topics>`;
+
+    const messages: Message[] = [
+      { role: "user", content: "Old 1" },
+      { role: "assistant", content: "Resp 1" },
+      { role: "user", content: "[SYSTEM: Compress...]" },
+      { role: "user", content: "Recent user" },
+      { role: "assistant", content: "Recent assistant" },
+    ];
+
+    const pending: InsertCompressPending = {
+      turnCount: 1,
+      turnLabel: "turn 1",
+      splitIndex: 2,
+      originalTokenCount: 50,
+    };
+
+    const result = resolveInsertCompress(messages, responseText, pending, state);
+    expect(result).not.toBeNull();
+    // Should have: synthetic + 2 recent messages (skipping instruction at index 2)
+    expect(result!.messages.length).toBe(3);
+    expect(result!.messages[1].content).toBe("Recent user");
+    expect(result!.messages[2].content).toBe("Recent assistant");
+  });
+
+  it("accumulates segments across multiple compressions", () => {
+    let state = createCompressionState();
+    const responseText = `<summary>\nFirst compression\n</summary>\n<topics>first</topics>`;
+
+    const messages: Message[] = [
+      { role: "user", content: "Old" },
+      { role: "user", content: "[SYSTEM: Compress...]" },
+      { role: "user", content: "Recent" },
+    ];
+    const pending: InsertCompressPending = {
+      turnCount: 1,
+      turnLabel: "turn 1",
+      splitIndex: 1,
+      originalTokenCount: 50,
+    };
+
+    const result1 = resolveInsertCompress(messages, responseText, pending, state);
+    expect(result1).not.toBeNull();
+    expect(result1!.state.segments).toHaveLength(1);
+
+    // Second compression
+    const responseText2 = `<summary>\nSecond compression\n</summary>\n<topics>second</topics>`;
+    const messages2: Message[] = [
+      { role: "user", content: "Old" },
+      { role: "user", content: "[SYSTEM: Compress...]" },
+      { role: "user", content: "Recent" },
+    ];
+    const pending2: InsertCompressPending = {
+      turnCount: 1,
+      turnLabel: "turn 1",
+      splitIndex: 1,
+      originalTokenCount: 40,
+    };
+
+    const result2 = resolveInsertCompress(messages2, responseText2, pending2, result1!.state);
+    expect(result2).not.toBeNull();
+    expect(result2!.state.segments).toHaveLength(2);
   });
 });

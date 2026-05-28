@@ -27,11 +27,14 @@ import {
   type CompressedSegment,
   type MicroCompactOptions,
   type MicroCompactState,
+  type InsertCompressPending,
   compressMessages,
   createCompressionState,
   microCompact,
   createMicroCompactState,
   isPromptTooLongError,
+  insertCompressionInstruction,
+  resolveInsertCompress,
 } from "../context/compression.js";
 
 export type ToolHandler = (
@@ -86,9 +89,11 @@ export interface AgentHooks {
    * - "reactive":    prompt-too-long emergency compress; before/after = message count.
    * - "micro":       time-gap heuristic content clearing; before === after
    *                  (message count unchanged — the event is the signal).
+   * - "insert-compress": insert-then-compress instruction injected (OC1).
+   * - "insert-resolved": insert-then-compress output resolved after API call (OC1).
    */
   onCompression?: (
-    type: "progressive" | "micro" | "reactive",
+    type: "progressive" | "micro" | "reactive" | "insert-compress" | "insert-resolved",
     before: number,
     after: number
   ) => void | Promise<void>;
@@ -277,6 +282,8 @@ function hasAnotherTurnAfter(turn: number, maxTurns: number | undefined): boolea
 interface CompressResult {
   messages: Message[];
   compressionState: CompressionState | null;
+  /** Non-null when insert-then-compress was used; caller must resolve after API call. */
+  pendingCompression?: InsertCompressPending;
 }
 
 async function applyProactiveCompress(
@@ -288,8 +295,19 @@ async function applyProactiveCompress(
   microCompactState: MicroCompactState | null,
   hooks: AgentHooks | undefined,
 ): Promise<CompressResult> {
+  const opts = options.compressionOptions!;
+
+  // OC1: Insert-then-compress — insert instruction into conversation flow
+  if (opts.insertCompress) {
+    const result = insertCompressionInstruction(messages, opts);
+    if (!result) return { messages, compressionState };
+    await hooks?.onCompression?.("insert-compress", messages.length, result.messages.length);
+    return { messages: result.messages, compressionState, pendingCompression: result.pending };
+  }
+
+  // Traditional approach: separate API call for compression
   const before = messages.length;
-  const compressed = await compressMessages(messages, compressionState, options.compressionOptions!, adapter, model);
+  const compressed = await compressMessages(messages, compressionState, opts, adapter, model);
   if (compressed.usage) options.onUsage?.(compressed.usage);
   options.onContextUpdate?.(compressed.messages, { compressionState: compressed.state, microCompactState });
   if (compressed.messages.length !== before) {
@@ -375,10 +393,12 @@ export async function runAgent(
   try {
     for (let turn = 0; shouldContinueTurns(turn, maxTurns); turn++) {
       // ── Auto-compact: proactive compression when over threshold ────────
+      let pendingCompression: InsertCompressPending | undefined;
       if (compressionState && options.compressionOptions) {
         const r = await applyProactiveCompress(messages, compressionState, options, adapter, model, microCompactState, hooks);
         messages = r.messages;
         compressionState = r.compressionState;
+        pendingCompression = r.pendingCompression;
       }
 
       // ── Prepare messages (budget → micro-compact → window trim) ───────
@@ -411,7 +431,7 @@ export async function runAgent(
       }
 
       // ── onTurnEnd (before tool execution) ─────────────────────────────
-      const assistantText = extractText(response.message);
+      let assistantText = extractText(response.message);
       await hooks?.onTurnEnd?.(turn, response.usage, assistantText);
 
       // Filter out empty assistant messages that would cause API errors
@@ -422,6 +442,20 @@ export async function runAgent(
         messages.push(response.message);
       }
       if (microCompactState) microCompactState = { ...microCompactState, lastAssistantTs: Date.now() };
+
+      // ── OC1: Resolve insert-then-compress ─────────────────────────────
+      if (pendingCompression && compressionState) {
+        const resolved = resolveInsertCompress(messages, assistantText, pendingCompression, compressionState);
+        if (resolved) {
+          messages = resolved.messages;
+          compressionState = resolved.state;
+          // Re-extract assistant text from the (possibly trimmed) last message
+          const lastMsg = messages[messages.length - 1];
+          if (lastMsg) assistantText = extractText(lastMsg);
+          await hooks?.onCompression?.("insert-resolved", messages.length, messages.length);
+        }
+      }
+
       options.onContextUpdate?.(messages, { compressionState, microCompactState });
 
       const toolCalls = extractToolCalls(response.message);
@@ -545,10 +579,12 @@ export async function streamAgent(
   try {
     for (let turn = 0; shouldContinueTurns(turn, maxTurns); turn++) {
       // ── Auto-compact: proactive compression when over threshold ────────
+      let pendingCompression: InsertCompressPending | undefined;
       if (compressionState && options.compressionOptions) {
         const r = await applyProactiveCompress(messages, compressionState, options, adapter, model, microCompactState, hooks);
         messages = r.messages;
         compressionState = r.compressionState;
+        pendingCompression = r.pendingCompression;
       }
 
       // ── Memory: select + inject ────────────────────────────────────────
@@ -633,6 +669,17 @@ export async function streamAgent(
         });
       }
       if (microCompactState) microCompactState = { ...microCompactState, lastAssistantTs: Date.now() };
+
+      // ── OC1: Resolve insert-then-compress ─────────────────────────────
+      if (pendingCompression && compressionState) {
+        const resolved = resolveInsertCompress(messages, turnText, pendingCompression, compressionState);
+        if (resolved) {
+          messages = resolved.messages;
+          compressionState = resolved.state;
+          await hooks?.onCompression?.("insert-resolved", messages.length, messages.length);
+        }
+      }
+
       options.onContextUpdate?.(messages, { compressionState, microCompactState });
 
       if (collectedToolCalls.length === 0) {

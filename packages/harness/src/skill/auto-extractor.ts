@@ -14,7 +14,7 @@ import type { Skill, SkillTrigger, IntentDomain } from "./types.js";
 // ── Extraction Types ──────────────────────────────────────────────────────────
 
 /** A single tool call captured during execution. */
-export interface ToolCallRecord {
+export interface SkillToolCallRecord {
   toolName: string;
   args: Record<string, unknown>;
   success: boolean;
@@ -30,7 +30,7 @@ export interface ExecutionTrace {
   /** Complexity level. */
   level: 0 | 1 | 2 | 3;
   /** All tool calls made during execution. */
-  toolCalls: ToolCallRecord[];
+  toolCalls: SkillToolCallRecord[];
   /** System prompt fragments that were active. */
   systemFragments?: string[];
   /** Whether the task completed successfully. */
@@ -174,7 +174,7 @@ export class SkillAutoExtractor {
 
   /** Analyze tool call frequency and success rate. */
   private analyzeToolCalls(
-    calls: ToolCallRecord[]
+    calls: SkillToolCallRecord[]
   ): Map<string, { total: number; success: number }> {
     const stats = new Map<string, { total: number; success: number }>();
     for (const call of calls) {
