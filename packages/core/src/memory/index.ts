@@ -35,3 +35,22 @@ export type {
   RelatedMemory,
   GraphBuildOptions,
 } from "./graph.js";
+
+export { MemoryUpdater } from "./memory-updater.js";
+export type {
+  MemoryUpdaterOptions,
+  MemoryUpdateResult,
+} from "./memory-updater.js";
+
+export { runMergeStrategy, parseMergeResponse } from "./merge-strategy.js";
+export type {
+  MergeDecision,
+  MergeStrategyResult,
+} from "./merge-strategy.js";
+
+export { TopicOrganizer } from "./topic-organizer.js";
+export type {
+  TopicOrganizerOptions,
+  TopicFile,
+  TopicMemoryEntry,
+} from "./topic-organizer.js";

@@ -614,7 +614,6 @@ describe("OC5-OC8: IdleCompressionTimer", () => {
 
   function createTimer(
     onCompressed: (result: { messages: Message[]; compressed: boolean }) => void,
-    overrides: Partial<Parameters<typeof mockAdapter>[0]> = {},
   ) {
     return new IdleCompressionTimer({
       idleMs: 1000, // 1 second for fast tests

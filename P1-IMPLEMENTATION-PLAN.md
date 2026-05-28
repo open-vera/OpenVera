@@ -391,10 +391,10 @@
 
 ### 20C: Memory 自动更新（子 agent 异步更新）
 
-- [ ] **OC9** MemoryUpdater 子 agent — 任务完成后 fork 子 agent 更新长期记忆（≥10 轮迭代才触发）
-- [ ] **OC10** 记忆合并策略 — LLM 决定哪些 topic 需要更新、如何与已有记忆合并、哪些需要丢弃
-- [ ] **OC11** 记忆文件按 topic 组织 — `~/.vera/memories/{topic}.md`，每个文件有 token 上限
-- [ ] **OC12** 记忆更新测试（5+ tests：触发条件、合并质量、token 限制）
+- [x] **OC9** MemoryUpdater 子 agent — 任务完成后 fork 子 agent 更新长期记忆（≥10 轮迭代才触发）
+- [x] **OC10** 记忆合并策略 — LLM 决定哪些 topic 需要更新、如何与已有记忆合并、哪些需要丢弃
+- [x] **OC11** 记忆文件按 topic 组织 — `~/.vera/memories/{topic}.md`，每个文件有 token 上限
+- [x] **OC12** 记忆更新测试（5+ tests：触发条件、合并质量、token 限制）
 
 ### 20D: Skill 自动创建与反思进化
 

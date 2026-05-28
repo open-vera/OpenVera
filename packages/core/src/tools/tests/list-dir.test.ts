@@ -50,8 +50,8 @@ async function loadTool() {
 describe("list_dir", () => {
   it("lists directory with files and subdirectories", async () => {
     vi.mocked(readdirSync)
-      .mockReturnValueOnce(["file.txt", "subdir"] as unknown as string[])
-      .mockReturnValueOnce([] as unknown as string[]); // subdir has 0 items
+      .mockReturnValueOnce(["file.txt", "subdir"] as any)
+      .mockReturnValueOnce([] as any); // subdir has 0 items
     vi.mocked(statSync)
       .mockReturnValueOnce(makeFileStats(1024))
       .mockReturnValueOnce(makeDirStats());
@@ -68,7 +68,7 @@ describe("list_dir", () => {
   });
 
   it("sorts entries alphabetically", async () => {
-    vi.mocked(readdirSync).mockReturnValueOnce(["zebra", "alpha", "middle"] as unknown as string[]);
+    vi.mocked(readdirSync).mockReturnValueOnce(["zebra", "alpha", "middle"] as any);
     vi.mocked(statSync)
       .mockReturnValue(makeFileStats(100));
 
@@ -166,7 +166,7 @@ describe("list_dir", () => {
   });
 
   it("shows empty directory message when directory has no entries", async () => {
-    vi.mocked(readdirSync).mockReturnValue([] as unknown as string[]);
+    vi.mocked(readdirSync).mockReturnValue([] as any);
 
     const tool = await loadTool();
     const result = await tool.execute({}, mockCtx);
@@ -176,7 +176,7 @@ describe("list_dir", () => {
   });
 
   it("marks inaccessible entries when statSync throws", async () => {
-    vi.mocked(readdirSync).mockReturnValue(["broken-link"] as unknown as string[]);
+    vi.mocked(readdirSync).mockReturnValue(["broken-link"] as any);
     vi.mocked(statSync).mockImplementation(() => {
       throw new Error("ENOENT: broken symlink");
     });
@@ -190,7 +190,7 @@ describe("list_dir", () => {
   });
 
   it("formats file sizes correctly for bytes, KB, and MB", async () => {
-    vi.mocked(readdirSync).mockReturnValue(["small", "medium", "large"] as unknown as string[]);
+    vi.mocked(readdirSync).mockReturnValue(["small", "medium", "large"] as any);
     vi.mocked(statSync)
       .mockReturnValueOnce(makeFileStats(500))         // 500B
       .mockReturnValueOnce(makeFileStats(2560))         // 2.5KB
@@ -205,7 +205,7 @@ describe("list_dir", () => {
   });
 
   it("uses default path '.' when no path argument is provided", async () => {
-    vi.mocked(readdirSync).mockReturnValue([] as unknown as string[]);
+    vi.mocked(readdirSync).mockReturnValue([] as any);
 
     const tool = await loadTool();
     const result = await tool.execute({}, mockCtx);
@@ -217,8 +217,8 @@ describe("list_dir", () => {
 
   it("shows singular 'item' for directories with exactly one child", async () => {
     vi.mocked(readdirSync)
-      .mockReturnValueOnce(["dir-with-one-child"] as unknown as string[])
-      .mockReturnValueOnce(["only-child"] as unknown as string[]);
+      .mockReturnValueOnce(["dir-with-one-child"] as any)
+      .mockReturnValueOnce(["only-child"] as any);
     vi.mocked(statSync)
       .mockReturnValueOnce(makeDirStats())
       .mockReturnValueOnce(makeFileStats(10));
@@ -231,7 +231,7 @@ describe("list_dir", () => {
   });
 
   it("shows header separator line", async () => {
-    vi.mocked(readdirSync).mockReturnValue([] as unknown as string[]);
+    vi.mocked(readdirSync).mockReturnValue([] as any);
 
     const tool = await loadTool();
     const result = await tool.execute({}, mockCtx);

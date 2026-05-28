@@ -137,7 +137,7 @@ describe("file_download tool", () => {
     const ctx = makeCtx();
     vi.mocked(ctx.objectStore!.get).mockResolvedValue({
       content: Buffer.from("file data"),
-      metadata: { size: 9 },
+      metadata: { key: "test.txt", size: 9 },
     });
     const result = await tool.execute({ key: "test.txt" }, ctx);
     expect(result.ok).toBe(true);
@@ -149,7 +149,7 @@ describe("file_download tool", () => {
     const bigContent = "x".repeat(200 * 1024);
     vi.mocked(ctx.objectStore!.get).mockResolvedValue({
       content: Buffer.from(bigContent),
-      metadata: { size: bigContent.length },
+      metadata: { key: "big.txt", size: bigContent.length },
     });
     const result = await tool.execute({ key: "big.txt" }, ctx);
     expect(result.ok).toBe(true);
@@ -160,7 +160,7 @@ describe("file_download tool", () => {
     const ctx = makeCtx();
     vi.mocked(ctx.objectStore!.get).mockResolvedValue({
       content: Buffer.from("saved"),
-      metadata: { size: 5 },
+      metadata: { key: "f.txt", size: 5 },
     });
     vi.mocked(mkdir).mockResolvedValue(undefined);
     vi.mocked(writeFile).mockResolvedValue(undefined);
@@ -198,7 +198,7 @@ describe("file_list tool", () => {
     vi.mocked(ctx.objectStore!.list).mockResolvedValue({
       objects: [
         { key: "a.txt", size: 100, lastModified: new Date("2026-01-01T12:00:00Z") },
-        { key: "b.pdf", size: 2048, lastModified: null },
+        { key: "b.pdf", size: 2048, lastModified: undefined },
       ],
       prefixes: ["reports/"],
       isTruncated: false,
@@ -226,7 +226,7 @@ describe("file_list tool", () => {
   it("shows continuation token when truncated", async () => {
     const ctx = makeCtx();
     vi.mocked(ctx.objectStore!.list).mockResolvedValue({
-      objects: [{ key: "f.txt", size: 10, lastModified: null }],
+      objects: [{ key: "f.txt", size: 10, lastModified: undefined }],
       prefixes: [],
       isTruncated: true,
       continuationToken: "abc123",
