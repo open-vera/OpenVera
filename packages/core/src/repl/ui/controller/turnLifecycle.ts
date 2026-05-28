@@ -1,15 +1,9 @@
 import type { PlanStepUI } from "../../../plan/index.js";
 import type { ChatMessage } from "../types.js";
 
-export const ROUTING_FAILED_MESSAGE = "⚠ routing failed — using default model";
-
-export function appendRoutingFailedMessage(messages: ChatMessage[], failed: boolean): ChatMessage[] {
-  return failed ? [...messages, { role: "assistant", content: ROUTING_FAILED_MESSAGE }] : messages;
-}
-
-export function appendPlanPlaceholder(messages: ChatMessage[], routingFailed: boolean): ChatMessage[] {
+export function appendPlanPlaceholder(messages: ChatMessage[]): ChatMessage[] {
   return [
-    ...appendRoutingFailedMessage(messages, routingFailed),
+    ...messages,
     {
       role: "assistant",
       content: "",

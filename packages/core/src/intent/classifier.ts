@@ -10,21 +10,12 @@ export interface IntentResult {
   reason: string;
 }
 
-const CLASSIFIER_PROMPT = `你是一个任务复杂度分类器。分析用户输入，返回 JSON（不要多余内容）：
-
-{
-  "level": 0|1|2|3,
-  "needs_tools": true|false,
-  "needs_planning": true|false,
-  "domain": "chat|code|search|writing|analysis|other",
-  "reason": "一句话说明判断依据"
-}
-
-分级标准：
-- L0：闲聊、问候、简单事实问答，不需要工具
-- L1：单一明确任务，最多调用 1 个工具
-- L2：多步骤任务，需要调用多个工具或有中等推理
-- L3：需要深度规划、复杂代码操作、长文档分析、跨多系统操作`;
+const CLASSIFIER_PROMPT = `Classify the user task.
+Return ONLY minified JSON, no markdown, no explanation:
+{"level":0,"needs_tools":false,"needs_planning":false,"domain":"chat","reason":"short"}
+Rules: level 0=chat/simple answer, 1=single action, 2=multi-step/tool work, 3=complex planning.
+domain must be one of chat, code, search, writing, analysis, other.
+reason must be 12 words or fewer.`;
 
 const DEFAULT_ROUTING: Record<string, RoutingTarget> = {
   l0: { provider: "anthropic", model: "claude-haiku-4-5" },
@@ -50,7 +41,6 @@ export async function classifyIntent(
 ): Promise<IntentResult> {
   const response = await adapter.complete({
     model: classifierModel,
-    max_tokens: 128,
     system: CLASSIFIER_PROMPT,
     messages: [{ role: "user", content: input }],
   });

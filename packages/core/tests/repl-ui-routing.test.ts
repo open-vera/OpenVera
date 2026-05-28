@@ -81,6 +81,39 @@ describe("routing controller", () => {
     });
   });
 
+  it("skips classifier when every route points to the default target", async () => {
+    const resolveModelFn = vi.fn<typeof resolveModel>();
+
+    const result = await resolveTurnRouting({
+      line: "change code",
+      ctx: ctx({
+        config: {
+          providers: {},
+          default_provider: "mimo",
+          routing: {
+            enabled: true,
+            classifier: { provider: "mimo", model: "mimo-v2.5-pro" },
+            l0: { provider: "mimo", model: "mimo-v2.5-pro" },
+            l1: { provider: "mimo", model: "mimo-v2.5-pro" },
+            l2: { provider: "mimo", model: "mimo-v2.5-pro" },
+            l3: { provider: "mimo", model: "mimo-v2.5-pro" },
+          },
+        },
+        model: "mimo-v2.5-pro",
+      }),
+      resolveModelFn,
+    });
+
+    expect(resolveModelFn).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      model: "mimo-v2.5-pro",
+      provider: "mimo",
+      intent: null,
+      failed: false,
+      uiRouting: { provider: "mimo", model: "mimo-v2.5-pro", intent: null },
+    });
+  });
+
   it("falls back to default route when classifier fails", async () => {
     const result = await resolveTurnRouting({
       line: "change code",
@@ -94,7 +127,8 @@ describe("routing controller", () => {
       model: "default-model",
       provider: "default-provider",
       intent: null,
-      failed: true,
+      failed: false,
+      uiRouting: { provider: "default-provider", model: "default-model", intent: null },
     });
     expect(result.error).toBeInstanceOf(Error);
   });

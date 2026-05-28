@@ -170,7 +170,7 @@ describe("turnRunner", () => {
 
     await runPreparedTurn(base.options);
 
-    expect(base.messagesRef.current[0]).toEqual({ role: "assistant", content: "⚠ routing failed — using default model" });
+    expect(base.messagesRef.current[0]).toMatchObject({ role: "assistant", planMode: true });
     expect(base.store.writeAssistant).toHaveBeenCalledWith(expect.objectContaining({
       content: "步骤 1：Do work\ndone",
       status: "ok",

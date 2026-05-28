@@ -11,7 +11,6 @@ import { formatRuntimeError } from "./errorFormatting.js";
 import { runPlanRuntime, runStreamRuntime } from "./runtimeBridge.js";
 import {
   appendPlanPlaceholder,
-  appendRoutingFailedMessage,
   reducePlanRuntimeError,
   summarizePlanSteps,
 } from "./turnLifecycle.js";
@@ -77,7 +76,7 @@ export async function runPreparedTurn(options: PreparedTurnRunnerOptions): Promi
 async function runPreparedPlanTurn(options: PreparedTurnRunnerOptions): Promise<void> {
   options.plan.stepsRef.current = [];
   options.plan.stepTextRef.current = "";
-  options.setMessages((prev) => appendPlanPlaceholder(prev, options.routingFailed));
+  options.setMessages((prev) => appendPlanPlaceholder(prev));
 
   const handlePlanEvent = buildPlanEventHandler({
     setMessages: options.setMessages,
@@ -126,10 +125,6 @@ async function runPreparedPlanTurn(options: PreparedTurnRunnerOptions): Promise<
 }
 
 async function runPreparedStreamTurn(options: PreparedTurnRunnerOptions): Promise<void> {
-  if (options.routingFailed) {
-    options.setMessages((prev) => appendRoutingFailedMessage(prev, true));
-  }
-
   await runStreamRuntime({
     line: options.line,
     agentOptions: options.stream.agentOptions,

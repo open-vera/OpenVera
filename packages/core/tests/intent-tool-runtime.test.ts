@@ -60,6 +60,16 @@ describe("intent routing", () => {
     );
   });
 
+  it("does not impose a classifier-specific token cap", async () => {
+    const adapter = adapterWithText(SIMPLE_INTENT_JSON);
+
+    await classifyIntent("接下来跑一下这个项目启动试试看好用吗", adapter, "classifier-model");
+
+    expect(adapter.complete).toHaveBeenCalledWith(
+      expect.not.objectContaining({ max_tokens: expect.any(Number) }),
+    );
+  });
+
   it("routes by configured level and falls back to defaults", async () => {
     const l2 = {
       level: 2,

@@ -4,6 +4,7 @@ import type { IntentResult } from "../../../intent/classifier.js";
 import type { Usage } from "../../../types/index.js";
 import type { ReplContext } from "../../context.js";
 import type { RoutingInfo } from "../types.js";
+import type { RoutingConfig, RoutingTarget } from "../../../config/types.js";
 
 export interface ClassifierUsage {
   usage: Usage;
@@ -22,6 +23,19 @@ export interface TurnRoutingResult {
 }
 
 type ResolveModelFn = typeof resolveModel;
+type RouteKey = "l0" | "l1" | "l2" | "l3";
+const ROUTE_KEYS: RouteKey[] = ["l0", "l1", "l2", "l3"];
+
+function sameTarget(a: RoutingTarget | undefined, b: RoutingTarget): boolean {
+  return a?.provider === b.provider && a.model === b.model;
+}
+
+function routesCollapseToDefault(
+  routing: RoutingConfig,
+  defaultTarget: RoutingTarget,
+): boolean {
+  return ROUTE_KEYS.every((key) => sameTarget(routing[key], defaultTarget));
+}
 
 export interface ResolveTurnRoutingOptions {
   line: string;
@@ -50,6 +64,18 @@ export async function resolveTurnRouting({
     };
   }
 
+  const defaultTarget = { provider: defaultProvider, model: ctx.model };
+  if (routesCollapseToDefault(routingCfg, defaultTarget)) {
+    return {
+      adapter: ctx.adapter,
+      model: ctx.model,
+      provider: defaultProvider,
+      intent: null,
+      failed: false,
+      uiRouting: { provider: defaultProvider, model: ctx.model, intent: null },
+    };
+  }
+
   onRoutingStart?.();
   const classifierTarget = routingCfg.classifier;
   const classifierAdapter = classifierTarget ? ctx.buildAdapter(classifierTarget.provider) : ctx.adapter;
@@ -72,7 +98,7 @@ export async function resolveTurnRouting({
       model: routed.model,
       provider,
       intent: routed.intent,
-      failed: routed.intent === null,
+      failed: false,
       uiRouting: { provider, model: routed.model, intent: routed.intent },
     };
   } catch (error) {
@@ -81,8 +107,9 @@ export async function resolveTurnRouting({
       model: ctx.model,
       provider: defaultProvider,
       intent: null,
-      failed: true,
+      failed: false,
       error,
+      uiRouting: { provider: defaultProvider, model: ctx.model, intent: null },
     };
   }
 }
