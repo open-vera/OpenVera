@@ -567,14 +567,14 @@ describe("StrategyStore", () => {
           makeOutcome("s1", true, { timestamp: new Date(now - i * 3600_000).toISOString() }),
         );
       }
-      // Older (24h-48h): 1/3 success
+      // Older (24h-48h): 1/3 success — use 25h offset to avoid boundary drift
       for (let i = 0; i < 2; i++) {
         store.recordOutcome(
-          makeOutcome("s1", false, { timestamp: new Date(now - 24 * 3600_000 - i * 3600_000).toISOString() }),
+          makeOutcome("s1", false, { timestamp: new Date(now - 25 * 3600_000 - i * 3600_000).toISOString() }),
         );
       }
       store.recordOutcome(
-        makeOutcome("s1", true, { timestamp: new Date(now - 24 * 3600_000 - 2 * 3600_000).toISOString() }),
+        makeOutcome("s1", true, { timestamp: new Date(now - 25 * 3600_000 - 2 * 3600_000).toISOString() }),
       );
 
       const trend = store.getTrend("s1", "24h", "24h", 3);
@@ -598,10 +598,10 @@ describe("StrategyStore", () => {
         );
       }
 
-      // Older: 3/3 success
+      // Older: 3/3 success — use 25h offset to avoid boundary drift
       for (let i = 0; i < 3; i++) {
         store.recordOutcome(
-          makeOutcome("s1", true, { timestamp: new Date(now - 24 * 3600_000 - i * 3600_000).toISOString() }),
+          makeOutcome("s1", true, { timestamp: new Date(now - 25 * 3600_000 - i * 3600_000).toISOString() }),
         );
       }
 
@@ -620,7 +620,7 @@ describe("StrategyStore", () => {
           makeOutcome("s1", i < 2, { timestamp: new Date(now - i * 3600_000).toISOString() }),
         );
         store.recordOutcome(
-          makeOutcome("s1", i < 2, { timestamp: new Date(now - 24 * 3600_000 - i * 3600_000).toISOString() }),
+          makeOutcome("s1", i < 2, { timestamp: new Date(now - 25 * 3600_000 - i * 3600_000).toISOString() }),
         );
       }
 
