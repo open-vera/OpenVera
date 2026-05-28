@@ -88,6 +88,8 @@ export interface ToolContext {
   defaultModel?: string;
   /** Optional sandbox provider for sandbox_exec / sandbox_upload / sandbox_download tools. */
   sandboxProvider?: import("../sandbox/types.js").SandboxProvider;
+  /** Optional object store for file_upload / file_download / file_list tools. */
+  objectStore?: import("../storage/object-store.js").ObjectStore;
 }
 
 // ── ToolVersion ─────────────────────────────────────────────────────────────

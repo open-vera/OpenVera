@@ -31,6 +31,8 @@ import { createKnowledgeSearchTool } from "./knowledge-search.js";
 import type { VectorStore, EmbeddingAdapter } from "../rag/types.js";
 import { createSandboxExecTool, createSandboxUploadTool, createSandboxDownloadTool } from "./sandbox.js";
 import type { SandboxProvider } from "../sandbox/types.js";
+import { createFileUploadTool, createFileDownloadTool, createFileListTool } from "./storage.js";
+import type { ObjectStore } from "../storage/object-store.js";
 
 export { ToolRegistry } from "./registry.js";
 export { SecurityPlugin } from "./security.js";
@@ -55,6 +57,8 @@ export { OperationRecorder, replay, serializeRecording, deserializeRecording, ex
 export type { StepRecord, OperationRecording, ReplayOptions, ReplayResult } from "./operation-recorder.js";
 export { createSandboxExecTool, createSandboxUploadTool, createSandboxDownloadTool, createSandboxTools } from "./sandbox.js";
 export type { SandboxExecArgs, SandboxUploadArgs, SandboxDownloadArgs, SandboxToolSet } from "./sandbox.js";
+export { createFileUploadTool, createFileDownloadTool, createFileListTool, createStorageTools } from "./storage.js";
+export type { FileUploadArgs, FileDownloadArgs, FileListArgs, StorageToolSet } from "./storage.js";
 import type { LLMAdapter } from "../adapters/base.js";
 
 export interface CreateToolRegistryOptions {
@@ -72,6 +76,8 @@ export interface CreateToolRegistryOptions {
   defaultModel?: string;
   /** If provided, registers sandbox_exec / sandbox_upload / sandbox_download tools. */
   sandboxProvider?: SandboxProvider;
+  /** If provided, registers file_upload / file_download / file_list tools. */
+  objectStore?: ObjectStore;
 }
 
 export interface ToolRegistryBundle {
@@ -145,6 +151,13 @@ export function createToolRegistry(opts: CreateToolRegistryOptions): ToolRegistr
     registry.register(createSandboxExecTool());
     registry.register(createSandboxUploadTool());
     registry.register(createSandboxDownloadTool());
+  }
+
+  // Register storage tools (optional)
+  if (opts.objectStore) {
+    registry.register(createFileUploadTool());
+    registry.register(createFileDownloadTool());
+    registry.register(createFileListTool());
   }
 
   return { registry, security };

@@ -336,12 +336,12 @@
 
 ### 19B: 蜂群模式（Swarm）
 
-- [ ] **SB5** Swarm 调度器 — `packages/harness/src/swarm/scheduler.ts`，管理多个并发沙箱
+- [x] **SB5** Swarm 调度器 — `packages/harness/src/swarm/scheduler.ts`，管理多个并发沙箱
   - 任务队列 → 分配到空闲沙箱 → 并发执行 → 收集结果 → 汇总
-- [ ] **SB6** 任务拆分 — 自动将大任务拆分为可并行的子任务
-- [ ] **SB7** 结果合并 — 多个沙箱的结果自动合并（文件合并、报告汇总）
-- [ ] **SB8** 产能控制 — 可配置最大并发数、总预算、超时策略
-- [ ] **SB9** 蜂群模式测试（8+ tests：并发执行、任务拆分、结果合并、产能限制）
+- [x] **SB6** 任务拆分 — 自动将大任务拆分为可并行的子任务
+- [x] **SB7** 结果合并 — 多个沙箱的结果自动合并（文件合并、报告汇总）
+- [x] **SB8** 产能控制 — 可配置最大并发数、总预算、超时策略
+- [x] **SB9** 蜂群模式测试（8+ tests：并发执行、任务拆分、结果合并、产能限制）
 
 ### 19C: Sandbox 集成测试
 
@@ -351,15 +351,15 @@
 
 ## Phase 19.5: 存储插件（OSS/S3/TOS）
 
-- [ ] **SP1** 存储插件接口 — `packages/core/src/storage/object-store.ts`，定义 `ObjectStore` 接口
+- [x] **SP1** 存储插件接口 — `packages/core/src/storage/object-store.ts`，定义 `ObjectStore` 接口
   - 接口：`put()` / `get()` / `delete()` / `list()` / `presignUrl()`
-- [ ] **SP2** 阿里云 OSS 适配器 — `packages/core/src/storage/oss-adapter.ts`
-- [ ] **SP3** AWS S3 适配器 — `packages/core/src/storage/s3-adapter.ts`（兼容 MinIO）
-- [ ] **SP4** 腾讯 TOS 适配器 — `packages/core/src/storage/tos-adapter.ts`
-- [ ] **SP5** 本地文件系统适配器 — `packages/core/src/storage/local-fs-adapter.ts`（开发/测试用）
-- [ ] **SP6** 存储工具 — `file_upload` / `file_download` / `file_list` tool，注册到 ToolRegistry
-- [ ] **SP7** 自动上传 — agent 产出的大文件（报告/数据集/截图）自动上传到对象存储
-- [ ] **SP8** 存储插件测试（8+ tests：CRUD、presign URL、多适配器切换）
+- [x] **SP2** 阿里云 OSS 适配器 — `packages/core/src/storage/oss-adapter.ts`
+- [x] **SP3** AWS S3 适配器 — `packages/core/src/storage/s3-adapter.ts`（兼容 MinIO）
+- [x] **SP4** 腾讯 TOS 适配器 — `packages/core/src/storage/tos-adapter.ts`
+- [x] **SP5** 本地文件系统适配器 — `packages/core/src/storage/local-fs-adapter.ts`（开发/测试用）
+- [x] **SP6** 存储工具 — `file_upload` / `file_download` / `file_list` tool，注册到 ToolRegistry
+- [x] **SP7** 自动上传 — agent 产出的大文件（报告/数据集/截图）自动上传到对象存储
+- [x] **SP8** 存储插件测试（8+ tests：CRUD、presign URL、多适配器切换）
 
 - [ ] **V1** 全量测试通过 — `pnpm test` 无 failure
 - [ ] **V2** E2E 完整冒烟 — plan→self-loop→critique→replan→checkpoint→resume→memory→RAG
