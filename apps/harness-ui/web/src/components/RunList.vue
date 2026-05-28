@@ -42,7 +42,11 @@
 import type { RunSummary } from "../types";
 
 defineProps<{ runs: RunSummary[]; loading: boolean; error?: string; selected?: string }>();
-defineEmits<{ select: [runId: string] }>();
+const emit = defineEmits<{ select: [runId: string]; refresh: [] }>();
+
+function load() {
+  emit("refresh");
+}
 
 function statusLabel(s: string) {
   return { running: "运行中", completed: "完成", failed: "失败", paused: "暂停" }[s] ?? s;
