@@ -318,7 +318,7 @@
 ### 18D: WebArena 评测
 
 - [x] **CU15** WebArena 集成 — 导入评测集，自动跑分
-- [ ] **CU16** 评测报告 — pass rate、步骤效率、截图对比
+- [x] **CU16** 评测报告 — pass rate、步骤效率、截图对比
 
 ## Phase 19: Sandbox 沙箱集成（蜂群模式，极高产能）
 
