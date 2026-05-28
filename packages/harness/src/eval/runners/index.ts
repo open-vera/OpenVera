@@ -16,3 +16,12 @@ export type {
   ToolCallSpec,
   ToolSpec,
 } from "./toolbench-runner.js";
+
+export { WebArenaRunner } from "./webarena-runner.js";
+export type {
+  WebArenaRawCase,
+  WebArenaRunnerOptions,
+  WebArenaSite,
+  WebArenaEvalType,
+  WebArenaEvalConfig,
+} from "./webarena-runner.js";
