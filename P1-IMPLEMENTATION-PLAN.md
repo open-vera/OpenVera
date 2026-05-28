@@ -384,10 +384,10 @@
 
 ### 20B: 空闲自动压缩（IdleCompressionTimer）
 
-- [ ] **OC5** IdleCompressionTimer — agent 空闲 314 秒后自动触发压缩（低于 5 分钟 cache TTL）
-- [ ] **OC6** 压缩可中断 — 新用户输入到达时取消正在进行的压缩，确保 history 一致性
-- [ ] **OC7** 压缩结果持久化 — 压缩完成后自动 save session
-- [ ] **OC8** 空闲压缩测试（5+ tests：定时触发、中断、并发安全）
+- [x] **OC5** IdleCompressionTimer — agent 空闲 314 秒后自动触发压缩（低于 5 分钟 cache TTL）
+- [x] **OC6** 压缩可中断 — 新用户输入到达时取消正在进行的压缩，确保 history 一致性
+- [x] **OC7** 压缩结果持久化 — 压缩完成后自动 save session
+- [x] **OC8** 空闲压缩测试（5+ tests：定时触发、中断、并发安全）
 
 ### 20C: Memory 自动更新（子 agent 异步更新）
 
