@@ -15,6 +15,7 @@ dist/
 .vera/worktrees/
 .qwen/
 .gemini/
+.cubesandbox/
 
 # Claude Code local-only files
 .claude/settings.local.json
