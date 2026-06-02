@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ToolContext } from "../types.js";
 import type { LLMAdapter } from "../../adapters/base.js";
 import type { CompletionResponse } from "../../types/completion.js";
+import { fileURLToPath } from "node:url";
 
 // ── Mock LLM Adapter ─────────────────────────────────────────────────────────
 
@@ -129,9 +130,10 @@ describe("CU11: visual_analyze tool", () => {
     const adapter = createMockAdapter(mockResponse);
     const tool = createVisualAnalyzeTool(adapter);
 
-    // Use a real file path that exists (the test file itself)
+    // Use a real file path that exists (this file itself)
+    const selfPath = fileURLToPath(import.meta.url);
     const result = await tool.execute(
-      { imagePath: "/workspace/group/OpenVera/packages/core/src/tools/tests/visual-analyze.test.ts" },
+      { imagePath: selfPath },
       mockCtx,
     );
 
