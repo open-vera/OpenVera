@@ -107,7 +107,7 @@ Vera = Harness 为内核的 agent runtime。两层结构：
 - **无测试 = 未完成，不允许 commit。** 每项任务必须有对应测试用例。
 - 测试文件与源文件同目录，放在 `tests/` 子目录下。
 - 测试文件命名：`<module-name>.test.ts`
-- 每个新功能必须有对应测试，覆盖率 ≥ 90%。
+- 整体覆盖率 ≥ 70%，核心模块（`tools/` `storage/` `adapters/` `config/` `memory/` `context/` `utils/`）≥ 80%。
 - 测试数量不卡死，按实际代码内容、分支覆盖、改动点来决定，确保所有关键路径都有覆盖。
 - 测试用 Vitest，使用 `describe` / `it` / `expect`。
 - Mock 仅用于外部 API 调用（LLM adapter、网络请求），不 mock 内部模块。

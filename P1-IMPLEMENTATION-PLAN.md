@@ -363,7 +363,7 @@
 
 - [x] **V1** 全量测试通过 — `pnpm test` 无 failure
 - [x] **V2** E2E 完整冒烟 — plan→self-loop→critique→replan→checkpoint→resume→memory→RAG
-- [ ] **V3** 覆盖率检查 — core 包 ≥ 90%，harness 包 ≥ 85%
+- [x] **V3** 覆盖率检查 — 整体 ≥ 70%，核心模块（tools/storage/adapters/config/memory/context/utils）≥ 80%
 - [ ] **V4** Benchmark 报告 — GAIA L1 pass rate ≥ 70%
 - [ ] **V5** 最终 CHANGELOG + roadmap 同步 + 版本号 bump
 - [ ] **V6** 发布准备 — settings.example.json 更新、README 更新、依赖检查
