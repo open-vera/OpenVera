@@ -444,6 +444,39 @@ describe("ChannelGateway", () => {
 
       vi.useRealTimers();
     });
+
+    it("should retry on failure and stop after max attempts", async () => {
+      vi.useFakeTimers();
+      const adapter = createMockAdapter({
+        connect: vi.fn().mockRejectedValue(new Error("persistent-fail")),
+      });
+      const gw = new ChannelGateway({
+        autoReconnect: true,
+        reconnectIntervalMs: 100,
+        maxReconnectAttempts: 2,
+      });
+      gw.addAdapter("cli", adapter);
+      const events: Array<{ type: string; channelName: string }> = [];
+      gw.onEvent((e) => events.push({ type: e.type, channelName: e.channelName }));
+
+      // connectAll: initial connect fails (call #1), schedules reconnect via scheduleReconnect
+      await gw.connectAll();
+      expect(adapter.connect).toHaveBeenCalledTimes(1);
+
+      // Run ALL timers (and microtasks) to exhaustion.
+      // This should trigger exactly 2 reconnect attempts (maxReconnectAttempts=2)
+      // before exhausting the retry budget, resulting in 3 total connect calls.
+      await vi.runAllTimersAsync();
+
+      // 1 (initial) + 2 (retries) = 3 total calls; no more after maxReconnectAttempts
+      expect(adapter.connect).toHaveBeenCalledTimes(3);
+
+      // reconnecting events for attempts 1 and 2
+      const reconnectingEvents = events.filter((e) => e.type === "reconnecting");
+      expect(reconnectingEvents).toHaveLength(2);
+
+      vi.useRealTimers();
+    });
   });
 
   // ── Multi-Channel Concurrent Scenarios (CH7) ──────────────────────────────

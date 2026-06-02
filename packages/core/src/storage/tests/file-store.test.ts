@@ -1,8 +1,8 @@
-import { mkdirSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { FileStore } from "../file-store.js";
+import { FileStore, createFileStore } from "../file-store.js";
 import { StorageBackendError, StorageTransactionError } from "../types.js";
 
 function makeTmpDir(): string {
@@ -187,14 +187,9 @@ describe("FileStore", () => {
       expect(result.total).toBe(2);
     });
 
-    it("filters by tags", async () => {
+    it("filters by tags when entries have no tags (returns empty)", async () => {
       await store.set("tagged", "a", "v1");
       await store.set("tagged", "b", "v2");
-      // Manually set tags via a second set that preserves tags won't work
-      // Instead, let's test with direct data manipulation via setMany-like approach
-      // Actually, the interface doesn't support setting tags directly on set().
-      // Tags are part of StorageEntry metadata. We need to test the query filter
-      // when tags ARE present. Let's create entries and verify the filter logic.
       const result = await store.query("tagged", { tags: ["important"] });
       expect(result.entries).toHaveLength(0);
     });
@@ -227,13 +222,25 @@ describe("FileStore", () => {
       expect(keys).toEqual(["user:2", "user:1", "config:theme", "config:lang"]);
     });
 
-    it("filters by createdAfter", async () => {
-      const before = new Date(Date.now() - 1000).toISOString();
-      const result = await store.query("ns", { createdAfter: before });
+    it("filters by createdAfter (includes all entries after past date)", async () => {
+      const past = new Date(Date.now() - 1000).toISOString();
+      const result = await store.query("ns", { createdAfter: past });
       expect(result.total).toBe(4);
     });
 
-    it("filters by createdBefore with future date", async () => {
+    it("filters by createdAfter (excludes all entries after future date)", async () => {
+      const future = new Date(Date.now() + 60_000).toISOString();
+      const result = await store.query("ns", { createdAfter: future });
+      expect(result.total).toBe(0);
+    });
+
+    it("filters by createdBefore (excludes entries with future cutoff)", async () => {
+      const past = new Date(Date.now() - 60_000).toISOString();
+      const result = await store.query("ns", { createdBefore: past });
+      expect(result.total).toBe(0);
+    });
+
+    it("filters by createdBefore (includes all entries before future date)", async () => {
       const future = new Date(Date.now() + 60_000).toISOString();
       const result = await store.query("ns", { createdBefore: future });
       expect(result.total).toBe(4);
@@ -354,14 +361,11 @@ describe("FileStore", () => {
   describe("TTL", () => {
     it("returns value before TTL expires", async () => {
       await store.set("ns", "key", "value");
-      // Manually set TTL by re-reading the file
       const fp = join(dir, "ns.json");
       const data = JSON.parse(readFileSync(fp, "utf-8"));
       data["key"].ttl = 3600;
-      const { writeFileSync: ws } = await import("node:fs");
-      ws(fp, JSON.stringify(data), "utf-8");
+      writeFileSync(fp, JSON.stringify(data), "utf-8");
 
-      // Need to force reload since we modified the file directly
       const freshStore = new FileStore({ storeDir: dir });
       await freshStore.initialize();
       expect(await freshStore.get("ns", "key")).toBe("value");
@@ -369,7 +373,6 @@ describe("FileStore", () => {
     });
 
     it("returns undefined for expired entry on read", async () => {
-      // Create an entry with a TTL that's already expired
       const fp = join(dir, "ns.json");
       const data: Record<string, unknown> = {
         key: {
@@ -379,8 +382,7 @@ describe("FileStore", () => {
           ttl: 1,
         },
       };
-      const { writeFileSync: ws } = await import("node:fs");
-      ws(fp, JSON.stringify(data), "utf-8");
+      writeFileSync(fp, JSON.stringify(data), "utf-8");
 
       const freshStore = new FileStore({ storeDir: dir });
       await freshStore.initialize();
@@ -403,8 +405,7 @@ describe("FileStore", () => {
           ttl: 1,
         },
       };
-      const { writeFileSync: ws } = await import("node:fs");
-      ws(fp, JSON.stringify(data), "utf-8");
+      writeFileSync(fp, JSON.stringify(data), "utf-8");
 
       const freshStore = new FileStore({ storeDir: dir });
       await freshStore.initialize();
@@ -540,6 +541,601 @@ describe("FileStore", () => {
       expect(typeof val).toBe("number");
       expect(val).toBeGreaterThanOrEqual(0);
       expect(val).toBeLessThan(10);
+    });
+  });
+
+  // ── Query: Advanced Ordering (createdAt / updatedAt) ───────────────────
+
+  describe("query advanced ordering", () => {
+    it("orders by createdAt ascending", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        c: { value: "third", createdAt: "2024-03-01T00:00:00.000Z", updatedAt: "2024-03-01T00:00:00.000Z" },
+        a: { value: "first", createdAt: "2024-01-01T00:00:00.000Z", updatedAt: "2024-01-01T00:00:00.000Z" },
+        b: { value: "second", createdAt: "2024-02-01T00:00:00.000Z", updatedAt: "2024-02-01T00:00:00.000Z" },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+      const result = await freshStore.query("ns", { orderBy: "createdAt", order: "asc" });
+      expect(result.entries.map((e) => e.key)).toEqual(["a", "b", "c"]);
+      await freshStore.close();
+    });
+
+    it("orders by createdAt descending", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        c: { value: "third", createdAt: "2024-03-01T00:00:00.000Z", updatedAt: "2024-03-01T00:00:00.000Z" },
+        a: { value: "first", createdAt: "2024-01-01T00:00:00.000Z", updatedAt: "2024-01-01T00:00:00.000Z" },
+        b: { value: "second", createdAt: "2024-02-01T00:00:00.000Z", updatedAt: "2024-02-01T00:00:00.000Z" },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+      const result = await freshStore.query("ns", { orderBy: "createdAt", order: "desc" });
+      expect(result.entries.map((e) => e.key)).toEqual(["c", "b", "a"]);
+      await freshStore.close();
+    });
+
+    it("orders by updatedAt ascending", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        c: { value: "third", createdAt: "2024-01-01T00:00:00.000Z", updatedAt: "2024-03-01T00:00:00.000Z" },
+        a: { value: "first", createdAt: "2024-01-01T00:00:00.000Z", updatedAt: "2024-01-01T00:00:00.000Z" },
+        b: { value: "second", createdAt: "2024-01-01T00:00:00.000Z", updatedAt: "2024-02-01T00:00:00.000Z" },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+      const result = await freshStore.query("ns", { orderBy: "updatedAt", order: "asc" });
+      expect(result.entries.map((e) => e.key)).toEqual(["a", "b", "c"]);
+      await freshStore.close();
+    });
+
+    it("orders by updatedAt descending", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        c: { value: "third", createdAt: "2024-01-01T00:00:00.000Z", updatedAt: "2024-03-01T00:00:00.000Z" },
+        a: { value: "first", createdAt: "2024-01-01T00:00:00.000Z", updatedAt: "2024-01-01T00:00:00.000Z" },
+        b: { value: "second", createdAt: "2024-01-01T00:00:00.000Z", updatedAt: "2024-02-01T00:00:00.000Z" },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+      const result = await freshStore.query("ns", { orderBy: "updatedAt", order: "desc" });
+      expect(result.entries.map((e) => e.key)).toEqual(["c", "b", "a"]);
+      await freshStore.close();
+    });
+  });
+
+  // ── Query: includeExpired Filter ───────────────────────────────────────
+
+  describe("query includeExpired", () => {
+    it("includeExpired: true returns expired entries in query results", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        alive: { value: "ok", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        dead: {
+          value: "expired",
+          createdAt: new Date(Date.now() - 10_000).toISOString(),
+          updatedAt: new Date(Date.now() - 10_000).toISOString(),
+          ttl: 1,
+        },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+      const result = await freshStore.query("ns", { includeExpired: true });
+      expect(result.total).toBe(2);
+      expect(result.entries.map((e) => e.key).sort()).toEqual(["alive", "dead"]);
+      await freshStore.close();
+    });
+
+    it("includeExpired: false (default) excludes expired entries", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        alive: { value: "ok", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        dead: {
+          value: "expired",
+          createdAt: new Date(Date.now() - 10_000).toISOString(),
+          updatedAt: new Date(Date.now() - 10_000).toISOString(),
+          ttl: 1,
+        },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+      const result = await freshStore.query("ns", {});
+      expect(result.total).toBe(1);
+      expect(result.entries[0]!.key).toBe("alive");
+      await freshStore.close();
+    });
+  });
+
+  // ── Query: Tags Filter with Matching Entries ──────────────────────────
+
+  describe("query tags filter with matching data", () => {
+    it("tags filter returns entries that have the specified tag", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        a: { value: "v1", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: ["important", "urgent"] },
+        b: { value: "v2", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: ["important"] },
+        c: { value: "v3", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: ["other"] },
+        d: { value: "v4", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+
+      const result = await freshStore.query("ns", { tags: ["important"] });
+      expect(result.total).toBe(2);
+      expect(result.entries.map((e) => e.key).sort()).toEqual(["a", "b"]);
+      await freshStore.close();
+    });
+
+    it("tags filter with multiple tags requires ALL to match", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        a: { value: "v1", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: ["important", "urgent"] },
+        b: { value: "v2", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: ["important"] },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+
+      const result = await freshStore.query("ns", { tags: ["important", "urgent"] });
+      expect(result.total).toBe(1);
+      expect(result.entries[0]!.key).toBe("a");
+      await freshStore.close();
+    });
+  });
+
+  // ── Query: updatedAfter / updatedBefore Filters ────────────────────────
+
+  describe("query updated filters", () => {
+    it("filters by updatedAfter", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        old_update: { value: "old", createdAt: "2024-01-01T00:00:00.000Z", updatedAt: "2024-01-01T00:00:00.000Z" },
+        recent: { value: "new", createdAt: "2024-01-01T00:00:00.000Z", updatedAt: "2024-06-01T00:00:00.000Z" },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+
+      const result = await freshStore.query("ns", { updatedAfter: "2024-03-01T00:00:00.000Z" });
+      expect(result.total).toBe(1);
+      expect(result.entries[0]!.key).toBe("recent");
+      await freshStore.close();
+    });
+
+    it("filters by updatedBefore", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        old_update: { value: "old", createdAt: "2024-01-01T00:00:00.000Z", updatedAt: "2024-01-01T00:00:00.000Z" },
+        recent: { value: "new", createdAt: "2024-01-01T00:00:00.000Z", updatedAt: "2024-06-01T00:00:00.000Z" },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+
+      const result = await freshStore.query("ns", { updatedBefore: "2024-03-01T00:00:00.000Z" });
+      expect(result.total).toBe(1);
+      expect(result.entries[0]!.key).toBe("old_update");
+      await freshStore.close();
+    });
+  });
+
+  // ── Query: keyPattern with ? Wildcard ──────────────────────────────────
+
+  describe("query keyPattern with question mark", () => {
+    it("filters by keyPattern with ? wildcard (single char)", async () => {
+      await store.set("ns", "ab1", 1);
+      await store.set("ns", "ab2", 2);
+      await store.set("ns", "abc", 3);
+
+      const result = await store.query("ns", { keyPattern: "ab?" });
+      expect(result.total).toBe(3);
+      expect(result.entries.map((e) => e.key).sort()).toEqual(["ab1", "ab2", "abc"]);
+    });
+  });
+
+  // ── Query: fullTextSearch Case Insensitivity ───────────────────────────
+
+  describe("query fullTextSearch case insensitive", () => {
+    it("fullTextSearch is case-insensitive", async () => {
+      await store.set("ns", "key", "HelloWorld");
+
+      const lower = await store.query("ns", { fullTextSearch: "helloworld" });
+      expect(lower.total).toBe(1);
+
+      const upper = await store.query("ns", { fullTextSearch: "HELLOWORLD" });
+      expect(upper.total).toBe(1);
+    });
+  });
+
+  // ── Expired Entry Handling in Read Paths ──────────────────────────────
+
+  describe("expired entry handling in read paths", () => {
+    it("has returns false for expired entry", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        expired: {
+          value: "old",
+          createdAt: new Date(Date.now() - 10_000).toISOString(),
+          updatedAt: new Date(Date.now() - 10_000).toISOString(),
+          ttl: 1,
+        },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+      expect(await freshStore.has("ns", "expired")).toBe(false);
+      await freshStore.close();
+    });
+
+    it("getMany returns undefined for expired entries", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        fresh: { value: "ok", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        stale: {
+          value: "old",
+          createdAt: new Date(Date.now() - 10_000).toISOString(),
+          updatedAt: new Date(Date.now() - 10_000).toISOString(),
+          ttl: 1,
+        },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+
+      const results = await freshStore.getMany("ns", ["fresh", "stale", "missing"]);
+      expect(results).toEqual([
+        { key: "fresh", value: "ok" },
+        { key: "stale", value: undefined },
+        { key: "missing", value: undefined },
+      ]);
+      await freshStore.close();
+    });
+
+    it("listKeys excludes expired entries", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        alive: { value: "ok", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        dead: {
+          value: "expired",
+          createdAt: new Date(Date.now() - 10_000).toISOString(),
+          updatedAt: new Date(Date.now() - 10_000).toISOString(),
+          ttl: 1,
+        },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+      expect(await freshStore.listKeys("ns")).toEqual(["alive"]);
+      await freshStore.close();
+    });
+  });
+
+  // ── loadNamespace Error Handling ──────────────────────────────────────
+
+  describe("loadNamespace error handling", () => {
+    it("throws StorageBackendError on corrupt JSON file", async () => {
+      writeFileSync(join(dir, "corrupt.json"), "{not valid json", "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await expect(freshStore.initialize()).rejects.toThrow(StorageBackendError);
+    });
+  });
+
+  // ── flushNamespace Error Handling ─────────────────────────────────────
+
+  describe("flushNamespace error handling", () => {
+    it("throws StorageBackendError when write fails", async () => {
+      // Remove the store directory so writes fail
+      rmSync(dir, { recursive: true, force: true });
+
+      await expect(store.set("ns", "key", "value")).rejects.toThrow(StorageBackendError);
+
+      // Recreate directory so afterEach cleanup can proceed
+      mkdirSync(dir, { recursive: true });
+    });
+  });
+
+  // ── cleanupExpired ─────────────────────────────────────────────────────
+
+  describe("cleanupExpired", () => {
+    it("removes expired entries from all namespaces", async () => {
+      writeFileSync(join(dir, "ns1.json"), JSON.stringify({
+        a: { value: "ok", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        b: {
+          value: "stale",
+          createdAt: new Date(Date.now() - 10_000).toISOString(),
+          updatedAt: new Date(Date.now() - 10_000).toISOString(),
+          ttl: 1,
+        },
+      }), "utf-8");
+      writeFileSync(join(dir, "ns2.json"), JSON.stringify({
+        c: { value: "ok", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        d: {
+          value: "stale",
+          createdAt: new Date(Date.now() - 10_000).toISOString(),
+          updatedAt: new Date(Date.now() - 10_000).toISOString(),
+          ttl: 1,
+        },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+
+      // Access private cleanupExpired via type cast through unknown
+      const storeAccess = freshStore as unknown as { cleanupExpired: () => void };
+      storeAccess.cleanupExpired();
+
+      expect(await freshStore.listKeys("ns1")).toEqual(["a"]);
+      expect(await freshStore.listKeys("ns2")).toEqual(["c"]);
+      await freshStore.close();
+    });
+
+    it("cleanupExpired does nothing when no entries are expired", async () => {
+      await store.set("ns", "key", "value");
+
+      const storeAccess = store as unknown as { cleanupExpired: () => void };
+      storeAccess.cleanupExpired();
+
+      // Entry should still exist
+      expect(await store.get("ns", "key")).toBe("value");
+    });
+  });
+
+  // ── Factory Function ──────────────────────────────────────────────────
+
+  describe("factory function", () => {
+    it("createFileStore returns a FileStore instance", () => {
+      const s = createFileStore({ storeDir: join(dir, "factory") });
+      expect(s).toBeInstanceOf(FileStore);
+      expect(s.name).toBe("file");
+    });
+  });
+
+  // ── Tags and TTL Preservation on Overwrite ────────────────────────────
+
+  describe("tag and ttl preservation on overwrite", () => {
+    it("set preserves existing tags on overwrite", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        key1: {
+          value: "original",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          tags: ["preserved-tag"],
+        },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+
+      await freshStore.set("ns", "key1", "updated");
+
+      // Tags should still be there
+      const result = await freshStore.query("ns", { tags: ["preserved-tag"] });
+      expect(result.total).toBe(1);
+      expect(result.entries[0]!.entry.value).toBe("updated");
+      await freshStore.close();
+    });
+
+    it("set preserves existing ttl on overwrite", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        key1: {
+          value: "original",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          ttl: 3600,
+        },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+
+      await freshStore.set("ns", "key1", "updated");
+
+      // TTL should be preserved (entry should have hasTtl)
+      const result = await freshStore.query("ns", { hasTtl: true });
+      expect(result.total).toBe(1);
+      expect(result.entries[0]!.entry.value).toBe("updated");
+      await freshStore.close();
+    });
+
+    it("setMany preserves existing tags on overwrite", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        key1: {
+          value: "original",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          tags: ["saved-tag"],
+        },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+
+      await freshStore.setMany("ns", [{ key: "key1", value: "updated" }]);
+
+      const result = await freshStore.query("ns", { tags: ["saved-tag"] });
+      expect(result.total).toBe(1);
+      expect(result.entries[0]!.entry.value).toBe("updated");
+      await freshStore.close();
+    });
+
+    it("setMany preserves existing ttl on overwrite", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        key1: {
+          value: "original",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          ttl: 3600,
+        },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+
+      await freshStore.setMany("ns", [{ key: "key1", value: "updated" }]);
+
+      const result = await freshStore.query("ns", { hasTtl: true });
+      expect(result.total).toBe(1);
+      expect(result.entries[0]!.entry.value).toBe("updated");
+      await freshStore.close();
+    });
+  });
+
+  // ── Transaction Edge Cases ────────────────────────────────────────────
+
+  describe("transaction edge cases", () => {
+    it("tx.get returns undefined for expired entry in snapshot", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        expired: {
+          value: "old",
+          createdAt: new Date(Date.now() - 10_000).toISOString(),
+          updatedAt: new Date(Date.now() - 10_000).toISOString(),
+          ttl: 1,
+        },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+
+      const result = await freshStore.transaction(async (tx) => {
+        return tx.get("ns", "expired");
+      });
+
+      expect(result).toBeUndefined();
+      await freshStore.close();
+    });
+
+    it("tx.get uses snapshot isolation (cached readNs)", async () => {
+      await store.set("ns", "key", "original");
+
+      const result = await store.transaction(async (tx) => {
+        const first = await tx.get("ns", "key");
+        // Outside change - should not affect tx snapshot
+        await store.set("ns", "key", "changed");
+        const second = await tx.get("ns", "key");
+        return { first, second };
+      });
+
+      // Both reads should return the snapshot value
+      expect(result.first).toBe("original");
+      expect(result.second).toBe("original");
+    });
+
+    it("commit applies set then delete correctly within same transaction", async () => {
+      await store.transaction(async (tx) => {
+        tx.set("ns", "key", "value");
+        tx.delete("ns", "key");
+      });
+
+      expect(await store.get("ns", "key")).toBeUndefined();
+    });
+
+    it("transaction wraps non-Error throws in StorageTransactionError", async () => {
+      await expect(
+        store.transaction(async () => {
+          throw "string error";
+        }),
+      ).rejects.toThrow(StorageTransactionError);
+    });
+  });
+
+  // ── Count with Advanced Filters ───────────────────────────────────────
+
+  describe("count with advanced filters", () => {
+    it("counts entries matching tags filter", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        a: { value: "v1", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: ["important"] },
+        b: { value: "v2", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: ["important"] },
+        c: { value: "v3", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: ["other"] },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+
+      expect(await freshStore.count("ns", { tags: ["important"] })).toBe(2);
+      await freshStore.close();
+    });
+
+    it("counts entries matching fullTextSearch", async () => {
+      await store.set("ns", "a", "hello world");
+      await store.set("ns", "b", "goodbye");
+      await store.set("ns", "c", "hello again");
+
+      expect(await store.count("ns", { fullTextSearch: "hello" })).toBe(2);
+    });
+
+    it("counts entries matching hasTtl", async () => {
+      const fp = join(dir, "ns.json");
+      writeFileSync(fp, JSON.stringify({
+        a: { value: "v1", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ttl: 3600 },
+        b: { value: "v2", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        c: { value: "v3", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ttl: 7200 },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+
+      expect(await freshStore.count("ns", { hasTtl: true })).toBe(2);
+      await freshStore.close();
+    });
+  });
+
+  // ── Initialize Edge Cases ─────────────────────────────────────────────
+
+  describe("initialize edge cases", () => {
+    it("skips .lock files during initialization", async () => {
+      writeFileSync(join(dir, "recovery.lock"), "{}", "utf-8");
+      writeFileSync(join(dir, "data.json"), JSON.stringify({
+        key: { value: "hello", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+
+      // The .json file should be loaded, .lock should be ignored
+      expect(await freshStore.get("data", "key")).toBe("hello");
+      // "recovery" namespace should not exist (.lock files are skipped)
+      expect(await freshStore.listKeys("recovery")).toEqual([]);
+      await freshStore.close();
+    });
+
+    it("initializes with existing JSON data on disk", async () => {
+      writeFileSync(join(dir, "preloaded.json"), JSON.stringify({
+        k1: { value: "a", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        k2: { value: "b", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      }), "utf-8");
+
+      const freshStore = new FileStore({ storeDir: dir });
+      await freshStore.initialize();
+
+      expect(await freshStore.get("preloaded", "k1")).toBe("a");
+      expect(await freshStore.get("preloaded", "k2")).toBe("b");
+      expect(await freshStore.listKeys("preloaded")).toEqual(["k1", "k2"]);
+      await freshStore.close();
+    });
+  });
+
+  // ── Close Edge Cases ──────────────────────────────────────────────────
+
+  describe("close edge cases", () => {
+    it("close handles missing cleanup timer gracefully", async () => {
+      const s = new FileStore({ storeDir: join(dir, "never-initialized") });
+      // Never initialized - no cleanup timer set
+      await s.close();
+      expect(s.isHealthy()).toBe(false);
     });
   });
 });

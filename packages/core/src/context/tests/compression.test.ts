@@ -323,6 +323,30 @@ describe("OC3: Topics extraction", () => {
     expect(typeof synthetic.content).toBe("string");
     expect(synthetic.content).toContain("[Compressed context — turns 1–5]");
   });
+
+  it("handles invalid JSON in summary (catch branch for JSON.parse failure)", () => {
+    // Text that matches \{[\s\S]*\} but is NOT valid JSON — triggers catch block (line 262)
+    const text =
+      `<summary>\n{summary: "broken json without quotes", decisions: [bad, array], findings: }\n</summary>\n` +
+      `<topics>test broken</topics>`;
+    const output = parseCompressionResponse(text);
+    expect(output).not.toBeNull();
+    // Falls back to raw summary text (up to 800 chars)
+    expect(output!.summary).toContain("{summary:");
+    expect(output!.decisions).toEqual([]);
+    expect(output!.findings).toEqual([]);
+    expect(output!.topics).toEqual(["test", "broken"]);
+  });
+
+  it("returns null when JSON lacks summary field (parseCompressionResponse)", () => {
+    // parseCompressionResponse returns null when output.summary is falsy
+    const text =
+      `<summary>\n\`\`\`json\n{"decisions": ["Use X"], "findings": ["Found Y"]}\n\`\`\`\n</summary>\n` +
+      `<topics>test</topics>`;
+    const output = parseCompressionResponse(text);
+    // summary is "" (missing field), so parseCompressionResponse returns null
+    expect(output).toBeNull();
+  });
 });
 
 // ── Compression: Full flow ───────────────────────────────────────────────────
@@ -436,6 +460,256 @@ describe("compressMessages (traditional)", () => {
 
     expect(second.state.segments.length).toBeGreaterThanOrEqual(1);
   });
+
+  it("should handle adapter returning array content (extractText array branch)", async () => {
+    // Cover extractText when content is not a string but an array of ContentParts
+    const arrayContentAdapter = {
+      complete: vi.fn().mockResolvedValue({
+        message: {
+          role: "assistant" as const,
+          content: [
+            { type: "text" as const, text: "### 1. Primary Request\nArray-based auth implementation\n" },
+            { type: "text" as const, text: "### 2. Key Technical Concepts\nOAuth, PKCE, JWT\n" },
+          ] as any,
+        },
+        usage: { input_tokens: 50, output_tokens: 30 },
+      }),
+      stream: vi.fn(),
+    } as unknown as LLMAdapter;
+
+    const msgs = buildConversation(10, "x".repeat(2000));
+    const state = createCompressionState();
+
+    const result = await compressMessages(
+      msgs,
+      state,
+      { enabled: true, triggerTokens: 100, keepRecentTurns: 4 },
+      arrayContentAdapter,
+      "test-model",
+    );
+
+    expect(result.state.segments.length).toBe(1);
+    expect(result.state.segments[0]!.summary).toContain("auth");
+  });
+
+  it("should skip when compression output has empty summary", async () => {
+    // JSON with empty string summary causes !output.summary to be truthy -> skip
+    const emptySummaryJson = JSON.stringify({
+      summary: "",
+      decisions: [],
+      findings: [],
+      pending: [],
+    });
+    const responseText =
+      `<summary>\n\`\`\`json\n${emptySummaryJson}\n\`\`\`\n</summary>\n<topics>empty</topics>`;
+    const adapter = mockAdapter(responseText);
+    const msgs = buildConversation(10, "x".repeat(2000));
+    const state = createCompressionState();
+
+    const result = await compressMessages(
+      msgs,
+      state,
+      { enabled: true, triggerTokens: 100, keepRecentTurns: 4 },
+      adapter,
+      "test-model",
+    );
+
+    // Empty summary -> skipped, messages unchanged
+    expect(result.messages).toBe(msgs);
+    expect(result.state.segments).toHaveLength(0);
+  });
+
+  it("works in reactive mode (ignores token threshold, more aggressive keep)", async () => {
+    const adapter = mockAdapter(SAMPLE_COMPRESSION_OUTPUT);
+    // Create fewer messages that would normally be under a high threshold
+    const msgs = buildConversation(8, "x".repeat(2000));
+    const state = createCompressionState();
+
+    const result = await compressMessages(
+      msgs,
+      state,
+      { enabled: true, triggerTokens: 999_999, keepRecentTurns: 4 },
+      adapter,
+      "test-model",
+      true, // isReactive
+    );
+
+    // Reactive mode ignores triggerTokens threshold
+    expect(adapter.complete).toHaveBeenCalledTimes(1);
+    expect(result.state.segments.length).toBe(1);
+    // Reactive uses more aggressive keep
+    const firstContent = typeof result.messages[0]!.content === "string"
+      ? (result.messages[0]!.content as string)
+      : "";
+    expect(firstContent).toContain("Context compressed after prompt overflow");
+  });
+
+  it("does nothing in reactive mode with too few turns", async () => {
+    const adapter = mockAdapter(SAMPLE_COMPRESSION_OUTPUT);
+    const msgs = buildConversation(2); // 2 turns, effectiveKeep = max(2, floor(4/2))=2, totalTurns <= effectiveKeep+1 => 2 <= 3
+    const state = createCompressionState();
+
+    const result = await compressMessages(
+      msgs,
+      state,
+      { enabled: true, triggerTokens: 1, keepRecentTurns: 4 },
+      adapter,
+      "test-model",
+      true, // isReactive
+    );
+
+    expect(adapter.complete).not.toHaveBeenCalled();
+    expect(result.messages).toBe(msgs);
+  });
+
+  it("formats messages with array content parts for compression input", async () => {
+    // Covers formatMessage array branch (lines 160-170) with text, tool_call, tool_result parts
+    const adapter = mockAdapter(SAMPLE_COMPRESSION_OUTPUT);
+    const longMsg = "x".repeat(2000);
+
+    // Build a conversation with mixed content types (string + array parts)
+    const msgs: Message[] = [
+      { role: "user", content: longMsg },
+      { role: "assistant", content: longMsg },
+      { role: "user", content: longMsg },
+      { role: "assistant", content: longMsg },
+      // Tool call turn with array content
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Let me check that file." },
+          {
+            type: "tool_call",
+            id: "call_123",
+            name: "read_file",
+            arguments: '{"path":"/src/index.ts"}',
+          },
+        ] as any,
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_123",
+        content: [{ type: "tool_result", content: "File contents here..." }] as any,
+      },
+      // Recent turns (kept)
+      { role: "user", content: "recent q1" },
+      { role: "assistant", content: "recent a1" },
+      { role: "user", content: "recent q2" },
+      { role: "assistant", content: "recent a2" },
+    ];
+
+    const state = createCompressionState();
+    const result = await compressMessages(
+      msgs,
+      state,
+      { enabled: true, triggerTokens: 100, keepRecentTurns: 2 },
+      adapter,
+      "test-model",
+    );
+
+    expect(adapter.complete).toHaveBeenCalledTimes(1);
+    expect(result.state.segments.length).toBe(1);
+  });
+
+  it("uses options.model for compression when specified", async () => {
+    const adapter = mockAdapter(SAMPLE_COMPRESSION_OUTPUT);
+    const msgs = buildConversation(10, "x".repeat(2000));
+    const state = createCompressionState();
+
+    await compressMessages(
+      msgs,
+      state,
+      {
+        enabled: true,
+        triggerTokens: 100,
+        keepRecentTurns: 4,
+        model: "claude-haiku-4-5",
+      },
+      adapter,
+      "claude-sonnet-4-6",
+    );
+
+    // Should have been called with the compression-specific model
+    expect(adapter.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "claude-haiku-4-5" }),
+    );
+  });
+
+  it("handles tool_result content longer than 800 chars (ellipsis in format)", async () => {
+    // Covers the tool_result branch with content > 800 chars
+    const adapter = mockAdapter(SAMPLE_COMPRESSION_OUTPUT);
+    const longContent = "x".repeat(2000);
+
+    const msgs: Message[] = [
+      { role: "user", content: longContent },
+      { role: "assistant", content: longContent },
+      { role: "user", content: longContent },
+      { role: "assistant", content: longContent },
+      // Tool results with long content
+      {
+        role: "tool",
+        tool_call_id: "call_long",
+        content: [{ type: "tool_result", content: "y".repeat(1000) }] as any,
+      },
+      // Recent turns
+      { role: "user", content: longContent },
+      { role: "assistant", content: longContent },
+      { role: "user", content: "recent q1" },
+      { role: "assistant", content: "recent a1" },
+      { role: "user", content: "recent q2" },
+      { role: "assistant", content: "recent a2" },
+    ];
+
+    const state = createCompressionState();
+    const result = await compressMessages(
+      msgs,
+      state,
+      { enabled: true, triggerTokens: 100, keepRecentTurns: 2 },
+      adapter,
+      "test-model",
+    );
+
+    expect(adapter.complete).toHaveBeenCalledTimes(1);
+    expect(result.state.segments.length).toBe(1);
+  });
+
+  it("handles messages with image_url parts (default branch in formatMessage)", async () => {
+    // Cover the `default` branch in formatMessage (line 170) via image_url ContentPart
+    const adapter = mockAdapter(SAMPLE_COMPRESSION_OUTPUT);
+    const longMsg = "x".repeat(2000);
+
+    const msgs: Message[] = [
+      { role: "user", content: longMsg },
+      { role: "assistant", content: longMsg },
+      { role: "user", content: longMsg },
+      { role: "assistant", content: longMsg },
+      // Message with image_url part (hits default case in formatMessage switch)
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Look at this image:" },
+          { type: "image_url", url: "https://example.com/img.png" } as any,
+        ],
+      } as any,
+      // Recent turns
+      { role: "user", content: "recent q1" },
+      { role: "assistant", content: "recent a1" },
+      { role: "user", content: "recent q2" },
+      { role: "assistant", content: "recent a2" },
+    ];
+
+    const state = createCompressionState();
+    const result = await compressMessages(
+      msgs,
+      state,
+      { enabled: true, triggerTokens: 100, keepRecentTurns: 2 },
+      adapter,
+      "test-model",
+    );
+
+    expect(adapter.complete).toHaveBeenCalledTimes(1);
+    expect(result.state.segments.length).toBe(1);
+  });
 });
 
 // ── Micro-compact ────────────────────────────────────────────────────────────
@@ -498,6 +772,64 @@ describe("microCompact", () => {
     const result = microCompact(msgs, state, { enabled: true });
     expect(result.state.toolUseIds).toEqual(["t1", "t2"]);
   });
+
+  it("should do nothing when gap exceeds threshold but no tool IDs tracked", () => {
+    // Cover line 640: idsToClear.size === 0 path
+    const msgs: Message[] = [
+      { role: "assistant", content: "just thinking" },
+    ];
+    const state: MicroCompactState = {
+      toolUseIds: [],
+      lastAssistantTs: Date.now() - 120 * 60 * 1000, // 120 min ago
+    };
+    const result = microCompact(msgs, state, {
+      enabled: true,
+      gapThresholdMinutes: 60,
+      keepRecent: 5,
+    });
+    // No tool results to clear, messages unchanged
+    expect(result.messages).toBe(msgs);
+    expect(result.state.toolUseIds).toEqual([]);
+  });
+
+  it("should not double-track duplicate tool IDs", () => {
+    const msgs = [
+      toolMsg("tid", "result1"),
+      toolMsg("tid", "result2"), // same tool_call_id
+    ];
+    const state = createMicroCompactState();
+    const result = microCompact(msgs, state, { enabled: true });
+    expect(result.state.toolUseIds).toEqual(["tid"]);
+  });
+
+  it("does nothing when lastAssistantTs is 0 (initial state)", () => {
+    const msgs = [toolMsg("t1", "result")];
+    const state = createMicroCompactState(); // lastAssistantTs = 0
+    const result = microCompact(msgs, state, {
+      enabled: true,
+      gapThresholdMinutes: 60,
+    });
+    // gapMs = Date.now() - 0, but shouldClear requires lastAssistantTs !== 0
+    expect(result.messages).toBe(msgs);
+  });
+
+  it("clears all tool results when keepRecent=0", () => {
+    const msgs = [
+      toolMsg("old1", "result1"),
+      toolMsg("old2", "result2"),
+    ];
+    const state: MicroCompactState = {
+      toolUseIds: ["old1", "old2"],
+      lastAssistantTs: Date.now() - 120 * 60 * 1000,
+    };
+    const result = microCompact(msgs, state, {
+      enabled: true,
+      gapThresholdMinutes: 60,
+      keepRecent: 0,
+    });
+    expect(result.messages[0]!.content).toBe("[Old tool result content cleared]");
+    expect(result.messages[1]!.content).toBe("[Old tool result content cleared]");
+  });
 });
 
 // ── Reactive compact detection ───────────────────────────────────────────────
@@ -516,6 +848,11 @@ describe("isPromptTooLongError", () => {
     expect(isPromptTooLongError(new Error("network timeout"))).toBe(false);
     expect(isPromptTooLongError(null)).toBe(false);
     expect(isPromptTooLongError("string")).toBe(false);
+  });
+
+  it("matches input too large error", () => {
+    expect(isPromptTooLongError(new Error("Input too large for model context"))).toBe(true);
+    expect(isPromptTooLongError(new Error("input too long: 500001 tokens"))).toBe(true);
   });
 });
 

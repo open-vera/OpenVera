@@ -143,6 +143,30 @@ describe("OperationRecorder", () => {
       expect(step.index).toBe(i);
     });
   });
+
+  it("finish with zero steps returns ok:true (every on empty array)", () => {
+    const recorder = new OperationRecorder("zero-steps");
+    const recording = recorder.finish();
+    expect(recording.ok).toBe(true);
+    expect(recording.steps).toHaveLength(0);
+    expect(recording.totalDurationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("wrapTool does NOT catch thrown errors from underlying tool", async () => {
+    const throwingTool: ToolDef = {
+      name: "crash",
+      description: "always throws",
+      parameters: { type: "object", properties: {} },
+      execute: vi.fn().mockRejectedValue(new Error("boom")),
+    };
+    const recorder = new OperationRecorder("throw-test");
+
+    const wrapped = recorder.wrapTool(throwingTool, mockCtx);
+    await expect(wrapped.execute({}, mockCtx)).rejects.toThrow("boom");
+
+    // Step must NOT be recorded because the tool threw before recording
+    expect(recorder.stepCount).toBe(0);
+  });
 });
 
 // ── replay ─────────────────────────────────────────────────────────────────────
@@ -367,6 +391,112 @@ describe("replay", () => {
     expect(result.ok).toBe(true);
     expect(result.steps).toHaveLength(0);
   });
+
+  it("passes dryRun:true through replay context to tools", async () => {
+    let capturedCtx: ToolContext | undefined;
+    const spyTool: ToolDef = {
+      name: "browser",
+      description: "captures ctx",
+      parameters: { type: "object", properties: {} },
+      execute: vi.fn().mockImplementation(async (_args, ctx: ToolContext) => {
+        capturedCtx = ctx;
+        return okResult("ok");
+      }),
+    };
+
+    const tools = new Map<string, ToolDef>();
+    tools.set("browser", spyTool);
+
+    const resolver: ToolResolver = (name) => tools.get(name);
+    await replay(sampleRecording, resolver, mockCtx, {
+      dryRun: true,
+      stopAtStep: 0,
+    });
+
+    expect(capturedCtx?.dryRun).toBe(true);
+  });
+
+  it("returns 'Replay cancelled' when signal is already aborted", async () => {
+    const tools = new Map<string, ToolDef>();
+    tools.set("browser", mockTool("browser", okResult("ok")));
+
+    const controller = new AbortController();
+    controller.abort(); // pre-abort
+
+    const resolver: ToolResolver = (name) => tools.get(name);
+    const result = await replay(sampleRecording, resolver, mockCtx, {
+      signal: controller.signal,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("Replay cancelled");
+    expect(result.steps).toHaveLength(0);
+  });
+
+  it("forwards signal from ctx.signal when options.signal is not set", async () => {
+    let capturedCtx: ToolContext | undefined;
+    const spyTool: ToolDef = {
+      name: "browser",
+      description: "captures ctx",
+      parameters: { type: "object", properties: {} },
+      execute: vi.fn().mockImplementation(async (_args, ctx: ToolContext) => {
+        capturedCtx = ctx;
+        return okResult("ok");
+      }),
+    };
+
+    const controller = new AbortController();
+    const ctxWithSignal: ToolContext = { ...mockCtx, signal: controller.signal };
+
+    const tools = new Map<string, ToolDef>();
+    tools.set("browser", spyTool);
+
+    const resolver: ToolResolver = (name) => tools.get(name);
+    await replay(sampleRecording, resolver, ctxWithSignal, {
+      stopAtStep: 0,
+    });
+
+    expect(capturedCtx?.signal).toBe(controller.signal);
+  });
+
+  it("falls back to result.content in error message when error object is missing", async () => {
+    const resultWithoutError: ToolResult = {
+      ok: false,
+      content: "something went wrong but no error object",
+    };
+    const toolWithBareError = mockTool("browser", resultWithoutError);
+
+    const tools = new Map<string, ToolDef>();
+    tools.set("browser", toolWithBareError);
+
+    const resolver: ToolResolver = (name) => tools.get(name);
+    const result = await replay(sampleRecording, resolver, mockCtx);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("failed: something went wrong but no error object");
+    expect(result.error).not.toContain("undefined");
+  });
+
+  it("handles non-Error throw values (string) in catch path", async () => {
+    const stringThrowTool: ToolDef = {
+      name: "browser",
+      description: "throws a string",
+      parameters: { type: "object", properties: {} },
+      execute: vi.fn().mockRejectedValue("raw string error"),
+    };
+
+    const tools = new Map<string, ToolDef>();
+    tools.set("browser", stringThrowTool);
+
+    const resolver: ToolResolver = (name) => tools.get(name);
+    const result = await replay(sampleRecording, resolver, mockCtx);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("threw: raw string error");
+    expect(result.steps).toHaveLength(1);
+    expect(result.steps[0].result.ok).toBe(false);
+    expect(result.steps[0].result.error?.message).toBe("raw string error");
+  });
 });
 
 // ── Serialization ──────────────────────────────────────────────────────────────
@@ -525,5 +655,79 @@ describe("executeWithRecording", () => {
     expect(recording.steps).toHaveLength(2);
     expect(recording.steps[0].result.ok).toBe(false);
     expect(recording.steps[1].result.ok).toBe(true);
+  });
+
+  it("passes inputArgs to orchestrator (variable interpolation via ${args.KEY})", async () => {
+    const tools = new Map<string, ToolDef>();
+    const browserTool = mockTool("browser", okResult("navigated"));
+    tools.set("browser", browserTool);
+
+    const resolver: ToolResolver = (name) => tools.get(name);
+
+    const steps: StepDefinition[] = [
+      { id: "nav", tool: "browser", args: { action: "navigate", url: "${args.targetUrl}" } },
+    ];
+
+    const { orchestration } = await executeWithRecording(
+      steps,
+      resolver,
+      mockCtx,
+      "with-input-args",
+      { targetUrl: "https://example.com" },
+    );
+
+    expect(orchestration.ok).toBe(true);
+    expect(browserTool.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ url: "https://example.com" }),
+      expect.anything(),
+    );
+  });
+
+  it("records orchestrator execution with globalTimeoutMs", async () => {
+    const tools = new Map<string, ToolDef>();
+    tools.set("browser", mockTool("browser", okResult("done")));
+
+    const resolver: ToolResolver = (name) => tools.get(name);
+
+    const steps: StepDefinition[] = [
+      { id: "nav", tool: "browser", args: {} },
+    ];
+
+    const { orchestration, recording } = await executeWithRecording(
+      steps,
+      resolver,
+      mockCtx,
+      "timeout-test",
+      undefined,
+      { globalTimeoutMs: 30000 },
+    );
+
+    expect(orchestration.ok).toBe(true);
+    expect(recording.label).toBe("timeout-test");
+    expect(recording.steps).toHaveLength(1);
+  });
+
+  it("handles tool not found in recordingResolver (returns undefined)", async () => {
+    const resolver: ToolResolver = () => undefined;
+
+    const steps: StepDefinition[] = [
+      { id: "missing", tool: "nonexistent", args: {} },
+    ];
+
+    const { orchestration, recording } = await executeWithRecording(
+      steps,
+      resolver,
+      mockCtx,
+      "missing-tool",
+    );
+
+    // The orchestrator handles the missing tool by creating a failed StepResult
+    expect(orchestration.ok).toBe(false);
+    expect(orchestration.steps[0].ok).toBe(false);
+    expect(orchestration.steps[0].error).toContain("Tool not found");
+    // The recording resolver returned undefined, so the recorder never wrapped
+    // any tool — the recording has 0 steps but orchestrator has the error
+    expect(recording.ok).toBe(true); // empty steps array -> every() returns true
+    expect(recording.steps).toHaveLength(0);
   });
 });

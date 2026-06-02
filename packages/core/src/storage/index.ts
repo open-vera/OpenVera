@@ -76,3 +76,17 @@ export { TosObjectStore } from "./tos-adapter.js";
 
 export { ArtifactUploader, createArtifactUploader } from "./artifact-uploader.js";
 export type { ArtifactUploaderOptions, UploadedArtifact, UploadReport } from "./artifact-uploader.js";
+
+export {
+  ContentUploader,
+  createContentUploader,
+  ContentUploadError,
+  ContentUploadValidationError,
+  ContentUploadBatchError,
+} from "./content-uploader.js";
+export type {
+  ContentItem,
+  ContentUploadOptions,
+  ContentUploadResult,
+  BatchUploadResult,
+} from "./content-uploader.js";

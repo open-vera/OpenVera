@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { PassThrough } from "node:stream";
+import { EventEmitter } from "node:events";
 import { CliChannelAdapter } from "../cli-channel.js";
 import type { ChannelMessage, MessageCallback } from "../types.js";
 
@@ -239,6 +240,62 @@ describe("CliChannelAdapter", () => {
       await adapter.connect();
 
       expect(received[0].content).toBe("padded content");
+      await adapter.disconnect();
+    });
+
+    it("should handle pipe input when readableEnded is true (race condition)", async () => {
+      // Use a mock that simulates a Readable stream that already ended
+      // with data available. We need both readableEnded===true AND data
+      // emitted synchronously when the 'data' listener is attached.
+      const output = new PassThrough();
+      const input = new EventEmitter() as unknown as import("node:stream").Readable;
+      (input as Record<string, unknown>).readableEnded = true;
+      const origOn = input.on.bind(input);
+      (input as Record<string, unknown>).on = function (
+        event: string,
+        listener: (...args: unknown[]) => void,
+      ) {
+        const result = origOn(event, listener);
+        if (event === "data") {
+          // Emit buffered data synchronously (simulates real Readable behavior)
+          listener(Buffer.from("pre-buffered data\n"));
+        }
+        return result;
+      };
+
+      const adapter = new CliChannelAdapter({ input, output, mode: "pipe" });
+      const received = collectMessages(adapter);
+
+      // connect() will hit the readableEnded branch in readPipe()
+      await adapter.connect();
+
+      expect(adapter.state).toBe("connected");
+      expect(received).toHaveLength(1);
+      expect(received[0].content).toBe("pre-buffered data");
+
+      await adapter.disconnect();
+    });
+
+    it("should handle empty pipe input when readableEnded is true", async () => {
+      // Mock stream that's already ended with no data
+      const output = new PassThrough();
+      const input = new EventEmitter() as unknown as import("node:stream").Readable;
+      (input as Record<string, unknown>).readableEnded = true;
+      // Don't emit any data — simulate empty buffer
+      const origOn = input.on.bind(input);
+      (input as Record<string, unknown>).on = function (
+        event: string,
+        listener: (...args: unknown[]) => void,
+      ) {
+        return origOn(event, listener);
+      };
+
+      const adapter = new CliChannelAdapter({ input, output, mode: "pipe" });
+      const received = collectMessages(adapter);
+
+      await adapter.connect();
+
+      expect(received).toHaveLength(0);
       await adapter.disconnect();
     });
   });
