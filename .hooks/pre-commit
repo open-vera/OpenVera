@@ -9,7 +9,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 STAGED=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null \
-  | grep -v "^\.hooks/")   # exclude the hook scripts themselves
+  | { grep -v "^\.hooks/" || true; })   # exclude the hook scripts themselves
 [[ -z "$STAGED" ]] && exit 0
 
 VIOLATIONS=()
