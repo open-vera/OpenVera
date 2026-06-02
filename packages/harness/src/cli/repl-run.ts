@@ -7,7 +7,7 @@ import { createToolRegistry } from "@open-vera/core/tools";
 import { PromptStore } from "@open-vera/core/prompt";
 import { AnthropicAdapter, OpenAIAdapter, GeminiAdapter } from "@open-vera/core/adapters";
 import type { LLMAdapter } from "@open-vera/core/adapters";
-import { loadConfig } from "@open-vera/core/config";
+import { loadConfig, isConfigEmpty, runSetupWizard } from "@open-vera/core/config";
 import type { ProviderConfig } from "@open-vera/core/config";
 import { createSkillResolver, RegistryToolProvider } from "../skill/index.js";
 import { buildCliAdapter } from "./adapter.js";
@@ -23,7 +23,10 @@ export interface ReplRunArgs {
 
 function findGitRoot(): string | null {
   try {
-    return execSync("git rev-parse --show-toplevel", { encoding: "utf8" }).trim();
+    return execSync("git rev-parse --show-toplevel", {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
   } catch {
     return null;
   }
@@ -32,7 +35,20 @@ function findGitRoot(): string | null {
 export async function runReplCommand(args: ReplRunArgs): Promise<void> {
   const cwd = resolve(args.dir ?? findGitRoot() ?? ".");
 
-  const config = loadConfig();
+  let config = loadConfig();
+
+  // ── First-run setup wizard ─────────────────────────────────────────────
+  // When config is empty (no API key) and stdin is a TTY, launch the
+  // interactive setup wizard so the user can get started without manually
+  // editing config files.
+  if (isConfigEmpty(config) && process.stdin.isTTY) {
+    const selectedProvider = await runSetupWizard(cwd);
+    if (selectedProvider) {
+      config = loadConfig(); // Reload the freshly-written config
+    } else {
+      process.exit(1);
+    }
+  }
 
   const { adapter, model: defaultModel } = buildCliAdapter(
     args.provider ?? config.default_provider,

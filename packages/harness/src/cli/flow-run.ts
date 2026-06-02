@@ -9,6 +9,7 @@ import { markdownToPlan } from "./plan.js";
 import { createSkillResolver, RegistryToolProvider } from "../skill/index.js";
 import { createToolRegistry } from "@open-vera/core/tools";
 import { SessionStore } from "@open-vera/core/session";
+import { loadConfig, isConfigEmpty, runSetupWizard } from "@open-vera/core/config";
 import { loadAgents, createRunnersFromAgents } from "./agent-loader.js";
 
 export interface FlowRunArgs {
@@ -60,6 +61,17 @@ export async function runFlowCommand(args: FlowRunArgs): Promise<void> {
     console.error(`Error: No .flow/ directory found in ${projectDir}`);
     console.error("Create .flow/flow.md to define a flow.");
     process.exit(1);
+  }
+
+  // ── First-run setup wizard ─────────────────────────────────────────────
+  let config = loadConfig();
+  if (isConfigEmpty(config) && process.stdin.isTTY) {
+    const selectedProvider = await runSetupWizard(projectDir);
+    if (selectedProvider) {
+      config = loadConfig();
+    } else {
+      process.exit(1);
+    }
   }
 
   const { adapter, model: defaultModel } = buildCliAdapter(args.provider, args.apiKey);

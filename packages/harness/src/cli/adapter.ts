@@ -33,7 +33,11 @@ export function buildCliAdapter(
   if (!apiKey) {
     console.error(
       `Error: No API key for provider "${providerName}".\n` +
-      `  Set ${envVarFor(pc.adapter)}=<key>  or add to .vera/settings.json`
+      `\n` +
+      `  To configure, either:\n` +
+      `    1. Run  openvera  again (first-time setup wizard)\n` +
+      `    2. Set  ${envVarFor(pc.adapter)}=<key>  environment variable\n` +
+      `    3. Add  "api_key": "<key>"  to .vera/settings.json\n`
     );
     process.exit(1);
   }
