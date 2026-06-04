@@ -35,12 +35,19 @@ export async function providerCommand(
   }
 
   ctx.config.default_provider = name;
+  let nextModel = ctx.model;
   if (!ctx.config.routing?.enabled) {
     const alias = resolveDefaultModelAliasForProvider(ctx.config, name);
-    if (alias) ctx.config.default_model = alias;
+    if (alias) {
+      ctx.config.default_model = alias;
+      nextModel = resolveDefaultTarget(ctx.config).model;
+    } else if (ctx.config.default_model) {
+      nextModel = resolveDefaultTarget(ctx.config).model;
+    }
+  } else {
+    nextModel = resolveDefaultTarget(ctx.config).model;
   }
-  const target = resolveDefaultTarget(ctx.config);
-  ctx.model = target.model;
+  ctx.model = nextModel;
   ctx.adapter = ctx.buildAdapter(name, ctx.model);
 
   try {

@@ -61,34 +61,44 @@ function refs(): TurnContextRefs {
 
 describe("turnContextRuntime", () => {
   it("loads project context, creates memory tracker, and prepares dynamic context", async () => {
-    const scanned = [memory({ path: "/tmp/run/memory/a.md", filename: "a.md", mtimeMs: 10 })];
-    const tracker = {
-      scan: vi.fn().mockResolvedValue(scanned),
-      selectForInjection: vi.fn((files: MemoryFile[]) => files.slice(0, 1)),
-    };
-    const state = refs();
+    const previousVeraHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = "/tmp/run-home";
+    try {
+      const scanned = [memory({ path: "/tmp/run/memory/a.md", filename: "a.md", mtimeMs: 10 })];
+      const tracker = {
+        scan: vi.fn().mockResolvedValue(scanned),
+        selectForInjection: vi.fn((files: MemoryFile[]) => files.slice(0, 1)),
+      };
+      const state = refs();
 
-    const prepared = await prepareTurnContext({
-      ctx: ctx(),
-      activeModel: "model-x",
-      turnCount: 0,
-      refs: state,
-      loadProjectContextImpl: () => projectContext(),
-      createMemoryTracker: (memoryDir) => {
-        expect(memoryDir).toBe("/tmp/run/memory");
-        return tracker as never;
-      },
-    });
+      const prepared = await prepareTurnContext({
+        ctx: ctx(),
+        activeModel: "model-x",
+        turnCount: 0,
+        refs: state,
+        loadProjectContextImpl: () => projectContext(),
+        createMemoryTracker: (memoryDir) => {
+          expect(memoryDir).toBe("/tmp/run-home/.vera/memory");
+          return tracker as never;
+        },
+      });
 
-    expect(prepared.runDir).toBe("/tmp/run");
-    expect(prepared.projectContext.system).toBe("Project system");
-    expect(prepared.memoryTracker).toBe(tracker);
-    expect(prepared.dynamicContext.memoryTracker).toBe(tracker);
-    expect(prepared.dynamicContext.scannedMemoryFiles).toEqual(scanned);
-    expect(state.loadedVeraContextPathsRef.current).toEqual(new Set(["/tmp/project/VERA.md"]));
-    expect(state.frozenMemoryFilesRef.current).toEqual(scanned);
-    expect(state.frozenMemorySignatureRef.current).toBe("/tmp/run/memory/a.md:10");
-    expect(state.frozenMemoryTurnRef.current).toBe(0);
+      expect(prepared.runDir).toBe("/tmp/run");
+      expect(prepared.projectContext.system).toBe("Project system");
+      expect(prepared.memoryTracker).toBe(tracker);
+      expect(prepared.dynamicContext.memoryTracker).toBe(tracker);
+      expect(prepared.dynamicContext.scannedMemoryFiles).toEqual(scanned);
+      expect(state.loadedVeraContextPathsRef.current).toEqual(new Set(["/tmp/project/VERA.md"]));
+      expect(state.frozenMemoryFilesRef.current).toEqual(scanned);
+      expect(state.frozenMemorySignatureRef.current).toBe("/tmp/run/memory/a.md:10");
+      expect(state.frozenMemoryTurnRef.current).toBe(0);
+    } finally {
+      if (previousVeraHome === undefined) {
+        delete process.env.VERA_HOME;
+      } else {
+        process.env.VERA_HOME = previousVeraHome;
+      }
+    }
   });
 
   it("reuses cached project context and memory selection when inventory is unchanged", async () => {
