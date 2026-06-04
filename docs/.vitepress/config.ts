@@ -117,7 +117,7 @@ export default defineConfig({
       title: "OpenVera",
       description: "Harness-native agent runtime",
       themeConfig: {
-        logo: "/OpenVera/favicon.png",
+        logo: "/favicon.png",
         nav: [
           { text: "Home", link: "/" },
           { text: "Docs", link: "/README" },
@@ -131,7 +131,7 @@ export default defineConfig({
       title: "OpenVera",
       description: "以 Harness 为内核的 agent runtime",
       themeConfig: {
-        logo: "/OpenVera/favicon.png",
+        logo: "/favicon.png",
         nav: [
           { text: "首页", link: "/zh/" },
           { text: "文档", link: "/zh/README" },
