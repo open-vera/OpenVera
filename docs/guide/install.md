@@ -1,27 +1,66 @@
-# Config & Paths
+# 安装与配置
 
-> Vera's configuration loading, path resolution, setup wizard, resource synchronization, and Claude Code migration.
+## 安装
 
----
+```bash
+npm i @open-vera/openvera@latest -g
+```
 
-## Overview
+启动：
 
-Vera's configuration system is composed of the following modules:
+```bash
+ai
+```
 
-| Module | File | Responsibility |
+`ai`、`vera`、`openvera` 三个命令等价。首次运行自动进入交互式配置向导。
+
+```bash
+ai init          # 重新运行配置向导
+ai init --force  # 强制重新初始化
+```
+
+## 最简配置
+
+```jsonc
+// ~/.vera/settings.json
+{
+  "providers": {
+    "my-provider": {
+      "adapter": "anthropic",
+      "api_key": "sk-ant-...",
+      "base_url": "https://your-gateway.example.com"
+    }
+  },
+  "default_model": "claude-sonnet-4-6"
+}
+```
+
+`base_url` 指向公司 API 网关或自定义端点，不填则使用各 adapter 默认地址。
+
+## 模型路由（可选）
+
+开启后按任务复杂度自动选择最优模型，通常可降低 60%+ 成本：
+
+```jsonc
+{
+  "providers": { ... },
+  "routing": {
+    "enabled": true,
+    "classifier": "claude-haiku-4-5",
+    "l0": "claude-haiku-4-5",
+    "l1": "claude-sonnet-4-6",
+    "l2": "claude-opus-4-7"
+  }
+}
+```
+
+| 级别 | 场景 | 示例 |
 |---|---|---|
-| `types.ts` | Type definitions | Full `VeraConfig` schema, including providers / models / routing / session / mcp_servers |
-| `paths.ts` | Path resolution | Global paths, project paths, config location logic |
-| `loader.ts` | Config loading | Read, write, and auto-migration coordination |
-| `setup.ts` | Setup wizard | Interactive selection of provider / API key / model, triggered on first launch |
-| `providers.ts` | Provider presets | Default model lists and adapters for Anthropic / OpenAI / Gemini / DeepSeek / Groq |
-| `model-tiers.ts` | Model tier resolution | Resolution and fallback logic for default target / classifier / L0-L2 |
-| `resource-sync.ts` | External resource sync | Symlinks rules/skills/memories from Claude Code, Codex, OpenClaw, Hermes into Vera |
-| `claude-code-migration.ts` | Claude Code -> Vera migration | Reads API key and model config from `~/.claude/settings.json`, auto-creates Vera config |
+| L0 | 闲聊、简单问答 | "TypeScript 是什么？" |
+| L1 | 单步任务 | "写一个解析 CSV 的函数" |
+| L2 | 多步、深度推理 | "设计一个分布式锁系统" |
 
 ---
-
-## Configuration File Hierarchy
 
 ### Lookup Order (`resolveConfigLocation`)
 
