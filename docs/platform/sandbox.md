@@ -1,60 +1,60 @@
-# Sandbox — 代码执行隔离系统
+# Sandbox -- Code Execution Isolation
 
-## 定位
+## Overview
 
-Sandbox 系统为 Vera 提供**安全的代码执行环境**。agent 需要在沙箱内运行脚本、安装依赖、编译代码、执行测试，但不能直接接触宿主机文件系统或网络。所有外部代码执行都必须通过 Sandbox 抽象层，禁止绕过分层直接使用 `child_process`。
+The Sandbox system provides Vera with a **secure code execution environment**. Agents need to run scripts, install dependencies, compile code, and execute tests inside a sandbox, without direct access to the host filesystem or network. All external code execution must go through the Sandbox abstraction layer; bypassing it with raw `child_process` is forbidden.
 
-Sandbox 不仅是安全边界，还是**环境抽象层**：同一个工具调用可以在本地 Docker、远程 CubeSandbox 微虚拟机、或未来的云沙箱服务上运行，调用方无需感知后端差异。
-
----
-
-## 设计原则
-
-### 安全边界
-
-```
-宿主机 (Host)
-  │
-  ├─ 项目文件 (可挂载，只读)
-  │
-  └─ Sandbox 隔离层 ─────────────────────────────
-       │
-       ├─ 文件系统：独立 overlay / volume
-       ├─ 网络：bridge / host / none
-       ├─ 进程：独立 PID namespace
-       ├─ 资源：CPU / Memory / Disk 限额
-       │
-       └─ Tool 调用 ← Agent
-```
-
-### 核心原则
-
-1. **隔离优先**：任何用户代码默认在隔离环境中执行，不暴露宿主机
-2. **接口统一**：`SandboxProvider` 接口抽象所有后端，调用方不感知实现
-3. **显式授权**：敏感操作（网络访问、文件挂载）需在创建时显式声明
-4. **资源受限**：CPU、内存、磁盘、超时均有上限，防止失控消耗
-5. **生命周期可控**：从创建到销毁全程可追踪，离开作用域自动清理
+The Sandbox is not only a security boundary but also an **environment abstraction layer**: the same tool invocation can run on local Docker, a remote CubeSandbox microVM, or future cloud sandbox services, with the caller unaware of the backend differences.
 
 ---
 
-## 架构
+## Design Principles
+
+### Security Boundary
+
+```
+Host
+  |
+  +-- Project files (mountable, read-only)
+  |
+  +-- Sandbox Isolation Layer -------------------------
+       |
+       +-- Filesystem: isolated overlay / volume
+       +-- Network: bridge / host / none
+       +-- Processes: isolated PID namespace
+       +-- Resources: CPU / Memory / Disk limits
+       |
+       +-- Tool Calls <-- Agent
+```
+
+### Core Principles
+
+1. **Isolation first**: All user code executes in an isolated environment by default, never exposing the host.
+2. **Unified interface**: The `SandboxProvider` interface abstracts all backends; callers are unaware of implementations.
+3. **Explicit authorization**: Sensitive operations (network access, file mounts) must be explicitly declared at creation time.
+4. **Resource limits**: CPU, memory, disk, and timeout all have caps to prevent runaway consumption.
+5. **Controlled lifecycle**: Fully traceable from creation to destruction; automatic cleanup when out of scope.
+
+---
+
+## Architecture
 
 ```
 packages/core/src/sandbox/
-  types.ts          # SandboxProvider 接口 + 错误类型
-  cubesandbox.ts    # CubeSandbox 远程微虚拟机适配器
-  docker.ts         # Docker CLI 本地容器适配器
+  types.ts          # SandboxProvider interface + error types
+  cubesandbox.ts    # CubeSandbox remote microVM adapter
+  docker.ts         # Docker CLI local container adapter
   index.ts          # Barrel export
 
 packages/core/src/tools/
-  sandbox.ts        # 沙箱工具：sandbox_exec / sandbox_upload / sandbox_download
+  sandbox.ts        # Sandbox tools: sandbox_exec / sandbox_upload / sandbox_download
 ```
 
 ---
 
-## SandboxProvider 接口
+## SandboxProvider Interface
 
-### 接口定义
+### Interface Definition
 
 ```ts
 interface SandboxProvider {
@@ -68,7 +68,7 @@ interface SandboxProvider {
 }
 ```
 
-### SandboxInstance 接口
+### SandboxInstance Interface
 
 ```ts
 interface SandboxInstance {
@@ -77,50 +77,50 @@ interface SandboxInstance {
   readonly provider: string;
   readonly createdAt: Date;
 
-  // 命令执行
+  // Command execution
   exec(command: string, options?: SandboxExecOptions): Promise<SandboxExecResult>;
 
-  // 文件传输
+  // File transfer
   upload(localPath: string, remotePath: string): Promise<void>;
   uploadContent(content: string | Uint8Array, remotePath: string): Promise<void>;
   download(remotePath: string, localPath: string): Promise<void>;
   readFile(remotePath: string): Promise<string>;
 
-  // 生命周期
+  // Lifecycle
   stop(): Promise<void>;
   resume(): Promise<void>;
   destroy(): Promise<void>;
 }
 ```
 
-### 状态机
+### State Machine
 
 ```
-  creating ──→ ready ──→ running
-                  │          │
-                  │       stopped
-                  │          │
-                  ▼          ▼
-               error     destroyed
+  creating ---> ready ---> running
+                  |           |
+                  |        stopped
+                  |           |
+                  v           v
+               error      destroyed
 ```
 
-- `creating`：沙箱正在创建（镜像拉取、环境初始化）
-- `ready`：沙箱已启动，等待命令
-- `running`：正在执行命令
-- `stopped`：已暂停（可恢复）
-- `error`：异常状态（超时、资源耗尽等）
-- `destroyed`：已销毁（终态，不可恢复）
+- `creating`: Sandbox being created (image pull, environment init)
+- `ready`: Sandbox started, waiting for commands
+- `running`: Command executing
+- `stopped`: Paused (resumable)
+- `error`: Abnormal state (timeout, resource exhaustion, etc.)
+- `destroyed`: Destroyed (terminal, not recoverable)
 
-### 创建选项
+### Creation Options
 
 ```ts
 interface SandboxCreateOptions {
-  image?: string;              // Docker 镜像（默认 "node:20-alpine"）
-  workdir?: string;            // 容器内工作目录
-  env?: Record<string, string>;  // 环境变量
-  resources?: SandboxResources;  // CPU/内存/磁盘 限制
-  timeoutSeconds?: number;       // 沙箱超时（0 = 无限制）
-  tags?: Record<string, string>; // 组织标签
+  image?: string;                // Docker image (default "node:20-alpine")
+  workdir?: string;              // Working directory inside container
+  env?: Record<string, string>;  // Environment variables
+  resources?: SandboxResources;  // CPU/Memory/Disk limits
+  timeoutSeconds?: number;       // Sandbox timeout (0 = unlimited)
+  tags?: Record<string, string>; // Organization tags
   networkMode?: string;          // "bridge" | "host" | "none"
   volumes?: Array<{
     hostPath: string;
@@ -132,64 +132,64 @@ interface SandboxCreateOptions {
 
 ---
 
-## CubeSandbox 适配器
+## CubeSandbox Adapter
 
-### 定位
+### Overview
 
-`CubeSandboxProvider`（`packages/core/src/sandbox/cubesandbox.ts`）是腾讯开源的微虚拟机沙箱项目（Apache 2.0）的客户端适配器。CubeSandbox 通过 HTTP REST API 提供 E2B 兼容的沙箱管理接口。
+`CubeSandboxProvider` (`packages/core/src/sandbox/cubesandbox.ts`) is a client adapter for Tencent's open-source microVM sandbox project (Apache 2.0). CubeSandbox provides E2B-compatible sandbox management via an HTTP REST API.
 
-### 连接配置
+### Connection Configuration
 
 ```ts
 interface CubeSandboxOptions {
-  baseUrl?: string;           // API 地址（环境变量 CUBESANDBOX_URL，默认 localhost:8080）
-  apiKey?: string;            // 认证密钥（环境变量 CUBESANDBOX_API_KEY）
-  defaultImage?: string;      // 默认镜像（默认 "ubuntu:22.04"）
-  requestTimeoutMs?: number;  // HTTP 请求超时（默认 30000ms）
+  baseUrl?: string;             // API URL (env CUBESANDBOX_URL, default localhost:8080)
+  apiKey?: string;              // Auth key (env CUBESANDBOX_API_KEY)
+  defaultImage?: string;        // Default image (default "ubuntu:22.04")
+  requestTimeoutMs?: number;    // HTTP request timeout (default 30000ms)
 }
 ```
 
-### API 端点
+### API Endpoints
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `POST` | `/sandboxes` | 创建沙箱 |
-| `GET` | `/sandboxes` | 列出所有沙箱 |
-| `GET` | `/sandboxes/:id` | 获取沙箱信息 |
-| `DELETE` | `/sandboxes/:id` | 销毁单个沙箱 |
-| `DELETE` | `/sandboxes` | 销毁所有沙箱 |
-| `POST` | `/sandboxes/:id/exec` | 执行命令 |
-| `POST` | `/sandboxes/:id/files/:path` | 上传文件 |
-| `GET` | `/sandboxes/:id/files/:path` | 读取/下载文件 |
-| `POST` | `/sandboxes/:id/stop` | 暂停沙箱 |
-| `POST` | `/sandboxes/:id/resume` | 恢复沙箱 |
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/sandboxes` | Create sandbox |
+| `GET` | `/sandboxes` | List all sandboxes |
+| `GET` | `/sandboxes/:id` | Get sandbox info |
+| `DELETE` | `/sandboxes/:id` | Destroy single sandbox |
+| `DELETE` | `/sandboxes` | Destroy all sandboxes |
+| `POST` | `/sandboxes/:id/exec` | Execute command |
+| `POST` | `/sandboxes/:id/files/:path` | Upload file |
+| `GET` | `/sandboxes/:id/files/:path` | Read/download file |
+| `POST` | `/sandboxes/:id/stop` | Pause sandbox |
+| `POST` | `/sandboxes/:id/resume` | Resume sandbox |
 
-### HTTP 客户端实现细节
+### HTTP Client Details
 
-所有 HTTP 请求通过统一的 `requestCubeSandbox` 函数发出：
+All HTTP requests go through a unified `requestCubeSandbox` function:
 
-- **认证**：`Authorization: Bearer <apiKey>` header
-- **超时**：`AbortController` + `setTimeout` 实现请求超时
-- **错误映射**：
-  - HTTP 404 → `SandboxNotFoundError`
-  - HTTP 429 → `SandboxQuotaError`
-  - 其他错误 → `SandboxConnectionError`
-  - AbortError → `SandboxTimeoutError`
-  - fetch TypeError → `SandboxConnectionError`
-- **文件传输**：使用 base64 编码传输二进制内容
+- **Authentication**: `Authorization: Bearer <apiKey>` header
+- **Timeout**: `AbortController` + `setTimeout`
+- **Error mapping**:
+  - HTTP 404 -> `SandboxNotFoundError`
+  - HTTP 429 -> `SandboxQuotaError`
+  - Other errors -> `SandboxConnectionError`
+  - AbortError -> `SandboxTimeoutError`
+  - fetch TypeError -> `SandboxConnectionError`
+- **File transfer**: Uses base64 encoding for binary content
 
-### 使用示例
+### Usage
 
 ```ts
 import { CubeSandboxProvider, createCubeSandboxProvider } from "@vera/core";
 
-// 方式 1：使用工厂函数（推荐）
+// Method 1: Factory function (recommended)
 const provider = createCubeSandboxProvider({
   baseUrl: "https://sandbox.example.com/api",
   apiKey: process.env.CUBESANDBOX_API_KEY,
 });
 
-// 方式 2：直接实例化
+// Method 2: Direct instantiation
 const provider = new CubeSandboxProvider({
   baseUrl: process.env.CUBESANDBOX_URL,
   apiKey: process.env.CUBESANDBOX_API_KEY,
@@ -210,20 +210,20 @@ await instance.destroy();
 
 ---
 
-## Docker 适配器
+## Docker Adapter
 
-### 定位
+### Overview
 
-`DockerSandboxProvider`（`packages/core/src/sandbox/docker.ts`）是本地 Docker 的适配器，通过 Docker CLI（`docker create`、`docker exec`、`docker cp` 等）管理沙箱容器，适合本地开发和测试。
+`DockerSandboxProvider` (`packages/core/src/sandbox/docker.ts`) is a local Docker adapter that manages sandbox containers via the Docker CLI (`docker create`, `docker exec`, `docker cp`, etc.), suitable for local development and testing.
 
-### 关键技术决策
+### Key Technical Decisions
 
-- **使用 Docker CLI而非 Docker SDK**：CLI 在各平台一致性更好，无额外 npm 依赖
-- **`execFile` 而非 `exec`**：避免 shell 注入，所有参数以数组传递
-- **标签管理**：通过 Docker label（`vera.sandbox=true`）标记 Vera 管理的容器，`destroyAll` 时清理孤儿容器
-- **容器保活**：`tail -f /dev/null || sleep infinity` 保持容器运行
+- **Uses Docker CLI, not Docker SDK**: Better cross-platform consistency, no extra npm dependency.
+- **`execFile` not `exec`**: Avoids shell injection; all parameters passed as arrays.
+- **Label management**: Docker labels (`vera.sandbox=true`) mark Vera-managed containers; `destroyAll` cleans up orphan containers.
+- **Container keep-alive**: `tail -f /dev/null || sleep infinity` keeps the container running.
 
-### 容器配置
+### Container Configuration
 
 ```ts
 const provider = new DockerSandboxProvider({
@@ -231,16 +231,14 @@ const provider = new DockerSandboxProvider({
 });
 ```
 
-创建时自动设置：
-- 唯一容器名：`vera-sb-{randomHex(8)}`
-- Docker labels：`vera.sandbox=true`、`vera.sandbox.id=<id>`、自定义 tags
-- 可选：CPU 限制（`--cpus`）、内存限制（`--memory`）
-- 可选：网络模式（`--network`）、卷挂载（`--volume`）
-- 可选：环境变量（`--env`）、工作目录（`--workdir`）
+Automatically set on creation:
+- Unique container name: `vera-sb-{randomHex(8)}`
+- Docker labels: `vera.sandbox=true`, `vera.sandbox.id=<id>`, custom tags
+- Optional: CPU limit (`--cpus`), memory limit (`--memory`)
+- Optional: Network mode (`--network`), volume mounts (`--volume`)
+- Optional: Environment variables (`--env`), working directory (`--workdir`)
 
-### 状态映射
-
-Docker 容器状态到 `SandboxStatus` 的映射：
+### Status Mapping
 
 | Docker State | SandboxStatus |
 |-------------|---------------|
@@ -249,91 +247,91 @@ Docker 容器状态到 `SandboxStatus` 的映射：
 | `paused` / `restarting` / `exited` / `dead` | `stopped` |
 | `removing` | `destroyed` |
 
-### 命令执行安全
+### Command Execution Safety
 
-`exec` 方法通过 `docker exec` 执行命令，使用 `/bin/sh -c` 作为 shell。stdin 通过 `printf '%s' ... | command` 注入（使用 `JSON.stringify` 转义），不会直接拼接到 shell 命令中。
+`exec` runs commands via `docker exec` using `/bin/sh -c` as the shell. stdin is injected via `printf '%s' ... | command` (using `JSON.stringify` for escaping), never directly concatenated into shell commands.
 
-### 异常处理
+### Error Handling
 
-- Docker daemon 不可用 → `SandboxConnectionError`
-- 容器不存在 → `SandboxNotFoundError`
-- 命令执行超时 → `SandboxTimeoutError`（检测 `killed`、`ETIMEDOUT`、`SIGTERM`）
-- 非零退出码 → 返回结果而非抛异常（调用方可检查 `exitCode`）
+- Docker daemon unavailable -> `SandboxConnectionError`
+- Container not found -> `SandboxNotFoundError`
+- Command timeout -> `SandboxTimeoutError` (detects `killed`, `ETIMEDOUT`, `SIGTERM`)
+- Non-zero exit code -> returns result rather than throwing (caller checks `exitCode`)
 
 ---
 
-## Tool 集成
+## Tool Integration
 
-### 三个沙箱工具
+### Three Sandbox Tools
 
-`packages/core/src/tools/sandbox.ts` 定义了三个标准 tool：
+`packages/core/src/tools/sandbox.ts` defines three standard tools:
 
-| 工具 | 用途 | 必填参数 | 可选参数 |
-|------|------|---------|---------|
-| `sandbox_exec` | 在沙箱内执行命令 | `sandboxId`, `command` | `workdir`, `env`, `timeoutSeconds` |
-| `sandbox_upload` | 上传文件到沙箱 | `sandboxId`, `remotePath` | `localPath`, `content` |
-| `sandbox_download` | 从沙箱下载文件 | `sandboxId`, `remotePath` | `localPath` |
+| Tool | Purpose | Required Args | Optional Args |
+|------|---------|---------------|---------------|
+| `sandbox_exec` | Execute command in sandbox | `sandboxId`, `command` | `workdir`, `env`, `timeoutSeconds` |
+| `sandbox_upload` | Upload file to sandbox | `sandboxId`, `remotePath` | `localPath`, `content` |
+| `sandbox_download` | Download file from sandbox | `sandboxId`, `remotePath` | `localPath` |
 
-### 工具执行流程
+### Execution Flow
 
 ```
-Agent → tool_call: sandbox_exec({sandboxId: "sb-123", command: "npm test"})
-  │
-  ▼
+Agent -> tool_call: sandbox_exec({sandboxId: "sb-123", command: "npm test"})
+  |
+  v
 SandboxExecTool.execute(args, ctx)
-  │
-  ├─ 1. 获取 SandboxProvider (ctx.sandboxProvider)
-  │     └─ 不可用 → 返回 errorResult
-  │
-  ├─ 2. 查找 SandboxInstance (provider.get(args.sandboxId))
-  │     └─ 不存在 → 返回 NOT_FOUND
-  │
-  ├─ 3. 执行命令 (instance.exec(command, options))
-  │     └─ 默认超时 120s
-  │
-  └─ 4. 格式化返回
-       ├─ ok: exitCode === 0
-       ├─ content: stdout + stderr + exit code + duration
-       └─ error: 非零退出码时附带 EXEC_ERROR
+  |
+  +-- 1. Get SandboxProvider (ctx.sandboxProvider)
+  |     +-- unavailable -> return errorResult
+  |
+  +-- 2. Find SandboxInstance (provider.get(args.sandboxId))
+  |     +-- not found -> return NOT_FOUND
+  |
+  +-- 3. Execute command (instance.exec(command, options))
+  |     +-- default timeout 120s
+  |
+  +-- 4. Format result
+       +-- ok: exitCode === 0
+       +-- content: stdout + stderr + exit code + duration
+       +-- error: EXEC_ERROR on non-zero exit code
 ```
 
-### ToolContext 注入
+### ToolContext Injection
 
-SandboxProvider 通过 `ToolContext.sandboxProvider` 注入到所有工具的上下文中：
+The SandboxProvider is injected into all tool contexts via `ToolContext.sandboxProvider`:
 
 ```ts
 interface ToolContext {
-  // ... 其他字段 ...
+  // ... other fields ...
   sandboxProvider?: SandboxProvider;
 }
 ```
 
-工具实现不直接依赖具体 provider，而是通过 context 获取，保持可测试性和可替换性。
+Tool implementations do not directly depend on specific providers; they obtain them through context, preserving testability and substitutability.
 
 ---
 
-## 安全模型
+## Security Model
 
-### 已实现的安全控制
+### Implemented Security Controls
 
-| 控制层 | 机制 | 说明 |
-|--------|------|------|
-| 进程隔离 | Docker / CubeSandbox 容器化 | 沙箱内进程无法访问宿主机进程 |
-| 文件系统隔离 | overlay / volume | 默认不挂载宿主机路径 |
-| 网络隔离 | `--network none` | 默认无网络访问，需显式开启 |
-| 资源限制 | `--cpus` / `--memory` | 防止 CPU / 内存消耗失控 |
-| 超时控制 | `timeoutSeconds` | 单命令和沙箱级别双重超时 |
-| 工具层安全 | SecurityPlugin | 路径净化、工具白名单、预算控制 |
+| Control Layer | Mechanism | Description |
+|---------------|-----------|-------------|
+| Process isolation | Docker / CubeSandbox containerization | Sandbox processes cannot access host processes |
+| Filesystem isolation | overlay / volume | Host paths not mounted by default |
+| Network isolation | `--network none` | No network access by default, must be explicitly enabled |
+| Resource limits | `--cpus` / `--memory` | Prevents runaway CPU/memory consumption |
+| Timeout control | `timeoutSeconds` | Dual timeout at command and sandbox level |
+| Tool-layer security | SecurityPlugin | Path sanitization, tool allowlist, budget control |
 
-### SecurityPlugin 集成
+### SecurityPlugin Integration
 
-Sandbox 工具的执行路径经过 `SecurityPlugin` 的 `onBeforeToolCall` hook：
+Sandbox tool execution paths go through `SecurityPlugin`'s `onBeforeToolCall` hook:
 
-1. **路径越界检查**：确保文件上传/下载路径不逃逸出沙箱边界
-2. **工具白名单**：sandbox 工具需显式注册到白名单
-3. **预算控制**：沙箱命令消耗计入 token/费用预算
+1. **Path escape check**: Ensures file upload/download paths do not escape the sandbox boundary.
+2. **Tool allowlist**: Sandbox tools must be explicitly registered in the allowlist.
+3. **Budget control**: Sandbox commands consume token/cost budget.
 
-### 推荐的安全配置
+### Recommended Security Config
 
 ```json
 {
@@ -357,9 +355,9 @@ Sandbox 工具的执行路径经过 `SecurityPlugin` 的 `onBeforeToolCall` hook
 
 ---
 
-## 配置示例
+## Configuration
 
-### 完整 Sandbox 配置
+### Full Sandbox Config
 
 ```json
 {
@@ -392,50 +390,50 @@ Sandbox 工具的执行路径经过 `SecurityPlugin` 的 `onBeforeToolCall` hook
 }
 ```
 
-### 环境变量
+### Environment Variables
 
-| 变量 | 用途 |
-|------|------|
-| `CUBESANDBOX_URL` | CubeSandbox API 地址 |
-| `CUBESANDBOX_API_KEY` | CubeSandbox API 认证密钥 |
-| `VERA_SANDBOX_PROVIDER` | 默认沙箱提供方（"docker" / "cubesandbox"） |
-
----
-
-## 错误类型
-
-| 错误类 | Code | 触发条件 |
-|--------|------|---------|
-| `SandboxError` | 自定义 | 基类 |
-| `SandboxNotFoundError` | `SANDBOX_NOT_FOUND` | 沙箱 ID 不存在 |
-| `SandboxTimeoutError` | `SANDBOX_TIMEOUT` | 命令执行超时 |
-| `SandboxExecError` | `SANDBOX_EXEC_ERROR` | 命令执行失败（非零退出码） |
-| `SandboxConnectionError` | `SANDBOX_CONNECTION` | 连接后端失败（Docker daemon 或 API 不可达） |
-| `SandboxQuotaError` | `SANDBOX_QUOTA` | 配额超限（HTTP 429） |
+| Variable | Purpose |
+|----------|---------|
+| `CUBESANDBOX_URL` | CubeSandbox API URL |
+| `CUBESANDBOX_API_KEY` | CubeSandbox API auth key |
+| `VERA_SANDBOX_PROVIDER` | Default sandbox provider ("docker" / "cubesandbox") |
 
 ---
 
-## 当前状态与路线图
+## Error Types
 
-### 已实现 (P1)
+| Error Class | Code | Trigger |
+|-------------|------|---------|
+| `SandboxError` | Custom | Base class |
+| `SandboxNotFoundError` | `SANDBOX_NOT_FOUND` | Sandbox ID does not exist |
+| `SandboxTimeoutError` | `SANDBOX_TIMEOUT` | Command execution timed out |
+| `SandboxExecError` | `SANDBOX_EXEC_ERROR` | Command execution failed (non-zero exit) |
+| `SandboxConnectionError` | `SANDBOX_CONNECTION` | Backend connection failed (Docker daemon or API unreachable) |
+| `SandboxQuotaError` | `SANDBOX_QUOTA` | Quota exceeded (HTTP 429) |
 
-- `SandboxProvider` 与 `SandboxInstance` 接口定义
-- `CubeSandboxProvider`：HTTP REST 客户端，完整沙箱生命周期管理
-- `DockerSandboxProvider`：Docker CLI 驱动，本地开发和测试
-- 三个标准沙箱 tool（`sandbox_exec` / `sandbox_upload` / `sandbox_download`）
-- `ToolContext.sandboxProvider` 注入机制
-- 完整的错误类型体系
-- Docker 标签隔离 + `destroyAll` 孤儿容器清理
+---
 
-### 计划实现 (P2-P3)
+## Current Status and Roadmap
 
-| 功能 | 优先级 | 说明 |
-|------|--------|------|
-| 沙箱池（Sandbox Pool） | P2 | 预创建沙箱池，复用热容器减少冷启动延迟 |
-| CLI 沙箱命令 | P2 | `/sandbox create/list/destroy` 交互式管理 |
-| 沙箱内编辑器集成 | P2 | 支持在沙箱内直接使用 Edit Tool |
-| Kubernetes Pod 适配器 | P3 | 接入 K8s，适合大规模并行执行 |
-| Firecracker 适配器 | P3 | 更轻量级的 microVM 后端 |
-| 沙箱性能监控 | P3 | CPU/内存/磁盘/网络的实时指标采集 |
-| 沙箱网络策略 | P3 | 精细化的网络访问控制（域名/端口白名单） |
-| 快照/恢复 | P3 | 沙箱状态快照，快速恢复到已知状态 |
+### Implemented (P1)
+
+- `SandboxProvider` and `SandboxInstance` interface definitions
+- `CubeSandboxProvider`: HTTP REST client, complete sandbox lifecycle management
+- `DockerSandboxProvider`: Docker CLI driver, local dev and testing
+- Three standard sandbox tools (`sandbox_exec` / `sandbox_upload` / `sandbox_download`)
+- `ToolContext.sandboxProvider` injection mechanism
+- Complete error type system
+- Docker label isolation + `destroyAll` orphan container cleanup
+
+### Planned (P2-P3)
+
+| Feature | Priority | Notes |
+|---------|----------|-------|
+| Sandbox pool | P2 | Pre-create sandbox pools; reuse warm containers to reduce cold-start latency |
+| CLI sandbox commands | P2 | `/sandbox create/list/destroy` interactive management |
+| In-sandbox editor integration | P2 | Use Edit Tool directly inside sandboxes |
+| Kubernetes Pod adapter | P3 | K8s integration for large-scale parallel execution |
+| Firecracker adapter | P3 | Lighter-weight microVM backend |
+| Sandbox performance monitoring | P3 | Real-time CPU/memory/disk/network metrics |
+| Sandbox network policies | P3 | Fine-grained network access control (domain/port allowlists) |
+| Snapshot/restore | P3 | Sandbox state snapshots for fast recovery to known states |

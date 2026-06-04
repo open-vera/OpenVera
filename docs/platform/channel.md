@@ -1,43 +1,43 @@
-# Channel 系统
+# Channel System
 
-> 本文档描述 OpenVera 的多平台消息通道抽象层，包括统一的 `ChannelAdapter` 接口、Gateway 路由机制、已实现的通道以及新增通道适配器的开发方法。
+> This document describes OpenVera's multi-platform messaging channel abstraction layer, including the unified `ChannelAdapter` interface, Gateway routing mechanism, implemented channels, and how to develop new channel adapters.
 
-## 概述
+## Overview
 
-Channel 系统提供统一的消息收发抽象，让 agent 可以通过 CLI、HTTP API、飞书、Discord、微信企业号、Slack、Telegram、WhatsApp 等多种平台与用户交互。核心设计原则：
+The Channel system provides a unified messaging abstraction that allows agents to interact with users through multiple platforms: CLI, HTTP API, Feishu (Lark), Discord, WeCom, Slack, Telegram, WhatsApp, and more. Core design principles:
 
-- **统一接口**：所有平台实现同一个 `ChannelAdapter` 接口
-- **Gateway 路由**：`ChannelGateway` 管理多个 channel 的生命周期，将消息统一分发到 handler
-- **会话绑定**：支持将 agent session 绑定到特定 channel，实现上下文关联
-- **可扩展**：基于接口的插件化设计，新增平台只需实现 `ChannelAdapter`
+- **Unified interface**: All platforms implement the same `ChannelAdapter` interface
+- **Gateway routing**: `ChannelGateway` manages the lifecycle of multiple channels and routes messages to handlers uniformly
+- **Session binding**: Supports binding agent sessions to specific channels for context association
+- **Extensible**: Interface-based plugin design; adding a new platform only requires implementing `ChannelAdapter`
 
-核心代码位于 `packages/core/src/channel/`。
+Core code is located in `packages/core/src/channel/`.
 
-## 架构
+## Architecture
 
 ```
 Agent Loop
-     ↕  Message Handlers
+     <->  Message Handlers
 ChannelGateway
-  ├── CLI Adapter      (REPL/pipe)
-  ├── API Adapter      (REST + WebSocket)
-  ├── Discord Adapter  (Gateway WebSocket)
-  ├── Feishu Adapter   (Webhook)
-  └── ...更多
+  +-- CLI Adapter      (REPL/pipe)
+  +-- API Adapter      (REST + WebSocket)
+  +-- Discord Adapter  (Gateway WebSocket)
+  +-- Feishu Adapter   (Webhook)
+  +-- ...more
        Session Bindings
 ```
 
-- **ChannelAdapter**：单个平台的连接、收发实现
-- **ChannelGateway**：管理多个 adapter、消息路由、会话绑定、事件通知
-- **SessionBinding**：将 session ID 与 channel 关联（`{ sessionId, channelName, boundAt, metadata }`）
+- **ChannelAdapter**: Single-platform connection, send/receive implementation
+- **ChannelGateway**: Manages multiple adapters, message routing, session binding, event notifications
+- **SessionBinding**: Associates a session ID with a channel (`{ sessionId, channelName, boundAt, metadata }`)
 
-## ChannelAdapter 接口
+## ChannelAdapter Interface
 
-所有通道适配器必须实现以下接口（定义于 `types.ts`）：
+All channel adapters must implement the following interface (defined in `types.ts`):
 
 ```typescript
 interface ChannelAdapter {
-  readonly name: string;                   // 唯一名称，如 "cli"、"feishu"
+  readonly name: string;                   // Unique name, e.g. "cli", "feishu"
   readonly channelType: ChannelType;       // "cli" | "api" | "webhook" | "feishu" | "wecom" | "telegram" | "discord" | "slack" | "whatsapp" | "custom"
   readonly state: ConnectionState;         // "disconnected" | "connecting" | "connected" | "error"
 
@@ -46,44 +46,44 @@ interface ChannelAdapter {
   getStatus(): ChannelStatus;              // { state, message?, changedAt, sentCount, receivedCount }
 
   sendMessage(options: SendMessageOptions): Promise<ChannelMessage>;
-  onMessage(callback: MessageCallback): () => void;   // 返回取消订阅函数
+  onMessage(callback: MessageCallback): () => void;   // Returns unsubscribe function
   getHistory(options?: HistoryOptions): Promise<ChannelMessage[]>;
 }
 ```
 
-### 统一消息格式
+### Unified Message Format
 
-所有通道的消息统一为 `ChannelMessage`：
+All channel messages are normalized to `ChannelMessage`:
 
 ```typescript
 interface ChannelMessage {
-  id: string;                          // 消息唯一 ID
-  channelType: ChannelType;            // 来源平台
-  senderId: string;                    // 发送者标识
-  senderName?: string;                 // 发送者显示名
-  content: string;                     // 文本内容
+  id: string;                          // Unique message ID
+  channelType: ChannelType;            // Source platform
+  senderId: string;                    // Sender identifier
+  senderName?: string;                 // Sender display name
+  content: string;                     // Text content
   attachments: ChannelAttachment[];    // { type, url, name?, mimeType?, sizeBytes? }
-  replyTo?: string;                    // 被回复的消息 ID
-  timestamp: string;                   // ISO 时间戳
-  raw?: unknown;                       // 平台特定的原始数据
+  replyTo?: string;                    // ID of the message being replied to
+  timestamp: string;                   // ISO timestamp
+  raw?: unknown;                       // Platform-specific raw data
 }
 ```
 
-### 发送选项
+### Send Options
 
 ```typescript
 interface SendMessageOptions {
   content: string;
   attachments?: ChannelAttachment[];
   replyTo?: string;
-  channelOptions?: Record<string, unknown>;  // 平台特定参数（如 Discord 的 channelId、Feishu 的 receiveId）
+  channelOptions?: Record<string, unknown>;  // Platform-specific params (e.g. Discord channelId, Feishu receiveId)
 }
 ```
 
-### 错误类型
+### Error Types
 
 ```typescript
-class ChannelError extends Error { code: string }               // 基类
+class ChannelError extends Error { code: string }               // Base class
 class ChannelConnectionError extends ChannelError               // CHANNEL_CONNECTION
 class ChannelSendError extends ChannelError                     // CHANNEL_SEND
 class ChannelTimeoutError extends ChannelError                  // CHANNEL_TIMEOUT
@@ -93,16 +93,16 @@ class ChannelNotFoundError extends ChannelError                 // CHANNEL_NOT_F
 
 ## ChannelGateway
 
-`ChannelGateway` 是通道系统的中心调度器。默认配置：
+`ChannelGateway` is the central dispatcher for the channel system. Default configuration:
 
-| 参数 | 默认值 | 说明 |
-|---|---|---|
-| `maxConnections` | 10 | 最大并发连接数 |
-| `autoReconnect` | false | 是否自动重连 |
-| `reconnectIntervalMs` | 5000 | 重连间隔 |
-| `maxReconnectAttempts` | 3 | 最大重试次数 |
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `maxConnections` | 10 | Maximum concurrent connections |
+| `autoReconnect` | false | Whether to auto-reconnect |
+| `reconnectIntervalMs` | 5000 | Reconnect interval |
+| `maxReconnectAttempts` | 3 | Maximum retry attempts |
 
-### Adapter 管理
+### Adapter Management
 
 ```typescript
 const gateway = new ChannelGateway({ autoReconnect: true });
@@ -110,36 +110,36 @@ const gateway = new ChannelGateway({ autoReconnect: true });
 gateway.addAdapter("cli", new CliChannelAdapter());
 gateway.addAdapter("discord", new DiscordChannelAdapter({ botToken: "..." }));
 
-await gateway.connectAll();       // 并行连接所有通道，自动重连失败项
+await gateway.connectAll();       // Connect all channels in parallel, auto-retry failures
 gateway.listAdapters();          // [{ name, state }]
-gateway.removeAdapter("discord"); // 移除并清理订阅和会话绑定
+gateway.removeAdapter("discord"); // Remove and clean up subscriptions and session bindings
 await gateway.disconnectAll();
 ```
 
-### 消息分发流程
+### Message Dispatch Flow
 
 ```
-外部消息到达 → ChannelAdapter.onMessage cb
-  → Gateway.dispatchMessage(msg, channelName)
-    → emitEvent("message_received")
-    → 遍历 messageHandlers 逐一调用
+External message arrives -> ChannelAdapter.onMessage cb
+  -> Gateway.dispatchMessage(msg, channelName)
+    -> emitEvent("message_received")
+    -> Iterate messageHandlers, call each one
 ```
 
-注册 handler：
+Registering a handler:
 
 ```typescript
 const unsub = gateway.onMessage(async (message, channelName) => {
   // message: ChannelMessage
-  // channelName: string（如 "discord"、"feishu"）
+  // channelName: string (e.g. "discord", "feishu")
   const response = await agent.handle(message.content);
   await gateway.sendMessage(channelName, {
     content: response,
-    channelOptions: { /* 平台特定参数 */ },
+    channelOptions: { /* platform-specific params */ },
   });
 });
 ```
 
-### 会话绑定
+### Session Binding
 
 ```typescript
 gateway.bindSession("feishu", sessionId, { chatId: "xxx" });
@@ -148,7 +148,7 @@ gateway.getSessionsForChannel("feishu");
 gateway.unbindSession(sessionId);
 ```
 
-### 事件系统
+### Event System
 
 ```typescript
 gateway.onEvent((event) => {
@@ -158,108 +158,108 @@ gateway.onEvent((event) => {
 });
 ```
 
-## 已实现的通道
+## Implemented Channels
 
-### CLI 通道（CliChannelAdapter）
+### CLI Channel (CliChannelAdapter)
 
-最基础的通道实现。配置项：
+The most basic channel implementation. Configuration:
 
-| 参数 | 默认值 | 说明 |
-|---|---|---|
-| `mode` | `"interactive"` | `"interactive"`（REPL）/ `"pipe"`（stdin）/ `"non-interactive"` |
-| `prompt` | `"> "` | REPL 提示符 |
-| `input` | `process.stdin` | 自定义输入流 |
-| `output` | `process.stdout` | 自定义输出流 |
-| `senderId` | `"cli-user"` | 发送者 ID |
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `mode` | `"interactive"` | `"interactive"` (REPL) / `"pipe"` (stdin) / `"non-interactive"` |
+| `prompt` | `"> "` | REPL prompt |
+| `input` | `process.stdin` | Custom input stream |
+| `output` | `process.stdout` | Custom output stream |
+| `senderId` | `"cli-user"` | Sender ID |
 
-**interactive** 模式使用 `readline` 逐行读取；**pipe** 模式将全部 stdin 作为一条消息；**non-interactive** 模式通过 `processInput(input)` 手动注入。
+**interactive** mode uses `readline` for line-by-line reading; **pipe** mode treats all stdin as a single message; **non-interactive** mode accepts input via `processInput(input)`.
 
-### HTTP API 通道（ApiChannelAdapter）
+### HTTP API Channel (ApiChannelAdapter)
 
-REST API + WebSocket。配置项：
+REST API + WebSocket. Configuration:
 
-| 参数 | 默认值 | 说明 |
-|---|---|---|
-| `host` | `"0.0.0.0"` | 绑定地址 |
-| `port` | 自动 | 监听端口 |
-| `apiKey` | 无 | API 密钥认证 |
-| `maxBodyBytes` | 1MB | 请求体最大字节数 |
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `host` | `"0.0.0.0"` | Bind address |
+| `port` | Auto | Listening port |
+| `apiKey` | None | API key authentication |
+| `maxBodyBytes` | 1MB | Max request body size |
 
-REST 端点：`GET /status`、`GET /messages`（支持 `limit/after/before/senderId` 参数）、`POST /messages`（body: `{ content, senderId? }`）。
+REST endpoints: `GET /status`, `GET /messages` (supports `limit/after/before/senderId` params), `POST /messages` (body: `{ content, senderId? }`).
 
-WebSocket 支持 RFC 6455 最小实现，通过 `?token=` 认证。消息格式：客户端发送 `{ type: "message", content }` 或 `{ type: "ping" }`；服务端回复 `{ type: "message", data }`、`{ type: "ack" }` 或 `{ type: "pong" }`。
+WebSocket implements a minimal RFC 6455 server, authenticated via `?token=`. Message format: client sends `{ type: "message", content }` or `{ type: "ping" }`; server replies with `{ type: "message", data }`, `{ type: "ack" }`, or `{ type: "pong" }`.
 
-### Discord 通道（DiscordChannelAdapter）
+### Discord Channel (DiscordChannelAdapter)
 
-基于 Discord Gateway WebSocket (v10) + REST API 的 Bot 实现。
+Bot implementation based on Discord Gateway WebSocket (v10) + REST API.
 
-核心机制：
-- WebSocket Gateway 连接，含 jitter 防惊群 heartbeat、zombie connection 检测
-- 指数退避重连（1s, 2s, 4s, 8s, ... 最多 30s）
-- 支持 Resume（断线恢复 session）
-- 自动过滤 bot 自己发出的消息
+Core mechanisms:
+- WebSocket Gateway connection with jitter-based anti-thundering-herd heartbeat and zombie connection detection
+- Exponential backoff reconnection (1s, 2s, 4s, 8s, ... max 30s)
+- Supports Resume (session recovery after disconnect)
+- Auto-filtering of the bot's own messages
 
-发送消息需通过 `channelOptions.channelId` 指定目标频道：
+Sending messages requires specifying the target channel via `channelOptions.channelId`:
 
 ```typescript
 await gateway.sendMessage("discord", {
-  content: "你好！",
+  content: "Hello!",
   channelOptions: {
     channelId: "123456789",
-    embeds: [{ title: "结果", description: "..." }],
+    embeds: [{ title: "Result", description: "..." }],
   },
 });
 ```
 
-### 飞书 / Lark 通道（FeishuChannelAdapter）
+### Feishu / Lark Channel (FeishuChannelAdapter)
 
-基于飞书开放平台 Webhook 的 Bot 实现。
+Bot implementation based on Feishu Open Platform Webhooks.
 
-核心机制：
-- `tenant_access_token` 自动刷新（60s 缓冲，并发去重）
-- 支持 v2 (`im.message.receive_v1`) 和 v1 事件 schema
-- URL 验证 (`url_verification` challenge) 自动处理
-- 支持 text / post / image / file 四种消息类型
-- 发送消息需通过 `channelOptions.receiveId` + `receiveIdType`
+Core mechanisms:
+- `tenant_access_token` auto-refresh (60s buffer, concurrent deduplication)
+- Supports v2 (`im.message.receive_v1`) and v1 event schemas
+- URL verification (`url_verification` challenge) handled automatically
+- Supports text / post / image / file message types
+- Sending messages requires `channelOptions.receiveId` + `receiveIdType`
 
-### 其他已实现通道
+### Other Implemented Channels
 
-| 文件 | 通道 | 协议 |
-|---|---|---|
-| `wecom-channel.ts` | 企业微信（WeCom） | Webhook |
+| File | Channel | Protocol |
+|------|---------|----------|
+| `wecom-channel.ts` | WeCom (WeChat Work) | Webhook |
 | `telegram-channel.ts` | Telegram | Bot API |
 | `slack-channel.ts` | Slack | Bot API |
 | `whatsapp-channel.ts` | WhatsApp | Business API |
-| `webhook-channel.ts` | 通用 Webhook | 可配置签名验证 |
+| `webhook-channel.ts` | Generic Webhook | Configurable signature verification |
 
-## 通道生命周期
+## Channel Lifecycle
 
-以飞书为例的完整流程：
+Full flow using Feishu as an example:
 
-1. **注册**：`gateway.addAdapter("feishu", adapter)`
-2. **连接**：获取 `tenant_access_token` 验证凭证，启动 HTTP server，发射 `"channel_connected"`
-3. **接收消息**：飞书 POST webhook -> adapter 解析事件体 -> `ChannelMessage` -> `onMessage` callbacks -> `gateway.dispatchMessage()` -> 发射 `"message_received"` -> agent handler
-4. **发送响应**：`gateway.sendMessage("feishu", {content, channelOptions})` -> 调用飞书 Open API -> 发射 `"message_sent"`
-5. **断开**：关闭 HTTP server，清理 token，发射 `"channel_disconnected"`
+1. **Register**: `gateway.addAdapter("feishu", adapter)`
+2. **Connect**: Fetch `tenant_access_token` to validate credentials, start HTTP server, emit `"channel_connected"`
+3. **Receive message**: Feishu POST webhook -> adapter parses event body -> `ChannelMessage` -> `onMessage` callbacks -> `gateway.dispatchMessage()` -> emit `"message_received"` -> agent handler
+4. **Send response**: `gateway.sendMessage("feishu", {content, channelOptions})` -> call Feishu Open API -> emit `"message_sent"`
+5. **Disconnect**: Shut down HTTP server, clean up token, emit `"channel_disconnected"`
 
-## 实现新的通道适配器
+## Implementing a New Channel Adapter
 
-以 Webhook 类型通道为模板，四个步骤：
+Using the webhook channel type as a template, follow these four steps:
 
-### 1. 定义配置
+### 1. Define Configuration
 
 ```typescript
 interface MyChannelConfig {
   apiKey: string;
   host?: string;
   port?: number;
-  path?: string;          // 默认 "/my-channel/webhook"
+  path?: string;          // Default "/my-channel/webhook"
 }
 ```
 
-### 2. 实现 ChannelAdapter
+### 2. Implement ChannelAdapter
 
-骨架代码：
+Skeleton code:
 
 ```typescript
 export class MyChannelAdapter implements ChannelAdapter {
@@ -280,7 +280,7 @@ export class MyChannelAdapter implements ChannelAdapter {
 
   async connect(): Promise<void> {
     this.setState("connecting");
-    // 启动 HTTP server
+    // Start HTTP server
     this.server = createServer(async (req, res) => {
       const body = await readBody(req);
       const message = this.convertToChannelMessage(body);
@@ -304,7 +304,7 @@ export class MyChannelAdapter implements ChannelAdapter {
   }
 
   async sendMessage(options: SendMessageOptions): Promise<ChannelMessage> {
-    // 调用平台 API 发送
+    // Call platform API to send
     const msg = appendBotMessage(this.history, this.channelType, options, this.generateId);
     this.sentCount++;
     return msg;
@@ -325,59 +325,59 @@ export class MyChannelAdapter implements ChannelAdapter {
 }
 ```
 
-### 3. 关键点
+### 3. Key Points
 
-- 使用 `subscribeMessage()` / `appendBotMessage()` / `filterChannelHistory()` 三个 helper 函数（来自 `channel-helpers.ts`）避免重复造轮子
-- `convertToChannelMessage()` 中的 `raw` 字段保留平台原始数据，方便调试
-- HTTP server 类的通道注意处理 `url_verification` challenge（参考 Feishu 实现）
-- WebSocket 类的通道注意 heartbeat 保持连接（参考 Discord 实现）
+- Use the three helper functions `subscribeMessage()`, `appendBotMessage()`, and `filterChannelHistory()` (from `channel-helpers.ts`) to avoid reinventing the wheel.
+- The `raw` field in `convertToChannelMessage()` should preserve platform-specific raw data for debugging.
+- HTTP server-based channels should handle `url_verification` challenges (see Feishu implementation).
+- WebSocket-based channels should handle heartbeat keep-alive (see Discord implementation).
 
-### 4. 注册使用
+### 4. Register and Use
 
 ```typescript
 gateway.addAdapter("my-channel", new MyChannelAdapter({ apiKey: "xxx", port: 8080 }));
 await gateway.connect("my-channel");
 ```
 
-## 消息助手函数
+## Message Helper Functions
 
-`channel-helpers.ts` 提供三个通用函数：
+`channel-helpers.ts` provides three utility functions:
 
-- **`subscribeMessage(callbacks, cb)`**：注册回调，返回取消订阅函数
-- **`appendBotMessage(history, channelType, options, generateId)`**：构建 bot 回复消息并加入 history
-- **`filterChannelHistory(history, options)`**：按 `after/before/senderId/limit` 过滤历史
+- **`subscribeMessage(callbacks, cb)`**: Register a callback, return unsubscribe function
+- **`appendBotMessage(history, channelType, options, generateId)`**: Build a bot reply message and add to history
+- **`filterChannelHistory(history, options)`**: Filter history by `after/before/senderId/limit`
 
-## Gateway 集成
+## Gateway Integration
 
-`packages/gateway` 包将 Channel 系统与能力注册中心整合：
+The `packages/gateway` package integrates the Channel system with the capability registry:
 
-- **能力注册（`capability-registry.ts`）**：管理哪些 channel 可用、各自的能力范围
-- **项目注册（`project-registry.ts`）**：管理项目配置中的 channel 设置
-- **健康检查（`doctor.ts`）**：检测 channel 连接状态和问题
+- **Capability registry (`capability-registry.ts`)**: Manages which channels are available and their capability scopes
+- **Project registry (`project-registry.ts`)**: Manages channel settings from project configurations
+- **Health checks (`doctor.ts`)**: Detects channel connection status and issues
 
-## 配置示例
+## Configuration Examples
 
-CLI 通道：
+CLI channel:
 ```json
 { "channels": { "cli": { "type": "cli", "mode": "interactive", "prompt": "vera> " } } }
 ```
 
-HTTP API 通道：
+HTTP API channel:
 ```json
 { "channels": { "api": { "type": "api", "port": 8080, "apiKey": "..." } } }
 ```
 
-Discord 通道：
+Discord channel:
 ```json
 { "channels": { "discord": { "type": "discord", "botToken": "...", "applicationId": "..." } } }
 ```
 
-飞书通道：
+Feishu channel:
 ```json
 { "channels": { "feishu": { "type": "feishu", "appId": "...", "appSecret": "...", "verificationToken": "...", "port": 8080 } } }
 ```
 
-多通道组合：
+Multi-channel combination:
 ```json
 {
   "channels": {
@@ -391,13 +391,13 @@ Discord 通道：
 
 ---
 
-**相关文件**：
-- `packages/core/src/channel/types.ts` — 通道接口与消息类型定义
-- `packages/core/src/channel/gateway.ts` — ChannelGateway 实现
-- `packages/core/src/channel/cli-channel.ts` — CLI 通道适配器
-- `packages/core/src/channel/api-channel.ts` — HTTP API 通道适配器
-- `packages/core/src/channel/discord-channel.ts` — Discord Bot 适配器
-- `packages/core/src/channel/feishu-channel.ts` — 飞书 Bot 适配器
-- `packages/core/src/channel/channel-helpers.ts` — 共享辅助函数
-- `packages/core/src/channel/plugin-registry.ts` — 通道插件注册表
-- `packages/gateway/src/capability-registry.ts` — Gateway 能力注册中心
+**Related files**:
+- `packages/core/src/channel/types.ts` -- Channel interfaces and message type definitions
+- `packages/core/src/channel/gateway.ts` -- ChannelGateway implementation
+- `packages/core/src/channel/cli-channel.ts` -- CLI channel adapter
+- `packages/core/src/channel/api-channel.ts` -- HTTP API channel adapter
+- `packages/core/src/channel/discord-channel.ts` -- Discord Bot adapter
+- `packages/core/src/channel/feishu-channel.ts` -- Feishu Bot adapter
+- `packages/core/src/channel/channel-helpers.ts` -- Shared helper functions
+- `packages/core/src/channel/plugin-registry.ts` -- Channel plugin registry
+- `packages/gateway/src/capability-registry.ts` -- Gateway capability registry

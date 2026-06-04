@@ -1,1 +1,0 @@
-../../core/claude-code-session-mechanism.md

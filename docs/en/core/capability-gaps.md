@@ -1,1 +1,0 @@
-../../core/capability-gaps.md

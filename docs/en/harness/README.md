@@ -1,1 +1,0 @@
-../../harness/README.md

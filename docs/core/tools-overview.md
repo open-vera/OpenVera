@@ -1,162 +1,163 @@
-# 工具系统概述
+# Tools System Overview
 
-> 所属包：`@open-vera/core` | 源码目录：`packages/core/src/tools/`
-> 最后更新：2026-06-04
+> Package: `@open-vera/core` | Source: `packages/core/src/tools/`
+> Last updated: 2026-06-04
 
-## 架构概览
+## Architecture Overview
 
-Vera 的工具系统是 Agent 与外部世界交互的枢纽。它由三大组件构成：
+Vera's tools system is the hub through which the Agent interacts with the external world. It consists of three major components:
 
 ```
-                 ┌──────────────────────────────────┐
-                 │         ToolRegistry               │
-                 │   注册 · 查找 · Schema 导出 · 统计  │
-                 └──────────┬───────────────────────┘
-                            │
-          ┌─────────────────┼─────────────────┐
-          ▼                 ▼                  ▼
-   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-   │ SecurityPlugin│ │  Middlewares │ │  Lifecycle    │
-   │ (Hook)        │ │  (Pipeline)  │ │  Hooks        │
-   └──────────────┘ └──────────────┘ └──────────────┘
-          │                 │                  │
-          └─────────────────┼──────────────────┘
-                            ▼
-                 ┌──────────────────────────────────┐
-                 │         ToolDef.execute()         │
-                 │   具体工具实现（read_file, bash…）│
-                 └──────────────────────────────────┘
+                 +------------------------------------+
+                 |         ToolRegistry                |
+                 |   Register . Lookup . Schema . Stats|
+                 +--------------+---------------------+
+                                |
+          +---------------------+---------------------+
+          |                     |                      |
+          v                     v                      v
+   +----------------+  +----------------+  +----------------+
+   | SecurityPlugin |  |  Middlewares   |  |  Lifecycle     |
+   | (Hook)         |  |  (Pipeline)    |  |  Hooks         |
+   +----------------+  +----------------+  +----------------+
+          |                     |                      |
+          +---------------------+----------------------+
+                                v
+                 +------------------------------------+
+                 |         ToolDef.execute()           |
+                 |   Concrete tool implementations     |
+                 +------------------------------------+
 ```
 
-- **ToolRegistry**：工具注册表，负责注册、查找、执行工具，维护统计分析
-- **ToolDef**：单个工具的定义——名称、描述、JSON Schema 参数、执行函数
-- **SecurityPlugin**：作为 LifecycleHook 介入 `onBeforeToolCall`，执行安全策略
-- **Middleware**：在 before/after/onError 三个阶段插入自定义逻辑
+- **ToolRegistry**: Tool registry — registers, looks up, executes tools, maintains statistics
+- **ToolDef**: Single tool definition — name, description, JSON Schema parameters, execution function
+- **SecurityPlugin**: Intervenes via LifecycleHook at `onBeforeToolCall` to enforce security policies
+- **Middleware**: Inserts custom logic at before/after/onError phases
 
 ---
 
-## ToolRegistry —— 注册与执行核心
+## ToolRegistry — Registration and Execution Core
 
-**文件**：`registry.ts`
+**File**: `registry.ts`
 
-### 注册 API
+### Registration API
 
 ```typescript
 const registry = new ToolRegistry();
 
-// 注册单个工具
+// Register a single tool
 registry.register(readFileTool);
 
-// 按组批量注册
+// Batch register by group
 registry.registerGroup(
   { name: "file", description: "File operations", defaults: { timeoutMs: 10_000 } },
   [readFileTool, writeFileTool, editFileTool]
 );
 
-// 按组查询
-registry.getGroup("file"); // → { group, tools }
+// Query by group
+registry.getGroup("file"); // -> { group, tools }
 
-// 注册 security hook（作为 LifecycleHook）
+// Register security hook (as LifecycleHook)
 const security = new SecurityPlugin(config);
 registry.use(security);
 
-// 注册 middleware
+// Register middleware
 registry.addMiddleware({ name: "audit", before: ..., after: ... });
 ```
 
-### Schema 导出
+### Schema Export
 
 ```typescript
-// 导出所有工具的 LLM 可见 schema
-registry.getSchemas(); // → Tool[]
+// Export all tools' LLM-visible schemas
+registry.getSchemas(); // -> Tool[]
 
-// 按组过滤
-registry.getSchemasByGroup("file"); // → Tool[]
+// Filter by group
+registry.getSchemasByGroup("file"); // -> Tool[]
 ```
 
-`getSchemas()` 返回的 `Tool[]` 数组会被传递给 `adapter.complete()`，作为 LLM function calling 的工具列表。
+The `Tool[]` array returned by `getSchemas()` is passed to `adapter.complete()` as the tool list for LLM function calling.
 
-### 执行流程
+### Execution Flow
 
 ```
 execute(name, args, ctx)
-  │
-  ├─ 1. 查找 ToolDef（不存在 → errorResult("UNKNOWN")）
-  ├─ 2. 检查 dryRun（若为 true → 返回模拟结果，跳过实际执行）
-  ├─ 3. 检查 deprecation（非阻塞 warning）
-  ├─ 4. LifecycleHook.onBeforeToolCall（SecurityPlugin 在此短切）
-  ├─ 5. Middleware.before（可修改 args、跳过执行）
-  ├─ 6. 幂等性缓存检查（check idempotent cache）
-  ├─ 7. 执行 + 超时控制 + 重试（最多 3 次，指数退避）
-  ├─ 8. Middleware.after（可变换结果）
-  ├─ 9. LifecycleHook.onAfterToolCall
-  ├─ 10. 更新幂等缓存
-  └─ 11. 记录统计（ToolStatsCollector）
+  |
+  +-- 1. Lookup ToolDef (not found -> errorResult("UNKNOWN"))
+  +-- 2. Check dryRun (if true -> return simulated result, skip actual execution)
+  +-- 3. Check deprecation (non-blocking warning)
+  +-- 4. LifecycleHook.onBeforeToolCall (SecurityPlugin short-circuits here)
+  +-- 5. Middleware.before (can modify args, skip execution)
+  +-- 6. Idempotency cache check
+  +-- 7. Execute + timeout control + retry (max 3, exponential backoff)
+  +-- 8. Middleware.after (can transform result)
+  +-- 9. LifecycleHook.onAfterToolCall
+  +-- 10. Update idempotency cache
+  +-- 11. Record stats (ToolStatsCollector)
 ```
 
-#### 重试策略
+#### Retry Strategy
 
-- 默认最多 3 次重试（`maxRetries = 3`）
-- 指数退避：`100ms * 2^attempt`
-- 仅在 `error.retryable === true` 时重试
-- 最终尝试失败时调用 Middleware.onError 尝试恢复
+- Default max 3 retries (`maxRetries = 3`)
+- Exponential backoff: `100ms * 2^attempt`
+- Only retries when `error.retryable === true`
+- Calls Middleware.onError on final attempt failure for recovery
 
-#### 幂等性缓存
+#### Idempotency Cache
 
-标有 `options.idempotent = true` 的工具（如 `read_file`、`list_dir`、`glob`、`grep`），首次成功结果会被缓存。之后相同 `(toolName, args)` 的调用直接返回缓存结果，避免重复操作。
+Tools marked with `options.idempotent = true` (e.g., `read_file`, `list_dir`, `glob`, `grep`) have their first successful result cached. Subsequent calls with the same `(toolName, args)` return the cached result directly, avoiding redundant operations.
 
 ---
 
-## ToolDef —— 工具定义
+## ToolDef — Tool Definition
 
-**文件**：`types.ts`
+**File**: `types.ts`
 
 ```typescript
 interface ToolDef<TArgs = object> {
-  name: string;                // 工具名称（LLM 可见）
-  description: string;         // 工具描述（LLM 可见，用于 function calling）
-  parameters: JSONSchema;      // JSON Schema 参数定义
+  name: string;                // Tool name (LLM-visible)
+  description: string;         // Tool description (LLM-visible, for function calling)
+  parameters: JSONSchema;      // JSON Schema parameter definition
   options?: {
-    timeoutMs?: number;        // 执行超时（默认 30s）
-    retries?: number;          // 重试次数
-    idempotent?: boolean;      // 是否幂等（可缓存结果）
-    riskLevel?: "low" | "medium" | "high";  // 风险等级
+    timeoutMs?: number;        // Execution timeout (default 30s)
+    retries?: number;          // Retry count
+    idempotent?: boolean;      // Whether idempotent (results can be cached)
+    riskLevel?: "low" | "medium" | "high";  // Risk level
   };
-  version?: ToolVersion;       // 版本与废弃信息
-  group?: string;              // 所属工具组
+  version?: ToolVersion;       // Version and deprecation info
+  group?: string;              // Tool group
   execute(args: TArgs, ctx: ToolContext): Promise<ToolResult>;
 }
 ```
 
-### ToolContext —— 执行上下文
+### ToolContext — Execution Context
 
-传递给每个工具的执行上下文，包含：
+Context passed to each tool's execution, containing:
 
-| 字段 | 类型 | 说明 |
+| Field | Type | Description |
 |---|---|---|
-| `cwd` | `string` | 当前工作目录 |
-| `sessionId` | `string` | 会话 ID |
-| `allowedPaths` | `string[]` | 允许访问的路径列表 |
-| `env` | `Record<string, string>` | 环境变量 |
-| `signal` | `AbortSignal` | 取消信号 |
-| `dryRun` | `boolean` | 是否为模拟执行 |
-| `onOutput` | `(chunk: string) => void` | 流式输出回调（bash 等长命令用） |
-| `memoryStore` | `MemoryStore?` | 记忆存储（memory_write/memory_search 使用） |
-| `vectorStore` | `VectorStore?` | 向量存储（knowledge_search 使用） |
-| `llmAdapter` | `LLMAdapter?` | LLM 适配器（visual_analyze 等使用） |
-| `sandboxProvider` | `SandboxProvider?` | 沙箱提供者（sandbox_exec 等使用） |
+| `cwd` | `string` | Current working directory |
+| `sessionId` | `string` | Session ID |
+| `allowedPaths` | `string[]` | Allowed path list |
+| `env` | `Record<string, string>` | Environment variables |
+| `signal` | `AbortSignal` | Cancellation signal |
+| `dryRun` | `boolean` | Whether simulating execution |
+| `onOutput` | `(chunk: string) => void` | Streaming output callback |
+| `memoryStore` | `MemoryStore?` | Memory storage (for memory_write/memory_search) |
+| `vectorStore` | `VectorStore?` | Vector storage (for knowledge_search) |
+| `llmAdapter` | `LLMAdapter?` | LLM adapter (for visual_analyze) |
+| `sandboxProvider` | `SandboxProvider?` | Sandbox provider (for sandbox_exec) |
 
-### ToolResult —— 执行结果
+### ToolResult — Execution Result
 
 ```typescript
 interface ToolResult {
-  ok: boolean;                          // 执行是否成功
-  content: string;                      // 结果文本（给 LLM 看）
+  ok: boolean;                          // Whether execution succeeded
+  content: string;                      // Result text (shown to LLM)
   metadata?: {
     bytesRead?: number; linesRead?: number;
     linesChanged?: number; exitCode?: number;
     truncated?: boolean;
-    renderHint?: RenderHint;            // 渲染提示（REPL UI 用）
+    renderHint?: RenderHint;            // Rendering hint (for REPL UI)
     diff?: { filePath: string; hunks: StructuredPatchHunk[] };
   };
   error?: { code: ToolErrorCode; message: string; retryable: boolean };
@@ -166,198 +167,120 @@ interface ToolResult {
 }
 ```
 
-`needsConfirm` 字段用于**安全确认**场景——SecurityPlugin 检测到需要用户批准的操作时，不直接拒绝，而是返回一个 `needsConfirm` 结果。REPL 层展示确认提示，用户批准后重试该调用。
+The `needsConfirm` field is used for **security confirmation** scenarios — when the SecurityPlugin detects an operation requiring user approval, it returns a `needsConfirm` result instead of outright denying. The REPL layer displays a confirmation prompt and retries the call after user approval.
 
 ---
 
-## 内建工具一览
+## Built-in Tools Overview
 
-`createToolRegistry()` 在 `index.ts` 中默认注册 13 个核心工具。另有条件注册的工具（依赖外部服务）。
+`createToolRegistry()` in `index.ts` registers 13 core tools by default, plus conditionally registered tools (depending on external services).
 
-### file 操作工具
+### File Operation Tools
 
 #### 1. read_file
+**File**: `read-file.ts` | **Risk**: low | **Idempotent**: yes
 
-**文件**：`read-file.ts` | **风险**：low | **幂等**：是
-
-```json
-{
-  "path": "src/index.ts",      // 文件路径（必填）
-  "offset": 10,                 // 起始行号（1-based，可选）
-  "limit": 50                   // 最多读取行数（可选）
-}
-```
-
-功能：读取文件内容，返回带行号的文本。支持 offset/limit 分页。自动检测并拒绝二进制文件。最大输出 2000 行（超出行数截断并标注）。结果带 `renderHint: { type: "code" }`。
+Reads file content, returns line-numbered text. Supports offset/limit pagination. Auto-detects and rejects binary files. Max output 2000 lines. Result carries `renderHint: { type: "code" }`.
 
 #### 2. write_file
+**File**: `write-file.ts` | **Risk**: medium
 
-**文件**：`write-file.ts` | **风险**：medium
-
-```json
-{
-  "path": "src/new.ts",        // 文件路径（必填）
-  "content": "export ..."      // 要写入的内容（必填）
-}
-```
-
-功能：创建或覆盖文件，自动创建父目录。使用原子写入（临时文件 → rename，防止写入中断导致文件损坏）。写入前检查**内容过时**（staleness）——如果文件被外部修改过且未被重新读取，写入将被拒绝。返回统一 diff。
+Creates or overwrites a file, auto-creates parent directories. Uses atomic writes (temp file -> rename, preventing corruption on interruption). Checks for **content staleness** before writing — if the file was modified externally and not re-read, the write is rejected. Returns a unified diff.
 
 #### 3. edit_file
+**File**: `edit-file.ts` | **Risk**: medium
 
-**文件**：`edit-file.ts` | **风险**：medium
-
-```json
-{
-  "path": "src/file.ts",       // 文件路径（必填）
-  "old_string": "old code",    // 要替换的原始字符串（必填，精确匹配）
-  "new_string": "new code"     // 替换后的字符串（必填）
-}
-```
-
-功能：精确字符串替换。要求 `old_string` 在文件中**恰好出现一次**（0 次报 NOT_FOUND，多次报歧义错误）。同样使用原子写入和过时检查。返回统一 diff。
+Precise string replacement. Requires `old_string` to appear **exactly once** in the file (0 matches = NOT_FOUND error, multiple = ambiguity error). Also uses atomic writes and staleness checks. Returns a unified diff.
 
 #### 4. list_dir
+**File**: `list-dir.ts` | **Risk**: low | **Idempotent**: yes
 
-**文件**：`list-dir.ts` | **风险**：low | **幂等**：是
-
-```json
-{
-  "path": "src"                // 目录路径（可选，默认 cwd）
-}
-```
-
-功能：列出目录内容，用图标区分文件和目录，显示文件大小和子目录项数。
+Lists directory contents with icons distinguishing files and directories, showing file sizes and subdirectory item counts.
 
 #### 5. glob
+**File**: `glob.ts` | **Risk**: low | **Idempotent**: yes
 
-**文件**：`glob.ts` | **风险**：low | **幂等**：是
-
-```json
-{
-  "pattern": "**/*.test.ts",   // Glob 表达式（必填）
-  "path": "packages"           // 搜索起始目录（可选，默认 cwd）
-}
-```
-
-功能：按 glob 模式搜索文件。支持 `*`（单层）、`**`（递归）、`?`（单字符）。自动跳过 `node_modules`、`.git`、`.vera`、`dist`、`build` 等目录。返回按路径排序的匹配列表。
+Searches files by glob pattern. Supports `*` (single level), `**` (recursive), `?` (single character). Auto-skips `node_modules`, `.git`, `.vera`, `dist`, `build`. Returns path-sorted match list.
 
 #### 6. grep
+**File**: `grep.ts` | **Risk**: low | **Idempotent**: yes
 
-**文件**：`grep.ts` | **风险**：low | **幂等**：是
+Searches files for regex matches. Supports recursive directory search, glob filename filtering, context line display. Auto-skips binary files. Max 200 match records returned.
 
-```json
-{
-  "pattern": "function\\s+\\w+", // 正则表达式（必填）
-  "path": "src",                  // 搜索起始路径（可选）
-  "glob": "*.ts",                 // 文件名过滤（可选）
-  "case_insensitive": true,       // 忽略大小写（可选）
-  "context": 3                    // 上下文行数（可选）
-}
-```
-
-功能：在文件中搜索正则表达式匹配。支持递归目录搜索、glob 文件名过滤、上下文行显示。自动跳过二进制文件。最多返回 200 条匹配记录。
-
-### 命令执行工具
+### Command Execution Tool
 
 #### 7. bash
+**File**: `bash.ts` | **Risk**: high
 
-**文件**：`bash.ts` | **风险**：high
+Executes shell commands in an independent process group. Features:
+- Streaming stdout/stderr collection; terminates process if output exceeds 512KB
+- Supports `ctx.signal` cancellation
+- Post-command safety net: final output capped at 80K characters
+- Separate error handling for timeout, cancellation, and output overflow
+- Returns `renderHint: { type: "bash-output", exitCode }`
 
-```json
-{
-  "command": "ls -la",         // Shell 命令（必填）
-  "timeout": 30000             // 超时毫秒（可选，默认 30000）
-}
-```
+### Conditionally Registered Tools
 
-功能：在独立进程组中执行 Shell 命令。特性：
-- 流式收集 stdout/stderr，超过 512KB 立即终止进程
-- 支持 `ctx.signal` 取消
-- 命令完成后安全网截断：最终输出不超过 80K 字符
-- 超时、取消、输出溢出各有独立错误处理
-- 返回 `renderHint: { type: "bash-output", exitCode }`
+The following tools are only registered when their corresponding dependencies are provided:
 
-### 条件注册工具
-
-以下工具仅在创建 registry 时提供了对应依赖才会注册：
-
-- **memory_write / memory_search**（需 `memoryStore`）：持久化记忆写入与语义搜索
-- **knowledge_search**（需 `vectorStore` + `embeddingAdapter`）：RAG 知识库搜索
-- **visual_analyze**（需 `llmAdapter`）：图片/视觉分析
-- **sandbox_exec / sandbox_upload / sandbox_download**（需 `sandboxProvider`）：隔离沙箱执行
-- **file_upload / file_download / file_list**（需 `objectStore`）：对象存储操作
-- **browser**：内置浏览器工具（Puppeteer 集成）
-- **desktop_screenshot / desktop_input / desktop_script / desktop_accessibility**：桌面自动化工具
-- **computer_use**：综合 Computer Use 能力
+- **memory_write / memory_search** (requires `memoryStore`): Persistent memory write and semantic search
+- **knowledge_search** (requires `vectorStore` + `embeddingAdapter`): RAG knowledge base search
+- **visual_analyze** (requires `llmAdapter`): Image/visual analysis
+- **sandbox_exec / sandbox_upload / sandbox_download** (requires `sandboxProvider`): Isolated sandbox execution
+- **file_upload / file_download / file_list** (requires `objectStore`): Object storage operations
+- **browser**: Built-in browser tool (Puppeteer integration)
+- **desktop_screenshot / desktop_input / desktop_script / desktop_accessibility**: Desktop automation tools
+- **computer_use**: Comprehensive Computer Use capability
 
 ---
 
-## SecurityPlugin —— 安全策略
+## SecurityPlugin — Security Policy
 
-**文件**：`security.ts`
+**File**: `security.ts`
 
-SecurityPlugin 实现 `ToolLifecycleHook` 接口，在 `onBeforeToolCall` 中执行多层安全检查。检查顺序为：
+SecurityPlugin implements the `ToolLifecycleHook` interface, executing multi-layer security checks in `onBeforeToolCall`. Check order:
 
 ```
-1. 黑名单检查 (deniedTools)
-2. 白名单检查 (allowedTools)
-3. Bash 危险命令检测（rm -rf, sudo, chmod 777, dd of=, git push --force）
-   └─ 触发 needsConfirm（需用户确认）
-4. 只读模式检查 (readonlyMode → 拒绝 write_file/edit_file/bash)
-5. 费用预算检查 (budgetUsd)
-6. 路径边界检查（path 不能在 workdir 之外）
-   └─ 触发 needsConfirm（需用户批准路径）
-7. 域名白名单检查 (allowedDomains)
-8. 提示注入检测（ignore previous instructions 等模式）
+1. Deny list check (deniedTools)
+2. Allow list check (allowedTools)
+3. Bash dangerous command detection (rm -rf, sudo, chmod 777, dd of=, git push --force)
+   +- Triggers needsConfirm (requires user confirmation)
+4. Read-only mode check (readonlyMode -> deny write_file/edit_file/bash)
+5. Budget check (budgetUsd)
+6. Path boundary check (path must not be outside workdir)
+   +- Triggers needsConfirm (requires user approval for path)
+7. Domain whitelist check (allowedDomains)
+8. Prompt injection detection (patterns like "ignore previous instructions")
 ```
 
-### SecurityConfig 配置
+### SecurityConfig
 
 ```typescript
 interface SecurityConfig {
-  allowedTools?: string[];          // 工具白名单（空 = 全部允许）
-  deniedTools?: string[];           // 工具黑名单（优先级高于白名单）
-  allowedBashCommands?: string[];   // 允许的 bash 命令（glob 匹配）
-  deniedBashCommands?: string[];    // 禁止的 bash 命令（glob 匹配）
-  workdir?: string;                 // 文件操作的路径边界
-  allowedDomains?: string[];        // 网络工具的域名白名单
-  readonlyMode?: boolean;           // 只读模式（禁止写操作）
-  budgetUsd?: number;               // 费用上限（USD）
-  usdUsed?: number;                 // 已使用费用
+  allowedTools?: string[];          // Tool whitelist (empty = allow all)
+  deniedTools?: string[];           // Tool deny list (higher priority than whitelist)
+  allowedBashCommands?: string[];   // Allowed bash commands (glob matching)
+  deniedBashCommands?: string[];    // Denied bash commands (glob matching)
+  workdir?: string;                 // Path boundary for file operations
+  allowedDomains?: string[];        // Domain whitelist for network tools
+  readonlyMode?: boolean;           // Read-only mode (deny write operations)
+  budgetUsd?: number;               // Budget cap (USD)
+  usdUsed?: number;                 // Cost used so far
 }
 ```
-
-### 路径确认流程
-
-当 Agent 尝试访问 workdir 之外的路径时，SecurityPlugin 不是直接拒绝，而是返回 `needsConfirm`：
-
-```typescript
-{
-  ok: false,
-  content: "Path is outside allowed workdir...",
-  needsConfirm: {
-    message: "Agent wants to access a path outside the working directory...",
-    allowDir: "/the/allowed/directory",
-    retry: { name, args }  // 用户批准后按原参数重试
-  }
-}
-```
-
-调用方调用 `security.allowPath(dir)` 后重试，该目录将被加入 session 级别的白名单。
 
 ---
 
-## 权限规则系统（Permission Rules）
+## Permission Rules System
 
-**文件**：`permission-rules.ts`
+**File**: `permission-rules.ts`
 
-支持两级权限配置文件：
+Supports two levels of permission configuration:
 
-1. **全局**：`~/.vera/permissions.json`
-2. **项目级**：`<project>/.vera/permissions.json`
+1. **Global**: `~/.vera/permissions.json`
+2. **Project-level**: `<project>/.vera/permissions.json`
 
-两级配置**合并**（项目级追加到全局之后），优先级：deniedTools > allowedTools。
+Both levels are **merged** (project-level appended after global). Priority: deniedTools > allowedTools.
 
 ```json
 {
@@ -368,68 +291,61 @@ interface SecurityConfig {
 }
 ```
 
-bash 命令匹配使用 glob-like 模式（`*` 匹配任意字符）。
+Bash command matching uses glob-like patterns (`*` matches any characters).
 
 ---
 
-## Middleware 系统
+## Middleware System
 
-**文件**：`types.ts → ToolMiddleware`
+**File**: `types.ts -> ToolMiddleware`
 
-Middleware 提供了在工具执行前后插入自定义逻辑的三阶段钩子：
+Middleware provides three-phase hooks to insert custom logic before and after tool execution:
 
 ```typescript
 interface ToolMiddleware {
   name: string;
 
-  // 执行前：可修改参数或返回 skip+result 跳过执行
+  // Before execution: can modify args or return skip+result to skip execution
   before?: (name, args, ctx) => Promise<{
     args: Record<string, unknown>;
     skip?: boolean;
     result?: ToolResult;
   } | null>;
 
-  // 执行后：可变换结果
+  // After execution: can transform result
   after?: (name, args, result, ctx) => Promise<ToolResult>;
 
-  // 出错时：可恢复（返回 ToolResult）或放弃（返回 null）
+  // On error: can recover (return ToolResult) or give up (return null)
   onError?: (name, args, error, ctx) => Promise<ToolResult | null>;
 }
 ```
 
-多个 middleware 组成**管道**，按注册顺序依次执行：
+Multiple middlewares form a **pipeline**, executing in registration order:
 
 ```
-before₁ → before₂ → execute → after₁ → after₂
+before1 -> before2 -> execute -> after1 -> after2
 ```
 
-`onError` 仅在最终重试失败后调用，按注册顺序依次尝试恢复。
-
-### Middleware 管理
-
-```typescript
-registry.addMiddleware({ name: "audit", before: ..., after: ... });
-registry.removeMiddleware("audit"); // 按名称移除
-```
+`onError` is only called after final retry failure, attempting recovery in registration order.
 
 ---
 
-## 工具统计分析
+## Tool Statistics
 
-**文件**：`tool-stats.ts`
+**File**: `tool-stats.ts`
 
-`ToolStatsCollector` 自动记录每次工具调用的元数据，提供：
+`ToolStatsCollector` automatically records metadata for each tool call, providing:
 
-- **按工具统计**：`getStats(toolName)` → 调用次数、成功率、错误率、延迟分布
-- **全局统计**：`getAllStats()` → 所有工具的聚合指标
-- **Top N 工具**：`topTools(10)` → 按调用次数排名
-- **延迟分位数**：P50 / P95 / P99
+- **Per-tool stats**: `getStats(toolName)` -> call count, success rate, error rate, latency distribution
+- **Global stats**: `getAllStats()` -> aggregate metrics for all tools
+- **Top N tools**: `topTools(10)` -> ranked by call count
+- **Latency percentiles**: P50 / P95 / P99
 
-默认保留最近 1,000 条调用记录（FIFO 淘汰）。
+Default retention: most recent 1,000 call records (FIFO eviction).
 
 ---
 
-## 自定义工具注册
+## Custom Tool Registration
 
 ```typescript
 const myTool: ToolDef<{ name: string }> = {
@@ -453,43 +369,43 @@ registry.register(myTool);
 
 ---
 
-## 工具渲染提示（RenderHint）
+## Render Hints
 
-每个工具结果可以携带 `metadata.renderHint`，指导 REPL UI 以合适的方式展示结果：
+Each tool result can carry `metadata.renderHint`, guiding the REPL UI on how to display the result:
 
-| RenderHint 类型 | 用途 |
+| RenderHint Type | Use |
 |---|---|
-| `{ type: "text" }` | 纯文本展示 |
-| `{ type: "code", lang? }` | 语法高亮代码块 |
-| `{ type: "diff" }` | 统一 diff 视图 |
-| `{ type: "file-list" }` | 文件列表视图 |
-| `{ type: "image", mimeType }` | 图片展示 |
-| `{ type: "error" }` | 红色错误信息 |
-| `{ type: "bash-output", exitCode }` | 终端样式输出 |
+| `{ type: "text" }` | Plain text display |
+| `{ type: "code", lang? }` | Syntax-highlighted code block |
+| `{ type: "diff" }` | Unified diff view |
+| `{ type: "file-list" }` | File list view |
+| `{ type: "image", mimeType }` | Image display |
+| `{ type: "error" }` | Red error message |
+| `{ type: "bash-output", exitCode }` | Terminal-style output |
 
 ---
 
-## 工具创建入口
+## Tool Creation Entry Point
 
-**文件**：`index.ts → createToolRegistry()`
+**File**: `index.ts -> createToolRegistry()`
 
 ```typescript
 const { registry, security } = createToolRegistry({
   cwd: "/path/to/project",
   security: { readonlyMode: false },
-  sessionStore,          // 可选：启用 AnalyticsPlugin
-  memoryStore,           // 可选：注册 memory 工具
-  vectorStore,           // 可选：注册 knowledge_search 工具
-  embeddingAdapter,      // 可选：配合 vectorStore
-  llmAdapter,            // 可选：注册 visual_analyze 工具
-  sandboxProvider,       // 可选：注册 sandbox 工具
-  objectStore,           // 可选：注册 file_upload/download/list 工具
+  sessionStore,          // Optional: enables AnalyticsPlugin
+  memoryStore,           // Optional: registers memory tools
+  vectorStore,           // Optional: registers knowledge_search
+  embeddingAdapter,      // Optional: for vectorStore
+  llmAdapter,            // Optional: registers visual_analyze
+  sandboxProvider,       // Optional: registers sandbox tools
+  objectStore,           // Optional: registers file_upload/download/list
 });
 ```
 
-`createToolRegistry()` 自动处理：
-1. 注册所有内建工具
-2. 加载权限规则（从 `~/.vera/permissions.json` 和项目 `.vera/permissions.json`）
-3. 注册 SecurityPlugin 作为第一个 hook（确保安全检查最先执行）
-4. 可选注册 AnalyticsPlugin（需 SessionStore）
-5. 可选注册条件工具（memory、knowledge_search、visual_analyze、sandbox、storage）
+`createToolRegistry()` automatically handles:
+1. Registering all built-in tools
+2. Loading permission rules (from `~/.vera/permissions.json` and project `.vera/permissions.json`)
+3. Registering SecurityPlugin as the first hook (ensuring security checks run first)
+4. Optionally registering AnalyticsPlugin (requires SessionStore)
+5. Optionally registering conditional tools (memory, knowledge_search, visual_analyze, sandbox, storage)

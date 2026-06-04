@@ -1,1 +1,0 @@
-../../harness/design.md

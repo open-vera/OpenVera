@@ -1,177 +1,177 @@
-# Vera — 文档目录
+# OpenVera — Documentation Directory
 
-> Vera 是以 Harness 为内核、可自规划、自循环、自我批判、自我进化的 agent runtime。
+> OpenVera is a Harness-native agent runtime — self-planning, self-looping, self-critiquing, self-evolving.
 
 ---
 
-## 快速开始
+## Quick Start
 
-1. 复制配置模板并填入 API Key：
+1. Copy the configuration template and add your API keys:
 
 ```bash
 cp .vera/settings.example.json .vera/settings.json
-# 编辑 .vera/settings.json，填入各 provider 的 api_key
+# Edit .vera/settings.json, fill in provider api_key values
 ```
 
-2. 启动 REPL：
+2. Start the REPL:
 
 ```bash
 pnpm repl
 ```
 
-配置说明：
-- `providers`：LLM 提供商配置（anthropic / openai / gemini / deepseek / groq / azure）
-- `default_provider`：默认使用的提供商
-- `routing`：意图路由配置，按 L0-L3 复杂度自动选择模型
-- `.vera/settings.json` 包含密钥，已加入 `.gitignore`，不会提交到仓库
+Configuration notes:
+- `providers`: LLM provider configuration (anthropic / openai / gemini / deepseek / groq / azure)
+- `default_provider`: default provider to use
+- `routing`: intent routing configuration, auto-selects models by L0-L3 complexity
+- `.vera/settings.json` contains secrets, is `.gitignore`d, and is never committed
 
 ---
 
-## 项目介绍
+## Project Overview
 
-| 文档 | 说明 |
+| Document | Description |
 |---|---|
-| [PROJECT_INTRO.md](./PROJECT_INTRO.md) | 项目说明文档（英文）——理念、愿景、架构、价值主张 |
-| [PROJECT_INTRO_CN.md](./PROJECT_INTRO_CN.md) | 项目说明文档（中文）——理念、愿景、架构、价值主张 |
+| [PROJECT_INTRO.md](./PROJECT_INTRO.md) | Project introduction (English) — philosophy, vision, architecture, value proposition |
+| [PROJECT_INTRO_CN.md](./PROJECT_INTRO_CN.md) | Project introduction (Chinese) — philosophy, vision, architecture, value proposition |
 
 ---
 
-## 整体规划
+## High-Level Planning
 
-| 文档 | 说明 |
+| Document | Description |
 |---|---|
-| [roadmap.md](./roadmap.md) | 阶段路线图——P0 核心 runtime → P1 自循环 → P2 自进化 → P3 平台扩展 |
-| [roadmap.md#已知缺陷与技术债](./roadmap.md#已知缺陷与技术债) | 2026-04-28 架构诊断——5 个 Critical、6 个 High、6 个 Medium 问题 |
+| [roadmap.md](./roadmap.md) | Phase roadmap — P0 core runtime -> P1 self-loop -> P2 self-evolution -> P3 platform expansion |
+| [roadmap.md#known-defects-and-tech-debt](./roadmap.md#known-defects-and-tech-debt) | 2026-04-28 architecture audit — 5 Critical, 6 High, 6 Medium issues |
 
 ---
 
-## 模块文档
+## Module Documentation
 
 ### Core — `@vera/core`
 
-基础 runtime 层：LLM 适配、agent loop、意图路由、上下文管理。
+Foundation runtime layer: LLM adapters, agent loop, intent routing, context management.
 
-| 文档 | 说明 |
+| Document | Description |
 |---|---|
-| [agent-design.md](./core/agent-design.md) | Agent 能力版图、Hermes 精华、Dreaming、Subagent、Plan Mode 总览 |
-| [subagent-design.md](./core/subagent-design.md) | Subagent 系统设计——何时使用、通信协议、上下文共享、调度模式 |
-| [intent-routing.md](./core/intent-routing.md) | 意图识别与模型路由——L0/L1/L2/L3 分级 |
-| [runtime-design.md](./core/runtime-design.md) | Core runtime 设计——adapter 抽象、loop、streaming |
-| [tool-rendering.md](./core/tool-rendering.md) | Tool 输出渲染——RenderHint、ToolResultView、各渲染组件 ✅ |
-| [capability-gaps.md](./core/capability-gaps.md) | 当前能力差距与近期实现路线——权限、上下文、UI、可靠性 |
-| [p0-alignment-checklist.md](./core/p0-alignment-checklist.md) | P0 后对齐项代码核验清单——已完成/部分完成/未完成 |
-| [plan-mode-implementation.md](./core/plan-mode-implementation.md) | **[P0 已完成]** Plan Mode——planner、parser、state machine、REPL 接入 ✅ |
-| [infinite-context-implementation.md](./core/infinite-context-implementation.md) | **[P0 已完成]** 无限上下文——progressive compression、micro-compact、reactive compact ✅ |
+| [agent-design.md](./core/agent-design.md) | Agent capability landscape, Hermes highlights, Dreaming, Subagent, Plan Mode overview |
+| [subagent-design.md](./core/subagent-design.md) | Subagent system design — when to use, communication protocol, context sharing, scheduling modes |
+| [intent-routing.md](./core/intent-routing.md) | Intent classification and model routing — L0/L1/L2/L3 tiering |
+| [runtime-design.md](./core/runtime-design.md) | Core runtime design — adapter abstraction, loop, streaming |
+| [tool-rendering.md](./core/tool-rendering.md) | Tool output rendering — RenderHint, ToolResultView, renderer components |
+| [capability-gaps.md](./core/capability-gaps.md) | Current capability gaps and near-term implementation roadmap — permissions, context, UI, reliability |
+| [p0-alignment-checklist.md](./core/p0-alignment-checklist.md) | P0 post-alignment code verification checklist — done / partial / outstanding |
+| [plan-mode-implementation.md](./core/plan-mode-implementation.md) | **[P0 Complete]** Plan Mode — planner, parser, state machine, REPL integration |
+| [infinite-context-implementation.md](./core/infinite-context-implementation.md) | **[P0 Complete]** Infinite context — progressive compression, micro-compact, reactive compact |
 
-→ [core/README.md](./core/README.md)
+-> [core/README.md](./core/README.md)
 
 ---
 
 ### Harness — `@vera/harness`
 
-运行内核：Flow 生命周期、工具权限约束、Critique 回路、审批门。
+Execution kernel: Flow lifecycle, tool permission constraints, Critique loop, approval gates.
 
-| 文档 | 说明 |
+| Document | Description |
 |---|---|
-| [design.md](./harness/design.md) | Harness 整体设计——术语、Flow State 机器、权限边界、Proposal Pipeline |
-| [runtime-implementation.md](./harness/runtime-implementation.md) | Harness Runtime 实现细节——各模块职责与当前代码结构 |
-| [plan-mode-implementation.md](./core/plan-mode-implementation.md) | Plan Mode 实现——planner、parser、state machine、HarnessRuntime ✅ |
-| [tool-rendering.md](./core/tool-rendering.md) | Tool 输出渲染——RenderHint、ToolResultView、各渲染组件 ✅ |
+| [design.md](./harness/design.md) | Harness overall design — terminology, Flow State machine, permission boundaries, Proposal Pipeline |
+| [runtime-implementation.md](./harness/runtime-implementation.md) | Harness Runtime implementation details — module responsibilities and current code structure |
+| [plan-mode-implementation.md](./core/plan-mode-implementation.md) | Plan Mode implementation — planner, parser, state machine, HarnessRuntime |
+| [tool-rendering.md](./core/tool-rendering.md) | Tool output rendering — RenderHint, ToolResultView, renderer components |
 
-→ [harness/README.md](./harness/README.md)
+-> [harness/README.md](./harness/README.md)
 
 ---
 
-### TUI / Web UI 接入
+### TUI / Web UI Integration
 
-Terminal UI 改造、OpenTUI 备选方案，以及未来 Web UI/客户端的统一事件协议路线。
+Terminal UI improvements, OpenTUI alternatives, and unified event protocol roadmap for future Web UI/clients.
 
-| 文档 | 说明 |
+| Document | Description |
 |---|---|
-| [tui/README.md](./tui/README.md) | TUI 方案调研与推荐路线——Hermes/OpenCode/Codex 对比、决策矩阵 |
-| [tui/ink-evolution.md](./tui/ink-evolution.md) | 基于现有 Ink 的渐进改造方案——事件协议、状态拆分、composer、性能优化 |
-| [tui/opentui-rewrite.md](./tui/opentui-rewrite.md) | 彻底切换 OpenTUI 的方案——能力、成本、风险、PoC 与迁移阶段 |
+| [tui/README.md](./tui/README.md) | TUI evaluation and recommended path — Hermes/OpenCode/Codex comparison, decision matrix |
+| [tui/ink-evolution.md](./tui/ink-evolution.md) | Incremental Ink-based improvements — event protocol, state separation, composer, performance |
+| [tui/opentui-rewrite.md](./tui/opentui-rewrite.md) | Full OpenTUI migration plan — capabilities, cost, risk, PoC, and migration phases |
 
 ---
 
-### Eval — `@vera/benchmark` + 评测体系
+### Eval — `@vera/benchmark` + Evaluation System
 
-量化 Vera 的任务完成率、工具准确率和稳定性。
+Quantifies Vera's task completion rate, tool accuracy, and stability.
 
-| 文档 | 说明 |
+| Document | Description |
 |---|---|
-| [benchmark.md](./eval/benchmark.md) | Benchmark 方案——评估维度、GAIA/SWE-bench/ToolBench 开源集、运行时机 |
+| [benchmark.md](./eval/benchmark.md) | Benchmark design — evaluation dimensions, GAIA/SWE-bench/ToolBench open-source suites, run cadence |
 
-→ [eval/README.md](./eval/README.md)
+-> [eval/README.md](./eval/README.md)
 
 ---
 
-### Platform — 平台扩展能力
+### Platform — Platform Extension Capabilities
 
-Computer Use、MCP 接入、智能 UI 测试等 P2/P3 能力。
+Computer Use, MCP integration, intelligent UI testing, and other P2/P3 capabilities.
 
-| 文档 | 说明 |
+| Document | Description |
 |---|---|
-| [computer-use.md](./platform/computer-use.md) | Computer Use——浏览器自动化、桌面操作、Benchmark 接入 |
-| [intelligent-testing.md](./platform/intelligent-testing.md) | 智能自动化测试——AI 驱动 UI 测试、多策略定位、自愈测试 |
+| [computer-use.md](./platform/computer-use.md) | Computer Use — browser automation, desktop control, benchmark integration |
+| [intelligent-testing.md](./platform/intelligent-testing.md) | Intelligent automated testing — AI-driven UI testing, multi-strategy element location, self-healing tests |
 
-→ [platform/README.md](./platform/README.md)
+-> [platform/README.md](./platform/README.md)
 
-### Testing — 测试覆盖与验收
+### Testing — Test Coverage and Acceptance
 
-| 文档 | 说明 |
+| Document | Description |
 |---|---|
-| [storage/README.md](./testing/storage/README.md) | Storage/UI 测试覆盖方案——SQLite、Session 迁移、DataExporter、黑盒验收 |
+| [storage/README.md](./testing/storage/README.md) | Storage/UI test coverage plan — SQLite, Session migration, DataExporter, black-box acceptance |
 
 ---
 
-### Apps — 应用层
+### Apps — Application Layer
 
-| 应用 | 说明 |
+| App | Description |
 |---|---|
-| harness-ui | Harness Web UI——可视化 Flow runs、流式日志、Artifact 浏览 |
-| audio-label | 音频标注工具 |
+| harness-ui | Harness Web UI — visual Flow runs, streaming logs, Artifact browsing |
+| audio-label | Audio annotation tool |
 
-→ [apps/README.md](./apps/README.md)
+-> [apps/README.md](./apps/README.md)
 
 ---
 
-### Code Governance — 代码治理
+### Code Governance
 
-| 文档 | 说明 |
+| Document | Description |
 |---|---|
-| [static-analysis.md](./code-governance/static-analysis.md) | 静态代码质量扫描——oxlint + jscpd 并行方案、指标阈值、Skill 设计 |
+| [static-analysis.md](./code-governance/static-analysis.md) | Static code quality scanning — oxlint + jscpd parallel approach, metric thresholds, Skill design |
 
 ---
 
-## 参考资料
+## Reference Materials
 
-精选外部文章，按来源整理：
+Curated external articles, organized by source:
 
-| 目录 | 内容 |
+| Directory | Content |
 |---|---|
-| [refrence/anthropic/](./refrence/anthropic/) | Anthropic 官方文章（含 zh 译文）——Agent 设计、工具使用、Harness、Evals 等 |
-| [refrence/harness/](./refrence/harness/) | Harness 专项参考——整体方案、扩展实践、多 agent 模式、反模式 |
-| [refrence/OpenAI/](./refrence/OpenAI/) | Codex 工程实践 |
+| [refrence/anthropic/](./refrence/anthropic/) | Anthropic official articles (with Chinese translations) — agent design, tool use, Harness, evals, etc. |
+| [refrence/harness/](./refrence/harness/) | Harness-specific references — overall approach, extension practices, multi-agent patterns, anti-patterns |
+| [refrence/OpenAI/](./refrence/OpenAI/) | Codex engineering practices |
 
 ---
 
-## 推荐阅读顺序
+## Recommended Reading Order
 
 ```
-roadmap.md                          了解全局目标和阶段（含 P0 完成状态与已知技术债）
-  ↓
-harness/design.md                   理解 Harness 内核设计（最重要）
-  ↓
-core/agent-design.md                理解 Agent 能力版图
-  ↓
-core/intent-routing.md              意图路由（已完成，可快速过）
-  ↓
-core/plan-mode-implementation.md        P0 已完成——Plan Mode 基础版
-  ↓
-core/infinite-context-implementation.md   P0 已完成——无限上下文
-  ↓
-core/capability-gaps.md             查看 P0 后对齐项（权限/上下文/UI/子 agent）
-  ↓
-eval/benchmark.md                   了解评测体系（P2 准备）
+roadmap.md                          Understand global goals and phases (including P0 status and known tech debt)
+  v
+harness/design.md                   Understand Harness kernel design (most important)
+  v
+core/agent-design.md                Understand agent capability landscape
+  v
+core/intent-routing.md              Intent routing (complete, can skim)
+  v
+core/plan-mode-implementation.md        P0 Complete — Plan Mode foundation
+  v
+core/infinite-context-implementation.md   P0 Complete — Infinite context
+  v
+core/capability-gaps.md             Review P0 post-alignment items (permissions/context/UI/subagent)
+  v
+eval/benchmark.md                   Understand evaluation system (P2 preparation)
 ```

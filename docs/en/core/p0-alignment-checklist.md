@@ -1,1 +1,0 @@
-../../core/p0-alignment-checklist.md

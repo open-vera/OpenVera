@@ -1,79 +1,78 @@
-# 上下文压缩系统设计
+# Context Compression System Design
 
-> 所属包：`@open-vera/core` | 源码目录：`packages/core/src/context/`
-> 最后更新：2026-06-04
+> Package: `@open-vera/core` | Source: `packages/core/src/context/`
+> Last updated: 2026-06-04
 
-## 概述
+## Overview
 
-Vera 的上下文压缩系统负责管理 LLM 对话历史的大小，使其不超出模型的上下文窗口限制，同时尽可能保留关键信息。系统采用**三层防御**策略：从轻量级的滑动窗口裁切，到 LLM 驱动的渐进式摘要压缩，再到纯启发式的微压缩清理，层层递进、各司其职。
+Vera's context compression system manages the size of LLM conversation history to keep it within model context window limits while preserving as much critical information as possible. The system employs a **three-layer defense** strategy: from lightweight sliding window trimming, to LLM-driven progressive summarization compression, to purely heuristic micro-compaction cleanup — each layer serving a distinct role.
 
-## 为什么需要压缩
+## Why Compression Is Needed
 
-1. **Token 成本**：每次 API 调用按 token 计费，历史消息越长成本越高。压缩可将早期轮次的 token 消耗降低 90% 以上。
-2. **上下文窗口限制**：主流模型窗口有限（Claude 200K、GPT-4o 128K、Gemini 1M）。超过限制会导致 API 直接拒绝请求。
-3. **响应质量**：过长的上下文会稀释模型注意力，导致"中间丢失"现象——模型忽略中间轮次的信息。
-4. **提示缓存失效**：Anthropic 的 prompt cache 在消息结构变化时会重建，带来额外延迟。压缩后消息数减少，可间接提升缓存命中率。
+1. **Token cost**: Each API call is billed by token; longer history means higher cost. Compression can reduce token consumption for early turns by over 90%.
+2. **Context window limits**: Mainstream models have finite windows (Claude 200K, GPT-4o 128K, Gemini 1M). Exceeding the limit causes the API to reject the request outright.
+3. **Response quality**: Excessively long contexts dilute model attention, causing "lost in the middle" — the model ignores information from middle turns.
+4. **Prompt cache invalidation**: Anthropic's prompt cache rebuilds when message structure changes, adding latency. Compression reduces message count, indirectly improving cache hit rates.
 
-## 三层架构总览
-
-```
-上下文增长方向 ──────────────────────────────────>
-
-[第1层] 滑动窗口裁切 (window.ts)
-  │  token 估算 → 超出 75% 预算 → 裁掉最旧轮次
-  │  始终保留：messages[0]（任务定义，不可丢失）
-  │  最少保留：6 轮最近对话
-  │  成本：0 token（纯本地计算）
-  ▼
-[第2层] 渐进式压缩 (compression.ts)
-  │  token 估算 → 超出 triggerTokens → LLM 摘要最旧轮次
-  │  输出：结构化摘要 + 决策/发现/待办 + 话题标签
-  │  摘要消息注入到上下文开头，替代被压缩的原始轮次
-  │  成本：一次小模型 API 调用（约 1K input + 2K output token）
-  ▼
-[第3层] 微压缩 (compression.ts → microCompact)
-  │  时间间隙检测 → 清空旧的 tool_result 内容
-  │  保留最近 N 条 tool result 完整内容
-  │  成本：0 token（纯启发式，无 LLM 调用）
-  ▼
-[应急层] 响应式压缩 (compression.ts → isPromptTooLongError)
-  │  捕获 API 返回的 "prompt too long" 错误
-  │  激进压缩（保留更少轮次，更小阈值）
-  │  最多重试 3 次，超过则抛出原始错误（熔断机制）
-```
-
-### 执行顺序
-
-在 Agent Loop 的每轮开始时，按以下顺序应用上下文变换：
+## Three-Layer Architecture Overview
 
 ```
-用户消息 → [渐进压缩] → [Tool Budget 重放] → [微压缩] → [滑动窗口裁切] → API 调用
+Context growth direction ------------------------------------>
+
+[Layer 1] Sliding Window Trimming (window.ts)
+  |  Token estimation -> exceeds 75% budget -> drop oldest turns
+  |  Always preserve: messages[0] (task definition, must not be lost)
+  |  Minimum preserved: 6 most recent turns
+  |  Cost: 0 tokens (pure local computation)
+  v
+[Layer 2] Progressive Compression (compression.ts)
+  |  Token estimation -> exceeds triggerTokens -> LLM summarizes oldest turns
+  |  Output: structured summary + decisions/findings/pending + topic tags
+  |  Summary message injected at context start, replacing compressed original turns
+  |  Cost: one small model API call (~1K input + 2K output tokens)
+  v
+[Layer 3] Micro-Compact (compression.ts -> microCompact)
+  |  Time gap detection -> clear old tool_result content
+  |  Preserve the most recent N tool results in full
+  |  Cost: 0 tokens (pure heuristic, no LLM call)
+  v
+[Emergency Layer] Reactive Compression (compression.ts -> isPromptTooLongError)
+  |  Catch API "prompt too long" errors
+  |  Aggressive compression (fewer turns preserved, smaller thresholds)
+  |  Max 3 retries, then throw original error (circuit breaker)
 ```
 
-详见 `packages/core/src/agent/loop.ts` 的 `prepareMessages()` 和 `applyProactiveCompress()` 函数。
+### Execution Order
+
+At the start of each agent loop turn, context transformations are applied in this order:
+
+```
+User message -> [Progressive Compression] -> [Tool Budget Replay] -> [Micro-Compact] -> [Sliding Window Trim] -> API Call
+```
+
+See `packages/core/src/agent/loop.ts` functions `prepareMessages()` and `applyProactiveCompress()`.
 
 ---
 
-## 第一层：滑动窗口裁切
+## Layer 1: Sliding Window Trimming
 
-**文件**：`window.ts`
+**File**: `window.ts`
 
-核心原则：**第一条消息（任务定义）永不丢弃**。丢失它意味着模型失去对原始目标的记忆，这是所有裁切策略中最致命的错误。
+Core principle: **The first message (task definition) is never discarded**. Losing it means the model loses memory of the original goal — the most fatal error in any trimming strategy.
 
-### 工作原理
+### How It Works
 
 ```typescript
-// window.ts - trimToWindow()
 function trimToWindow(messages, options) {
-  const budget = maxTokens * targetUtilization; // 默认 75%
+  const budget = maxTokens * targetUtilization; // default 75%
   if (estimateMessageTokens(messages) <= budget) return messages;
 
-  // 按用户消息位置找出"轮次"边界
+  // Find "turn" boundaries by user message positions
   const turnStarts = findTurnStarts(messages);
 
-  // 从第 2 轮开始裁切，保留最近 keepRecentTurns 轮
+  // Drop from turn 2, preserving the most recent keepRecentTurns
   for (let drop = 1; drop <= maxDrop; drop++) {
-    const anchor = messages[0]; // 任务定义
+    const anchor = messages[0]; // task definition
     const rest = messages.slice(turnStarts[drop]);
     const trimmed = [anchor, ...rest];
     if (estimateMessageTokens(trimmed) <= budget) return trimmed;
@@ -81,73 +80,73 @@ function trimToWindow(messages, options) {
 }
 ```
 
-### 配置参数
+### Configuration
 
-| 参数 | 默认值 | 说明 |
+| Parameter | Default | Description |
 |---|---|---|
-| `maxTokens` | 模型限值 | 从 `MODEL_CONTEXT_LIMITS` 查表中解析 |
-| `targetUtilization` | `0.75` | 目标利用率（75% 窗口即触发裁切） |
-| `keepRecentTurns` | `6` | 最少保留的最近轮次数量 |
+| `maxTokens` | Model limit | Resolved from `MODEL_CONTEXT_LIMITS` lookup table |
+| `targetUtilization` | `0.75` | Target utilization (trims at 75% of window) |
+| `keepRecentTurns` | `6` | Minimum recent turns to preserve |
 
-### 模型上下文窗口映射
+### Model Context Window Mapping
 
-系统内建了常见模型的窗口大小映射表 `MODEL_CONTEXT_LIMITS`：
+The system has a built-in `MODEL_CONTEXT_LIMITS` lookup table:
 
-| 模型前缀 | 上下文窗口 |
+| Model Prefix | Context Window |
 |---|---|
 | `claude-*` | 200,000 |
 | `gpt-*` / `o1` / `o3` | 128,000 |
 | `gemini-*` | 1,000,000 |
-| 未知模型 | 128,000（保守降级） |
+| Unknown model | 128,000 (conservative fallback) |
 
-### Token 估算法
+### Token Estimation
 
-**文件**：`tokens.ts`
+**File**: `tokens.ts`
 
-采用字符长度除以 4 的近似法（`BYTES_PER_TOKEN = 4`），约为 ±8% 精度。对于 tool_call 和 tool_result 内容块，额外计入结构开销（role header、tool_call_id 等）。
+Uses character length divided by 4 approximation (`BYTES_PER_TOKEN = 4`), roughly +/-8% accuracy. For `tool_call` and `tool_result` content blocks, additional structural overhead is accounted for (role headers, tool_call_id, etc.).
 
 ---
 
-## 第二层：渐进式压缩
+## Layer 2: Progressive Compression
 
-**文件**：`compression.ts`
+**File**: `compression.ts`
 
-当启用压缩（`compressionOptions.enabled = true`）且 token 估算超过 `triggerTokens` 阈值时，系统会将最旧的轮次发送给一个 LLM 进行摘要压缩。
+When compression is enabled (`compressionOptions.enabled = true`) and token estimation exceeds the `triggerTokens` threshold, the system sends the oldest turns to an LLM for summarization compression.
 
-### 压缩提示词
+### Compression Prompt
 
-系统使用与 Claude Code 自动压缩对齐的提示词，要求模型输出：
+The system uses a prompt aligned with Claude Code's auto-compression, requiring the model to output:
 
-1. **`<analysis>` 块**（会被剥离）：按时间顺序的草稿记录——用户请求、采取的方法、关键决策、涉及的文件、错误和修复。
-2. **`<summary>` 块**（保留）：9 个小节的详细摘要：
-   - 主要请求与意图
-   - 关键技术概念
-   - 文件与代码段（含路径和改动内容）
-   - 错误与修复
-   - 问题解决过程
-   - 所有用户消息（逐字记录）
-   - 待办任务
-   - 当前工作（压缩前的精确状态）
-   - 可选的下一步
-3. **`<topics>` 块**：2-6 个话题标签，用于后续检索。
+1. **`<analysis>` block** (stripped): Chronological draft notes — user requests, approaches taken, key decisions, files involved, errors and fixes.
+2. **`<summary>` block** (preserved): Detailed summary with 9 subsections:
+   - Primary requests and intent
+   - Key technical concepts
+   - Files and code sections (with paths and changes)
+   - Errors and fixes
+   - Problem-solving process
+   - All user messages (verbatim)
+   - Pending tasks
+   - Current work (exact state before compression)
+   - Optional next steps
+3. **`<topics>` block**: 2-6 topic tags for later retrieval.
 
-模型被强制要求**不得调用任何工具**（`NO_TOOLS_PREAMBLE`），仅输出纯文本。
+The model is forced to **not call any tools** (`NO_TOOLS_PREAMBLE`), outputting only plain text.
 
-### 压缩输出格式
+### Compression Output Format
 
 ```typescript
 interface CompressedSegment {
-  summary: string;          // 摘要文本
-  decisions: string[];      // 关键决策及理由
-  findings: string[];       // 重要发现/事实/约束
-  pending: string[];        // 未解决的事项
-  topics: string[];         // 话题标签
-  turnRange: { start: number; end: number }; // 覆盖的原始轮次范围
-  originalTokenCount: number; // 压缩前的 token 估算
+  summary: string;          // Summary text
+  decisions: string[];      // Key decisions and rationale
+  findings: string[];       // Important findings/facts/constraints
+  pending: string[];        // Unresolved items
+  topics: string[];         // Topic tags
+  turnRange: { start: number; end: number }; // Original turn range covered
+  originalTokenCount: number; // Token estimate before compression
 }
 ```
 
-压缩后，原始轮次被替换为一条合成的 `user` 角色消息：
+After compression, original turns are replaced with a synthesized `user` role message:
 
 ```
 [Compressed context — turns 1–5]
@@ -158,58 +157,50 @@ Pending: ...
 Continue the conversation from where it left off without asking the user any questions.
 ```
 
-末尾的"无需确认直接继续"指令确保模型不因看到摘要而停下来问用户问题。
+The trailing "continue without asking questions" instruction ensures the model doesn't pause to ask the user when it sees the summary.
 
-### 二次压缩（去重）
+### Re-compression (Deduplication)
 
-当上下文在首次压缩后再次增长到阈值以上时，之前的合成摘要消息会被**包含**在新的压缩输入中，与后续轮次一起发送给 LLM 进行二次压缩。这样产生的是**子母所有历史信息的单一更新摘要**，而非多个摘要片段的累积。
+When context grows past the threshold again after initial compression, the previous synthesized summary message is **included** in the new compression input, sent along with subsequent turns to the LLM for re-compression. This produces a **single updated summary covering all history**, not an accumulation of multiple summary fragments.
 
-### OC1：插入式压缩（增效模式）
+### OC1: Insert Compression (Efficiency Mode)
 
-当启用 `insertCompress = true` 时，系统采用**复用提示缓存**的策略：
+When `insertCompress = true`, the system uses a **prompt cache reuse** strategy:
 
-1. 不发起独立的压缩 API 调用
-2. 在正常对话流中插入一条压缩指令消息
-3. 下一轮 API 调用同时处理压缩指令和正常的用户响应
-4. 解析响应中的 `<summary>` 和 `<topics>` 输出
-5. 用合成摘要替换被压缩的轮次
+1. No separate compression API call is made
+2. A compression instruction message is inserted into the normal conversation flow
+3. The next API call handles both the compression instruction and the normal user response
+4. The response is parsed for `<summary>` and `<topics>` output
+5. Compressed turns are replaced with the synthesized summary
 
-这避免了独立压缩调用的冷启动延迟，节省约 50% 首次调用的 token 消耗（OC2 模式：单次缓存重建）。
+This avoids the cold-start latency of a separate compression call, saving ~50% of first-call token consumption (OC2 mode: single cache rebuild).
 
-```typescript
-// compression.ts - OC1 入口
-insertCompressionInstruction(messages, options) → { messages, pending }
+### Configuration
 
-// 在 API 调用返回后解析
-resolveInsertCompress(messages, responseText, pending, state) → { messages, state }
-```
-
-### 配置参数
-
-| 参数 | 默认值 | 说明 |
+| Parameter | Default | Description |
 |---|---|---|
-| `enabled` | `false` | 是否启用渐进压缩 |
-| `triggerTokens` | `100_000` | 触发压缩的 token 阈值（200K 窗口的一半） |
-| `keepRecentTurns` | `6` | 保持未压缩的最近轮次数 |
-| `model` | 同主模型 | 压缩用 LLM 模型 |
-| `insertCompress` | `false` | 是否使用插入式压缩（OC1） |
+| `enabled` | `false` | Whether progressive compression is enabled |
+| `triggerTokens` | `100_000` | Token threshold to trigger compression (half of 200K window) |
+| `keepRecentTurns` | `6` | Recent turns kept uncompressed |
+| `model` | Same as main | LLM model used for compression |
+| `insertCompress` | `false` | Whether to use insert compression (OC1) |
 
 ---
 
-## 第三层：微压缩（Micro-Compact）
+## Layer 3: Micro-Compact
 
-**文件**：`compression.ts → microCompact()`
+**File**: `compression.ts -> microCompact()`
 
-纯启发式清理，不调用 LLM。当**距离上一条 assistant 消息的时间间隔**超过阈值时，将旧的 tool_result 内容清空为占位符。
+Pure heuristic cleanup, no LLM call. When the **time gap since the last assistant message** exceeds a threshold, old `tool_result` content is cleared to a placeholder.
 
-### 工作原理
+### How It Works
 
 ```typescript
 function microCompact(messages, state, options) {
-  // 检查时间间隙
+  // Check time gap
   const gapMs = Date.now() - state.lastAssistantTs;
   if (gapMs >= gapThresholdMinutes * 60_000) {
-    // 清空旧的 tool_result，保留最近 keepRecent 条
+    // Clear old tool_results, preserve the most recent keepRecent entries
     const idsToClear = new Set(state.toolUseIds.slice(0, -keepRecent));
     messages.map(m =>
       m.role === "tool" && idsToClear.has(m.tool_call_id)
@@ -220,190 +211,156 @@ function microCompact(messages, state, options) {
 }
 ```
 
-### 关键设计细节
+### Key Design Details
 
-- **时间间隙判断**使用上一轮保存的 `lastAssistantTs`，而不是重新扫描历史消息计算。这是因为 `Date.now()` 总是"现在"，如果每次扫描都重新计算，时间间隙永远为零。
-- `lastAssistantTs` 由 Agent Loop 在每次真实的 assistant 响应后更新。
-- 清理的内容使用固定的占位符 `"[Old tool result content cleared]"`，保证 prompt cache 稳定性。
+- **Time gap detection** uses the `lastAssistantTs` saved from the previous turn, rather than re-scanning historical messages. This is because `Date.now()` is always "now"; if recalculated each scan, the time gap would always be zero.
+- `lastAssistantTs` is updated by the Agent Loop after each real assistant response.
+- Cleared content uses a fixed placeholder `"[Old tool result content cleared]"` to ensure prompt cache stability.
 
-### 配置参数
+### Configuration
 
-| 参数 | 默认值 | 说明 |
+| Parameter | Default | Description |
 |---|---|---|
-| `enabled` | `false` | 是否启用微压缩 |
-| `gapThresholdMinutes` | `60` | 触发清理的空闲时间（分钟） |
-| `keepRecent` | `5` | 保留最近的 N 条 tool result 不清空 |
+| `enabled` | `false` | Whether micro-compact is enabled |
+| `gapThresholdMinutes` | `60` | Idle time threshold in minutes |
+| `keepRecent` | `5` | Most recent N tool results kept uncleared |
 
 ---
 
-## 响应式压缩（Reactive Compact）
+## Reactive Compression (Reactive Compact)
 
-**文件**：`compression.ts → isPromptTooLongError()` + Agent Loop 集成
+**File**: `compression.ts -> isPromptTooLongError()` + Agent Loop integration
 
-当 API 返回 prompt 过长错误时触发，作为最后一道防线。
+Triggered when the API returns a prompt-too-long error, serving as the last line of defense.
 
-### 触发匹配规则
+### Trigger Matching Rules
 
 ```typescript
 const PROMPT_TOO_LONG_PATTERNS = [
   /prompt is too long/i,
   /prompt_too_long/i,
-  /tokens?.*>\s*\d+/i,    // "tokens > limit" 类错误
+  /tokens?.*>\s*\d+/i,    // "tokens > limit" type errors
   /context length exceeds/i,
   /input.*too.*(?:long|large)/i,
 ];
 ```
 
-### 重试流程
+### Retry Flow
 
 ```
-API 调用失败 → isPromptTooLongError? → 激进压缩 → 重试
-                 ├─ 保留轮次减半（最少 2 轮）
-                 ├─ 忽略 triggerTokens 阈值（无条件压缩）
-                 └─ 最多重试 3 次，超过 → 抛出原始错误
+API call fails -> isPromptTooLongError? -> Aggressive compression -> Retry
+                     +- Preserved turns halved (min 2 turns)
+                     +- triggerTokens threshold ignored (unconditional compression)
+                     +- Max 3 retries, exceed -> throw original error
 ```
 
-响应式压缩通过 `completeWithReactiveCompact()` 和 `streamTurnWithReactiveCompact()` 两个辅助函数在非流式和流式 agent loop 中统一集成。
+### Circuit Breaker
 
-### 熔断机制
-
-`MAX_REACTIVE_RETRIES = 3`——连续 3 次响应式压缩仍失败后，抛出原始错误，不再尝试。防止在非压缩可解决的问题上陷入无限重试。
+`MAX_REACTIVE_RETRIES = 3` — after 3 consecutive reactive compression failures, the original error is thrown. Prevents infinite retry on problems that compression cannot solve.
 
 ---
 
-## 空闲压缩（Idle Compression）
+## Idle Compression
 
-**文件**：`idle-compression.ts`
+**File**: `idle-compression.ts`
 
-自动在 Agent 空闲一段时间后触发背景压缩。对齐 Claude Code 的 OC5-OC7 行为。
+Automatically triggers background compression after the agent has been idle for a period. Aligns with Claude Code's OC5-OC7 behavior.
 
-- **OC5**：计时器在空闲 `idleMs`（默认 314 秒，低于 5 分钟 prompt cache TTL）后触发
-- **OC6**：新的用户输入取消正在进行的压缩，保证历史一致性
-- **OC7**：压缩结果通过 `onCompressed` 回调持久化
+- **OC5**: Timer triggers after `idleMs` idle (default 314 seconds, under the 5-minute prompt cache TTL)
+- **OC6**: New user input cancels in-progress compression, ensuring history consistency
+- **OC7**: Compression results are persisted via `onCompressed` callback
 
-状态机：`idle → running → fired/cancelled/error`
-
-```typescript
-const timer = new IdleCompressionTimer({
-  idleMs: 314_000,
-  compression: { enabled: true, keepRecentTurns: 10 },
-  adapter, model,
-  onCompressed: (result) => { /* 持久化压缩后的消息 */ },
-});
-```
+State machine: `idle -> running -> fired/cancelled/error`
 
 ---
 
-## Tool Budget 管理
+## Tool Budget Management
 
-**文件**：`tool-budget.ts`
+**File**: `tool-budget.ts`
 
-在上下文压缩之外，系统还有独立的 tool result 大小管理机制：
+Independent of context compression, there is a separate tool result size management mechanism:
 
-- **单条结果上限**：`DEFAULT_MAX_RESULT_SIZE_CHARS = 50,000`，超出则写入磁盘，替换为预览 + 文件路径
-- **每轮总预算**：`MAX_PER_TURN_CHARS = 200,000`，超出则将最大的结果卸载
-- **Prompt Cache 稳定性**：已卸载的结果会被冻结，后续每轮按相同方式重放（`reapplyReplacements()`）
+- **Single result cap**: `DEFAULT_MAX_RESULT_SIZE_CHARS = 50,000` — exceeded results are written to disk and replaced with a preview + file path
+- **Per-turn total budget**: `MAX_PER_TURN_CHARS = 200,000` — exceeded results have the largest ones offloaded
+- **Prompt cache stability**: Offloaded results are frozen and replayed the same way in subsequent turns (`reapplyReplacements()`)
 
 ---
 
-## Agent Loop 集成点
+## Agent Loop Integration Points
 
-**文件**：`packages/core/src/agent/loop.ts`
+**File**: `packages/core/src/agent/loop.ts`
 
-压缩系统在 Agent Loop 中的两个主要集成位置：
+### 1. `applyProactiveCompress()` — Executed at the start of each turn
 
-### 1. `applyProactiveCompress()` — 每轮开始时执行
+- OC1 path: Insert compression instruction, no separate call
+- Traditional path: Separate API call to compress
+- Triggers `onCompression` hook for REPL/UI notification
 
-```typescript
-// loop.ts 第 377-405 行
-async function applyProactiveCompress(messages, compressionState, options, ...) {
-  if (opts.insertCompress) {
-    // OC1: 插入压缩指令，不单独调用
-    return insertCompressionInstruction(messages, opts);
-  }
-  // 传统路径: 独立 API 调用来压缩
-  const result = await compressMessages(messages, compressionState, opts, adapter, model);
-  // 触发 onCompression hook
-  if (result.messages.length !== before) {
-    await hooks?.onCompression?.("progressive", before, after);
-  }
-}
-```
+### 2. `prepareMessages()` — Context transformation pipeline
 
-### 2. `prepareMessages()` — 上下文变换管线
+1. Tool budget replay (preserve prompt cache stability)
+2. Micro-compact (clean old tool results)
+3. Sliding window trim
 
-```typescript
-// loop.ts 第 311-348 行
-async function prepareMessages(messages, budgetState, windowOpts, ...) {
-  // 1. tool budget 重放（保持 prompt cache 稳定）
-  msgs = reapplyReplacements(msgs, budgetState);
-  msgs = await enforcePerTurnBudget(msgs, budgetState, runDir);
-  // 2. 微压缩（清理旧 tool result）
-  const { messages, microCompactFired } = microCompact(msgs, state, opts);
-  // 3. 滑动窗口裁切
-  const apiMessages = windowOpts ? trimToWindow(contextMessages, windowOpts) : contextMessages;
-}
-```
+### 3. Hook Callbacks
 
-### 3. Hook 回调
+Compression hooks support 5 event types observable by the REPL/UI layer:
 
-compression hook 支持 5 种事件类型，可被 REPL/UI 层监听展示：
-
-| 事件类型 | 触发时机 | `before`/`after` 含义 |
+| Event Type | Trigger | `before`/`after` meaning |
 |---|---|---|
-| `"progressive"` | 渐进压缩完成 | 压缩前后的消息数量 |
-| `"micro"` | 微压缩完成 | 消息数量（不变，事件即信号） |
-| `"reactive"` | 响应式压缩完成 | 压缩前后的消息数量 |
-| `"insert-compress"` | OC1 指令插入 | 插入前后的消息数量 |
-| `"insert-resolved"` | OC1 解析完成 | 解析后的消息数量 |
+| `"progressive"` | Progressive compression complete | Message counts before/after compression |
+| `"micro"` | Micro-compact complete | Message count (unchanged; event is the signal) |
+| `"reactive"` | Reactive compression complete | Message counts before/after compression |
+| `"insert-compress"` | OC1 instruction inserted | Message counts before/after insertion |
+| `"insert-resolved"` | OC1 parsing complete | Message count after parsing |
 
-### 4. 关键不变量
+### 4. Key Invariants
 
-- `messages[0]` 始终是任务的用户消息，滑动窗口裁切从索引 1 开始丢弃
-- 压缩/微压缩通过 `onContextUpdate` 回调通知调用方，REPL 层据此更新上下文，但原始 session log 保持不变
-- 空 assistant 响应（无文本、无 tool call）不会追加到消息列表，防止后续 API 调用出错
+- `messages[0]` is always the task user message; sliding window trimming drops from index 1
+- Compression/micro-compact notifies callers via `onContextUpdate`; REPL updates its context but the original session log is unchanged
+- Empty assistant responses (no text, no tool calls) are not appended to the message list, preventing subsequent API errors
 
 ---
 
-## 配置示例
+## Configuration Example
 
 ```typescript
 const agentOptions = {
-  // 第一层：滑动窗口
+  // Layer 1: Sliding window
   contextOptions: {
     maxTokens: 200_000,
     targetUtilization: 0.75,
     keepRecentTurns: 6,
   },
 
-  // 第二层：渐进压缩
+  // Layer 2: Progressive compression
   compressionOptions: {
     enabled: true,
     triggerTokens: 100_000,
     keepRecentTurns: 6,
-    insertCompress: false,  // 设为 true 启用 OC1
+    insertCompress: false,  // set true to enable OC1
   },
 
-  // 第三层：微压缩
+  // Layer 3: Micro-compact
   microCompactOptions: {
-    enabled: false,        // 默认关闭
+    enabled: false,        // disabled by default
     gapThresholdMinutes: 60,
     keepRecent: 5,
   },
 
-  // 数据持久化目录（tool result 卸载时使用）
+  // Data persistence directory (used when offloading tool results)
   runDir: "/tmp/vera-run",
 };
 ```
 
 ---
 
-## 性能指标
+## Performance Metrics
 
-| 操作 | 成本 | 延迟影响 |
+| Operation | Cost | Latency Impact |
 |---|---|---|
-| 滑动窗口裁切 | 0 token | < 1ms（纯数组切片） |
-| 渐进式压缩 | ~1K+2K token（一次小模型调用） | ~1-3s（含网络延迟） |
-| 微压缩 | 0 token | < 1ms（纯数组遍历） |
-| 响应式压缩 | ~1K+2K token | ~1-3s（在网络错误后） |
-| Tool budget 重放 | 0 token | < 1ms（Map 查询） |
+| Sliding window trim | 0 tokens | < 1ms (pure array slicing) |
+| Progressive compression | ~1K+2K tokens (one small model call) | ~1-3s (including network latency) |
+| Micro-compact | 0 tokens | < 1ms (pure array traversal) |
+| Reactive compression | ~1K+2K tokens | ~1-3s (after network error) |
+| Tool budget replay | 0 tokens | < 1ms (Map lookup) |

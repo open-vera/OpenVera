@@ -1,424 +1,424 @@
-# Vera 插件生命周期
+# Vera Plugin Lifecycle
 
-> 梳理 Vera 运行时实际存在的生命周期节点，作为插件系统 hook 设计的依据。
+> Maps out the lifecycle nodes that exist in Vera's runtime, serving as the basis for plugin system hook design.
 
-## 概览：三大运行时层级
+## Overview: Three Runtime Tiers
 
 ```
-Gateway   ── 启停、项目发现、能力注册
-Harness   ── Flow 编排、Critique、Replan、Swarm
-Core      ── Agent 循环、工具执行、Channel、Session
+Gateway   -- Start/stop, project discovery, capability registration
+Harness   -- Flow orchestration, Critique, Replan, Swarm
+Core      -- Agent loop, tool execution, Channel, Session
 ```
 
 ---
 
-## 一、Core 层
+## 1. Core Layer
 
-### 1.1 启动流程 (main.ts)
+### 1.1 Startup Flow (main.ts)
 
 ```
-loadConfig()                     ← config 加载
-  ├─ isConfigEmpty? → 向导      ← 首次运行
-  └─ 正常加载
-buildAdapter(provider, model)    ← switch: anthropic/openai/gemini
+loadConfig()                     <- config loading
+  +-- isConfigEmpty? -> wizard   <- first run
+  +-- normal load
+buildAdapter(provider, model)    <- switch: anthropic/openai/gemini
 resolveDefaultTarget()
-loadTemplates()                  ← prompt 模板
-intentRouting?                   ← 可选：单次 intent 分类
-  ├─ resolveModel()
-  └─ 失败回退 default
-↓
-单次模式 / REPL 模式分流
+loadTemplates()                  <- prompt templates
+intentRouting?                   <- optional: single intent classification
+  +-- resolveModel()
+  +-- fallback to default on failure
+|
+single-run mode / REPL mode fork
 ```
 
-**插件可挂点**：
+**Plugin hook points**:
 
-| 节点 | 类型 | 说明 |
-|---|---|---|
-| config 加载后 | `transform` | 修改/注入配置（模型、provider、路径） |
-| buildAdapter | `intercept` | 替换 adapter 工厂，消除 switch |
-| 模板加载后 | `transform` | 注入自定义 prompt 模板 |
-| intent routing | `intercept` | 自定义路由逻辑 |
-| 模式分流 | `observe` | 知道进了单次还是 REPL |
+| Node | Type | Description |
+|------|------|-------------|
+| After config load | `transform` | Modify/inject config (model, provider, paths) |
+| buildAdapter | `intercept` | Replace adapter factory, eliminate switch |
+| After template load | `transform` | Inject custom prompt templates |
+| intent routing | `intercept` | Custom routing logic |
+| Mode fork | `observe` | Know whether entering single-run or REPL |
 
-### 1.2 Agent 循环 (loop.ts)
+### 1.2 Agent Loop (loop.ts)
 
-这是最核心的运行时，每轮 turn 的完整管线：
+This is the core runtime, with each turn's full pipeline:
 
 ```
-一轮 turn 的完整顺序：
+One turn's complete sequence:
 
-proactiveCompress()              ← OC1: insert-then-compress / LLM压缩
-  └─ onCompression hook
-selectAndRecordMemories()        ← 选择+注入记忆
-  └─ onMemorySelected callback
-reapplyReplacements()            ← 预算裁剪
+proactiveCompress()              <- OC1: insert-then-compress / LLM compression
+  +-- onCompression hook
+selectAndRecordMemories()        <- select + inject memories
+  +-- onMemorySelected callback
+reapplyReplacements()            <- budget trimming
 enforcePerTurnBudget()
-microCompact()                   ← 微压缩
-trimToWindow()                   ← 滑动窗口
-injectMemoryContext()            ← 注入 <dynamic-memory-context>
-onTurnStart hook                 ← 通知：新一轮开始
-────────────────────────────────────────
-API call (adapter.complete)      ← LLM 调用
-  └─ reactive compact            ← prompt 太长时触发
-     └─ onRetry hook
-────────────────────────────────────────
-handleToolCalls()                ← 解析工具调用
+microCompact()                   <- micro-compression
+trimToWindow()                   <- sliding window
+injectMemoryContext()            <- inject <dynamic-memory-context>
+onTurnStart hook                 <- notify: new turn begins
+----------------------------------------
+API call (adapter.complete)      <- LLM invocation
+  +-- reactive compact           <- triggered when prompt too long
+     +-- onRetry hook
+----------------------------------------
+handleToolCalls()                <- parse tool calls
   for each tool_call:
-    parse args                   ← JSON 解析（可能失败 → 错误注入）
-    onToolCall callback          ← 执行前回调
-    toolRegistry.execute()       ← 实际执行（见 1.3）
-    processToolResult()          ← 结果→消息，预算扣减
-onTurnEnd hook                   ← 通知：本轮结束
-────────────────────────────────────────
-empty assistant retry?           ← 空响应重试（最多3次）
-OC1 resolve?                     ← 单 API 压缩
-再次循环 / 终止
+    parse args                   <- JSON parsing (may fail -> error injection)
+    onToolCall callback          <- pre-execution callback
+    toolRegistry.execute()       <- actual execution (see 1.3)
+    processToolResult()          <- result -> message, budget deduction
+onTurnEnd hook                   <- notify: turn ends
+----------------------------------------
+empty assistant retry?           <- empty response retry (max 3 times)
+OC1 resolve?                     <- single API compression
+loop again / terminate
 ```
 
-**插件可挂点**：
+**Plugin hook points**:
 
-| 节点 | 类型 | 说明 |
-|---|---|---|
-| 压缩前/后 | `observe` | 知道压缩发生了 |
-| 记忆选择 | `transform` | 自定义记忆选择策略 |
-| 窗口裁剪 | `observe` | 知道哪些消息被裁掉了 |
-| turn 开始 | `observe` | 审计、日志 |
-| LLM 请求前 | `intercept` | 修改消息、换模型、加 header |
-| LLM 请求前 | `transform` | 修改 system prompt / user message |
-| LLM 响应后 | `transform` | 后处理响应内容 |
-| LLM 响应后 | `observe` | 记录 token 用量 |
-| tool 调用解析失败 | `intercept` | 恢复畸形的 tool call |
-| tool 调用前 | `intercept` | 拦截特定工具、替换参数 |
-| tool 调用后 | `transform` | 修改工具返回结果 |
-| turn 结束 | `observe` | 统计、审计 |
-| 空响应重试 | `observe` | 知道 agent "卡住"了 |
-| 重试/错误 | `observe` | 知道发生了错误 |
+| Node | Type | Description |
+|------|------|-------------|
+| Before/after compression | `observe` | Know compression happened |
+| Memory selection | `transform` | Custom memory selection strategy |
+| Window trimming | `observe` | Know which messages were trimmed |
+| Turn start | `observe` | Audit, logging |
+| Before LLM request | `intercept` | Modify messages, swap model, add headers |
+| Before LLM request | `transform` | Modify system prompt / user message |
+| After LLM response | `transform` | Post-process response content |
+| After LLM response | `observe` | Record token usage |
+| Tool call parse failure | `intercept` | Recover malformed tool calls |
+| Before tool call | `intercept` | Block specific tools, replace args |
+| After tool call | `transform` | Modify tool result |
+| Turn end | `observe` | Stats, audit |
+| Empty response retry | `observe` | Know agent is "stuck" |
+| Retry/error | `observe` | Know an error occurred |
 
-### 1.3 工具执行 (registry.ts)
+### 1.3 Tool Execution (registry.ts)
 
 ```
 registry.execute(toolName, args, ctx)
-  ├─ 查找工具                     ← unknown tool → errorResult
-  ├─ dryRun 检查                  ← 模拟模式短路
-  ├─ 弃用警告                     ← deprecated tool
-  ├─ 生命周期钩子 onBeforeToolCall ← 任意 hook 可返回 ToolResult 短路
-  ├─ 中间件 before                 ← 每个 mw 可改 args 或 skip
-  ├─ 幂等缓存检查                  ← 命中 → 直接返回缓存结果
-  ├─ 重试循环 (最多3次)            ← 超时、退避
-  │    ├─ executeWithTimeout
-  │    └─ mw.onError              ← 中间件可恢复错误
-  ├─ 中间件 after                  ← 每个 mw 可转换结果
-  ├─ 生命周期钩子 onAfterToolCall  ← 通知：执行完成
-  ├─ 幂等缓存写入                  ← idempotent 工具缓存结果
-  └─ 统计记录                      ← fire-and-forget
+  +-- find tool                     <- unknown tool -> errorResult
+  +-- dryRun check                  <- simulation mode short-circuit
+  +-- deprecation warning           <- deprecated tool
+  +-- lifecycle hook onBeforeToolCall <- any hook can return ToolResult to short-circuit
+  +-- middleware before             <- each mw can modify args or skip
+  +-- idempotent cache check        <- hit -> return cached result directly
+  +-- retry loop (max 3)            <- timeout, backoff
+  |    +-- executeWithTimeout
+  |    +-- mw.onError               <- middleware can recover from error
+  +-- middleware after              <- each mw can transform result
+  +-- lifecycle hook onAfterToolCall  <- notify: execution complete
+  +-- idempotent cache write        <- cache result for idempotent tools
+  +-- stats recording               <- fire-and-forget
 ```
 
-**现有内置 Hook 实例**：
-- `SecurityPlugin` — deny/allow list、readonly 模式、预算、路径边界、域名白名单、注入检测、危险命令确认
-- `AnalyticsPlugin` — 记录 tool_call 和 tool_result 到 JSONL
+**Existing built-in Hook instances**:
+- `SecurityPlugin` -- deny/allow list, readonly mode, budget, path boundaries, domain allowlist, injection detection, dangerous command confirmation
+- `AnalyticsPlugin` -- record tool_call and tool_result to JSONL
 
-**插件可挂点**（tool 是 hook 最密集的地方）：
+**Plugin hook points** (tools are the densest hook area):
 
-| 节点 | 类型 | 说明 |
-|---|---|---|
-| 执行前 | `intercept` | 安全策略、权限检查、短路拒绝 |
-| 执行前 | `transform` | 修改参数（脱敏、路径标准化） |
-| 执行后 | `transform` | 修改结果（格式化、截断、翻译） |
-| 执行后 | `observe` | 记录日志、统计 |
-| 错误时 | `intercept` | 错误恢复、降级处理 |
+| Node | Type | Description |
+|------|------|-------------|
+| Before execution | `intercept` | Security policy, permission check, short-circuit deny |
+| Before execution | `transform` | Modify args (sanitization, path normalization) |
+| After execution | `transform` | Modify result (formatting, truncation, translation) |
+| After execution | `observe` | Logging, stats |
+| On error | `intercept` | Error recovery, degradation |
 
-### 1.4 Channel 生命周期 (channel/)
+### 1.4 Channel Lifecycle (channel/)
 
-**ChannelGateway 事件**：
+**ChannelGateway events**:
 
 ```
 adapter added
-  → connect()
-    → channel_connected
-    → message_received    ← 收到消息
-    → message_sent        ← 发出消息
-    → channel_error
-    → channel_disconnected
-    → reconnecting        ← 自动重连
-  → disconnect()
+  -> connect()
+    -> channel_connected
+    -> message_received    <- message received
+    -> message_sent        <- message sent
+    -> channel_error
+    -> channel_disconnected
+    -> reconnecting        <- auto-reconnect
+  -> disconnect()
 adapter removed
 ```
 
-**ChannelPluginRegistry 生命周期**：
+**ChannelPluginRegistry lifecycle**:
 
 ```
-registerPlugin()    → 插件注册
-loadAdapter()       → 创建适配器实例
-unloadAdapter()     → 断开连接 + 移除
-unregisterPlugin()  → 卸载全部适配器 + 移除插件
+registerPlugin()    -> plugin registration
+loadAdapter()       -> create adapter instance
+unloadAdapter()     -> disconnect + remove
+unregisterPlugin()  -> unload all adapters + remove plugin
 ```
 
-**插件可挂点**：
+**Plugin hook points**:
 
-| 节点 | 类型 | 说明 |
-|---|---|---|
-| 消息接收 | `intercept` | 过滤/阻断消息 |
-| 消息接收 | `transform` | 预处理消息内容 |
-| 消息发送 | `transform` | 后处理回复内容 |
-| 连接状态变化 | `observe` | 监控通道健康 |
-| adapter 创建 | `intercept` | 替换 adapter 实现 |
+| Node | Type | Description |
+|------|------|-------------|
+| Message received | `intercept` | Filter/block messages |
+| Message received | `transform` | Preprocess message content |
+| Message sent | `transform` | Postprocess reply content |
+| Connection state change | `observe` | Monitor channel health |
+| Adapter creation | `intercept` | Replace adapter implementation |
 
-### 1.5 Session 生命周期 (session/)
+### 1.5 Session Lifecycle (session/)
 
 ```
-session:create          写入 session_start (model, provider, cwd)
-  ├─ user message       写入 user 条目
-  ├─ assistant response 写入 assistant 条目 (+ usage, model)
-  ├─ tool_call          写入 tool_call 条目 (+ tool name, args)
-  ├─ tool_result        写入 tool_result 条目
-  └─ session:end        写入 session_end (+ total usage, cost, turn count)
+session:create          write session_start (model, provider, cwd)
+  +-- user message       write user entry
+  +-- assistant response write assistant entry (+ usage, model)
+  +-- tool_call          write tool_call entry (+ tool name, args)
+  +-- tool_result        write tool_result entry
+  +-- session:end        write session_end (+ total usage, cost, turn count)
 
-辅助操作:
-  session:fork       分叉会话
-  session:branch     创建分支
-  session:merge      合并会话
-  session:cleanup    TTL 过期清理
-  autoCompress       SS1: 超阈值自动压缩
+Auxiliary operations:
+  session:fork       fork session
+  session:branch     create branch
+  session:merge      merge session
+  session:cleanup    TTL expiry cleanup
+  autoCompress       SS1: auto-compress when threshold exceeded
 ```
 
-**插件可挂点**：
+**Plugin hook points**:
 
-| 节点 | 类型 | 说明 |
-|---|---|---|
-| 创建 | `observe` | 知道新会话开始了 |
-| 每条 JSONL 写入 | `observe` | 全量审计 |
-| 分叉 | `intercept` | 自定义分叉逻辑 |
-| 压缩 | `transform` | 自定义压缩策略 |
-| 结束 | `observe` | 成本统计、通知 |
+| Node | Type | Description |
+|------|------|-------------|
+| Create | `observe` | Know a new session started |
+| Per JSONL write | `observe` | Full audit |
+| Fork | `intercept` | Custom fork logic |
+| Compress | `transform` | Custom compression strategy |
+| End | `observe` | Cost stats, notification |
 
 ---
 
-## 二、Harness 层
+## 2. Harness Layer
 
-### 2.1 Flow 状态机
-
-```
-intaking → planning → dispatching → executing → critiquing
-                ↑           ↑  ↓           ↓
-                │      replanning  waiting_tool
-                │           │           ↓
-                │           │     waiting_approval
-                │           │           ↓
-                │           └────── paused
-                │                       ↓
-                ├───────────────────────┘
-                ↓
-          completed / failed (终态)
-```
-
-**11 个状态，约 20 条合法转换**，见 `flow-state.ts:5-17`。
-
-### 2.2 Flow 编排循环 (runtime.ts)
+### 2.1 Flow State Machine
 
 ```
-planAndStart(goal)                       ← 从自然语言生成 plan
-  → startFlow(input)                     ← 创建 TaskFlow + artifact store
-    └─ runFlowLoop()
+intaking -> planning -> dispatching -> executing -> critiquing
+                ^           ^  |           |
+                |      replanning  waiting_tool
+                |           |           |
+                |           |     waiting_approval
+                |           |           |
+                |           +------ paused
+                |                       |
+                +-----------------------+
+                |
+          completed / failed (terminal)
+```
+
+**11 states, approximately 20 valid transitions**, see `flow-state.ts:5-17`.
+
+### 2.2 Flow Orchestration Loop (runtime.ts)
+
+```
+planAndStart(goal)                       <- generate plan from natural language
+  -> startFlow(input)                    <- create TaskFlow + artifact store
+    +-- runFlowLoop()
       loop:
-        ├─ 找下一个待执行 step           ← 按依赖图拓扑排序
-        ├─ 并行批次 dispatch             ← 最多 maxParallel 个 step
-        │    └─ dispatchStep()
-        │         └─ runAgentAssignment() ← 分配 agent runner 执行
-        │              └─ agent.run()     ← 实际执行（内部是 core 的 agent 循环）
-        ├─ runStepCritique()              ← LLM 评审 step 结果
-        │    ├─ complete     → 标记完成，retrospective，继续
-        │    ├─ ask_human    → [waiting_approval] → checkpoint → 暂停
-        │    ├─ replan       → [replanning] → replanFlow() → 修改 plan
-        │    └─ retry        → 重置 step 状态，重试
-        │
-        └─ 无待执行 step → completeFlow()
+        +-- find next pending step       <- topological sort by dependency graph
+        +-- parallel batch dispatch      <- max maxParallel steps
+        |    +-- dispatchStep()
+        |         +-- runAgentAssignment() <- assign agent runner to execute
+        |              +-- agent.run()     <- actual execution (internally core's agent loop)
+        +-- runStepCritique()            <- LLM reviews step result
+        |    +-- complete     -> mark done, retrospective, continue
+        |    +-- ask_human    -> [waiting_approval] -> checkpoint -> pause
+        |    +-- replan       -> [replanning] -> replanFlow() -> modify plan
+        |    +-- retry        -> reset step state, retry
+        |
+        +-- no pending steps -> completeFlow()
 ```
 
-**决策分叉点（最值得挂 hook 的地方）**：
+**Decision fork points (most worthwhile for hooks)**:
 
-| 节点 | 状态转换 | 插件能力 |
-|---|---|---|
-| plan 生成 | intaking→planning | `intercept` 替换 plan 生成器 |
-| step 分配 | dispatching→executing | `intercept` 选择 agent runner |
-| agent 执行完成 | executing→critiquing | `transform` 修改 step 输出 |
-| critique 判定 | critiquing→complete/replan/retry/ask_human | `intercept` 覆盖 LLM 判定 |
-| replan | replanning→dispatching | `intercept` 审查 plan 变更 |
-| human approval | waiting_approval→dispatching | `intercept` 自动审批 |
-| 完成 | →completed | `observe` 通知 |
+| Node | State Transition | Plugin Capability |
+|------|-----------------|-------------------|
+| Plan generation | intaking->planning | `intercept` replace plan generator |
+| Step assignment | dispatching->executing | `intercept` choose agent runner |
+| Agent execution complete | executing->critiquing | `transform` modify step output |
+| Critique verdict | critiquing->complete/replan/retry/ask_human | `intercept` override LLM verdict |
+| Replan | replanning->dispatching | `intercept` audit plan changes |
+| Human approval | waiting_approval->dispatching | `intercept` auto-approve |
+| Complete | ->completed | `observe` notify |
 
 ### 2.3 Self-Loop (self-loop.ts)
 
 ```
 run(handle)
   cycle loop:
-    ├─ runFlowLoop()              ← 执行一轮 flow
-    ├─ cycleCritique()            ← LLM 评审整体结果
-    ├─ evaluateDecision()         ← 决策树
-    │    ├─ high_confidence?      → stop
-    │    ├─ max_cycles?           → stop
-    │    ├─ budget_exceeded?      → stop
-    │    ├─ duplicate_critique?   → stop
-    │    ├─ critique 建议 replan  → replan
-    │    └─ otherwise             → continue
-    └─ replanForNextCycle()       ← 修改 plan 再跑
+    +-- runFlowLoop()              <- execute one flow round
+    +-- cycleCritique()            <- LLM reviews overall result
+    +-- evaluateDecision()         <- decision tree
+    |    +-- high_confidence?      -> stop
+    |    +-- max_cycles?           -> stop
+    |    +-- budget_exceeded?      -> stop
+    |    +-- duplicate_critique?   -> stop
+    |    +-- critique suggests replan -> replan
+    |    +-- otherwise             -> continue
+    +-- replanForNextCycle()       <- modify plan and re-run
 ```
 
-**插件可挂点**：
+**Plugin hook points**:
 
-| 节点 | 类型 | 说明 |
-|---|---|---|
-| 每周期开始/结束 | `observe` | 进度监控 |
-| cycle critique | `intercept` | 替换评审逻辑 |
-| 决策 | `intercept` | 自定义终止条件 |
-| replan | `transform` | 修改新 plan |
+| Node | Type | Description |
+|------|------|-------------|
+| Per-cycle start/end | `observe` | Progress monitoring |
+| Cycle critique | `intercept` | Replace review logic |
+| Decision | `intercept` | Custom termination conditions |
+| Replan | `transform` | Modify new plan |
 
 ### 2.4 Agent Runner (agent/)
 
 ```
 AgentRunnerRegistry
-  ├─ register(name, runner)
-  ├─ getAvailable(name, fallbacks[])    ← 可用性检查 + 回退链
-  └─ findByCapabilities(required)       ← 能力匹配
+  +-- register(name, runner)
+  +-- getAvailable(name, fallbacks[])    <- availability check + fallback chain
+  +-- findByCapabilities(required)       <- capability matching
 
 AgentRunner.run(assignment, options)
-  ├─ hooks.onStart?()
-  ├─ [实际执行]                          ← streamAgent / CLI 进程 / 远程
-  ├─ hooks.onComplete?()
-  └─ hooks.onError?()
+  +-- hooks.onStart?()
+  +-- [actual execution]                 <- streamAgent / CLI process / remote
+  +-- hooks.onComplete?()
+  +-- hooks.onError?()
 ```
 
 ### 2.5 Swarm (swarm/)
 
 ```
 submit(task)
-  → task:queued
-  → tryAssign()              ← 分配空闲 sandbox
-    → sandbox:created?       ← 无空闲则创建新 sandbox
-    → task:assigned
-    → task:started
-    → executeTask()
-        ├─ upload files
-        ├─ execute command   ← 重试逻辑
-        └─ emit result
-    → task:completed / failed / cancelled
-    → sandbox:destroyed / 回收
-  → scheduler:drained        ← 全部完成
+  -> task:queued
+  -> tryAssign()              <- assign idle sandbox
+    -> sandbox:created?       <- create new sandbox if none idle
+    -> task:assigned
+    -> task:started
+    -> executeTask()
+        +-- upload files
+        +-- execute command   <- retry logic
+        +-- emit result
+    -> task:completed / failed / cancelled
+    -> sandbox:destroyed / recycled
+  -> scheduler:drained        <- all complete
 ```
 
 ---
 
-## 三、Gateway 层
+## 3. Gateway Layer
 
-### 3.1 启动与发现
-
-```
-Gateway 启动
-  ├─ ProjectRegistry.discover()
-  │    └─ 扫描 roots → 找到 .vera / package.json → GatewayProject[]
-  ├─ createProjectCapabilityInventory()
-  │    └─ 扫描 .vera/ 目录 → CapabilityDescriptor[]
-  │         ├─ config     → .vera/settings.json
-  │         ├─ prompt     → CLAUDE.md
-  │         ├─ memory     → .vera/memory
-  │         ├─ rag        → .vera/rag
-  │         ├─ skill      → .claude/skills
-  │         ├─ plugin     → .vera/plugins      ← ★ 插件发现
-  │         ├─ mcp        → .cursor/projects
-  │         ├─ channel    → .vera/channels
-  │         ├─ sandbox    → .vera/sandbox
-  │         ├─ flow       → .vera/flows
-  │         └─ ...
-  └─ CapabilityRegistry.register() → 每个 capability 注册
-```
-
----
-
-## 四、完整事件清单
-
-基于以上分析，整理出插件系统需要覆盖的事件全集：
-
-### Core 事件
+### 3.1 Startup and Discovery
 
 ```
-config:load          配置加载完成
-config:merge         所有 plugin.config() 合并完成
-plugin:install       插件安装
-plugin:activate      插件激活
-plugin:deactivate    插件停用
-session:create       会话创建
-session:close        会话关闭
-session:fork         会话分叉
-turn:start           Agent 新一轮开始
-turn:end             Agent 本轮结束
-prompt:system        System prompt 组装（可 transform）
-prompt:user          User message 组装（可 transform）
-memory:select        记忆选择
-memory:inject        记忆注入
-llm:request          LLM 请求前
-llm:response         LLM 响应后
-tool:before:*        工具执行前（* 为工具名，可 intercept 短路）
-tool:after:*         工具执行后（可 transform 结果）
-tool:error:*         工具执行出错
-message:receive      收到 channel 消息
-message:send         发送 channel 消息
-channel:connect      通道连接
-channel:disconnect   通道断开
-channel:error        通道错误
-channel:reconnect    通道重连
-compression:*        压缩事件（progressive / insert-compress / micro）
-error:*              任意错误
-```
-
-### Harness 事件
-
-```
-flow:start              Flow 启动
-flow:plan:generate      Plan 生成（自然语言 → Plan）
-flow:plan:change        Plan 变更（replan / merge）
-flow:step:start         Step 开始执行
-flow:step:end           Step 执行完成（含 agent 输出）
-flow:step:dispatch      Step 被分配 agent runner
-flow:step:critique      Step 评审完成
-flow:step:retry         Step 被重试
-flow:critique:decision  评审决策（complete/replan/retry/ask_human）
-flow:replan             Re-plan 触发
-flow:pause              流程暂停（等待人工审批）
-flow:resume             流程恢复
-flow:checkpoint         检查点保存
-flow:complete           Flow 成功结束
-flow:fail               Flow 失败
-flow:error              Flow 异常
-agent:assign            Agent 被分配到 step
-agent:start             Agent 开始执行
-agent:end               Agent 执行完成
-agent:error             Agent 执行出错
-self-loop:cycle:start   自循环周期开始
-self-loop:cycle:end     自循环周期结束
-self-loop:decision      自循环终止决策
-swarm:task:queued       Swarm 任务入队
-swarm:task:started      Swarm 任务开始
-swarm:task:completed    Swarm 任务完成
-swarm:task:failed       Swarm 任务失败
-swarm:sandbox:created   Sandbox 创建
-swarm:sandbox:destroyed Sandbox 销毁
-swarm:drained           Swarm 全部完成
+Gateway startup
+  +-- ProjectRegistry.discover()
+  |    +-- scan roots -> find .vera / package.json -> GatewayProject[]
+  +-- createProjectCapabilityInventory()
+  |    +-- scan .vera/ directory -> CapabilityDescriptor[]
+  |         +-- config     -> .vera/settings.json
+  |         +-- prompt     -> CLAUDE.md
+  |         +-- memory     -> .vera/memory
+  |         +-- rag        -> .vera/rag
+  |         +-- skill      -> .claude/skills
+  |         +-- plugin     -> .vera/plugins      <- plugin discovery
+  |         +-- mcp        -> .cursor/projects
+  |         +-- channel    -> .vera/channels
+  |         +-- sandbox    -> .vera/sandbox
+  |         +-- flow       -> .vera/flows
+  |         +-- ...
+  +-- CapabilityRegistry.register() -> register each capability
 ```
 
 ---
 
-## 五、Hook 类型定义
+## 4. Complete Event Inventory
 
-基于上述所有事件，只需要四种 hook：
+Based on the above analysis, here is the full event set the plugin system needs to cover:
+
+### Core Events
+
+```
+config:load          Config load complete
+config:merge         All plugin.config() merges complete
+plugin:install       Plugin installed
+plugin:activate      Plugin activated
+plugin:deactivate    Plugin deactivated
+session:create       Session created
+session:close        Session closed
+session:fork         Session forked
+turn:start           Agent new turn begins
+turn:end             Agent turn ends
+prompt:system        System prompt assembly (transformable)
+prompt:user          User message assembly (transformable)
+memory:select        Memory selection
+memory:inject        Memory injection
+llm:request          Before LLM request
+llm:response         After LLM response
+tool:before:*        Before tool execution (* = tool name, interceptable)
+tool:after:*         After tool execution (result transformable)
+tool:error:*         Tool execution error
+message:receive      Channel message received
+message:send         Channel message sent
+channel:connect      Channel connected
+channel:disconnect   Channel disconnected
+channel:error        Channel error
+channel:reconnect    Channel reconnection
+compression:*        Compression events (progressive / insert-compress / micro)
+error:*              Any error
+```
+
+### Harness Events
+
+```
+flow:start              Flow started
+flow:plan:generate      Plan generated (natural language -> Plan)
+flow:plan:change        Plan changed (replan / merge)
+flow:step:start         Step started execution
+flow:step:end           Step execution completed (with agent output)
+flow:step:dispatch      Step assigned to agent runner
+flow:step:critique      Step review completed
+flow:step:retry         Step retried
+flow:critique:decision  Review decision (complete/replan/retry/ask_human)
+flow:replan             Re-plan triggered
+flow:pause              Flow paused (awaiting human approval)
+flow:resume             Flow resumed
+flow:checkpoint         Checkpoint saved
+flow:complete           Flow completed successfully
+flow:fail               Flow failed
+flow:error              Flow exception
+agent:assign            Agent assigned to step
+agent:start             Agent started execution
+agent:end               Agent execution completed
+agent:error             Agent execution error
+self-loop:cycle:start   Self-loop cycle started
+self-loop:cycle:end     Self-loop cycle ended
+self-loop:decision      Self-loop termination decision
+swarm:task:queued       Swarm task queued
+swarm:task:started      Swarm task started
+swarm:task:completed    Swarm task completed
+swarm:task:failed       Swarm task failed
+swarm:sandbox:created   Sandbox created
+swarm:sandbox:destroyed Sandbox destroyed
+swarm:drained           Swarm all complete
+```
+
+---
+
+## 5. Hook Type Definitions
+
+Based on all the above events, only four hook types are needed:
 
 ```ts
 interface VeraPlugin {
   name: string;
   enforce?: "pre" | "post";
 
-  // —— 声明式：我提供什么能力 ——
+  // -- Declarative: what capabilities I provide --
   provides?: Partial<Record<ContractType, Record<string, unknown>>>;
 
-  // —— 四个通用 hook ——
+  // -- Four universal hooks --
   config?(config, env): PartialConfig | null;
   intercept?(event: string, ctx: EventCtx): { handled: boolean; data?: unknown } | null;
   transform?(event: string, value: unknown, ctx: EventCtx): unknown;
@@ -426,15 +426,15 @@ interface VeraPlugin {
 }
 ```
 
-**四种 Hook 的语义**：
+**Four hook semantics**:
 
-| Hook | 类比 | 执行方式 | 能否短路 | 典型场景 |
-|---|---|---|---|---|
-| `config` | Vite config | sequential (pre→post) | 是 | 注册模型、修改 system prompt |
-| `intercept` | Vite resolveId | sequential (pre→post) | 是 (返回 {handled:true}) | 拒绝 tool、替换 adapter、审批 |
-| `transform` | Vite transform | sequential 管道 | 否 | 改 prompt、改 tool result、后处理 |
-| `observe` | Vite buildEnd | parallel | 否 | 日志、审计、统计、监控 |
+| Hook | Analogy | Execution | Can Short-Circuit | Typical Use Case |
+|------|---------|-----------|-------------------|------------------|
+| `config` | Vite config | sequential (pre->post) | Yes | Register models, modify system prompt |
+| `intercept` | Vite resolveId | sequential (pre->post) | Yes (return {handled:true}) | Deny tools, replace adapter, approve |
+| `transform` | Vite transform | sequential pipeline | No | Modify prompt, modify tool result, post-process |
+| `observe` | Vite buildEnd | parallel | No | Logging, audit, stats, monitoring |
 
-**事件匹配**：glob 模式 `tool:before:*` 匹配 `tool:before:echo`、`tool:before:read_file`。
+**Event matching**: glob patterns like `tool:before:*` match `tool:before:echo`, `tool:before:read_file`.
 
-**执行顺序**：pre → normal → post，同类 hook 按安装顺序。
+**Execution order**: pre -> normal -> post; same-type hooks in installation order.

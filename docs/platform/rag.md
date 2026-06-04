@@ -1,55 +1,55 @@
-# RAG — 检索增强生成
+# RAG -- Retrieval-Augmented Generation
 
-## 定位
+## Overview
 
-RAG 系统为 Vera 提供**基于语料库的知识检索能力**，让 agent 在执行任务时能够搜索项目文档、代码库、历史决策等本地知识，并将相关上下文注入 LLM prompt，从而提升回答准确性和任务完成质量。
+The RAG system provides Vera with **corpus-based knowledge retrieval**, enabling agents to search project documentation, codebases, historical decisions, and other local knowledge during task execution. Relevant context is injected into the LLM prompt, improving answer accuracy and task completion quality.
 
-RAG 不是 Vera 的运行时核心（agent loop 无需 RAG 也可工作），而是作为**能力增强层**存在：agent 通过 `knowledge_search` 工具触发检索，RAG pipeline 在后台完成 embedding 和相似度搜索。
-
----
-
-## 架构总览
-
-```
-┌─────────────────────────────────────────────────────────┐
-│ Agent Loop                                              │
-│   │                                                     │
-│   ├─ tool_call: knowledge_search("how to add a tool")   │
-│   ▼                                                     │
-├─────────────────────────────────────────────────────────┤
-│ RAG Pipeline (packages/core/src/rag/)                   │
-│                                                         │
-│  DocumentLoader          EmbeddingAdapter               │
-│  ┌──────────────┐       ┌──────────────────┐           │
-│  │ scanDir()    │       │ embed(text)      │           │
-│  │ chunkText()  │       │ embedBatch(texts)│           │
-│  │ load()       │       │ dimensions       │           │
-│  └──────┬───────┘       └────────┬─────────┘           │
-│         │                        │                      │
-│         ▼                        ▼                      │
-│  IncrementalIndexer        LocalVectorStore             │
-│  ┌──────────────────┐     ┌──────────────────────┐     │
-│  │ fullIndex()      │     │ upsert() / search()  │     │
-│  │ incrementalIndex │     │ cosineSimilarity     │     │
-│  │ manifest (mtime) │     │ SQLite BLOB storage  │     │
-│  └──────────────────┘     └──────────────────────┘     │
-└─────────────────────────────────────────────────────────┘
-```
-
-四层结构：
-
-1. **DocumentLoader**：从文件系统读取文档，分块，提取元数据
-2. **EmbeddingAdapter**：将文本转为向量（OpenAI / Voyage / 本地）
-3. **VectorStore**：存储向量并支持相似度搜索（SQLite 本地实现）
-4. **IncrementalIndexer**：按文件 mtime 增量更新索引
+RAG is not part of Vera's runtime core (the agent loop works without it). It exists as a **capability enhancement layer**: agents trigger retrieval via the `knowledge_search` tool, and the RAG pipeline handles embedding and similarity search in the background.
 
 ---
 
-## VectorStore 接口
+## Architecture
 
-### 接口定义
+```
++-----------------------------------------------------------+
+| Agent Loop                                                |
+|   |                                                       |
+|   +-- tool_call: knowledge_search("how to add a tool")    |
+|   v                                                       |
++-----------------------------------------------------------+
+| RAG Pipeline (packages/core/src/rag/)                     |
+|                                                           |
+|  DocumentLoader          EmbeddingAdapter                 |
+|  +----------------+     +--------------------+            |
+|  | scanDir()      |     | embed(text)        |            |
+|  | chunkText()    |     | embedBatch(texts)  |            |
+|  | load()         |     | dimensions         |            |
+|  +-------+--------+     +---------+----------+            |
+|          |                        |                       |
+|          v                        v                       |
+|  IncrementalIndexer       LocalVectorStore                |
+|  +--------------------+   +------------------------+      |
+|  | fullIndex()        |   | upsert() / search()    |      |
+|  | incrementalIndex() |   | cosineSimilarity       |      |
+|  | manifest (mtime)   |   | SQLite BLOB storage    |      |
+|  +--------------------+   +------------------------+      |
++-----------------------------------------------------------+
+```
 
-所有向量存储后端实现 `VectorStore` 接口（`packages/core/src/rag/types.ts`）：
+Four-layer structure:
+
+1. **DocumentLoader**: Reads documents from the filesystem, chunks them, extracts metadata.
+2. **EmbeddingAdapter**: Converts text to vectors (OpenAI / Voyage / local).
+3. **VectorStore**: Stores vectors and supports similarity search (SQLite local implementation).
+4. **IncrementalIndexer**: Incrementally updates the index by file mtime.
+
+---
+
+## VectorStore Interface
+
+### Interface Definition
+
+All vector storage backends implement the `VectorStore` interface (`packages/core/src/rag/types.ts`):
 
 ```ts
 interface VectorStore {
@@ -59,7 +59,7 @@ interface VectorStore {
   close(): Promise<void>;
   isHealthy(): boolean;
 
-  // 文档操作
+  // Document operations
   upsert(doc: VectorDocument): Promise<void>;
   upsertMany(docs: VectorDocument[]): Promise<void>;
   get(id: string): Promise<VectorDocument | undefined>;
@@ -71,71 +71,70 @@ interface VectorStore {
   count(): Promise<number>;
   clear(): Promise<void>;
 
-  // 相似度搜索
+  // Similarity search
   search(query: VectorQuery): Promise<VectorQueryResult>;
 
-  // 索引统计
+  // Index statistics
   getStats(): Promise<VectorIndexStats>;
 }
 ```
 
-### 文档类型
+### Document Type
 
 ```ts
 interface VectorDocument {
-  id: string;        // 唯一文档 ID（如 "docs/readme.md:0"）
-  content: string;   // 原始文本内容（或分块后的片段）
-  embedding: number[];  // 预计算的嵌入向量
-  metadata?: Record<string, unknown>;  // 来源文件、类型、分块索引等
+  id: string;           // Unique document ID, e.g. "docs/readme.md:0"
+  content: string;      // Original text or chunked fragment
+  embedding: number[];  // Precomputed embedding vector
+  metadata?: Record<string, unknown>;  // Source file, type, chunk index, etc.
   createdAt: string;
   updatedAt: string;
 }
 ```
 
-### 查询类型
+### Query Type
 
 ```ts
 interface VectorQuery {
-  text?: string;       // 查询文本（由 adapter 转为向量）
-  embedding?: number[]; // 或直接提供预计算向量
-  topK?: number;        // 返回结果数量（默认 10）
-  minScore?: number;    // 最低相似度阈值（0-1）
-  filter?: Record<string, unknown>;  // 元数据精确过滤
-  includeEmbeddings?: boolean;        // 是否在结果中包含向量
+  text?: string;         // Query text (converted to vector by adapter)
+  embedding?: number[];  // Or provide precomputed vector directly
+  topK?: number;         // Number of results (default 10)
+  minScore?: number;     // Minimum similarity threshold (0-1)
+  filter?: Record<string, unknown>;  // Exact metadata filter
+  includeEmbeddings?: boolean;       // Include vectors in results
 }
 ```
 
-### 检索结果
+### Search Results
 
 ```ts
 interface VectorQueryResult {
-  results: VectorSearchResult[];  // 按分数降序排列
-  total: number;                   // 参与计算的总文档数
-  durationMs: number;              // 搜索耗时
+  results: VectorSearchResult[];  // Sorted by descending score
+  total: number;                   // Total documents participating
+  durationMs: number;              // Search duration
 }
 
 interface VectorSearchResult {
   document: VectorDocument;
-  score: number;  // 余弦相似度 (0-1)
+  score: number;  // Cosine similarity (0-1)
 }
 ```
 
-### 当前实现：LocalVectorStore
+### Current Implementation: LocalVectorStore
 
-`LocalVectorStore`（`packages/core/src/rag/local-vector-store.ts`）是当前唯一的 VectorStore 实现：
+`LocalVectorStore` (`packages/core/src/rag/local-vector-store.ts`) is the sole VectorStore implementation:
 
-- **存储引擎**：SQLite（`better-sqlite3`）
-- **向量存储**：Float64Array 二进制 BLOB
-- **相似度计算**：余弦相似度（brute-force 全量扫描）
-- **预计算 L2 范数**：在 insert 时计算并存储，避免搜索时重复计算
-- **WAL 模式**：默认启用，支持并发读取
-- **元数据过滤**：内存侧过滤（无 JSON 索引），适用于元数据字段较少的场景
-- **容量上限**：适合 10 万文档以下，超出建议迁移到专业向量数据库（如 Pinecone、Milvus）
+- **Storage engine**: SQLite (`better-sqlite3`)
+- **Vector storage**: Float64Array binary BLOB
+- **Similarity calculation**: Cosine similarity (brute-force full scan)
+- **Precomputed L2 norm**: Calculated and stored at insert time to avoid repeated computation during search
+- **WAL mode**: Enabled by default, supports concurrent reads
+- **Metadata filtering**: In-memory filtering (no JSON index), suitable for small metadata sets
+- **Capacity**: Suitable for under 100K documents; consider migrating to a dedicated vector database (Pinecone, Milvus) beyond that
 
-关键实现细节：
+Key implementation detail:
 
 ```ts
-// 相似度计算
 function cosineSimilarity(a: number[], b: number[], normA: number, normB: number): number {
   if (normA === 0 || normB === 0) return 0;
   let dot = 0;
@@ -144,39 +143,39 @@ function cosineSimilarity(a: number[], b: number[], normA: number, normB: number
 }
 ```
 
-注意事项：
-- `search()` 要求提供 `embedding`（预计算向量），不接受纯文本查询。文本到向量的转换需由调用方通过 `EmbeddingAdapter` 完成后再调用。
-- 数据库路径由构造参数 `dbPath` 指定，不会自动创建目录（但 `initialize()` 中已包含 `mkdirSync` 递归创建）。
+Notes:
+- `search()` requires `embedding` (precomputed vector); it does not accept raw text queries. Callers must convert text to vectors via `EmbeddingAdapter` first.
+- The database path is specified by the `dbPath` constructor parameter; directory creation is handled by `mkdirSync` within `initialize()`.
 
 ---
 
-## Embedding Adapter 设计
+## Embedding Adapter Design
 
-### 接口定义
+### Interface
 
 ```ts
 interface EmbeddingAdapter {
-  readonly name: string;          // "openai" | "voyage" | "local-hash"
-  readonly dimensions: number;    // 向量维度
+  readonly name: string;       // "openai" | "voyage" | "local-hash"
+  readonly dimensions: number; // Vector dimensions
 
   initialize(): Promise<void>;
   close(): Promise<void>;
-  embed(text: string): Promise<number[]>;          // 单文本嵌入
-  embedBatch(texts: string[]): Promise<number[][]>;  // 批量嵌入
+  embed(text: string): Promise<number[]>;         // Single text embedding
+  embedBatch(texts: string[]): Promise<number[][]>;  // Batch embedding
 }
 ```
 
-### 当前实现
+### Current Implementations
 
-三个 adapter 实现在 `packages/core/src/rag/embedding-adapter.ts`：
+Three adapters in `packages/core/src/rag/embedding-adapter.ts`:
 
-| Adapter | 模型 | 维度 | 批量上限 | 说明 |
-|---------|------|------|---------|------|
-| `OpenAIEmbeddingAdapter` | text-embedding-3-small / large / ada-002 | 1536 / 3072 | 100 | 调用 OpenAI Embeddings API |
-| `VoyageEmbeddingAdapter` | voyage-3 / voyage-3-lite / voyage-code-3 | 1024 / 512 | 128 | 调用 Voyage AI API |
-| `LocalEmbeddingAdapter` | 无（hash 模拟） | 384 | 无限制 | 确定性 hash 向量，仅测试用 |
+| Adapter | Model | Dimensions | Max Batch | Notes |
+|---------|-------|------------|-----------|-------|
+| `OpenAIEmbeddingAdapter` | text-embedding-3-small / large / ada-002 | 1536 / 3072 | 100 | Calls OpenAI Embeddings API |
+| `VoyageEmbeddingAdapter` | voyage-3 / voyage-3-lite / voyage-code-3 | 1024 / 512 | 128 | Calls Voyage AI API |
+| `LocalEmbeddingAdapter` | None (hash simulation) | 384 | Unlimited | Deterministic hash vectors, testing only |
 
-### 工厂函数
+### Factory Function
 
 ```ts
 import { createEmbeddingAdapter } from "@vera/core";
@@ -188,80 +187,80 @@ const adapter = createEmbeddingAdapter({
 });
 ```
 
-`provider` 支持 `"openai"` | `"voyage"` | `"local"`。
+`provider` supports `"openai"` | `"voyage"` | `"local"`.
 
-### 内部实现细节
+### Implementation Details
 
-- **批量处理**：`embedBatch` 自动将文本按 `maxBatchSize` 分批，避免单次请求过大。
-- **超时控制**：每个 HTTP 请求通过 `AbortController` 设置超时（默认 30s）。
-- **错误传递**：HTTP 错误和网络异常均转为 `EmbeddingError`，不泄漏底层实现细节。
-- **本地适配器**：`LocalEmbeddingAdapter` 使用确定性 hash 生成向量，hash 值经过 L2 归一化，确保相同输入始终得到相同向量。仅用于测试和开发环境。
+- **Batch processing**: `embedBatch` automatically splits text batches by `maxBatchSize` to avoid oversized requests.
+- **Timeout control**: Each HTTP request uses `AbortController` with a timeout (default 30s).
+- **Error propagation**: HTTP errors and network exceptions are wrapped as `EmbeddingError`, never leaking implementation details.
+- **Local adapter**: `LocalEmbeddingAdapter` uses deterministic hashing to generate vectors; hash values are L2-normalized so identical input always produces identical vectors. Test/dev use only.
 
 ---
 
-## DocumentLoader：文档加载与分块
+## DocumentLoader: Loading and Chunking
 
-### 功能
+### Features
 
-`DocumentLoader`（`packages/core/src/rag/document-loader.ts`）负责：
+`DocumentLoader` (`packages/core/src/rag/document-loader.ts`) handles:
 
-1. **目录扫描**：递归扫描指定目录，按扩展名过滤
-2. **内容读取**：支持同步和异步两种读取方式
-3. **文本分块**：将长文档拆分为重叠的语义块
-4. **元数据提取**：记录来源文件、文件类型、分块索引
+1. **Directory scanning**: Recursive scan of specified directories, filtered by extension
+2. **Content reading**: Both synchronous and asynchronous reading modes
+3. **Text chunking**: Splits long documents into overlapping semantic chunks
+4. **Metadata extraction**: Records source file, file type, and chunk index
 
-### 支持的文件类型
+### Supported File Types
 
-| 类型 | 扩展名 |
-|------|--------|
+| Type | Extensions |
+|------|-----------|
 | Markdown | `.md`, `.mdx` |
 | JSON | `.json`, `.jsonl` |
 | TypeScript | `.ts`, `.tsx` |
-| 文本 | `.js`, `.jsx`, `.mjs`, `.txt`, `.yaml`, `.yml`, `.toml`, `.py`, `.go`, `.rs`, `.java`, `.sh`, `.css`, `.html`, `.sql` 等 |
+| Text | `.js`, `.jsx`, `.mjs`, `.txt`, `.yaml`, `.yml`, `.toml`, `.py`, `.go`, `.rs`, `.java`, `.sh`, `.css`, `.html`, `.sql`, etc. |
 
-默认排除目录：`node_modules`, `.git`, `dist`, `build`, `.next`, `coverage`。
+Default excluded directories: `node_modules`, `.git`, `dist`, `build`, `.next`, `coverage`.
 
-### 分块策略
+### Chunking Strategy
 
 ```ts
 const loader = new DocumentLoader({
   rootDir: "./docs",
-  chunkSize: 1500,      // 字符数（默认 1500）
-  chunkOverlap: 200,    // 块间重叠字符数（默认 200）
-  maxFileSize: 1_000_000, // 单文件最大字节数（默认 1MB）
+  chunkSize: 1500,        // Characters (default 1500)
+  chunkOverlap: 200,      // Overlap between chunks (default 200)
+  maxFileSize: 1_000_000, // Max bytes per file (default 1MB)
 });
 ```
 
-分块算法优先在段落边界（`\n\n`）和句子边界（`. `）处切分，避免截断语义单元。当无法找到自然边界时，回退到按 `chunkSize` 硬切分。
+The chunking algorithm prioritizes splitting at paragraph boundaries (`\n\n`) and sentence boundaries (`. `) to avoid cutting semantic units. When no natural boundary is found, it falls back to hard splits at `chunkSize`.
 
-### 文档 ID 格式
+### Document ID Format
 
-每块的 ID 格式为 `{relPath}:{chunkIndex}`，例如 `docs/readme.md:0`、`src/index.ts:3`。可通过 `idPrefix` 选项添加前缀，用于区分不同索引来源。
+Each chunk ID follows the format `{relPath}:{chunkIndex}`, e.g. `docs/readme.md:0`, `src/index.ts:3`. An `idPrefix` option can be used to differentiate index sources.
 
 ---
 
-## IncrementalIndexer：增量索引
+## IncrementalIndexer
 
-`IncrementalIndexer`（`packages/core/src/rag/incremental-indexer.ts`）实现基于文件修改时间（mtime）的增量索引：
+`IncrementalIndexer` (`packages/core/src/rag/incremental-indexer.ts`) implements mtime-based incremental indexing:
 
-### 两种索引模式
+### Two Indexing Modes
 
-1. **全量索引 `fullIndex()`**：清空现有索引，扫描所有文件，重新 embedding 和 upsert。
-2. **增量索引 `incrementalIndex()`**：对比当前文件 mtime 与 manifest 记录，仅索引新增和修改的文件，同时删除已移除文件的旧向量。
+1. **Full index `fullIndex()`**: Clears the existing index, scans all files, re-embeds and upserts.
+2. **Incremental index `incrementalIndex()`**: Compares current file mtimes against the manifest, only indexes new and modified files, and removes old vectors for deleted files.
 
-### Manifest 机制
+### Manifest
 
 ```ts
 interface IndexManifestEntry {
-  filePath: string;    // 相对于 rootDir 的路径
-  mtimeMs: number;     // 文件最后修改时间
-  docIds: string[];    // 该文件对应的向量文档 ID 列表
+  filePath: string;   // Path relative to rootDir
+  mtimeMs: number;    // Last modified time
+  docIds: string[];   // Vector document IDs for this file
 }
 ```
 
-Manifest 存储在内存中，可通过 `exportManifest()` 导出 JSON 并持久化，下次启动时通过 `loadManifest()` 恢复。
+The manifest is held in memory and can be exported to JSON via `exportManifest()` for persistence and restored via `loadManifest()` on restart.
 
-### 使用示例
+### Usage
 
 ```ts
 import {
@@ -271,7 +270,7 @@ import {
   IncrementalIndexer,
 } from "@vera/core";
 
-// 1. 初始化组件
+// 1. Initialize components
 const store = new LocalVectorStore({
   dbPath: ".vera/vectors.db",
   dimensions: 1536,
@@ -285,7 +284,7 @@ const adapter = createEmbeddingAdapter({
 
 const loader = new DocumentLoader({ rootDir: "./docs" });
 
-// 2. 创建增量索引器
+// 2. Create incremental indexer
 const indexer = new IncrementalIndexer({
   vectorStore: store,
   embeddingAdapter: adapter,
@@ -293,70 +292,68 @@ const indexer = new IncrementalIndexer({
   rootDir: process.cwd(),
 });
 
-// 3. 首次全量索引
+// 3. First full index
 const result = await indexer.fullIndex();
 console.log(`Indexed ${result.documentsUpserted} documents`);
 
-// 4. 后续增量索引
+// 4. Subsequent incremental index
 const incResult = await indexer.incrementalIndex();
 console.log(`Updated ${incResult.filesIndexed}, deleted ${incResult.filesDeleted}`);
 ```
 
 ---
 
-## 检索流程
-
-完整的检索流程包含以下步骤：
+## Retrieval Flow
 
 ```
-用户查询 "如何配置模型"
-  │
-  ▼
-1. 查询嵌入：queryEmbedding = await adapter.embed("如何配置模型")
-  │
-  ▼
-2. 向量搜索：results = await store.search({
+User query "how to configure a model"
+  |
+  v
+1. Query embedding: queryEmbedding = await adapter.embed("how to configure a model")
+  |
+  v
+2. Vector search: results = await store.search({
      embedding: queryEmbedding,
      topK: 5,
      minScore: 0.6,
-     filter: { fileType: "markdown" },  // 可选
+     filter: { fileType: "markdown" },  // optional
    })
-  │
-  ▼
-3. 结果排序：按 score 降序，截断到 topK
-  │
-  ▼
-4. 上下文注入：将检索结果格式化为 prompt 片段
-  │
-  ▼
-5. 注入 LLM prompt → 生成增强回答
+  |
+  v
+3. Sort results: descending by score, truncate to topK
+  |
+  v
+4. Context injection: format retrieved results as prompt fragments
+  |
+  v
+5. Inject into LLM prompt -> generate augmented answer
 ```
 
-当前检索策略为**纯语义搜索**（余弦相似度）。暂未实现混合检索（关键词 + 语义）和重排序（re-rank），这些在 P3 路线图中。
+The current retrieval strategy is **pure semantic search** (cosine similarity). Hybrid search (keyword + semantic) and re-ranking are not yet implemented (on the P3 roadmap).
 
 ---
 
-## 上下文注入格式
+## Context Injection Format
 
-检索到的文档块被组装为以下格式注入 LLM context：
+Retrieved document chunks are assembled into the LLM context as:
 
 ```
-## 相关文档
+## Relevant Documents
 
-### 文档 1: docs/config.md (相似度: 0.92)
-模型配置通过 VeraConfig 对象管理...
+### Document 1: docs/config.md (similarity: 0.92)
+Model configuration is managed through the VeraConfig object...
 
-### 文档 2: docs/core/adapters.md (相似度: 0.85)
-每个 adapter 实现统一的 LlmAdapter 接口...
+### Document 2: docs/core/adapters.md (similarity: 0.85)
+Each adapter implements the unified LlmAdapter interface...
 ```
 
-注入格式由调用方（tool 实现）负责，RAG 模块本身不关心 prompt 格式，只返回结构化的 `RetrievedChunk[]`。
+The injection format is the responsibility of the caller (tool implementation). The RAG module itself is format-agnostic and returns only structured `RetrievedChunk[]`.
 
 ---
 
-## 配置示例
+## Configuration
 
-### 完整 RAG 配置
+### Full RAG Config
 
 ```json
 {
@@ -387,49 +384,49 @@ console.log(`Updated ${incResult.filesIndexed}, deleted ${incResult.filesDeleted
 }
 ```
 
-### 环境变量
+### Environment Variables
 
-| 变量 | 用途 |
-|------|------|
-| `OPENAI_API_KEY` | OpenAI Embedding API 密钥 |
-| `VOYAGE_API_KEY` | Voyage AI API 密钥 |
-
----
-
-## 错误类型
-
-RAG 模块定义了层级化的错误类型（`packages/core/src/rag/types.ts`）：
-
-| 错误类 | Code | 触发条件 |
-|--------|------|---------|
-| `RAGError` | 自定义 | 基类 |
-| `VectorStoreError` | `VECTOR_STORE_ERROR` | 存储操作失败 |
-| `VectorDimensionError` | `VECTOR_DIMENSION_ERROR` | 向量维度不匹配 |
-| `EmbeddingError` | `EMBEDDING_ERROR` | API 调用失败 |
-| `DocumentNotFoundError` | `DOCUMENT_NOT_FOUND` | 文档 ID 不存在 |
-| `RAGNotInitializedError` | `RAG_NOT_INITIALIZED` | 未初始化即调用 |
+| Variable | Purpose |
+|----------|---------|
+| `OPENAI_API_KEY` | OpenAI Embedding API key |
+| `VOYAGE_API_KEY` | Voyage AI API key |
 
 ---
 
-## 当前状态与路线图
+## Error Types
 
-### 已实现 (P1)
+The RAG module defines a hierarchical error type system (`packages/core/src/rag/types.ts`):
 
-- `VectorStore` 接口与 `LocalVectorStore`（SQLite）实现
-- `EmbeddingAdapter` 接口与 OpenAI / Voyage / Local 三个实现
-- `DocumentLoader`：目录扫描、文本分块、元数据提取
-- `IncrementalIndexer`：基于 mtime 的全量/增量索引
-- `knowledge_search` 工具（`packages/core/src/tools/knowledge-search.ts`）：暴露给 agent loop 的检索入口
-- 错误类型体系
+| Error Class | Code | Trigger |
+|-------------|------|---------|
+| `RAGError` | Custom | Base class |
+| `VectorStoreError` | `VECTOR_STORE_ERROR` | Storage operation failed |
+| `VectorDimensionError` | `VECTOR_DIMENSION_ERROR` | Vector dimension mismatch |
+| `EmbeddingError` | `EMBEDDING_ERROR` | API call failed |
+| `DocumentNotFoundError` | `DOCUMENT_NOT_FOUND` | Document ID does not exist |
+| `RAGNotInitializedError` | `RAG_NOT_INITIALIZED` | Called before initialization |
 
-### 计划实现 (P2-P3)
+---
 
-| 功能 | 优先级 | 说明 |
-|------|--------|------|
-| 混合检索（hybrid search） | P2 | 结合 BM25 关键词 + 语义向量，提升精确匹配场景的召回率 |
-| 重排序（re-rank） | P2 | 基于 Cross-Encoder 对初步检索结果二次排序 |
-| 云端 VectorStore | P3 | 接入 Pinecone / Milvus / pgvector 等专业向量数据库 |
-| 多模态嵌入 | P3 | 支持图片 embedding（CLIP 等）实现图文混合检索 |
-| 自动索引调度 | P3 | 文件变更时自动触发增量索引（watch 模式） |
-| 检索缓存 | P3 | 缓存高频查询的检索结果，减少 embedding API 调用 |
-| 分块策略增强 | P3 | 语义分块（sentence-transformers）、递归分块、代码 AST 分块 |
+## Current Status and Roadmap
+
+### Implemented (P1)
+
+- `VectorStore` interface and `LocalVectorStore` (SQLite) implementation
+- `EmbeddingAdapter` interface with OpenAI / Voyage / Local backends
+- `DocumentLoader`: directory scanning, text chunking, metadata extraction
+- `IncrementalIndexer`: mtime-based full and incremental indexing
+- `knowledge_search` tool (`packages/core/src/tools/knowledge-search.ts`): retrieval entry point for the agent loop
+- Error type system
+
+### Planned (P2-P3)
+
+| Feature | Priority | Notes |
+|---------|----------|-------|
+| Hybrid search | P2 | Combine BM25 keyword + semantic vector for better recall on exact matches |
+| Re-ranking | P2 | Cross-Encoder secondary ranking of initial search results |
+| Cloud VectorStore | P3 | Integrate Pinecone / Milvus / pgvector |
+| Multimodal embeddings | P3 | Image embedding (CLIP) for text-image hybrid search |
+| Auto-index scheduling | P3 | Watch mode: trigger incremental indexing on file changes |
+| Retrieval cache | P3 | Cache high-frequency query results to reduce embedding API calls |
+| Enhanced chunking | P3 | Semantic chunking (sentence-transformers), recursive chunking, code AST chunking |

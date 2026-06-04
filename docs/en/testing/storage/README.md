@@ -1,1 +1,0 @@
-../../../testing/storage/README.md

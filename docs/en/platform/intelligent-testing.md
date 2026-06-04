@@ -1,1 +1,0 @@
-../../platform/intelligent-testing.md

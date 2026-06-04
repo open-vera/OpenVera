@@ -1,1 +1,0 @@
-../../code-governance/static-analysis.md

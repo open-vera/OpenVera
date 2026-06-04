@@ -77,11 +77,11 @@ POST /api/manage/:action
 POST /api/execute/:action
 ```
 
-`POST /api/execute/flow.run` 启动 `openvera flow run`；`POST /api/execute/chat.send` 经 `@open-vera/core` `runAgent` 生成回复（无 API Key 时回退占位文案）。
+`POST /api/execute/flow.run` launches `openvera flow run`; `POST /api/execute/chat.send` generates a reply via `@open-vera/core` `runAgent` (falls back to placeholder text when no API key is present).
 
-`GET /api/runs/:runId/stream?live=1` 在 run 进行中每秒 tail `timeline.ndjson`。
+`GET /api/runs/:runId/stream?live=1` tails `timeline.ndjson` every second while the run is in progress.
 
-`GET /api/projects/:projectId/rag/search?q=` 关键词检索 `.vera/rag`；`GET /api/projects/:projectId/mcp/servers|tools` 发现 MCP 配置。
+`GET /api/projects/:projectId/rag/search?q=` keyword-searches `.vera/rag`; `GET /api/projects/:projectId/mcp/servers|tools` discovers MCP configurations.
 
 Management API after the read-only layer is stable:
 
@@ -122,11 +122,11 @@ POST /api/runs
    - Expose typed APIs for a future server.
 
 2. Gateway server
-   - `apps/gateway-ui/server` 提供 Gateway 原生 REST（无 `/api/admin` 兼容层）。
-   - `operations-store` 负责主机资源与项目活动；`runtime-store` 读取 `.vera/flows/iterations`。
+   - `apps/gateway-ui/server` provides the Gateway's native REST (no `/api/admin` compatibility layer).
+   - `operations-store` handles host resources and project activity; `runtime-store` reads `.vera/flows/iterations`.
 
 3. Unified web shell
-   - `apps/gateway-ui/web`：Runs 工作区（Flow 启动 + 侧栏 + Run 子路由）、Operations、Project 详情、Chat 占位。
+   - `apps/gateway-ui/web`: Runs workspace (Flow launch + sidebar + Run sub-routes), Operations, Project details, Chat placeholder.
 
 4. Management actions
    - Add safe actions: reload skill, reload MCP, connect channel, run doctor, test provider, trigger RAG reindex.

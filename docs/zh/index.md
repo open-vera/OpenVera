@@ -11,7 +11,7 @@ hero:
       link: "#install"
     - theme: alt
       text: 文档
-      link: /zh/README
+      link: /README
     - theme: alt
       text: GitHub
       link: https://github.com/open-vera/OpenVera
@@ -70,7 +70,7 @@ ai init --force  # 已有配置时强制重新初始化
 | `routing` | L0/L1/L2 按任务复杂度自动选择模型 |
 | `session` | AI 标题生成、长会话自动压缩 |
 
-[→ 完整配置指南](/zh/README)
+[→ 完整配置指南](/README)
 
 ## 功能
 
@@ -133,7 +133,7 @@ apps/
 └── gateway-ui/server/ API 服务端
 ```
 
-> **关键约束：** Role Agent 不拥有"算不算完成"的决定权。该权利专属 Challenger。详见 [Harness 设计 →](/zh/harness/design)
+> **关键约束：** Role Agent 不拥有"算不算完成"的决定权。该权利专属 Challenger。详见 [Harness 设计 →](/harness/design)
 
 ## 路线图
 
@@ -144,7 +144,7 @@ apps/
 | **P2** | 自进化 | Dreaming → Proposal → 人工审核 → 基准门控 Rollout → 回归闭环 | 📋 规划中 |
 | **P3** | 通用 agent 平台 | Computer Use、MCP、多 agent 网络、自适应策略 | 📋 规划中 |
 
-[→ 完整路线图](/zh/roadmap)
+[→ 完整路线图](/roadmap) · [→ P0 改进计划](/P0-IMPROVEMENT-PLAN) · [→ P1 实施计划](/P1-IMPLEMENTATION-PLAN)
 
 ## 技术栈
 

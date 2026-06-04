@@ -1,43 +1,43 @@
-# Session 系统设计
+# Session System Design
 
-> 本文档描述 OpenVera 的会话持久化系统，包括 JSONL 存储格式、会话生命周期、分支机制、成本追踪和搜索能力。
+> This document describes OpenVera's session persistence system, including JSONL storage format, session lifecycle, forking mechanism, cost tracking, and search capabilities.
 
-## 概述
+## Overview
 
-Session 系统是 OpenVera 的会话持久化层，负责记录每一次 agent 对话的全部过程。核心设计原则：
+The Session system is OpenVera's session persistence layer, responsible for recording every agent conversation in its entirety. Core design principles:
 
-- **JSONL 格式**：每行一条 JSON 记录，人类可读、易于 grep/流式处理
-- **双后端**：默认 JSONL 文件存储，可选 SQLite 后端（具备 FTS 搜索和索引能力）
-- **渐进式加载**：仅读取头尾各 64KB 即可生成摘要，全量读取仅用于恢复对话
-- **分支原生支持**：可从任意 turn 分叉（fork），多个分支独立推进，最终合并
+- **JSONL format**: One JSON record per line, human-readable, easy to grep/stream processing
+- **Dual backend**: Default JSONL file storage, optional SQLite backend (with FTS search and indexing)
+- **Progressive loading**: Only reads the head and tail 64KB to generate summaries; full reads only for conversation recovery
+- **Native fork support**: Fork from any turn; multiple branches advance independently and can be merged
 
-核心代码位于 `packages/core/src/session/`。
+Core code is in `packages/core/src/session/`.
 
-## 会话生命周期
+## Session Lifecycle
 
-### 创建
+### Creation
 
 ```typescript
 import { SessionStore } from "@open-vera/core";
 
 const store = new SessionStore({ cwd: "/path/to/project" });
-// sessionId 自动生成（crypto.randomUUID()）
-// 文件路径：~/.vera/projects/<sanitized_cwd>/<sessionId>.jsonl
+// sessionId auto-generated (crypto.randomUUID())
+// File path: ~/.vera/projects/<sanitized_cwd>/<sessionId>.jsonl
 
 store.writeStart("claude-sonnet-4-6", "anthropic");
 ```
 
-`new SessionStore()` 会自动创建项目目录（`~/.vera/projects/<cwd_hash>/`），文件名使用 UUID。
+`new SessionStore()` automatically creates the project directory (`~/.vera/projects/<cwd_hash>/`), with filenames using UUIDs.
 
-### 写入对话
+### Writing Conversations
 
-每次 agent loop 中的用户输入、LLM 响应、工具调用和结果都会按序写入：
+Each user input, LLM response, tool call, and result in the agent loop is written sequentially:
 
 ```typescript
-const userUuid = store.writeUser("帮我创建一个 React 组件");
+const userUuid = store.writeUser("Help me create a React component");
 const assistantUuid = store.writeAssistant({
   parentUuid: userUuid,
-  content: "好的，我来创建...",
+  content: "Sure, I'll create...",
   model: "claude-sonnet-4-6",
   provider: "anthropic",
   stopReason: "tool_use",
@@ -49,7 +49,7 @@ const assistantUuid = store.writeAssistant({
 });
 ```
 
-工具调用单独记录：
+Tool calls are recorded separately:
 
 ```typescript
 const toolCallUuid = store.writeToolCall({
@@ -66,7 +66,7 @@ store.writeToolResult({
 });
 ```
 
-### 结束会话
+### Ending a Session
 
 ```typescript
 const totalUsage = { input_tokens: 5000, output_tokens: 3000 };
@@ -76,43 +76,43 @@ const turnCount = 5;
 store.writeEnd(totalUsage, totalCostUsd, turnCount, lastUserPrompt);
 ```
 
-`writeEnd` 会同时写入 `last-prompt`（最后一条用户输入的前 120 字符，用于列表预览）和 `session_end` 两项条目。
+`writeEnd` writes both a `last-prompt` entry (first 120 characters of the last user input, for list previews) and a `session_end` entry.
 
-### 加载与恢复
+### Loading and Recovery
 
 ```typescript
 const loaded = SessionStore.loadSession(sessionId, cwd);
 // LoadedSession { sessionId, filePath, cwd, history: Message[], totalUsage, totalCostUsd, turnCount, model, provider }
 ```
 
-恢复时仅解析 `user` 和 `assistant` 类型的条目，跳过 `tool_call`/`tool_result`（这些信息已包含在 assistant 的 content 中）。
+On recovery, only `user` and `assistant` type entries are parsed; `tool_call`/`tool_result` are skipped (that info is already included in the assistant's content).
 
-### 读取摘要（无需全量加载）
+### Reading Summaries (Without Full Loading)
 
 ```typescript
 const summary = SessionStore.loadTranscriptPreview(sessionId, cwd);
 // SessionTranscriptPreview { sessionId, messages: SessionPreviewMessage[], summary?: SessionSummary }
 ```
 
-摘要读取仅访问文件头尾各 64KB，包含：
-- `SessionSummary`：模型、provider、turn 数、cost、title、summary、tag、git branch、PR 链接
-- `SessionPreviewMessage[]`：用户和 assistant 消息，含 tool use 详情
+Summary reading only accesses the file's head and tail 64KB, containing:
+- `SessionSummary`: model, provider, turn count, cost, title, summary, tag, git branch, PR link
+- `SessionPreviewMessage[]`: user and assistant messages with tool use details
 
-### 列表与分页
+### Listing and Pagination
 
 ```typescript
 const result = SessionStore.listSessionsPaged({
-  cwd: "/path/to/project",   // 按项目过滤
-  limit: 20,                  // 每页条数
-  offset: 0,                  // 偏移量
-  includeWorktrees: true,     // 是否包含 git worktree 下的会话
+  cwd: "/path/to/project",   // Filter by project
+  limit: 20,                  // Items per page
+  offset: 0,                  // Offset
+  includeWorktrees: true,     // Include sessions under git worktrees
 });
 // ListSessionsResult { sessions: SessionSummary[], nextOffset?: number, totalCandidates: number }
 ```
 
-## JSONL 格式与 Schema
+## JSONL Format and Schema
 
-每条记录是独立的 JSON 行。以下是完整的 entry 类型定义（`types.ts`）：
+Each record is an independent JSON line. Full entry type definitions from `types.ts`:
 
 ### session_start
 ```json
@@ -121,12 +121,12 @@ const result = SessionStore.listSessionsPaged({
 
 ### user
 ```json
-{"type":"user","sessionId":"uuid","timestamp":"ISO-8601","uuid":"msg-uuid","content":"用户输入内容"}
+{"type":"user","sessionId":"uuid","timestamp":"ISO-8601","uuid":"msg-uuid","content":"User input content"}
 ```
 
 ### assistant
 ```json
-{"type":"assistant","sessionId":"uuid","timestamp":"ISO-8601","uuid":"msg-uuid","parentUuid":"user-uuid","content":"LLM响应","model":"claude-sonnet-4-6","provider":"anthropic","stopReason":"end_turn|tool_use|max_tokens|stop","usage":{"input_tokens":500,"output_tokens":200},"turn":1,"latencyMs":1234,"toolCalls":["write","read"],"status":"ok|error"}
+{"type":"assistant","sessionId":"uuid","timestamp":"ISO-8601","uuid":"msg-uuid","parentUuid":"user-uuid","content":"LLM response","model":"claude-sonnet-4-6","provider":"anthropic","stopReason":"end_turn|tool_use|max_tokens|stop","usage":{"input_tokens":500,"output_tokens":200},"turn":1,"latencyMs":1234,"toolCalls":["write","read"],"status":"ok|error"}
 ```
 
 ### tool_call
@@ -136,7 +136,7 @@ const result = SessionStore.listSessionsPaged({
 
 ### tool_result
 ```json
-{"type":"tool_result","sessionId":"uuid","timestamp":"ISO-8601","uuid":"tr-uuid","parentUuid":"tc-uuid","toolCallId":"toolu_xxx","content":"工具返回内容"}
+{"type":"tool_result","sessionId":"uuid","timestamp":"ISO-8601","uuid":"tr-uuid","parentUuid":"tc-uuid","toolCallId":"toolu_xxx","content":"Tool return content"}
 ```
 
 ### session_end
@@ -144,28 +144,28 @@ const result = SessionStore.listSessionsPaged({
 {"type":"session_end","sessionId":"uuid","timestamp":"ISO-8601","totalUsage":{"input_tokens":5000,"output_tokens":3000},"totalCostUsd":0.045,"turnCount":5}
 ```
 
-### 元数据条目
+### Metadata Entries
 
-| type | 说明 |
+| type | Description |
 |---|---|
-| `custom-title` / `custom_title` | 用户自定义标题 |
-| `ai-title` | AI 自动生成的标题 |
-| `summary` | 会话摘要（自动压缩时生成） |
-| `last-prompt` / `last_prompt` | 最后一条用户消息（前 120 字符） |
-| `tag` | 标签（支持多条，如 `merged-from:xxx`） |
-| `git-branch` | 会话所在 git 分支 |
-| `pr-link` | 关联的 PR 链接 |
-| `branch` | 分支/分叉标记（parentSessionId、forkedFromUuid、status） |
+| `custom-title` / `custom_title` | User-defined title |
+| `ai-title` | AI auto-generated title |
+| `summary` | Session summary (generated during auto-compression) |
+| `last-prompt` / `last_prompt` | Last user message (first 120 characters) |
+| `tag` | Tags (supports multiple, e.g., `merged-from:xxx`) |
+| `git-branch` | Git branch the session was on |
+| `pr-link` | Associated PR link |
+| `branch` | Branch/fork marker (parentSessionId, forkedFromUuid, status) |
 
-### 内容截断
+### Content Truncation
 
-`preview()` 函数将所有字段截断到 120 字符：超长内容显示 `前117字...`。这避免了超长 prompt 撑大列表摘要。
+The `preview()` function truncates all fields to 120 characters: overlong content shows `first 117 chars...`. This prevents very long prompts from bloating list summaries.
 
-## 会话元数据
+## Session Metadata
 
-### AI 自动标题
+### AI Auto-Title
 
-`generateSessionTitle()`（`title.ts`）在会话结束时调用，使用 LLM 基于第一条用户 prompt 和第一条 assistant 回复生成简短标题（3-8 词或中文短语）：
+`generateSessionTitle()` (`title.ts`) is called at session end, using an LLM to generate a short title (3-8 words) based on the first user prompt and first assistant reply:
 
 ```typescript
 import { generateSessionTitle } from "@open-vera/core";
@@ -173,156 +173,137 @@ import { generateSessionTitle } from "@open-vera/core";
 const title = await generateSessionTitle({
   adapter: llmAdapter,
   model: "claude-haiku-4-5",
-  userPrompt: "帮我重构用户认证模块",
-  assistantText: "好的，我来分析现有代码...",
+  userPrompt: "Help me refactor the user authentication module",
+  assistantText: "OK, I'll analyze the existing code...",
 });
 ```
 
-标题写入 `ai-title` 条目，在摘要显示时优先级：**用户自定义标题 > AI 标题 > 首条 prompt > 摘要**。
+The title is written as an `ai-title` entry. Display priority: **user-defined title > AI title > first prompt > summary**.
 
-### 成本追踪
+### Cost Tracking
 
-定价表位于 `cost.ts`，支持多模型：
+The pricing table is in `cost.ts`, supporting multiple models:
 
 ```typescript
-// 计算单次调用的成本
+// Calculate cost for a single call
 const cost = calculateCost(usage, "claude-sonnet-4-6");
 
-// 累加到会话级别
+// Accumulate to session level
 const accumulated = accumulateCost(current, usage, model, provider);
 // AccumulatedCost { totalUsd, byModel: Record<string, ModelCostRecord>, totalUsage }
 ```
 
-模型名在查询定价表前会先归一化：去掉日期后缀（`-20251001`）、`-latest`、`-preview`、`-exp` 等。
+Model names are normalized before lookup: date suffixes (`-20251001`), `-latest`, `-preview`, `-exp` are stripped.
 
-当前支持的定价模型：Claude Opus 4.6、Sonnet 4.6、Haiku 4.5，以及 GPT-4o、GPT-4o-mini、o3、o4-mini、Gemini 2.0 Flash、Gemini 2.5 Pro。
+Currently supported pricing: Claude Opus 4.6, Sonnet 4.6, Haiku 4.5, plus GPT-4o, GPT-4o-mini, o3, o4-mini, Gemini 2.0 Flash, Gemini 2.5 Pro.
 
-## 分支机制
+## Forking Mechanism
 
-### 从任意 turn 分叉
+### Fork from Any Turn
 
 ```typescript
 const forked = SessionStore.forkSession({
   fromSessionId: "parent-uuid",
-  atUuid: "specific-message-uuid", // 可选：从指定的消息位置分叉，不传则从末尾
-  title: "尝试方案B",
+  atUuid: "specific-message-uuid", // Optional: fork from specific message; omit for end
+  title: "Try approach B",
   cwd: "/path/to/project",
 });
 // ForkedSession { sessionId, parentSessionId, forkedFromUuid, filePath, title }
 ```
 
-分叉实现：
-1. 读取源会话的所有可重放条目（排除 `session_end`、`last-prompt`、`summary` 等元数据）
-2. 复制到新文件，`sessionId` 替换为新 UUID
-3. 写入 `branch` 条目标记分叉关系
-4. 写入 `custom-title` 条目（如果提供了 title）
+Fork implementation:
+1. Reads all replayable entries from the source session (excluding `session_end`, `last-prompt`, `summary`, etc.)
+2. Copies to a new file, replacing `sessionId` with a new UUID
+3. Writes a `branch` entry marking the fork relationship
+4. Writes a `custom-title` entry (if title provided)
 
-### 分支生命周期
+### Branch Lifecycle
 
-分支有四种状态（`BranchStatus`）：
+Branches have four statuses (`BranchStatus`):
 
-| 状态 | 说明 | 操作 |
+| Status | Description | Operation |
 |---|---|---|
-| `active` | 活跃分支，正常推进中 | 创建时默认 |
-| `adopted` | 被采纳为主路径 | `SessionStore.adoptBranch(id)` |
-| `merged` | 已合并回父分支 | `SessionStore.markBranchMerged(id)` |
-| `discarded` | 已废弃 | `SessionStore.discardBranch(id)` |
+| `active` | Active branch, advancing normally | Default on creation |
+| `adopted` | Adopted as the main path | `SessionStore.adoptBranch(id)` |
+| `merged` | Merged back to parent | `SessionStore.markBranchMerged(id)` |
+| `discarded` | Discarded | `SessionStore.discardBranch(id)` |
 
-### 查询分支
+### Querying Branches
 
 ```typescript
-// 列出某个父会话的所有活跃分支
+// List all active branches of a parent session
 const branches = SessionStore.listBranches(parentSessionId, cwd);
-// 返回 SessionSummary[]，不含 discarded 状态的分支
+// Returns SessionSummary[], excluding discarded branches
 ```
 
-状态变更通过追加新 `branch` 条目实现（JSONL 不可原地修改）。读取时取最后一条 `branch` 条目的状态。
+Status changes are implemented by appending new `branch` entries (JSONL cannot be modified in place). The last `branch` entry's status is used when reading.
 
-### 合并（merge）
+### Merging
 
-通过 `SessionManager.mergeSessions()` 实现：
+Via `SessionManager.mergeSessions()`:
 
 ```typescript
 const manager = new SessionManager();
 manager.mergeSessions("primary-session-id", ["dup-1", "dup-2"]);
-// primary 写入 merged-from 标签，duplicates 写入 merged-into 标签
+// primary gets merged-from tag, duplicates get merged-into tag
 ```
 
-这并非自动合并 JSONL 内容，而是通过标签建立关联。合并逻辑的实际含义是：标记重复会话，指向规范版本。
+This does not automatically merge JSONL content; it establishes associations through tags. The meaning of the merge operation is: mark duplicate sessions, pointing to the canonical version.
 
-## 会话管理（SessionManager）
+## Session Manager
 
-`SessionManager` 提供会话生命周期的高级能力：
+`SessionManager` provides advanced session lifecycle capabilities:
 
-### 自动压缩（SS1）
+### Auto-Compression (SS1)
 
-```typescript
-const manager = new SessionManager({
-  autoCompress: {
-    enabled: true,
-    tokenThreshold: 100_000,   // 触发压缩的 token 阈值
-    keepRecentTurns: 6,        // 保留最近的 N 轮不解压
-  },
-});
+When message history token count exceeds a threshold, early messages are automatically compressed into a summary, preserving the most recent N turns in full.
 
-const { messages, compressed, usage } = await manager.autoCompress(
-  sessionId, messages, adapter, model
-);
-```
-
-当消息历史的 token 数超过阈值时，自动将早期消息压缩为摘要，保留最近 N 轮完整对话。
-
-### 去重与相似检测（SS2）
+### Deduplication and Similarity Detection (SS2)
 
 ```typescript
 const similar = manager.findSimilarSessions(targetSessionId, candidates, 0.6);
 // SimilarSession[] sorted by similarity (Jaccard similarity on trigrams)
 ```
 
-基于字符 trigram 的 Jaccard 相似度算法，比较标题、首条 prompt、摘要等维度。
+Uses character trigram Jaccard similarity to compare titles, first prompts, summaries, etc.
 
-### 索引与搜索（SS3）
+### Indexing and Search (SS3)
 
 ```typescript
 manager.buildIndex(sessions);
-const results = manager.searchByKeyword("React 组件 测试");
+const results = manager.searchByKeyword("React component testing");
 // SessionIndexEntry[] sorted by relevance
 ```
 
-支持中文和英文关键词，标题匹配有额外加分。停止词包含中英文常用词。
+Supports both Chinese and English keywords, with title matches receiving bonus scoring. Stop words include common Chinese and English words.
 
-### TTL 清理（SS4）
+### TTL Cleanup (SS4)
 
-```typescript
-manager.cleanup({ cwd: "/project", dryRun: false });
-// CleanupResult { removedCount, removedSessionIds, remainingCount }
-```
+Two-phase cleanup: first delete sessions exceeding TTL (default 30 days), then if still exceeding maxSessions (default 1000), delete by oldest activity time.
 
-两阶段清理：先删除超过 TTL（默认 30 天）的会话，若仍超过 maxSessions（默认 1000），再按最旧的活动时间删除。
+## Storage Backends
 
-## 存储后端
+### JSONL File Backend (Default)
 
-### JSONL 文件后端（默认）
+- Storage path: `~/.vera/projects/<sanitized_cwd>/<sessionId>.jsonl`
+- Path sanitization: non-alphanumeric characters replaced with `-`, overlong paths truncated with hash appended
+- Git worktree support: listings include sessions under worktree paths
 
-- 存储路径：`~/.vera/projects/<sanitized_cwd>/<sessionId>.jsonl`
-- 路径清理策略：非字母数字字符替换为 `-`，超长路径截断并追加 hash
-- 支持 git worktree：列表时会包括 worktree 路径下的会话
-
-### SQLite 后端（可选）
+### SQLite Backend (Optional)
 
 ```typescript
 const { backend, migrated } = await SessionStore.configureSqlite({
   dbPath: "~/.vera/sessions.db",
-  enableFts: true,            // 启用 FTS5 全文搜索
-  autoMigrate: true,          // 自动从 JSONL 迁移
+  enableFts: true,            // Enable FTS5 full-text search
+  autoMigrate: true,          // Auto-migrate from JSONL
 });
 ```
 
-SQLite 后端将 JSONL 内容完整保留在 `content` 字段中，同时提取 metadata 用于索引和查询。详见 `packages/core/src/session/sqlite-backend.ts`。
+The SQLite backend preserves full JSONL content in a `content` field while extracting metadata for indexing and querying. See `packages/core/src/session/sqlite-backend.ts`.
 
-## 配置
+## Configuration
 
-会话相关配置通过 `settings.json` 的 `session` 字段：
+Session-related configuration via `settings.json` `session` field:
 
 ```json
 {
@@ -339,61 +320,14 @@ SQLite 后端将 JSONL 内容完整保留在 `content` 字段中，同时提取 
 }
 ```
 
-## 文件路径约定
+## File Path Conventions
 
 ```
 ~/.vera/
   projects/
-    <sanitized_cwd_hash>/     # 如 Users-yang-zhou-workspace-my-project
-      <uuid>.jsonl            # 单个会话文件
-  settings.json               # 全局配置（含 API Key）
+    <sanitized_cwd_hash>/     # e.g., Users-yang-zhou-workspace-my-project
+      <uuid>.jsonl            # Single session file
+  settings.json               # Global configuration (including API Key)
 ```
 
-`sanitizePath()` 将路径中的非字母数字字符替换为 `-`，长路径加 djb2 hash 后缀以确保唯一性。`resolveSessionFilePath()` 支持向后兼容的多目录搜索。
-
-## 代码示例
-
-### 完整的会话记录与查询
-
-```typescript
-import { SessionStore, SessionManager, calculateCost } from "@open-vera/core";
-
-// 1. 创建会话
-const store = new SessionStore({ cwd: process.cwd() });
-store.writeStart("claude-sonnet-4-6", "anthropic");
-store.writeTitle("用户认证重构");
-
-// 2. 记录对话
-const userUuid = store.writeUser("帮我重写登录逻辑");
-const cost = calculateCost({ input_tokens: 500, output_tokens: 200 }, "claude-sonnet-4-6");
-const assistantUuid = store.writeAssistant({
-  parentUuid: userUuid,
-  content: "好的，我来分析...",
-  model: "claude-sonnet-4-6",
-  provider: "anthropic",
-  stopReason: "end_turn",
-  usage: { input_tokens: 500, output_tokens: 200 },
-  turn: 1,
-  latencyMs: 800,
-  toolCalls: [],
-  status: "ok",
-});
-store.writeEnd({ input_tokens: 500, output_tokens: 200 }, 0.0039, 1);
-
-// 3. 查询列表
-const { sessions } = SessionStore.listSessionsPaged({ limit: 10 });
-for (const s of sessions) {
-  console.log(`${s.title ?? s.summary} - ${s.turnCount} turns - $${s.totalCostUsd.toFixed(4)}`);
-}
-
-// 4. 恢复对话
-const loaded = SessionStore.loadSession(store.sessionId);
-console.log(`History: ${loaded.history.length} messages, Model: ${loaded.model}`);
-
-// 5. 分叉新路径
-const branch = SessionStore.forkSession({
-  fromSessionId: store.sessionId,
-  title: "方案B：使用OAuth库",
-});
-console.log(`Forked: ${branch.sessionId}`);
-```
+`sanitizePath()` replaces non-alphanumeric characters with `-`; long paths get a djb2 hash suffix for uniqueness. `resolveSessionFilePath()` supports backward-compatible multi-directory search.

@@ -1,1 +1,0 @@
-../gateway-control-plane.md

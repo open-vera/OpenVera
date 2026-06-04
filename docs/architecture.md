@@ -1,90 +1,90 @@
-# Core 与 Harness 职责边界
+# Core vs Harness — Responsibility Boundaries
 
-> 澄清 `@vera/core` 和 `@vera/harness` 的职责分工、隔离边界、以及可共用的部分。
-
----
-
-## 0. 一句话定义
-
-| 包 | 定义 |
-|----|------|
-| `@vera/core` | **一次 LLM 调用需要什么** — 适配器、agent 循环、上下文管理、协议类型 |
-| `@vera/harness` | **一个多步任务需要什么** — 流程编排、规划、批判、产物持久化、评估 |
-
-依赖方向：`harness → core`，**core 不依赖 harness，永远如此。**
+> Clarifying the division of responsibilities, isolation boundaries, and shared components between `@vera/core` and `@vera/harness`.
 
 ---
 
-## 1. Core 的职责
+## 0. One-Line Definitions
 
-### 1.1 负责
+| Package | Definition |
+|---------|------------|
+| `@vera/core` | **What a single LLM call needs** — adapters, agent loop, context management, protocol types |
+| `@vera/harness` | **What a multi-step task needs** — flow orchestration, planning, critique, artifact persistence, evaluation |
 
-| 模块 | 内容 |
-|------|------|
-| **LLM Adapter** | 封装 Anthropic / OpenAI / Gemini API，统一为 `LLMAdapter` 接口 |
-| **Agent Loop** | `runAgent` / `streamAgent` — 消息循环、工具调用、多轮对话 |
-| **Subagent** | `agent/subagent.ts` — `agent` tool 实现：sidechain session、isolation worktree、自定义 agent 定义加载 |
-| **Context 管理** | 滑动窗口裁剪、token 估算、tool result 预算（防止单次结果撑爆上下文） |
-| **Intent 分类** | `classifyIntent`、`routeTarget` — L0~L3 分级，domain 识别 |
-| **Config Schema** | `VeraConfig`、`MCPServerConfig` 等配置类型及加载逻辑 |
-| **协议类型** | `Message`、`Tool`、`CompletionRequest`、`ContentPart`、`Usage` |
-| **运行时协议类型** | `HarnessState`、`ExecutionPlan`、`TaskFlow` 等 —— 类型定义在 core，实现在 harness |
-| **Permission Rules** | `tools/permission-rules.ts` — 持久化工具规则、bash allow/deny pattern，补充 SecurityPlugin 的静态检查 |
-| **Project Context** | `project-context/` — 加载 `.vera/rules.md`、`CLAUDE.md` 等项目级 prompt 规则，按路径范围激活 |
-| **Memory Tracking** | `memory/` — 跨轮次记忆检测（detector）、scanner、tracker，为 agent 提供短期记忆锚点 |
-| **Session 管理** | `session/` — JSONL 存储、cost tracking、AI 自动标题（`title.ts`）、session picker 分页扫描 |
-| **REPL & Workspace** | `repl/` — 交互式终端 UI（Ink）、session 存储、`workspace.ts` 管理当前 cwd / ToolRegistry / worktree 状态 |
-| **REPL 命令** | `/branch` `/branches` `/switch` `/drop` conversation 分支；`/try` 创建隔离 git worktree；`/merge` 采纳 diff；`/adopt` 标记分支；`/sub` (`/transcript`) 查看子 agent sidechain |
-| **CLI Color Theme** | `repl/ui/theme.ts` — 统一语义色彩 token，基于 Claude Code 配色，所有 UI 组件通过 `theme.*` 引用 |
-
-### 1.2 不负责
-
-- 任何跨步骤的状态机（流程走到哪一步、是否要重规划）
-- 批判（Critique）/ 回顾（Retrospective）的生成逻辑
-- 产物（Artifact）的持久化
-- Skill 的加载、解析、按需激活
-- MCP server 的连接与管理
-- 评估框架（TestCase、Evaluator）
+Dependency direction: `harness -> core`. **Core never depends on Harness.**
 
 ---
 
-## 2. Harness 的职责
+## 1. Core Responsibilities
 
-### 2.1 负责
+### 1.1 In Scope
 
-| 模块 | 内容 |
-|------|------|
-| **Flow 状态机** | `HarnessRuntime` — 管理 `intaking → planning → dispatching → executing → critiquing → …` |
-| **Plan 管理** | 创建 `ExecutionPlan`、分发 Step、依赖解析、replan |
-| **Critique 循环** | `critiquePlan`、`critiqueStep`、`generateRetrospective` — 用 LLM 评判输出质量 |
-| **Proposal 生成** | 从 Retrospective 提炼策略改进提案 |
-| **产物持久化** | `writeArtifact`、timeline、checkpoint — 写磁盘，保证可回放 |
-| **Approval 工作流** | 高风险操作暂停、等待人工确认 |
-| **Skill 系统** | Skill 加载（markdown → 运行时对象）、SkillResolver 按 intent 按需激活 |
-| **MCP 管理** | 读 `settings.json` 的 `mcp_servers`，spawn 进程，维护连接 |
-| **评估框架** | `runCase`、`runSuite`、`evaluate` — TestCase 执行与评分 |
-| **Markdown Flow** | 从 `.md` 文件加载 plan 定义 |
+| Module | Contents |
+|--------|----------|
+| **LLM Adapter** | Wraps Anthropic / OpenAI / Gemini APIs behind the unified `LLMAdapter` interface |
+| **Agent Loop** | `runAgent` / `streamAgent` — message loop, tool calls, multi-turn conversation |
+| **Subagent** | `agent/subagent.ts` — `agent` tool implementation: sidechain sessions, isolation worktrees, custom agent definition loading |
+| **Context Management** | Sliding window trimming, token estimation, tool result budgeting (prevents single results from blowing up context) |
+| **Intent Classification** | `classifyIntent`, `routeTarget` — L0-L3 tiering, domain recognition |
+| **Config Schema** | `VeraConfig`, `MCPServerConfig`, and other configuration types with loading logic |
+| **Protocol Types** | `Message`, `Tool`, `CompletionRequest`, `ContentPart`, `Usage` |
+| **Runtime Protocol Types** | `HarnessState`, `ExecutionPlan`, `TaskFlow`, etc. — types defined in core, implementations in harness |
+| **Permission Rules** | `tools/permission-rules.ts` — persisted tool rules, bash allow/deny patterns, supplementing SecurityPlugin static checks |
+| **Project Context** | `project-context/` — loads `.vera/rules.md`, `CLAUDE.md`, and other project-level prompt rules, activated by path scope |
+| **Memory Tracking** | `memory/` — cross-turn memory detection (detector), scanner, tracker, providing short-term memory anchors for the agent |
+| **Session Management** | `session/` — JSONL storage, cost tracking, AI auto-titling (`title.ts`), session picker paginated scanning |
+| **REPL & Workspace** | `repl/` — interactive terminal UI (Ink), session storage, `workspace.ts` managing current cwd / ToolRegistry / worktree state |
+| **REPL Commands** | `/branch` `/branches` `/switch` `/drop` conversation branching; `/try` creates isolated git worktree; `/merge` applies diff; `/adopt` marks branch; `/sub` (`/transcript`) views subagent sidechain |
+| **CLI Color Theme** | `repl/ui/theme.ts` — unified semantic color tokens, Claude Code-based palette, all UI components reference via `theme.*` |
 
-### 2.2 不负责
+### 1.2 Out of Scope
 
-- 直接调用 LLM API（统一走 `@vera/core` 的 adapter）
-- 上下文窗口裁剪（交给 `streamAgent` 内部处理）
-- Token 计算（用 `@vera/core` 的 `estimateMessageTokens`）
-- 协议类型定义（从 `@vera/core/types` 导入）
+- Any cross-step state machine (which step we're on, whether to replan)
+- Critique / Retrospective generation logic
+- Artifact persistence
+- Skill loading, parsing, and on-demand activation
+- MCP server connection and management
+- Evaluation framework (TestCase, Evaluator)
 
 ---
 
-## 3. 可复用的共享部分
+## 2. Harness Responsibilities
 
-这些由 core 提供，harness 和其他调用方（REPL、CLI、测试）都可以直接用，**不需要重新实现**。
+### 2.1 In Scope
 
-### 3.1 LLMAdapter 接口
+| Module | Contents |
+|--------|----------|
+| **Flow State Machine** | `HarnessRuntime` — manages `intaking -> planning -> dispatching -> executing -> critiquing -> ...` |
+| **Plan Management** | Creating `ExecutionPlan`, dispatching Steps, dependency resolution, replan |
+| **Critique Loop** | `critiquePlan`, `critiqueStep`, `generateRetrospective` — LLM judges output quality |
+| **Proposal Generation** | Deriving strategy improvement proposals from Retrospective |
+| **Artifact Persistence** | `writeArtifact`, timeline, checkpoint — writes to disk, ensures replayability |
+| **Approval Workflow** | High-risk operation pausing, waiting for human confirmation |
+| **Skill System** | Skill loading (markdown -> runtime objects), SkillResolver activates by intent on demand |
+| **MCP Management** | Reads `settings.json` `mcp_servers`, spawns processes, maintains connections |
+| **Evaluation Framework** | `runCase`, `runSuite`, `evaluate` — TestCase execution and scoring |
+| **Markdown Flow** | Loads plan definitions from `.md` files |
+
+### 2.2 Out of Scope
+
+- Direct LLM API calls (always goes through `@vera/core` adapters)
+- Context window trimming (handled internally by `streamAgent`)
+- Token calculation (uses `@vera/core`'s `estimateMessageTokens`)
+- Protocol type definitions (imports from `@vera/core/types`)
+
+---
+
+## 3. Reusable Shared Components
+
+These are provided by core and can be used directly by harness and other consumers (REPL, CLI, tests) **without re-implementation**.
+
+### 3.1 LLMAdapter Interface
 
 ```ts
 import type { LLMAdapter } from "@vera/core/adapters";
 ```
 
-所有 harness 内的 LLM 调用都通过 `LLMAdapter`，不直接 new AnthropicAdapter。这样测试时可以注入 mock adapter。
+All LLM calls within harness go through `LLMAdapter`, never directly instantiating `AnthropicAdapter`. This enables mock adapter injection in tests.
 
 ### 3.2 streamAgent / runAgent
 
@@ -92,99 +92,95 @@ import type { LLMAdapter } from "@vera/core/adapters";
 import { streamAgent } from "@vera/core/agent";
 ```
 
-harness 的 `runAgentAssignment`、evaluator 的 `runCase` 都调这个，不自己实现 turn loop。
+Harness's `runAgentAssignment`, evaluator's `runCase` all call this, never implementing their own turn loop.
 
-### 3.3 协议类型
+### 3.3 Protocol Types
 
 ```ts
 import type { Tool, Message, Usage, ContentPart } from "@vera/core/types";
 ```
 
-### 3.4 运行时协议类型
+### 3.4 Runtime Protocol Types
 
 ```ts
 import type {
   HarnessState, ExecutionPlan, TaskFlow,
   CritiqueResult, StepResult, AgentAssignment,
-  ...
+  // ...
 } from "@vera/core/types";
 ```
 
-**定义在 core，实现在 harness。** core 只管类型约定，harness 提供具体行为。这使得第三方可以实现自己的 harness 而不 fork core。
+**Defined in core, implemented in harness.** Core owns the type contract, harness provides concrete behavior. This allows third parties to implement their own harness without forking core.
 
-### 3.5 Intent 分类
+### 3.5 Intent Classification
 
 ```ts
 import { classifyIntent, routeTarget } from "@vera/core/intent";
 ```
 
-harness 的 SkillResolver 用 `IntentResult` 决定激活哪些 skill；REPL 用它决定路由到哪个模型。同一个分类结果，两边都用。
+Harness's SkillResolver uses `IntentResult` to decide which skills to activate; the REPL uses it to decide model routing. Same classification result, used on both sides.
 
-### 3.6 Config 类型
+### 3.6 Config Types
 
 ```ts
 import type { VeraConfig, MCPServerConfig } from "@vera/core/config";
 ```
 
-harness 读 `settings.json` 的 `mcp_servers`，core 定义 schema。
+Harness reads `settings.json`'s `mcp_servers`, core defines the schema.
 
 ---
 
-## 4. 当前需要厘清的边界问题
+## 4. Boundary Issues to Address
 
-### 4.1 `core/src/index.ts` 做了太多（待解决）
+### 4.1 `core/src/index.ts` Does Too Much (Pending)
 
-现在 `core/src/index.ts` 里有：适配器初始化、routing 逻辑、工具硬编码、REPL 启动——这是**应用入口**的职责，不是 core 库的职责。
+Currently `core/src/index.ts` contains: adapter initialization, routing logic, hardcoded tools, REPL startup — this is **application entry point** responsibility, not a core library responsibility. Should be migrated to `apps/` entry files, with core exporting only library interfaces.
 
-应该迁移到 `apps/` 下的入口文件，core 只导出库接口。
+### 4.2 Whether REPL Belongs in Core (Acceptable Short-Term)
 
-### 4.2 REPL 是否属于 core（短期可接受）
+REPL currently lives in core, but REPL depends on `SessionStore`, which is stateful application-level capability. Acceptable short-term (workspace.ts already encapsulates session/worktree state). Long-term, consider extracting to `apps/repl`, with core providing only a stateless agent loop.
 
-REPL 目前在 core，但 REPL 依赖 `SessionStore`，而 session 存储是有状态的应用级能力。
-短期可留在 core（workspace.ts 已做 session/worktree 状态封装），长期考虑拆到 `apps/repl`，core 只提供无状态的 agent loop。
+### 4.3 `harness/types.ts` vs `core/types/runtime.ts` Duplication (Pending Cleanup)
 
-### 4.3 `harness/types.ts` 与 `core/types/runtime.ts` 的重复（待清理）
+Harness has its own `ToolCallRecord` (`packages/harness/src/types.ts`), core also has one (`core/types/runtime.ts`). Should standardize on core's definition, with harness re-exporting or directly importing.
 
-harness 有自己的 `ToolCallRecord`（`packages/harness/src/types.ts`），core 也有（`core/types/runtime.ts`）。
-应统一用 core 的定义，harness 直接 re-export 或直接导入。
+### 4.4 Memory Module Boundary (Implemented, Clear)
 
-### 4.4 Memory 模块边界（已实现，边界清晰）
-
-`memory/` 当前实现为跨轮次记忆检测（scanner / tracker / detector），属于 agent loop 的感知层，放在 core 合理。长期若 memory 需要 LLM 摘要写入或向量检索，摘要生成逻辑应留在 core（无状态 LLM 调用），持久化策略迁移到 harness。
+`memory/` is implemented as cross-turn memory detection (scanner / tracker / detector), belonging to the agent loop's perception layer — correctly placed in core. Long-term, if memory requires LLM summary writes or vector retrieval, summary generation logic should stay in core (stateless LLM calls), while persistence strategy migrates to harness.
 
 ---
 
-## 5. 依赖图
+## 5. Dependency Graph
 
 ```
 apps/
-  ├── harness-ui  ──→  @vera/harness  ──→  @vera/core
-  └── audio-label ──→  @vera/core
+  +-- harness-ui  --->  @vera/harness  --->  @vera/core
+  +-- audio-label --->  @vera/core
 
 packages/
-  ├── harness     ──→  @vera/core
-  ├── benchmark   ──→  @vera/harness, @vera/core
-  └── core        (无内部依赖)
+  +-- harness     --->  @vera/core
+  +-- benchmark   --->  @vera/harness, @vera/core
+  +-- core        (no internal dependencies)
 ```
 
-**禁止方向**：`core` → `harness`，`core` → `apps/*`
+**Forbidden direction**: `core` -> `harness`, `core` -> `apps/*`
 
 ---
 
-## 6. 新能力加在哪里
+## 6. Where to Add New Capabilities
 
-| 新能力 | 加在哪 | 理由 |
-|--------|--------|------|
-| 新 LLM provider | core/adapters | 纯协议适配 |
-| Skill 加载 / SkillResolver | harness | 依赖 intent 分类 + MCP 连接 |
-| MCP 连接管理 | harness | 有状态，依赖 settings.json |
-| 新的 Critique 策略 | harness/runtime | 流程逻辑 |
-| 新 eval 方法 | harness/evaluator | 评估框架 |
-| 新协议类型（如 ACP 消息体） | core/types | 类型约定归 core |
-| ACP 分发逻辑 | harness/runtime | 流程编排归 harness |
-| context window 策略调整 | core/context | 上下文管理归 core |
-| 新 REPL 命令 | core/repl/commands | 命令生命周期在 REPL 层 |
-| 子 agent 类型/行为 | core/agent/subagent | sidechain + worktree 隔离在 core |
-| 持久化工具权限规则 | core/tools/permission-rules | 规则读写是 tool 层能力，非流程编排 |
-| 项目级 prompt 规则 | core/project-context | 无状态加载，供 loop 注入 system prompt |
-| UI 色彩 / 组件样式 | core/repl/ui/theme.ts | 集中管理所有语义 token，组件 import 引用 |
+| New Capability | Where | Rationale |
+|----------------|-------|-----------|
+| New LLM provider | core/adapters | Pure protocol adaptation |
+| Skill loading / SkillResolver | harness | Depends on intent classification + MCP connections |
+| MCP connection management | harness | Stateful, depends on settings.json |
+| New Critique strategy | harness/runtime | Flow logic |
+| New eval method | harness/evaluator | Evaluation framework |
+| New protocol type (e.g., ACP message body) | core/types | Type contracts belong in core |
+| ACP dispatch logic | harness/runtime | Flow orchestration belongs in harness |
+| Context window strategy adjustment | core/context | Context management belongs in core |
+| New REPL command | core/repl/commands | Command lifecycle at REPL layer |
+| Subagent type/behavior | core/agent/subagent | Sidechain + worktree isolation in core |
+| Persisted tool permission rules | core/tools/permission-rules | Rule read/write is tool-layer capability, not flow orchestration |
+| Project-level prompt rules | core/project-context | Stateless loading, injected into system prompt by loop |
+| UI colors / component styles | core/repl/ui/theme.ts | Centralized semantic token management, components import by reference |

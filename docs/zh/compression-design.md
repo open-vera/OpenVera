@@ -1,1 +1,0 @@
-core/compression-design.md

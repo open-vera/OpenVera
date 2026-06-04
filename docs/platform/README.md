@@ -1,27 +1,31 @@
-# Platform — 平台扩展能力文档
+# Platform -- Platform Extension Capabilities
 
-Platform 层负责 Vera 向更宽环境的扩展：Computer Use、MCP 接入、智能 UI 测试等。对应 roadmap P2/P3 阶段。
+The Platform layer covers Vera's extensions to broader environments: Computer Use, MCP integration, intelligent UI testing, and more. Corresponds to roadmap P2/P3 phases.
 
-## 文档目录
+## Document Index
 
-| 文档 | 内容 |
-|---|---|
-| [computer-use.md](./computer-use.md) | Computer Use——浏览器自动化（Playwright/CDP）、桌面操作、Benchmark 接入 |
-| [intelligent-testing.md](./intelligent-testing.md) | 智能自动化测试——AI 驱动 UI 测试、多策略元素定位、截图语义验证、自愈测试 |
+| Document | Content |
+|----------|---------|
+| [rag.md](./rag.md) | RAG system -- retrieval-augmented generation, embedding, vector store, incremental indexing |
+| [sandbox.md](./sandbox.md) | Sandbox isolation -- Docker, CubeSandbox, secure code execution |
+| [mcp.md](./mcp.md) | MCP support -- Model Context Protocol client, tool mapping, discovery |
+| [channel.md](./channel.md) | Channel system -- multi-platform messaging (CLI, API, Discord, Feishu, etc.) |
+| [storage.md](./storage.md) | Storage architecture -- SQLite, key-value abstraction, session/memory persistence |
+| [computer-use.md](./computer-use.md) | Computer Use -- browser automation (Playwright/CDP), desktop operation, benchmarks |
+| [intelligent-testing.md](./intelligent-testing.md) | Intelligent automated testing -- AI-driven UI testing, multi-strategy element localization, screenshot semantic verification, self-healing tests |
 
-## 待补充文档（P3）
+## Pending Documents (P3)
 
-- `mcp.md` — MCP client 接入与 tool 权限治理
-- `multi-agent.md` — 跨 agent 消息总线与任务调度
+- `multi-agent.md` -- Cross-agent message bus and task scheduling
 
-## 主要包结构
+## Main Package Structure
 
 ```
 apps/
-  harness-ui/      Harness Web UI（Vue + Node server）
-    web/           前端：runs 列表、流式日志、Artifact 浏览
-    server/        后端：REST API，代理 harness 运行
+  harness-ui/      Harness Web UI (Vue + Node server)
+    web/           Frontend: runs list, streaming logs, artifact browser
+    server/        Backend: REST API, proxies harness runs
 
 packages/
-  (Computer Use / MCP client 待建)
+  (Computer Use / MCP client -- pending creation)
 ```

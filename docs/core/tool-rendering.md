@@ -1,37 +1,37 @@
-# Tool 输出渲染 — UI 渲染方案
+# Tool Output Rendering — UI Rendering Strategy
 
-## 1. 设计目标
+## 1. Design Goals
 
-工具执行和 UI 渲染分离：
+Separate tool execution from UI rendering:
 
-- **工具**只返回结构化的 `ToolResult`，不感知终端宽度、颜色、Ink 组件
-- **渲染层**根据 `ToolResult.metadata.renderHint` 选择合适的渲染策略
-- 新增工具或新增渲染格式互不影响
+- **Tools** only return structured `ToolResult`, unaware of terminal width, colors, or Ink components
+- **Rendering layer** chooses an appropriate rendering strategy based on `ToolResult.metadata.renderHint`
+- Adding new tools or new rendering formats does not affect each other
 
 ---
 
-## 2. RenderHint — 工具告诉 UI 怎么渲染
+## 2. RenderHint — Tool Tells UI How to Render
 
-工具在 `ToolResult.metadata.renderHint` 里声明内容类型，渲染层据此分发：
+The tool declares the content type in `ToolResult.metadata.renderHint`; the rendering layer dispatches accordingly:
 
 ```ts
 type RenderHint =
-  | { type: "text" }                  // 纯文本，默认
-  | { type: "code"; lang?: string }   // 代码块（语法高亮）
-  | { type: "diff" }                  // unified diff 格式
-  | { type: "file-list" }             // 文件路径列表
-  | { type: "image"; mimeType: string } // base64 图片
-  | { type: "error" }                 // 错误信息（红色高亮）
-  | { type: "bash-output"; exitCode: number } // 命令输出（含退出码）
+  | { type: "text" }                  // Plain text, default
+  | { type: "code"; lang?: string }   // Code block (syntax highlighting)
+  | { type: "diff" }                  // Unified diff format
+  | { type: "file-list" }             // File path list
+  | { type: "image"; mimeType: string } // base64 image
+  | { type: "error" }                 // Error message (red highlight)
+  | { type: "bash-output"; exitCode: number } // Command output (with exit code)
 ```
 
-工具不设 `renderHint` 时，默认按 `text` 渲染。
+When a tool does not set `renderHint`, it defaults to `text` rendering.
 
 ---
 
-## 3. 渲染入口 — ToolResultView
+## 3. Rendering Entry Point — ToolResultView
 
-所有工具结果通过唯一入口组件渲染：
+All tool results are rendered through a single entry component:
 
 ```tsx
 // packages/core/src/repl/ui/ToolResultView.tsx
@@ -62,15 +62,15 @@ export function ToolResultView({ toolName, args, result, width }: ToolResultView
 
 ---
 
-## 4. 各渲染器设计
+## 4. Renderer Designs
 
-### 4.1 TextView（默认）
+### 4.1 TextView (Default)
 
-纯文本输出，自动换行，超出 `maxLines` 时截断并提示行数：
+Plain text output, auto-wrapped, truncated when exceeding `maxLines` with a line count hint:
 
 ```
 read 342 lines from src/agent/loop.ts
-────────────────────────────────────
+----------------------------------------
   1  import type { LLMAdapter } from "../adapters/base.js";
   2  import type {
   3    CompletionRequest,
@@ -79,13 +79,13 @@ read 342 lines from src/agent/loop.ts
 [... 292 more lines, use offset/limit to read more]
 ```
 
-### 4.2 DiffView（edit_file 输出）
+### 4.2 DiffView (edit_file Output)
 
-渲染 unified diff，+ 行绿色，- 行红色，@@ 行暗灰：
+Renders unified diff with green for `+` lines, red for `-` lines, dim gray for `@@` lines:
 
 ```
 edit_file  src/session/store.ts
-─────────────────────────────────────
+-----------------------------------------
 @@ -87,6 +87,10 @@
    writeAssistant(p: {
      ...
@@ -96,29 +96,29 @@ edit_file  src/session/store.ts
    }): string {
 ```
 
-实现：解析 unified diff 格式，按行类型渲染颜色。不依赖外部 diff 库，自行解析 `+/-/@@ ` 前缀。
+Implementation: parses unified diff format, renders color by line type. No external diff library dependency; self-parses `+/-/@@ ` prefixes.
 
-### 4.3 CodeView（read_file 读代码文件时）
+### 4.3 CodeView (read_file for Code Files)
 
-行号 + 语法高亮（通过文件扩展名判断语言）：
+Line numbers + syntax highlighting (language determined by file extension):
 
 ```
 read_file  packages/core/src/agent/loop.ts  (50/342 lines)
-──────────────────────────────────────────────────────────
-  1│ import type { LLMAdapter } from "../adapters/base.js";
-  2│ import type {
-  3│   CompletionRequest,
+--------------------------------------------------------------
+  1| import type { LLMAdapter } from "../adapters/base.js";
+  2| import type {
+  3|   CompletionRequest,
 ```
 
-语法高亮实现：使用 `chalk` 对关键字着色（`import`/`export`/`function`/`class`/`const`/`return`）。不引入完整语法高亮库（如 highlight.js），保持零依赖原则。
+Syntax highlighting: uses `chalk` for keyword coloring (`import`/`export`/`function`/`class`/`const`/`return`). Does not introduce a full syntax highlighting library (e.g., highlight.js), keeping the zero-dependency principle.
 
-### 4.4 FileListView（list_dir / glob 输出）
+### 4.4 FileListView (list_dir / glob Output)
 
-目录树或文件列表格式：
+Directory tree or file list format:
 
 ```
 list_dir  packages/core/src/
-──────────────────────────────
+------------------------------
 📁 adapters/      (4 files)
 📁 agent/         (1 file)
 📁 config/        (3 files)
@@ -128,13 +128,13 @@ list_dir  packages/core/src/
 📄 index.ts
 ```
 
-### 4.5 BashOutputView（bash 输出）
+### 4.5 BashOutputView (bash Output)
 
 ```
 bash  npm test
-──────────────────────────────────
+----------------------------------
 exit 0  (1.2s)
-──────────────────────────────────
+----------------------------------
 > vera@0.1.0 test
 > jest --passWithNoTests
 
@@ -144,9 +144,9 @@ PASS  src/session/cost.test.ts
 Test Suites: 1 passed, 1 total
 ```
 
-退出码非 0 时，底部状态行红色高亮：`exit 1  (2.4s)`。
+Non-zero exit code: the bottom status line is highlighted red: `exit 1  (2.4s)`.
 
-### 4.6 ErrorView（工具失败）
+### 4.6 ErrorView (Tool Failure)
 
 ```
 ✗ read_file  /etc/passwd
@@ -155,24 +155,24 @@ Test Suites: 1 passed, 1 total
   Got:     /etc/passwd
 ```
 
-### 4.7 ImageView（截图 / 图片读取）
+### 4.7 ImageView (Screenshot / Image Read)
 
-Inline image 显示（终端支持时）或回退到元数据文本：
+Inline image display (when terminal supports it) or fallback to metadata text:
 
 ```
-[image: screenshot.png  1920×1080  jpeg  245KB]
+[image: screenshot.png  1920x1080  jpeg  245KB]
 ```
 
-使用 `sixel` 或 iTerm2 inline image protocol 当终端支持时渲染图片。检测方式：`TERM_PROGRAM === "iTerm.app"` 或 `$COLORTERM === "truecolor"`。
+Uses `sixel` or iTerm2 inline image protocol when the terminal supports it. Detection: `TERM_PROGRAM === "iTerm.app"` or `$COLORTERM === "truecolor"`.
 
 ---
 
-## 5. 渲染器注册
+## 5. Custom Renderer Registration
 
-工具可以注册自定义渲染器，覆盖默认分发逻辑：
+Tools can register custom renderers, overriding the default dispatch logic:
 
 ```ts
-// 自定义：web_search 用特殊格式渲染
+// Custom: render web_search results with a special format
 ToolResultView.register("web_search", WebSearchResultView);
 ```
 
@@ -195,17 +195,17 @@ function WebSearchResultView({ result }: { result: ToolResult }) {
 
 ---
 
-## 6. ConversationPanel 集成
+## 6. ConversationPanel Integration
 
-当 `ChatMessage` 里包含工具调用记录时，渲染 `ToolResultView`：
+When a `ChatMessage` contains tool call records, render `ToolResultView`:
 
 ```ts
-// repl/ui/types.ts 扩展
+// repl/ui/types.ts extension
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   streaming?: boolean;
-  toolUses?: Array<{          // 新增
+  toolUses?: Array<{          // new
     name: string;
     args: Record<string, unknown>;
     result: ToolResult;
@@ -213,51 +213,51 @@ interface ChatMessage {
 }
 ```
 
-`ConversationPanel` 在 assistant 消息里按顺序渲染 `toolUses`，每次工具调用都显示工具名、参数摘要和结果。
+`ConversationPanel` renders `toolUses` in order within assistant messages. Each tool call displays the tool name, parameter summary, and result.
 
 ---
 
-## 7. 工具调用展示格式（折叠）
+## 7. Tool Call Display Format (Collapsible)
 
-长工具输出默认折叠，用户可展开：
+Long tool output is collapsed by default; the user can expand:
 
 ```
-▶ read_file  src/agent/loop.ts  (342 lines)   [展开]
-▶ bash  npm test  exit 0  (1.2s)              [展开]
+▶ read_file  src/agent/loop.ts  (342 lines)   [expand]
+▶ bash  npm test  exit 0  (1.2s)              [expand]
 ```
 
-展开后显示完整渲染结果。折叠/展开状态存在 React state，不需要持久化。
+Expanding shows the full rendered result. Collapse/expand state is held in React state; no persistence needed.
 
-初期可先不做折叠，所有结果展开显示；等工具调用多了再加。
+Initially, all results can be shown expanded; collapsible behavior is added after tool call volume increases.
 
 ---
 
-## 8. 文件结构
+## 8. File Structure
 
 ```
 packages/core/src/repl/ui/
-├── ToolResultView.tsx      ← 分发入口（已有 ConversationPanel，在其中调用）
-├── renderers/
-│   ├── TextView.tsx
-│   ├── DiffView.tsx
-│   ├── CodeView.tsx
-│   ├── FileListView.tsx
-│   ├── BashOutputView.tsx
-│   ├── ErrorView.tsx
-│   └── ImageView.tsx
-└── ConversationPanel.tsx   ← 调用 ToolResultView（现有文件，需修改）
++-- ToolResultView.tsx      <- Dispatch entry point
++-- renderers/
+|   +-- TextView.tsx
+|   +-- DiffView.tsx
+|   +-- CodeView.tsx
+|   +-- FileListView.tsx
+|   +-- BashOutputView.tsx
+|   +-- ErrorView.tsx
+|   +-- ImageView.tsx
++-- ConversationPanel.tsx   <- Calls ToolResultView (existing file, needs modification)
 ```
 
 ---
 
-## 9. 实现顺序
+## 9. Implementation Order
 
-1. `ToolResultView.tsx` + `renderers/ErrorView.tsx` — 先把错误渲染做对
-2. `renderers/TextView.tsx` — 默认渲染，带行数截断
-3. `renderers/CodeView.tsx` — read_file 主要用这个
-4. `renderers/DiffView.tsx` — edit_file 结果
-5. `renderers/BashOutputView.tsx` — bash 结果
+1. `ToolResultView.tsx` + `renderers/ErrorView.tsx` — Get error rendering right first
+2. `renderers/TextView.tsx` — Default rendering, with line count truncation
+3. `renderers/CodeView.tsx` — Mainly used by read_file
+4. `renderers/DiffView.tsx` — edit_file results
+5. `renderers/BashOutputView.tsx` — bash results
 6. `renderers/FileListView.tsx` — list_dir / glob
-7. `ConversationPanel.tsx` 集成 toolUses 渲染
-8. 折叠/展开交互（低优先级）
-9. `renderers/ImageView.tsx` — computer use 需要时再做
+7. `ConversationPanel.tsx` integration of toolUses rendering
+8. Collapse/expand interaction (low priority)
+9. `renderers/ImageView.tsx` — When computer use is needed

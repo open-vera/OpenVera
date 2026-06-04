@@ -44,6 +44,7 @@ const sidebarZh = [
       { text: "设计 (6 原则)", link: "/harness/design" },
       { text: "架构", link: "/harness/architecture" },
       { text: "Runtime 实现", link: "/harness/runtime-implementation" },
+      { text: "蜂群 (Swarm)", link: "/harness/swarm" },
       { text: "技术选型", link: "/harness/tech-selection" },
       { text: "设计方案", link: "/harness/implementation" },
       { text: "MVP PRD", link: "/harness/mvp-prd" },
@@ -91,10 +92,10 @@ const sidebarZh = [
   },
 ];
 
-function enLinks(items: typeof sidebarZh): typeof sidebarZh {
+function zhLinks(items: typeof sidebarZh): typeof sidebarZh {
   return items.map((group) => ({
     ...group,
-    items: group.items.map((item) => ({ ...item, link: "/en" + item.link })),
+    items: group.items.map((item) => ({ ...item, link: "/zh" + item.link })),
   }));
 }
 
@@ -112,22 +113,6 @@ export default defineConfig({
 
   locales: {
     root: {
-      label: "中文",
-      lang: "zh-CN",
-      title: "OpenVera",
-      description: "以 Harness 为内核、可自规划、自循环、自我批判、自我进化的 agent runtime",
-      themeConfig: {
-        logo: "/OpenVera/favicon.png",
-        nav: [
-          { text: "首页", link: "/" },
-          { text: "文档", link: "/README" },
-          { text: "路线图", link: "/roadmap" },
-          { text: "变更日志", link: "/changelog" },
-        ],
-        sidebar: sidebarZh,
-      },
-    },
-    en: {
       label: "English",
       lang: "en-US",
       title: "OpenVera",
@@ -135,12 +120,28 @@ export default defineConfig({
       themeConfig: {
         logo: "/OpenVera/favicon.png",
         nav: [
-          { text: "Home", link: "/en/" },
-          { text: "Docs", link: "/en/README" },
-          { text: "Roadmap", link: "/en/roadmap" },
-          { text: "Changelog", link: "/en/changelog" },
+          { text: "Home", link: "/" },
+          { text: "Docs", link: "/README" },
+          { text: "Roadmap", link: "/roadmap" },
+          { text: "Changelog", link: "/changelog" },
         ],
-        sidebar: enLinks(sidebarZh),
+        sidebar: sidebarZh,
+      },
+    },
+    zh: {
+      label: "中文",
+      lang: "zh-CN",
+      title: "OpenVera",
+      description: "以 Harness 为内核、可自规划、自循环、自我批判、自我进化的 agent runtime",
+      themeConfig: {
+        logo: "/OpenVera/favicon.png",
+        nav: [
+          { text: "首页", link: "/zh/" },
+          { text: "文档", link: "/zh/README" },
+          { text: "路线图", link: "/zh/roadmap" },
+          { text: "变更日志", link: "/zh/changelog" },
+        ],
+        sidebar: zhLinks(sidebarZh),
       },
     },
   },

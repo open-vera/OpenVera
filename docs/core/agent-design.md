@@ -1,128 +1,128 @@
-# Agent 设计模式 — Harness First · 自循环 · 自我批判 · 自我进化
+# Agent Design Patterns — Harness First, Self-Looping, Self-Critique, Self-Evolution
 
-> Vera 的目标不是追赶已有 agent，而是以 Harness 为内核，做一个可自规划、自循环、自我批判、自我进化的 agent runtime。
+> Vera's goal is not to catch up with existing agents, but to build an agent runtime with Harness as its kernel — one that can self-plan, self-loop, self-critique, and self-evolve.
 
 ---
 
-## 0. 我们最终要支持的能力版图
+## 0. The Ultimate Capability Landscape
 
-术语约定：
+Terminology:
 
-- `Flow`：一个完整任务的受控运行实例
-- `Plan`：Flow 的结构化执行方案
-- `Step`：Plan 中的最小执行单元
-- `Critique`：结构化结果批判
-- `Proposal`：策略改进提案
-- `Checkpoint`：关键状态快照
+- `Flow`: A controlled execution instance of a complete task
+- `Plan`: The structured execution scheme for a Flow
+- `Step`: The smallest execution unit within a Plan
+- `Critique`: Structured result criticism
+- `Proposal`: Strategy improvement proposal
+- `Checkpoint`: Key state snapshot
 
-具体定义以 [harness.md](../harness/design.md#2-统一术语) 为准。
+For precise definitions, see [harness.md](../harness/design.md#2-unified-terminology).
 
-当前文档里的无限上下文、记忆、梦境、规划、Subagent 只是核心骨架。Vera 的目标不是补齐这些 feature 后“接近成熟 agent”，而是重新定义更强的 agent operating model：**Harness 驱动的自演化系统**。
+The concepts of infinite context, memory, dreaming, planning, and subagents in this document are only the core skeleton. Vera's goal is not merely to check off these features and become "close to a mature agent," but to redefine a stronger agent operating model: **a Harness-driven self-evolving system**.
 
-### 0.1 能力分层
+### 0.1 Capability Layers
 
-一个可用的通用 agent，至少要覆盖下面 8 层能力：
+A usable general-purpose agent must cover at least the following 8 layers of capability:
 
-| 层级 | 能力 | 解决什么问题 |
+| Layer | Capability | What it solves |
 |---|---|---|
-| **L1 感知与理解** | 意图识别、任务分类、复杂度判断 | 决定该走直接回答、ReAct 还是 Plan |
-| **L2 执行与工具** | 文件、shell、网络、编辑器、浏览器、MCP | 让 agent 真正能做事，而不是只会说 |
-| **L3 上下文管理** | 滑动窗口、压缩、检索召回 | 解决长任务和大仓库上下文溢出 |
-| **L4 记忆系统** | 会话记忆、长期记忆、用户偏好 | 解决跨轮、跨任务连续性 |
-| **L5 规划与协作** | Plan、Subagent、Critique | 解决复杂任务拆解与并发 |
-| **L6 Harness 内核** | 审批门、权限边界、注入防御、运行控制 | 让 agent 在边界内自循环，而不是失控 |
-| **L7 观测与恢复** | tracing、Checkpoint、Resume、回放 | 解决长任务可追踪、可中断、可恢复 |
-| **L8 自我演化** | Critique、benchmark、dreaming、Proposal Pipeline | 让系统持续自我修正和进化 |
+| **L1 Perception & Understanding** | Intent recognition, task classification, complexity assessment | Deciding whether to answer directly, ReAct, or Plan |
+| **L2 Execution & Tools** | Files, shell, network, editor, browser, MCP | Enabling the agent to actually do things, not just talk |
+| **L3 Context Management** | Sliding window, compression, retrieval recall | Solving context overflow in long tasks and large repositories |
+| **L4 Memory System** | Session memory, long-term memory, user preferences | Solving continuity across turns and tasks |
+| **L5 Planning & Collaboration** | Plan, Subagent, Critique | Solving complex task decomposition and concurrency |
+| **L6 Harness Kernel** | Approval gates, permission boundaries, injection defense, runtime control | Enabling the agent to self-loop within boundaries instead of running out of control |
+| **L7 Observability & Recovery** | Tracing, Checkpoint, Resume, Replay | Making long tasks traceable, interruptible, and recoverable |
+| **L8 Self-Evolution** | Critique, benchmark, dreaming, Proposal Pipeline | Enabling continuous self-correction and evolution |
 
-### 0.2 我们的目标不是追赶，而是超出已有 agent 设计
+### 0.2 Our Goal Is to Surpass, Not Catch Up
 
-如果只是补“上下文、记忆、工具、规划”，我们做出来的仍然只是更完整的 assistant。Vera 要做的是更高一层的系统：
+If we only add "context, memory, tools, planning," the result is still just a more complete assistant. Vera aims to be a higher-level system:
 
-> Harness 是内核，agent 是运行在其上的策略体。
+> Harness is the kernel; agents are strategy bodies running on top of it.
 
-也就是说，真正的精髓不是某个模型多聪明，而是 harness 是否能支撑下面这 4 个能力同时成立：
+The real essence is not how smart a particular model is, but whether the harness can simultaneously support these four capabilities:
 
-- **自我规划 Flow**：先建 Plan，再按状态推进，再根据偏差重规划
-- **自循环**：一次回复结束后，必要时自动进入下一轮执行，而不是等用户重新发令
-- **自我批判**：由 agent 自己或 critic agent 对当前结果做 Critique，找漏洞、提修正
-- **自我进化**：把失败模式沉淀成 memory / policy / benchmark case，并转成 Proposal
+- **Self-planning Flows**: Build a Plan first, advance by state, re-plan on deviation
+- **Self-looping**: After one response completes, automatically enter the next execution round when necessary, instead of waiting for the user's next command
+- **Self-critique**: The agent or a critic agent critiques current results, finds gaps, proposes corrections
+- **Self-evolution**: Solidify failure patterns into memory / policy / benchmark cases, and convert them into Proposals
 
-成熟系统的共同点不是“模型更强”，而是具备闭环；Vera 的目标是在闭环之上，进一步做到**自驱式闭环**：
+Mature systems share not "stronger models" but a closed loop. Vera aims to go further with a **self-driven closed loop**:
 
 ```
-理解任务
-  → 判断风险与范围
-  → 选择模型 / 模式 / 工具 / Flow
-  → 执行
-  → 自我检查
-  → 观测结果
-  → 失败恢复 / 重新规划
-  → 沉淀记忆
-  → 进入评测与策略优化
-  → 在边界内继续下一轮
+Understand the task
+  -> Assess risk and scope
+  -> Choose model / mode / tools / Flow
+  -> Execute
+  -> Self-check
+  -> Observe results
+  -> Recover from failure / re-plan
+  -> Consolidate into memory
+  -> Enter evaluation and strategy optimization
+  -> Continue next round within boundaries
 ```
 
-Vera 后续设计必须围绕这个“可自循环、可自批判、可自进化”的闭环展开，而不是孤立地堆 feature。
+All subsequent Vera design must revolve around this self-looping, self-critiquing, self-evolving closed loop — not isolated feature stacking.
 
-### 0.3 现阶段建议支持的能力清单
+### 0.3 Currently Recommended Capability Checklist
 
-#### P0：必须有，否则还不是我们要的系统
+#### P0: Must-have — without these, it is not the system we need
 
-- 意图识别与模型路由
-- Tool registry + 基础 tool：`read_file`、`write_file`、`bash`、`web_search`
-- 无限上下文管理
+- Intent recognition and model routing
+- Tool registry + basic tools: `read_file`, `write_file`, `bash`, `web_search`
+- Infinite context management
 - Plan Mode
-- Harness：权限、审批、范围边界、runtime control
-- Trace / usage / tool call 记录
-- 基础 benchmark harness
-- 基础 Critique 回路
+- Harness: permissions, approval, scope boundaries, runtime control
+- Trace / usage / tool call recording
+- Basic benchmark harness
+- Basic Critique loop
 
-#### P1：补齐自循环和自我修正能力
+#### P1: Completing self-looping and self-correction capabilities
 
-- Checkpoint / Resume：长任务中断后继续
-- Tool 重试、超时、幂等控制
-- Subagent 并发与汇总
+- Checkpoint / Resume: continue long tasks after interruption
+- Tool retry, timeout, idempotency control
+- Subagent concurrency and aggregation
 - Episodic / Semantic Memory
-- Prompt 模板化和版本化
-- 失败归因与自动回放
-- critic agent
-- plan deviation detection
+- Prompt templating and versioning
+- Failure attribution and auto-replay
+- Critic agent
+- Plan deviation detection
 
-#### P2：形成真正的自我进化能力
+#### P2: Forming true self-evolution capability
 
-- Dreaming：离线总结与策略优化
+- Dreaming: offline summarization and strategy optimization
 - Computer Use / Browser Use
-- MCP 生态接入
-- 自动生成测试 case
-- 自适应 prompt / tool policy 优化
+- MCP ecosystem integration
+- Auto-generated test cases
+- Adaptive prompt / tool policy optimization
 - Proposal + gated Rollout
-- failure-to-benchmark 自动沉淀
+- Failure-to-benchmark auto-consolidation
 
-### 0.4 Hermes 架构设计的精华，Vera 应该学什么
+### 0.4 What Vera Should Learn from the Hermes Architecture
 
-Hermes 的价值不只是提出了 dreaming，而是把 agent 从“一次模型调用循环”提升成“有前台、后台、记忆固化和策略演化的持续运行系统”。这部分是当前很多 agent 设计最容易遗漏的。
+Hermes' value goes beyond proposing "dreaming." It elevates the agent from a "single model call loop" into a "continuously running system with foreground, background, memory consolidation, and strategy evolution." This is what many current agent designs easily miss.
 
-#### 精华 1：前台路径和后台路径分离
+#### Essence 1: Separating the Foreground and Background Paths
 
-Hermes 风格系统不是所有事都在用户请求路径里完成，而是拆成两条通路：
+Hermes-style systems don't do everything on the user request path. Instead, they split into two channels:
 
 ```
-前台路径（hot path）
-用户请求 → 理解 → 执行 → 回复
+Foreground path (hot path)
+User request -> Understand -> Execute -> Reply
 
-后台路径（cold path）
-事件沉淀 → 总结 → 记忆固化 → 策略更新
+Background path (cold path)
+Event accumulation -> Summarization -> Memory consolidation -> Strategy update
 ```
 
-这意味着：
+This means:
 
-- 用户请求路径只做对当前任务必要的计算，保证响应速度
-- 记忆整理、失败归因、模式发现放到后台异步做
-- agent 不再是“请求来了才活一下”，而是持续运行的系统
+- The user request path only does computation necessary for the current task, ensuring responsiveness
+- Memory organization, failure attribution, and pattern discovery happen asynchronously in the background
+- The agent is no longer "alive only when a request comes in," but a continuously running system
 
-#### 精华 2：事件驱动，而不是只有 message 驱动
+#### Essence 2: Event-Driven, Not Just Message-Driven
 
-普通 agent 往往只有 `messages[]`。Hermes 风格设计更像 runtime：系统围绕事件流运转。
+Ordinary agents often only have `messages[]`. Hermes-style design is more like a runtime: the system revolves around event streams.
 
 ```ts
 type AgentEvent =
@@ -135,287 +135,287 @@ type AgentEvent =
   | { type: "dream_cycle_started"; batchId: string };
 ```
 
-这样做的好处：
+Benefits:
 
-- tracing、Checkpoint、dreaming、benchmark 都能消费同一套事件
-- 失败恢复不依赖“猜上一轮发生了什么”
-- 后台任务可以订阅事件，而不是侵入主 loop
+- Tracing, Checkpoint, dreaming, and benchmark all consume the same event stream
+- Failure recovery does not depend on "guessing what happened last round"
+- Background tasks can subscribe to events without intruding on the main loop
 
-#### 精华 3：记忆不是日志归档，而是分层固化
+#### Essence 3: Memory Is Layered Consolidation, Not Log Archiving
 
-Hermes 的 dreaming 本质上是在做 memory consolidation：
+Hermes-style dreaming is essentially memory consolidation:
 
 ```
-原始对话 / tool 输出
-  ↓
-会话摘要（episodic）
-  ↓
-跨会话知识（semantic）
-  ↓
-策略级调整（prompt / tool policy / workflow）
+Raw conversation / tool output
+  ->
+Session summary (episodic)
+  ->
+Cross-session knowledge (semantic)
+  ->
+Strategy-level adjustments (prompt / tool policy / workflow)
 ```
 
-这比“把历史都存起来”高一个层级。真正重要的是把经验提炼成可复用结构，而不是积累一堆不可消费的日志。
+This is a level above "store everything." What truly matters is distilling experience into reusable structures, not accumulating indigestible logs.
 
-#### 精华 4：产物是一等公民，不只是最终回复
+#### Essence 4: Artifacts Are First-Class Citizens, Not Just Final Replies
 
-Hermes 风格系统里，需要长期保留的不只是 assistant 最后一段文本，还包括：
+In Hermes-style systems, what needs long-term retention is not just the assistant's final text, but also:
 
 - plan
-- step 执行记录
-- tool result
-- episodic summary
-- dream report
-- benchmark report
-- Proposal
+- step execution records
+- tool results
+- episodic summaries
+- dream reports
+- benchmark reports
+- Proposals
 
-这些产物后续会进入恢复、回放、评测和策略优化链路。没有 artifact 体系，dreaming 和自我优化就无法落地。
+These artifacts later enter recovery, replay, evaluation, and strategy optimization pipelines. Without an artifact system, dreaming and self-optimization cannot land.
 
-#### 精华 5：自我演化必须经过人工审核和回归验证
+#### Essence 5: Self-Evolution Must Go Through Human Review and Regression Validation
 
-Hermes 的正确方向不是“agent 自动改自己”，而是：
-
-```
-发现模式
-  → 生成改进提案
-  → 人工审核
-  → 小范围应用
-  → benchmark / 回归验证
-```
-
-也就是说，dreaming 是建议系统，不是自我重写系统。Vera 应该保留这个边界，避免让 agent 直接修改核心策略后失控。
-
-### 0.5 Vera 的运行时应该长什么样
-
-如果吸收 Hermes 的精华，Vera 的整体运行时应是下面这个结构，而不是单一 `runAgent()`：
+The correct Hermes direction is not "the agent automatically changes itself," but:
 
 ```
-                   ┌──────────────────────┐
-用户输入 / API  →  │ Foreground Runtime   │
-                   │ intent → plan → act  │
-                   └─────────┬────────────┘
-                             ↓ events
-                   ┌──────────────────────┐
-                   │ Event Bus / Trace    │
-                   └──────┬────────┬──────┘
-                          ↓        ↓
-              ┌────────────────┐  ┌──────────────────┐
-              │ Memory Worker  │  │ Eval / Dreaming  │
-              │ summarize      │  │ reflect / patch  │
-              └────────────────┘  └──────────────────┘
+Discover patterns
+  -> Generate improvement proposals
+  -> Human review
+  -> Small-scale rollout
+  -> Benchmark / regression validation
 ```
 
-前台 runtime 只负责把任务做完；后台 worker 负责把经验沉淀下来。两者通过事件和 artifact 解耦。
+That is, dreaming is a suggestion system, not a self-rewrite system. Vera should preserve this boundary to prevent the agent from directly modifying core strategies and losing control.
+
+### 0.5 What Vera's Runtime Should Look Like
+
+Absorbing Hermes' essence, Vera's overall runtime should be the following structure, not a single `runAgent()`:
+
+```
+                   +--------------------------+
+User input / API ->| Foreground Runtime       |
+                   | intent -> plan -> act    |
+                   +------------+-------------+
+                                | events
+                   +--------------------------+
+                   | Event Bus / Trace        |
+                   +--------+--------+--------+
+                            |        |
+              +-----------------+  +----------------------+
+              | Memory Worker   |  | Eval / Dreaming      |
+              | summarize       |  | reflect / patch      |
+              +-----------------+  +----------------------+
+```
+
+The foreground runtime only handles completing tasks; background workers handle consolidating experience. The two are decoupled through events and artifacts.
 
 ---
 
-## 1. 无限上下文（Infinite Context）
+## 1. Infinite Context
 
-### 问题
+### Problem
 
-LLM 的 context window 是有限的（200K token）。长任务、长对话、大文件都会超出，导致截断或报错。
+LLM context windows are finite (200K tokens). Long tasks, long conversations, and large files all cause overflow, leading to truncation or errors.
 
-### 设计思路
+### Design Approach
 
-不把"无限"交给模型，而是在 agent 层管理上下文生命周期：
+Don't delegate "infinite" to the model. Instead, manage the context lifecycle at the agent layer:
 
 ```
-完整历史
-  ↓
-[Working Context]   ← 当前 window 内，模型能看到的
-[Episodic Summary]  ← 超出部分的压缩摘要
-[Long-term Store]   ← 向量检索，按需召回
+Full history
+  ->
+[Working Context]   <- Within current window, visible to model
+[Episodic Summary]  <- Compressed summary of overflow
+[Long-term Store]   <- Vector retrieval, recalled on demand
 ```
 
-### 策略分层
+### Strategy Layers
 
-| 策略 | 触发时机 | 做什么 |
+| Strategy | Trigger | What it does |
 |---|---|---|
-| **滑动窗口** | token 超过阈值的 80% | 丢弃最早的几轮，保留 system + 最近 N 轮 |
-| **渐进压缩** | 超过阈值 | 用轻量模型把早期对话压缩成摘要，注入 system |
-| **分段存储** | 任务结束 | 把本次会话的关键信息写入长期记忆 |
-| **按需召回** | 新任务开始 | 从长期存储里检索相关片段，注入上下文 |
+| **Sliding Window** | Tokens exceed 80% of threshold | Discard earliest turns, keep system + most recent N turns |
+| **Progressive Compression** | Exceeds threshold | Use lightweight model to compress early conversation into summary, inject into system |
+| **Segmented Storage** | Task complete | Write key session info into long-term memory |
+| **On-Demand Recall** | New task starts | Retrieve relevant fragments from long-term storage, inject into context |
 
-### 实现要点
+### Implementation Points
 
-- **压缩摘要**要保留：决策记录、已完成的步骤、发现的重要事实
-- **不能压缩**的内容：tool call 和 tool result 的原始数据（模型需要对照）
-- **token 计数**要在每次 API 调用前计算，不要等到 API 报错再处理
-- Anthropic 的 `compact` beta 可作为服务端压缩的补充，但不能完全依赖
+- **Compression summaries** must preserve: decision records, completed steps, important facts discovered
+- **Do not compress**: raw data from tool calls and tool results (the model needs to correlate these)
+- **Token counting** must happen before each API call, not after the API returns an error
+- Anthropic's `compact` beta can serve as a server-side compression supplement, but should not be relied upon exclusively
 
 ---
 
-## 2. 记忆系统（Memory System）
+## 2. Memory System
 
-### 三层架构
+### Three-Layer Architecture
 
 ```
-Working Memory       对话历史，当前 context window 内
-      ↓ 压缩
-Episodic Memory      会话级摘要，本次任务的经过
-      ↓ 提炼
-Semantic Memory      跨会话的持久知识（用户偏好、领域事实、过去结论）
+Working Memory       Conversation history, within current context window
+      | compression
+Episodic Memory      Session-level summary, this task's process
+      | distillation
+Semantic Memory      Cross-session persistent knowledge (user preferences, domain facts, past conclusions)
 ```
 
 ### Working Memory
 
-就是 `messages[]`，agent loop 直接操作。超出 window 时触发压缩。
+This is `messages[]`, directly operated by the agent loop. Triggers compression when exceeding the window.
 
 ### Episodic Memory
 
-每次任务结束后，让模型生成一段结构化摘要：
+After each task completes, have the model generate a structured summary:
 
 ```json
 {
   "session_id": "xxx",
   "timestamp": "2026-04-11T10:00:00Z",
-  "task": "修复登录页的 CSRF bug",
+  "task": "Fix CSRF bug on login page",
   "outcome": "success",
-  "key_findings": ["token 未绑定 IP", "中间件顺序有误"],
+  "key_findings": ["Token not bound to IP", "Middleware order incorrect"],
   "files_modified": ["src/middleware/csrf.ts"],
-  "decisions": ["选择 double-submit cookie 方案"]
+  "decisions": ["Chose double-submit cookie approach"]
 }
 ```
 
 ### Semantic Memory
 
-长期存储，两种实现：
+Long-term storage, two implementations:
 
-| 实现 | 适用 | 特点 |
+| Implementation | Use Case | Characteristics |
 |---|---|---|
-| **文件 KV**（`.vera/memory/`） | 轻量场景 | 零依赖，人可读，适合早期 |
-| **向量数据库**（本地 sqlite-vec / 远程 Pinecone） | 大规模 | 语义检索，支持模糊匹配 |
+| **File KV** (`.vera/memory/`) | Lightweight scenarios | Zero dependencies, human-readable, suitable for early stage |
+| **Vector DB** (local sqlite-vec / remote Pinecone) | Large scale | Semantic retrieval, supports fuzzy matching |
 
-记忆的写入由 agent 主动决策（通过 `memory_write` tool），而不是自动全量存储，避免噪声。
+Memory writes are driven by agent initiative (via `memory_write` tool), not automatic full storage, to avoid noise.
 
-### 记忆召回
+### Memory Recall
 
-每次新任务开始时，用任务描述做相似度检索，把 top-k 片段注入 system prompt：
+At the start of each new task, perform similarity search with the task description, inject top-k fragments into the system prompt:
 
 ```
-你在处理：{task}
+You are working on: {task}
 
-相关历史记忆：
+Relevant historical memories:
 - {memory_1}
 - {memory_2}
 ```
 
 ---
 
-## 3. 梦境系统（Dreaming）
+## 3. Dreaming System
 
-### 概念来源
+### Conceptual Origin
 
-Hermes 中的 dreaming 指 agent 在"空闲时"进行的离线思考和知识整合，类比人类睡眠时的记忆巩固。
+In Hermes, "dreaming" refers to the agent's offline thinking and knowledge integration during idle time, analogous to memory consolidation during human sleep.
 
-### 在 Vera 中的实现
+### Implementation in Vera
 
-Dreaming 是一个**后台异步任务**，在主 agent 不处理用户请求时运行：
+Dreaming is a **background async task** that runs when the main agent is not processing user requests:
 
 ```
-触发时机：
-  - 显式调用 vera.dream()
-  - 定时触发（如每天凌晨）
-  - 一批任务完成后
+Trigger conditions:
+  - Explicit call to vera.dream()
+  - Scheduled trigger (e.g., daily at midnight)
+  - After a batch of tasks completes
 
-做什么：
-  1. 整合 Episodic Memory → 提炼高价值知识写入 Semantic Memory
-  2. 发现跨会话的模式（"用户经常问 X 类问题"）
-  3. 自我评估：回顾失败的 case，生成改进建议
-  4. 更新 prompt 策略（如发现某类任务的 system prompt 效果差）
+What it does:
+  1. Integrate Episodic Memory -> distill high-value knowledge into Semantic Memory
+  2. Discover cross-session patterns ("user frequently asks about X type of problem")
+  3. Self-evaluate: review failed cases, generate improvement suggestions
+  4. Update prompt strategies (e.g., if a certain task type's system prompt performs poorly)
 ```
 
-### 梦境产物
+### Dream Report Output
 
 ```json
 {
   "type": "dream_report",
   "insights": [
-    "用户倾向于提供不完整的需求，需要主动澄清",
-    "bash 工具失败率 23%，建议增加重试逻辑"
+    "User tends to provide incomplete requirements — proactively clarify",
+    "Bash tool failure rate 23%, consider adding retry logic"
   ],
   "memory_updates": [...],
   "suggested_prompt_patches": [...]
 }
 ```
 
-梦境报告供人工审核，审核通过后应用到系统配置。
+Dream reports are reviewed by humans before being applied to system configuration.
 
-### Hermes 风格 dreaming 的关键约束
+### Key Constraints on Hermes-Style Dreaming
 
-为了避免把 dreaming 做成“离线胡思乱想”，建议加 3 个硬约束：
+To prevent dreaming from becoming "offline rambling," enforce 3 hard constraints:
 
-- **输入必须来自真实 artifact**：session summary、tool failure、benchmark failure、user feedback
-- **输出必须结构化**：memory update、Proposal、workflow suggestion，而不是大段散文
-- **变更必须经过验证**：人工审核后再进入 benchmark / 回归
+- **Input must come from real artifacts**: session summaries, tool failures, benchmark failures, user feedback
+- **Output must be structured**: memory updates, Proposals, workflow suggestions — not prose essays
+- **Changes must be validated**: human review before entering benchmark / regression
 
-这样 dreaming 才是工程系统的一部分，而不是概念展示。
+This makes dreaming part of the engineering system, not a conceptual demo.
 
 ---
 
-## 4. Plan 模式（Plan Mode）
+## 4. Plan Mode
 
-### 与 ReAct 的区别
+### Differences from ReAct
 
-| 模式 | 特点 | 适用 |
+| Mode | Characteristics | Use Case |
 |---|---|---|
-| **ReAct**（当前） | 边想边做，每步工具调用后立即继续 | 探索性任务、步骤不确定 |
-| **Plan-then-Execute** | 先生成完整计划，确认后逐步执行 | 长任务、有破坏性操作 |
-| **Plan + Reflect** | 执行后对比计划，偏差时重新规划 | 高精度任务 |
+| **ReAct** (current) | Think while doing, continue immediately after each tool call | Exploratory tasks, uncertain steps |
+| **Plan-then-Execute** | Generate full plan first, execute step-by-step after confirmation | Long tasks, destructive operations |
+| **Plan + Reflect** | Compare against plan after execution, re-plan on deviation | High-precision tasks |
 
-### Plan Mode 流程
+### Plan Mode Flow
 
 ```
-用户输入
-  ↓
-[规划阶段] 生成结构化执行计划（不调任何工具）
-  ↓
-[人工确认 or 自动审批]
-  ↓
-[执行阶段] 按计划逐步执行，记录进度
-  ↓
-[反思阶段] 对比计划 vs 实际，生成复盘
+User input
+  ->
+[Planning Phase] Generate structured execution plan (no tools called)
+  ->
+[Human confirmation or auto-approval]
+  ->
+[Execution Phase] Execute step-by-step per plan, record progress
+  ->
+[Reflection Phase] Compare plan vs. actual, generate retrospective
 ```
 
-### 计划格式
+### Plan Format
 
 ```json
 {
-  "goal": "修复登录 CSRF 漏洞",
+  "goal": "Fix login CSRF vulnerability",
   "steps": [
-    { "id": 1, "action": "read_file", "target": "src/middleware/csrf.ts", "reason": "了解现有实现" },
-    { "id": 2, "action": "analyze", "depends_on": [1], "reason": "定位问题根因" },
-    { "id": 3, "action": "write_file", "depends_on": [2], "reason": "应用修复" },
-    { "id": 4, "action": "bash", "target": "npm test", "depends_on": [3], "reason": "验证修复" }
+    { "id": 1, "action": "read_file", "target": "src/middleware/csrf.ts", "reason": "Understand existing implementation" },
+    { "id": 2, "action": "analyze", "depends_on": [1], "reason": "Identify root cause" },
+    { "id": 3, "action": "write_file", "depends_on": [2], "reason": "Apply fix" },
+    { "id": 4, "action": "bash", "target": "npm test", "depends_on": [3], "reason": "Verify fix" }
   ],
   "risk": "low",
   "estimated_turns": 6
 }
 ```
 
-### 触发 Plan Mode 的时机
+### When to Trigger Plan Mode
 
-- 任务复杂度评分 > 阈值（由意图识别决定，见 [intent-routing.md](./intent-routing.md)）
-- 涉及破坏性操作（删除、覆写、部署）
-- 用户显式要求 `--plan`
+- Task complexity score > threshold (determined by intent recognition, see [intent-routing.md](./intent-routing.md))
+- Involves destructive operations (delete, overwrite, deploy)
+- User explicitly requests `--plan`
 
 ---
 
-## 5. Subagent 系统
+## 5. Subagent System
 
-### 设计目标
+### Design Goals
 
-主 agent（Orchestrator）负责任务分解和结果整合，专项 agent（Worker）负责具体执行。两者通过标准消息协议通信，互相不感知内部实现。
+The main agent (Orchestrator) handles task decomposition and result integration. Specialized agents (Workers) handle concrete execution. They communicate via a standard message protocol, mutually unaware of each other's internal implementation.
 
-### 消息协议
+### Message Protocol
 
 ```ts
 interface AgentTask {
   task_id: string;
   parent_agent_id: string;
   instruction: string;
-  tools: string[];          // 允许使用的工具白名单
-  context?: string;         // 必要的上下文片段
+  tools: string[];          // Whitelist of allowed tools
+  context?: string;         // Necessary context fragments
   timeout_ms?: number;
 }
 
@@ -428,50 +428,67 @@ interface AgentResult {
 }
 ```
 
-### 典型模式
+### Typical Patterns
 
-**并行扇出**：主 agent 把大任务拆成 N 个独立子任务，并发给 N 个 subagent：
+**Parallel Fan-Out**: The main agent decomposes a large task into N independent subtasks, dispatched concurrently to N subagents:
+
 ```
 Orchestrator
-  ├── SubAgent A: 分析 frontend 代码
-  ├── SubAgent B: 分析 backend 代码
-  └── SubAgent C: 查询相关文档
-         ↓（全部完成后）
-  整合结果 → 最终回答
+  +-- SubAgent A: Analyze frontend code
+  +-- SubAgent B: Analyze backend code
+  +-- SubAgent C: Query relevant documentation
+         | (after all complete)
+  Integrate results -> Final answer
 ```
 
-**串行流水线**：上一个 subagent 的输出是下一个的输入：
+**Serial Pipeline**: The output of one subagent becomes the input of the next:
+
 ```
-Researcher → Analyzer → Writer → Reviewer
+Researcher -> Analyzer -> Writer -> Reviewer
 ```
 
-**递归 subagent**：subagent 发现子任务过大时，可以再次拆分（需要设置递归深度上限）。
+**Recursive Subagent**: When a subagent finds its subtask is still too large, it can further decompose (with a recursion depth limit).
 
-### 实现要点
+### Implementation Points
 
-- Subagent 是独立的 `runAgent` 调用，共享 adapter 但各自独立 message history
-- Orchestrator 只传递必要的上下文片段，不传完整历史（控制 token）
-- 设置全局 `maxDepth` 防止无限递归
-- Subagent 的 token 消耗计入父任务的 usage 汇总
+- Subagents are independent `runAgent` calls, sharing the adapter but each with independent message history
+- The Orchestrator passes only necessary context fragments, not full history (to control token usage)
+- Set a global `maxDepth` to prevent infinite recursion
+- Subagent token consumption is included in the parent task's usage summary
+
+### When to Use Subagents
+
+**Should use subagents when:**
+- Multi-file/module analysis (parallel fan-out)
+- Code review (security/performance/quality can be checked in parallel)
+- Research + writing (serial pipeline)
+- Exploratory tasks (avoid polluting the main context)
+- Large task decomposition (exceeds single context window)
+
+**Should NOT use subagents when:**
+- Single file read/edit (single-step, no parallel value)
+- Simple command execution (no context isolation needed)
+- Tasks highly dependent on main session (context transfer cost too high)
+- Small tasks with ample token budget (excessive decomposition adds overhead)
 
 ---
 
-## 6. Tool 与环境交互能力
+## 6. Tool and Environment Interaction Capabilities
 
-如果没有扎实的 tool system，agent 只是会说话的 assistant，不是能执行任务的 worker。Codex、Claude 类产品的核心竞争力，本质上都建立在“稳定工具执行”之上。
+Without a solid tool system, an agent is just a talking assistant, not a task-executing worker. The core competitiveness of products like Codex and Claude is fundamentally built on "stable tool execution."
 
-### 需要支持的基础工具层
+### Required Basic Tool Layer
 
-| 类别 | 最小能力 | 备注 |
+| Category | Minimum Capability | Notes |
 |---|---|---|
-| **文件工具** | `read_file`、`write_file`、`edit_file`、`list_dir`、`glob` | `edit_file` 比整文件覆写更安全 |
-| **搜索工具** | `grep_text`、`code_search` | 大仓库里必须有结构化检索能力 |
-| **命令工具** | `bash` | 需要 timeout、cwd、env、stdout/stderr 捕获 |
-| **网络工具** | `web_search`、`fetch_url` | 需要域名白名单与内容清洗 |
-| **记忆工具** | `memory_write`、`memory_search` | 不应直接暴露底层存储细节 |
-| **协作工具** | `delegate_task`、`wait_task` | 为 subagent 提供统一接口 |
+| **File Tools** | `read_file`, `write_file`, `edit_file`, `list_dir`, `glob` | `edit_file` is safer than full-file overwrite |
+| **Search Tools** | `grep_text`, `code_search` | Structured search is essential in large repositories |
+| **Command Tools** | `bash` | Needs timeout, cwd, env, stdout/stderr capture |
+| **Network Tools** | `web_search`, `fetch_url` | Needs domain whitelist and content sanitization |
+| **Memory Tools** | `memory_write`, `memory_search` | Should not directly expose underlying storage details |
+| **Collaboration Tools** | `delegate_task`, `wait_task` | Unified interface for subagents |
 
-### 需要支持的执行语义
+### Required Execution Semantics
 
 ```ts
 interface ToolExecutionOptions {
@@ -484,15 +501,15 @@ interface ToolExecutionOptions {
 }
 ```
 
-必须支持：
+Must support:
 
-- **超时控制**：防止 shell / 网络调用卡死
-- **重试策略**：区分可重试错误和不可重试错误
-- **结构化错误**：不要只返回字符串报错
-- **幂等标识**：避免重复执行高成本或高风险动作
-- **标准化输出**：工具结果要能被模型稳定消费
+- **Timeout control**: Prevent shell/network calls from hanging
+- **Retry strategy**: Distinguish retryable vs. non-retryable errors
+- **Structured errors**: Don't just return string errors
+- **Idempotency keys**: Avoid re-executing high-cost or high-risk actions
+- **Standardized output**: Tool results must be stably consumable by models
 
-### 推荐的工具返回格式
+### Recommended Tool Result Format
 
 ```ts
 interface ToolResult {
@@ -507,47 +524,39 @@ interface ToolResult {
 }
 ```
 
-### 为什么这层重要
+---
 
-- Codex 强在代码仓库操作闭环
-- Claude 强在长上下文 + 工具使用稳定性
-- OpenClaw / Harness 类系统强调外部环境约束和可验证执行
+## 7. Harness and Security Boundaries
 
-Vera 要学习的是这些系统的“执行模型”，不是简单复制 UI 或 prompt。
+The stronger the agent, the more it needs a shell. Without a harness, an agent in a real environment will eventually cause privilege escalation, accidental deletion, erroneous execution, and prompt injection.
+
+For detailed design, see [harness.md](../harness/design.md). Here we emphasize its position in the overall capability landscape: **Harness is not an auxiliary module, but the first layer of the agent runtime.**
+
+### What the Harness Must Handle
+
+- Tool whitelist and parameter validation
+- Working directory / domain / budget scope constraints
+- High-risk operation approval gates
+- Prompt injection defense
+- Audit logging
+- Subagent permission inheritance
+
+### What a Mature Agent Must Achieve
+
+- Can explain "why something cannot be done"
+- Can stop when exceeding authorization
+- Can treat external content as data, not instructions
+- Can explicitly escalate high-risk operations to human decision
 
 ---
 
-## 7. Harness 与安全边界
+## 8. Observability, Recovery, and Long-Running Tasks
 
-Agent 越强，越需要壳。没有 harness 的 agent，在真实环境里迟早会出现越权、误删、误执行和 prompt injection。
+This is the most visibly missing area in current documentation. Once entering production or daily high-frequency use, the problems are often not "can it do it" but "what if it crashes halfway," "why did it fail just now," "can it continue running."
 
-这部分详细设计见 [harness.md](../harness/design.md)，这里强调它在整体能力版图里的地位：**Harness 不是附属模块，而是 agent runtime 的第一层。**
+### 8.1 Required Runtime Observability
 
-### Harness 必须负责的事情
-
-- 工具白名单与参数校验
-- 工作目录 / 域名 / 预算范围约束
-- 高风险操作审批门
-- Prompt injection 防御
-- 审计日志
-- Subagent 权限继承
-
-### 一个成熟 agent 必须做到
-
-- 能解释“为什么不能做”
-- 能在超出授权时停下来
-- 能把外部内容当数据，不当指令
-- 能把高风险操作显式升级为人工决策
-
----
-
-## 8. 观测、恢复与长任务运行
-
-这是目前文档里缺失最明显的一块。真正进入生产或日常高频使用后，问题往往不是“会不会做”，而是“做了一半挂了怎么办”“为什么刚才失败了”“能不能接着跑”。
-
-### 8.1 需要支持的运行时观测
-
-每个 turn 至少记录：
+Each turn should at minimum record:
 
 ```json
 {
@@ -563,78 +572,78 @@ Agent 越强，越需要壳。没有 harness 的 agent，在真实环境里迟�
 }
 ```
 
-### 8.2 需要支持的恢复能力
+### 8.2 Required Recovery Capabilities
 
-| 能力 | 作用 |
+| Capability | Purpose |
 |---|---|
-| **checkpoint** | 在关键步骤后保存 agent 状态 |
-| **resume** | 进程退出或 API 端挂起后恢复执行 |
-| **replay** | 回放一次任务，复现失败链路 |
-| **fork** | 从某个 checkpoint 分叉，尝试不同策略 |
+| **checkpoint** | Save agent state after key steps |
+| **resume** | Resume execution after process exit or API-side hang |
+| **replay** | Replay a task to reproduce the failure chain |
+| **fork** | Branch from a checkpoint to try different strategies |
 
-### 8.3 建议保存的状态
+### 8.3 Recommended State to Save
 
-- 当前 messages / summaries
-- 当前 Plan 与 Step 状态
-- 已执行 tool call 记录
-- 当前预算消耗
-- subagent 树结构
-- 最近一次用户审批结果
+- Current messages / summaries
+- Current Plan and Step state
+- Executed tool call records
+- Current budget consumption
+- Subagent tree structure
+- Most recent user approval result
 
-没有这些能力，长任务只能“从头再来”，这和成熟 agent 的体验差距会非常大。
+Without these capabilities, long tasks can only "start over from scratch" — a huge experience gap from mature agents.
 
 ---
 
-## 9. 评测、回归与持续进化
+## 9. Evaluation, Regression, and Continuous Evolution
 
-要向 Codex / Claude / OpenClaw 学，不只是学能力设计，更要学它们背后的评测与演化机制。
+Learn from Codex / Claude / OpenClaw not just capability design, but also their underlying evaluation and evolution mechanisms.
 
-### 9.1 评测必须覆盖三类问题
+### 9.1 Evaluation Must Cover Three Categories
 
-| 类别 | 例子 | 衡量什么 |
+| Category | Example | What it measures |
 |---|---|---|
-| **结果正确性** | 有没有完成任务 | pass rate |
-| **过程正确性** | 工具有没有选错 / 乱调 | tool accuracy |
-| **系统稳定性** | 多跑几次是否一致 | variance / flaky rate |
+| **Result Correctness** | Was the task completed | pass rate |
+| **Process Correctness** | Were tools chosen/used correctly | tool accuracy |
+| **System Stability** | Is it consistent across multiple runs | variance / flaky rate |
 
-### 9.2 需要支持的 case 类型
+### 9.2 Required Case Types
 
-- 纯问答 case：验证路由与直接回答
-- 单工具 case：验证参数生成
-- 多步代码 case：验证 read/edit/test 闭环
-- 高风险 case：验证 harness 是否正确拦截
-- 长任务 case：验证压缩、checkpoint、resume
+- Pure Q&A cases: validate routing and direct answers
+- Single-tool cases: validate parameter generation
+- Multi-step code cases: validate read/edit/test closed loop
+- High-risk cases: validate harness correctly intercepts
+- Long-task cases: validate compression, checkpoint, resume
 
-### 9.3 Dreaming 的真正位置
+### 9.3 Dreaming's True Position
 
-Dreaming 不是“酷炫附加功能”，而是评测闭环的一部分：
+Dreaming is not a "cool add-on feature" but part of the evaluation closed loop:
 
 ```
-线上任务 / benchmark 失败
-  → 聚合失败案例
-  → 提炼模式
-  → 生成 prompt / tool policy 改进建议
-  → 人工审核
-  → 回归评测验证是否变好
+Production task / benchmark failure
+  -> Aggregate failure cases
+  -> Distill patterns
+  -> Generate prompt / tool policy improvement suggestions
+  -> Human review
+  -> Regression evaluation to verify improvement
 ```
 
-如果 dreaming 不接入 benchmark 和回归，它就只是一份总结报告，价值有限。
+If dreaming is not connected to benchmark and regression, it is just a summary report with limited value.
 
 ---
 
-## 10. 对 Vera 的结论
+## 10. Conclusion for Vera
 
-现阶段我们不应把目标定义为“做出几个看起来高级的 agent feature”，而应定义为：
+At this stage, we should not define our goal as "building a few advanced-looking agent features," but rather:
 
-> 做出一个具备执行闭环、权限边界、可恢复性和持续评测能力的通用 agent runtime。
+> Build a general-purpose agent runtime with execution closed loop, permission boundaries, recoverability, and continuous evaluation capability.
 
-也就是说，未来 Vera 需要同时具备：
+In other words, future Vera must simultaneously possess:
 
-- **会做事**：工具、执行、编辑、搜索
-- **会思考**：规划、反思、子任务拆解
-- **记得住**：上下文管理、长期记忆
-- **不越界**：harness、安全、审批
-- **可追踪**：trace、checkpoint、resume
-- **能进化**：benchmark、dreaming、回归优化
+- **Can do**: tools, execution, editing, search
+- **Can think**: planning, reflection, subtask decomposition
+- **Can remember**: context management, long-term memory
+- **Stays within bounds**: harness, security, approval
+- **Is traceable**: trace, checkpoint, resume
+- **Can evolve**: benchmark, dreaming, regression optimization
 
-这 6 类能力一起成立，才算真正接近 Codex / Claude 级别的 agent 系统。
+These 6 categories of capability must all hold together to truly approach Codex / Claude-level agent systems.

@@ -1,1 +1,0 @@
-../../harness/mvp.prd.md

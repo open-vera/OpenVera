@@ -1,49 +1,49 @@
-# 测试覆盖率概述
+# Test Coverage Overview
 
-> 所属项目：open-vera (monorepo) | 测试框架：Vitest + v8 coverage
-> 最后更新：2026-06-04
+> Project: open-vera (monorepo) | Test framework: Vitest + v8 coverage
+> Last updated: 2026-06-04
 
-## 概述
+## Overview
 
-Vera 项目使用 Vitest 作为测试框架，v8 作为覆盖率提供者。测试是提交的必要条件，CI 中强制执行覆盖率阈值检查。
+The Vera project uses Vitest as its test framework with v8 as the coverage provider. Testing is a prerequisite for commits, and coverage threshold checks are enforced in CI.
 
-## 覆盖率目标与阈值
+## Coverage Targets and Thresholds
 
-根据项目 CLAUDE.md 要求：
+Per the project CLAUDE.md requirements:
 
-| 目标 | 阈值 |
-|---|---|
-| 全局 lines 覆盖率 | >= 90% |
-| 核心模块（tools/ storage/ adapters/ config/ memory/ context/ utils/） | >= 80% |
-| E2E 测试 | 放在 `packages/harness/tests/e2e-*.ts` |
+| Target | Threshold |
+|--------|-----------|
+| Global lines coverage | >= 90% |
+| Core modules (tools/ storage/ adapters/ config/ memory/ context/ utils/) | >= 80% |
+| E2E tests | Located in `packages/harness/tests/e2e-*.ts` |
 
-> 注：CLAUDE.md 规定覆盖率 >= 90%，vitest.config.ts 中未设硬性 `thresholds` 配置项——阈值在 CI 和 pre-commit 检查中通过脚本执行。
+> Note: CLAUDE.md mandates >= 90% coverage. The `vitest.config.ts` does not set hard `thresholds` config -- thresholds are enforced via scripts in CI and pre-commit checks.
 
-### 提交前检查清单
+### Pre-Commit Checklist
 
-1. 运行 `pnpm --filter @open-vera/core run test:coverage`，确认 lines 覆盖率不低于 90%
-2. 运行 `bash .claude/skills/quality-scan/scan.sh`，oxlint / sonarjs 不允许 error 级别发现
-3. 新增业务逻辑必须有对应 unit test
-4. 纯类型定义、配置文件、文档可以不写测试
+1. Run `pnpm --filter @open-vera/core run test:coverage`, confirm lines coverage >= 90%
+2. Run `bash .claude/skills/quality-scan/scan.sh`, oxlint / sonarjs must have no `error`-level findings
+3. New business logic must have corresponding unit tests
+4. Pure type definitions, config files, and docs may skip tests
 
-## 运行覆盖率
+## Running Coverage
 
 ```bash
-# Core 包覆盖率（最常用）
+# Core package coverage (most common)
 pnpm --filter @open-vera/core run test:coverage
 
-# 全量覆盖率（所有包）
+# Full coverage (all packages)
 pnpm test:coverage
 
-# 单独运行测试（不含覆盖率）
+# Run tests only (no coverage)
 pnpm test
 pnpm --filter @open-vera/core test
 pnpm --filter @open-vera/harness test
 ```
 
-### Vitest 配置
+### Vitest Configuration
 
-**文件**：`packages/core/vitest.config.ts`
+**File**: `packages/core/vitest.config.ts`
 
 ```typescript
 export default defineConfig({
@@ -59,17 +59,17 @@ export default defineConfig({
 });
 ```
 
-输出格式：
-- `text`：终端表格输出（按模块汇总）
-- `lcov`：生成 `coverage/lcov.info`，可用 VS Code 插件或 `lcov-html` 查看详细行级覆盖
+Output formats:
+- `text`: terminal table output (summarized by module)
+- `lcov`: generates `coverage/lcov.info`, viewable with VS Code plugins or `lcov-html` for detailed line-level coverage
 
-## 当前覆盖率状态
+## Current Coverage Status
 
-以下为最近一次运行的覆盖率快照（按模块）：
+Below is the coverage snapshot from the most recent run (by module):
 
-| 模块 | Statements | Branches | Functions | Lines |
-|---|---|---|---|---|
-| **全局汇总** | 78.39% | 69.88% | 79.97% | 79.76% |
+| Module | Statements | Branches | Functions | Lines |
+|--------|-----------|----------|-----------|-------|
+| **Global aggregate** | 78.39% | 69.88% | 79.97% | 79.76% |
 | **src/tools/** | 98.28% | 95.18% | 99.14% | 98.45% |
 | **src/storage/** | 97.70% | 92.93% | 98.64% | 98.71% |
 | **src/context/** | 94.96% | 89.91% | 100% | 95.99% |
@@ -84,69 +84,69 @@ export default defineConfig({
 | **src/worktree/** | 83.33% | 68.57% | 100% | 85.96% |
 | **src/tools/index.ts** | 71.79% | 55.55% | 100% | 71.79% |
 
-> 注意：全局汇总 78.39% 低于 90% 目标，主要拖累来自 `src/worktree/` 和 `src/tools/index.ts`（后者包含大量条件分支的工厂函数，测试覆盖 71.79%）。
+> Note: The global aggregate of 78.39% is below the 90% target, primarily dragged down by `src/worktree/` and `src/tools/index.ts` (the latter is a factory function with many conditional branches, tested at 71.79%).
 
-### 核心模块达标情况
+### Core Module Threshold Compliance
 
-| 核心模块 | Lines 覆盖 | >= 80% 阈值？ |
-|---|---|---|
-| tools/ | 98.45% | 达标 |
-| storage/ | 98.71% | 达标 |
-| adapters/ | 98.09% | 达标 |
-| config/ | 100% | 达标 |
-| memory/ | 97.39% | 达标 |
-| context/ | 95.99% | 达标 |
-| utils/ | 100% | 达标 |
+| Core Module | Lines Coverage | >= 80% Threshold? |
+|-------------|---------------|-------------------|
+| tools/ | 98.45% | Pass |
+| storage/ | 98.71% | Pass |
+| adapters/ | 98.09% | Pass |
+| config/ | 100% | Pass |
+| memory/ | 97.39% | Pass |
+| context/ | 95.99% | Pass |
+| utils/ | 100% | Pass |
 
-所有核心模块均超过 80% 阈值。
+All core modules exceed the 80% threshold.
 
-## 测试文件结构
+## Test File Structure
 
 ```
 packages/core/src/
   context/tests/           # compression.test.ts, tokens.test.ts, window.test.ts
-  tools/tests/             # 每个工具对应的 test 文件（共 20+ 个）
-  storage/tests/           # 存储层测试（SQLite、session、data-exporter 等）
-  memory/tests/            # 记忆系统测试
-  adapters/tests/          # LLM 适配器测试
-  rag/tests/               # RAG 向量存储测试
-  sandbox/tests/           # 沙箱测试
-  session/tests/           # 会话管理测试
-  agent/tests/             # Agent Loop 测试
+  tools/tests/             # Per-tool test files (20+)
+  storage/tests/           # Storage layer tests (SQLite, session, data-exporter, etc.)
+  memory/tests/            # Memory system tests
+  adapters/tests/          # LLM adapter tests
+  rag/tests/               # RAG vector store tests
+  sandbox/tests/           # Sandbox tests
+  session/tests/           # Session management tests
+  agent/tests/             # Agent Loop tests
 
-packages/harness/tests/    # Harness 集成测试
-  e2e-*.ts                 # E2E 测试
+packages/harness/tests/    # Harness integration tests
+  e2e-*.ts                 # E2E tests
 ```
 
-测试框架约定：
-- 测试文件与源文件同目录，放在 `tests/` 子目录下
-- 测试文件命名：`<module-name>.test.ts`
-- 使用 `describe` / `it` / `expect`
-- Mock 仅用于外部 API 调用（LLM adapter、网络请求），不 mock 内部模块
+Test framework conventions:
+- Test files live alongside source files, in a `tests/` subdirectory
+- Test file naming: `<module-name>.test.ts`
+- Use `describe` / `it` / `expect`
+- Mock only external API calls (LLM adapters, network requests), never internal modules
 
-## 覆盖率缺口与已知缺失
+## Coverage Gaps and Known Deficiencies
 
-### 主要缺口
+### Primary Gaps
 
-1. **`src/worktree/`**（Lines: 85.96%）—— Git worktree 管理功能，包含错误处理和边界情况的分支未完全覆盖。
-2. **`src/tools/index.ts`**（Lines: 71.79%）—— `createToolRegistry()` 工厂函数包含大量条件分支（`if (opts.memoryStore) ...` etc.），每个 `if` 分支需要独立的测试场景。
-3. **`src/tools/computer-use.ts`**（Lines: 94.96%）—— Computer Use 功能的某些错误路径和超时场景未覆盖。
-4. **`src/tools/bash.ts`**（Lines: 98.59%）—— 进程组的 kill 信号路径和 spawn 错误的极端情况未完全覆盖（第 13 行和 75-84 行）。
+1. **`src/worktree/`** (Lines: 85.96%) -- Git worktree management, with branches in error handling and edge cases not fully covered.
+2. **`src/tools/index.ts`** (Lines: 71.79%) -- `createToolRegistry()` factory function contains many conditional branches (`if (opts.memoryStore) ...` etc.); each `if` branch needs its own test scenario.
+3. **`src/tools/computer-use.ts`** (Lines: 94.96%) -- Some error paths and timeout scenarios in Computer Use not covered.
+4. **`src/tools/bash.ts`** (Lines: 98.59%) -- Process group kill signal paths and spawn error edge cases not fully covered (lines 13 and 75-84).
 
-### 已规划的补充测试
+### Planned Supplementary Tests
 
-根据 `docs/testing/storage/README.md` 的覆盖率计划：
+Per the coverage plan in `docs/testing/storage/README.md`:
 
-- **P0**：DataExporter 单元测试、SQLite 迁移边缘情况、分支错误路径、Memory 持久化/搜索测试
-- **P1**：User Data TTL/namespace 测试、Storage 查询组合过滤、UI/API 路由冒烟测试
-- **P2**：性能测试（大 Session 列表、Memory 搜索）、可靠性测试（SQLite close/reopen、WAL、事务回滚）
+- **P0**: DataExporter unit tests, SQLite migration edge cases, branch error paths, Memory persistence/search tests
+- **P1**: User Data TTL/namespace tests, Storage query combined filtering, UI/API route smoke tests
+- **P2**: Performance tests (large session lists, memory search), reliability tests (SQLite close/reopen, WAL, transaction rollback)
 
-### 工具文件测试清单
+### Tool File Test Checklist
 
-每个工具文件都有对应的测试文件，当前状态：
+Each tool file has a corresponding test file. Current status:
 
-| 工具文件 | 测试文件 | Lines 覆盖 |
-|---|---|---|
+| Tool File | Test File | Lines Coverage |
+|-----------|-----------|----------------|
 | `read-file.ts` | `read-file.test.ts` | 100% |
 | `write-file.ts` | `write-file.test.ts` | ~99% |
 | `edit-file.ts` | `edit-file.test.ts` | 100% |
@@ -158,100 +158,100 @@ packages/harness/tests/    # Harness 集成测试
 | `registry.ts` | `registry.test.ts` | 99.23% |
 | `tool-stats.ts` | `tool-stats.test.ts` | 97.61% |
 
-## 静态分析工具
+## Static Analysis Tools
 
-除覆盖率外，项目还使用三套静态分析工具作为质量保障（详见 `docs/code-governance/static-analysis.md`）：
+Beyond coverage, the project uses three static analysis tools for quality assurance (see `docs/code-governance/static-analysis.md`):
 
-### oxlint —— 结构性指标
+### oxlint -- Structural Metrics
 
-Rust 实现，多线程并行，速度极快（~0.1s）。
+Rust implementation, multi-threaded parallelism, extremely fast (~0.1s).
 
-| 指标 | 规则名 | warn | error |
-|---|---|---|---|
-| 文件总行数 | `max-lines` | 300 | 600 |
-| 函数体行数 | `max-lines-per-function` | 50 | 100 |
-| 圈复杂度 | `complexity` | 10 | 20 |
-| 嵌套深度 | `max-depth` | 4 | 6 |
-| 参数数量 | `max-params` | 4 | 7 |
+| Metric | Rule | Warn | Error |
+|--------|------|------|-------|
+| File total lines | `max-lines` | 300 | 600 |
+| Function body lines | `max-lines-per-function` | 50 | 100 |
+| Cyclomatic complexity | `complexity` | 10 | 20 |
+| Nesting depth | `max-depth` | 4 | 6 |
+| Parameter count | `max-params` | 4 | 7 |
 
-### eslint-plugin-sonarjs —— 认知复杂度
+### eslint-plugin-sonarjs -- Cognitive Complexity
 
-只解析 AST（不开 projectService），速度比完整 lint 快 10-20x。
+Parses AST only (no projectService), 10-20x faster than full lint.
 
-| 规则 | 阈值 |
-|---|---|
+| Rule | Threshold |
+|------|-----------|
 | `cognitive-complexity` | warn at 15 |
 | `no-identical-functions` | warn |
 | `no-duplicated-branches` | warn |
 
-### jscpd —— 重复度检测
+### jscpd -- Duplication Detection
 
-Token 级别匹配（不受变量名重命名影响）。阈值：min-tokens = 50。
+Token-level matching (unaffected by variable renaming). Threshold: min-tokens = 50.
 
-### 执行方式
+### Execution
 
 ```bash
-# 一键运行全部静态分析 + 覆盖率
+# One-command full static analysis + coverage
 bash .claude/skills/quality-scan/scan.sh
 ```
 
-输出到终端摘要 + `docs/code-governance/report-<date>.md`。
+Outputs terminal summary + `docs/code-governance/report-<date>.md`.
 
-## 测试运行流水线
+## Test Run Pipeline
 
-### 本地开发
+### Local Development
 
 ```bash
-# 类型检查
+# Type check
 pnpm typecheck
 
-# Core 包测试
+# Core package tests
 pnpm --filter @open-vera/core test
 
-# Core 包覆盖率
+# Core package coverage
 pnpm --filter @open-vera/core run test:coverage
 
-# Harness 测试
+# Harness tests
 pnpm --filter @open-vera/harness test
 
-# 全量测试
+# Full test suite
 pnpm test
 
-# 质量扫描（oxlint + sonarjs + jscpd）
+# Quality scan (oxlint + sonarjs + jscpd)
 bash .claude/skills/quality-scan/scan.sh
 ```
 
-### 提交前强制流程
+### Mandatory Pre-Commit Flow
 
 ```
 1. pnpm --filter @open-vera/core run test:coverage  # lines >= 90%
-2. bash .claude/skills/quality-scan/scan.sh          # 无 error
-3. git add <specific files>                          # 不 git add -A
-4. git commit -m "feat(scope): description"          # 按规范格式
+2. bash .claude/skills/quality-scan/scan.sh          # no errors
+3. git add <specific files>                          # no git add -A
+4. git commit -m "feat(scope): description"          # follow conventions
 ```
 
-### CI 集成（规划中）
+### CI Integration (Planned)
 
-根据 static-analysis.md 中的待评估项：
+Per pending items in static-analysis.md:
 
-- [ ] PR 时自动跑 coverage + 质量扫描
-- [ ] 将覆盖率报告和扫描摘要贴到 PR comment
-- [ ] 趋势追踪：多次扫描结果对比，观察质量变化曲线
+- [ ] Auto-run coverage + quality scan on PR
+- [ ] Post coverage report and scan summary as PR comment
+- [ ] Trend tracking: compare multiple scan results, observe quality trends
 
-## 测试规模
+## Test Scale
 
-| 包 | 测试文件数 | 测试用例数 |
-|---|---|---|
+| Package | Test Files | Test Cases |
+|---------|-----------|------------|
 | @open-vera/core | ~75 | ~1054 |
 | @open-vera/harness | ~15 | ~268 |
 
-## 常见问题
+## FAQ
 
-### 覆盖率显示不准确？
+### Coverage numbers seem inaccurate?
 
-确保运行的是 `test:coverage` 而非 `test`。`vitest.config.ts` 中 `coverage.include` 设置为 `["src/**"]`，排除了测试文件和配置文件。
+Ensure you are running `test:coverage` not `test`. The `vitest.config.ts` sets `coverage.include` to `["src/**"]`, excluding test files and config files.
 
-### 如何查看具体哪些行未覆盖？
+### How do I see which specific lines are uncovered?
 
 ```bash
 pnpm --filter @open-vera/core run test:coverage
@@ -259,11 +259,11 @@ npx lcov-html coverage/lcov.info -o coverage/html
 open coverage/html/index.html
 ```
 
-或在 VS Code 中安装 Coverage Gutters 插件，会自动读取 `lcov.info` 并在编辑器中高亮未覆盖行。
+Or install the Coverage Gutters VS Code plugin, which auto-reads `lcov.info` and highlights uncovered lines in the editor.
 
-### 需要写测试但不确定从哪里开始？
+### Need to write tests but unsure where to start?
 
-1. 先看覆盖率报告，找到覆盖率最低的模块
-2. 读该模块的源码和已有测试，了解测试风格
-3. 关注边界情况：错误路径、空输入、极端值、并发等
-4. 纯类型定义文件（如 `types.ts`）不需要测试
+1. Look at the coverage report and find the lowest-coverage module
+2. Read that module's source and existing tests to understand the test style
+3. Focus on edge cases: error paths, empty input, extreme values, concurrency, etc.
+4. Pure type definition files (like `types.ts`) do not need tests
