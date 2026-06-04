@@ -29,6 +29,8 @@ const mockCtx: ToolContext = {
   sessionId: "test-session",
 };
 
+const ORIGINAL_PLATFORM = process.platform;
+
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -68,22 +70,22 @@ function rejectExec(error: unknown) {
   );
 }
 
-/** Temporarily override process.platform for non-darwin tests. */
-function withPlatform(platform: string, fn: () => Promise<void> | void): Promise<void> | void {
-  const original = process.platform;
+function setPlatform(platform: NodeJS.Platform | "unknown"): void {
   Object.defineProperty(process, "platform", {
     value: platform,
     configurable: true,
     writable: true,
   });
+}
+
+/** Temporarily override process.platform for platform-specific tests. */
+async function withPlatform(platform: NodeJS.Platform | "unknown", fn: () => Promise<void> | void): Promise<void> {
+  const original = process.platform;
+  setPlatform(platform);
   try {
-    return fn();
+    await fn();
   } finally {
-    Object.defineProperty(process, "platform", {
-      value: original,
-      configurable: true,
-      writable: true,
-    });
+    setPlatform(original);
   }
 }
 
@@ -91,15 +93,12 @@ function withPlatform(platform: string, fn: () => Promise<void> | void): Promise
 
 beforeEach(() => {
   vi.resetAllMocks();
+  setPlatform("darwin");
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
-  // Restore process.platform in case a test crashed mid-override
-  const actualPlatform = process.platform;
-  if (actualPlatform === "linux" || actualPlatform === "unknown") {
-    // best-effort restore — the helper handles this normally
-  }
+  setPlatform(ORIGINAL_PLATFORM);
 });
 
 // ── Tests ────────────────────────────────────────────────────────────────────────

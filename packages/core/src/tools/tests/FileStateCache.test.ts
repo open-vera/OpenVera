@@ -16,7 +16,7 @@ import {
   clearFileState,
   getFileMtime,
   checkStaleness,
-} from "../FileStateCache.js";
+} from "../fileStateCache.js";
 
 vi.mock("node:fs", () => ({
   statSync: vi.fn(),
