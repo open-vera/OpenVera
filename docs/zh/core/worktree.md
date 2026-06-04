@@ -1,17 +1,18 @@
-# Worktree Management（工作树管理）
+# Worktree 管理
 
-> 基于 Git worktree 的会话隔离机制，支持 `/try` 分支、变更合并与清理。
+> 基于 Git worktree 的会话隔离，支持 `/try` 分支、变更合并和清理。
 
 ---
 
 ## 概述
 
-Vera 利用 Git 原生的 `git worktree` 功能实现会话隔离。当用户通过 `/try` 命令创建实验分支时，Vera 会在 Git 仓库中创建一个独立的工作树（worktree），将分支的代码变更与主工作区完全隔离。Subagent 在执行隔离任务时也会自动创建 worktree。
+Vera 利用 Git 原生的 `git worktree` 功能实现会话隔离。当用户通过 `/try` 命令创建实验分支时，Vera 会在 Git 仓库内创建独立的工作树（worktree），使分支的代码变更与主工作区完全分离。子 agent 在执行隔离任务时也会自动创建 worktree。
 
-这种机制确保：
-- 实验性修改不影响主工作区
-- 多个 `/try` 分支可以并行存在，互不干扰
-- Subagent 的代码变更可追溯、可合并、可丢弃
+该机制确保：
+
+- 实验性变更不会影响主工作区
+- 多个 `/try` 分支可共存，互不干扰
+- 子 agent 的代码变更可追踪、可合并、可丢弃
 
 ## 核心数据结构
 
@@ -19,40 +20,40 @@ Vera 利用 Git 原生的 `git worktree` 功能实现会话隔离。当用户通
 
 ```typescript
 interface BranchWorktree {
-  worktreePath: string;   // 工作树的文件系统路径
+  worktreePath: string;   // Worktree 的文件系统路径
   worktreeBranch: string; // 对应的 Git 分支名
-  baseCommit: string;     // 创建时的基准 commit SHA
+  baseCommit: string;     // 创建时的基准提交 SHA
   gitRoot: string;        // Git 仓库根路径
 }
 ```
 
-- `worktreePath`：工作树在 `.vera/worktrees/<slug>` 下的物理路径。
+- `worktreePath`：物理路径，位于 `.vera/worktrees/<slug>`。
 - `worktreeBranch`：Git 分支名，格式为 `vera-try-<slug>`。
-- `baseCommit`：创建 worktree 时的 HEAD commit，用于后续 diff 计算和变更检测。
+- `baseCommit`：Worktree 创建时的 HEAD 提交，用于后续 diff 计算和变更检测。
 
-### 在 Session 中的体现
+### 会话集成
 
-当 Session 包含分支信息时，`types.ts` 中的 `SessionBranch` 会携带：
+当会话携带分支信息时，`types.ts` 中的 `SessionBranch` 包含：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `status` | `"active" \| "discarded" \| "merged"` | 分支状态 |
-| `worktreePath` | `string`（可选） | worktree 路径 |
+| `worktreePath` | `string`（可选） | Worktree 路径 |
 | `worktreeBranch` | `string`（可选） | Git 分支名 |
-| `baseCommit` | `string`（可选） | 基准 commit |
+| `baseCommit` | `string`（可选） | 基准提交 |
 
-## 工作树命名与验证
+## Worktree 命名与校验
 
 ### Slug 规则
 
-worktree 名称（slug）必须通过 `validateWorktreeSlug` 验证：
+Worktree 名称（slug）必须通过 `validateWorktreeSlug` 校验：
 
-- 长度限制：1-64 个字符
-- 允许的字符：字母、数字、点 (`.`)、下划线 (`_`)、短横线 (`-`)
-- 支持 `/` 嵌套（如 `try/experiment`），但每个段都不能是 `.` 或 `..`
-- 无效 slug 会抛出 `ValidationError`
+- 长度限制：1-64 字符
+- 允许字符：字母、数字、点（`.`）、下划线（`_`）、短横线（`-`）
+- 支持 `/` 嵌套（如 `try/experiment`），但每段不能是 `.` 或 `..`
+- 无效 slug 抛出 `ValidationError`
 
-### 路径与分支名
+### 路径与分支命名
 
 ```typescript
 // slug: "try-experiment-a1b2c3d4"
@@ -61,13 +62,13 @@ worktree 名称（slug）必须通过 `validateWorktreeSlug` 验证：
 // worktreeBranch: "vera-try-try-experiment-a1b2c3d4"
 ```
 
-`flattenSlug` 将 slug 中的 `/` 替换为 `+`，确保路径和分支名中不会出现嵌套目录。
+`flattenSlug` 将 slug 中的 `/` 替换为 `+`，确保路径和分支名不会创建嵌套目录。
 
-## 使用场景与命令
+## 命令与使用场景
 
-### /try —— 创建实验分支
+### /try -- 创建实验分支
 
-在 REPL 中输入 `/try <name>` 会将当前会话 fork 到一个隔离的 worktree 中：
+在 REPL 中输入 `/try <name>` 将当前会话分叉到隔离 worktree：
 
 ```bash
 > /try refactor-auth
@@ -80,42 +81,42 @@ Git branch: vera-try-try-refactor-auth-a1b2c3d4
 
 1. 通过 `slugify(title)` 生成唯一 slug（基于名称 + UUID 前 8 位）
 2. 调用 `createBranchWorktree(cwd, slug)` 执行 `git worktree add -B <branch> <path> HEAD`
-3. 在 `.vera/worktrees/` 目录下创建 worktree 物理目录
-4. 通过 `SessionStore.forkSession` 创建分支记录，关联 worktree 信息
-5. 调用 `ctx.onResume` 切换到新分支
+3. 在 `.vera/worktrees/` 下创建 worktree 物理目录
+4. 使用 `SessionStore.forkSession` 创建分支记录，关联 worktree 信息
+5. 通过 `ctx.onResume` 切换到新分支
 
-### /merge —— 合并实验分支的变更
+### /merge -- 合并实验分支变更
 
-将 `/try` 分支中产生的代码变更合并回原工作区：
+将 `/try` 分支中的变更应用到原始工作区：
 
 ```bash
 # 合并指定分支
 > /merge a1b2c3d4
 Merged try branch a1b2c3d4 into /path/to/repo. Changes are left uncommitted.
 
-# 检查合并是否会有冲突（不影响文件）
+# 干跑：检查冲突而不修改文件
 > /merge a1b2c3d4 --check
 Try branch a1b2c3d4 can be merged cleanly.
 
-# 合并后自动删除 worktree
+# 合并并自动移除 worktree
 > /merge a1b2c3d4 --drop
 Merged try branch a1b2c3d4 into /path/to/repo. Changes are left uncommitted. Worktree removed.
 ```
 
 合并流程：
 
-1. `collectWorktreeDiff`：在 worktree 中执行 `git add -N .`（包含未跟踪文件），然后 `git diff --binary <baseCommit>` 生成二进制 diff
-2. `checkWorktreeDiff`（`--check` 模式）：用 `git apply --check --3way` 预检查冲突
-3. `applyWorktreeDiff`（正常模式）：用 `git apply --3way --binary` 应用 diff
+1. `collectWorktreeDiff`：在 worktree 中运行 `git add -N .`（包含未跟踪文件），然后 `git diff --binary <baseCommit>` 生成二进制 diff
+2. `checkWorktreeDiff`（`--check` 模式）：使用 `git apply --check --3way` 预检冲突
+3. `applyWorktreeDiff`（普通模式）：使用 `git apply --3way --binary` 应用 diff
 4. 可选 `--drop`：合并后自动调用 `removeBranchWorktree` 清理
 
 安全机制：
 
-- `requireCleanTarget`：目标工作区如有未提交变更（`.vera/worktrees` 目录除外），合并会被拒绝。用户需先 commit、stash 或 clean。
-- 变更保持 uncommitted，由用户自行决定是否提交。
-- 已经 merged 的分支不能重复合并。
+- `requireCleanTarget`：如果目标工作区有未提交的变更（排除 `.vera/worktrees`），拒绝合并。用户必须先提交、stash 或清理。
+- 变更保持未提交状态，由用户决定是否提交。
+- 已合并的分支不能再次合并。
 
-### /drop —— 丢弃实验分支
+### /drop -- 丢弃实验分支
 
 ```bash
 > /drop a1b2c3d4
@@ -126,62 +127,62 @@ Dropped branch a1b2c3d4 and removed its clean worktree.
 
 1. 调用 `SessionStore.discardBranch` 将分支状态标记为 `discarded`
 2. 检查 worktree 是否有未合并的变更（`hasWorktreeChanges`）：
-   - 无变更（no dirty files, no new commits）→ 自动删除 worktree 目录和 Git 分支
-   - 有变更 → worktree 保留在磁盘上，防止误删重要代码
-3. 不能丢弃当前活动会话
+   - 无变更（无脏文件、无新提交）→ 自动删除 worktree 目录和 Git 分支
+   - 有变更 → 保留 worktree 在磁盘上，防止意外数据丢失
+3. 当前活跃会话不能被丢弃
 
 ### 变更检测
 
 `hasWorktreeChanges(worktreePath, baseCommit)` 判断 worktree 是否包含未合并的修改：
 
-- 执行 `git status --porcelain` 检查是否有 dirty files
-- 执行 `git rev-list --count <baseCommit>..HEAD` 检查是否有新 commit
-- 任一条件满足即返回 `true`
+- 运行 `git status --porcelain` 检查脏文件
+- 运行 `git rev-list --count <baseCommit>..HEAD` 检查新提交
+- 任一条件满足则返回 `true`
 
-## Subagent 的 Worktree 隔离
+## 子 Agent 的 Worktree 隔离
 
-Subagent 在执行任务时，可通过 `isolation: "try"` 选项自动创建 worktree：
+子 agent 执行任务时，可通过 `isolation: "try"` 选项自动创建 worktree：
 
 ```typescript
-// subagent.ts 内部逻辑
+// 在 subagent.ts 内部
 if (isolation === "try") {
   worktree = createBranchWorktree(cwd, subagentTrySlug(description, agentType));
   childCwd = worktree.worktreePath;
 }
 ```
 
-Subagent worktree 的特点：
+子 agent worktree 的特点：
 
 - 自动生成 slug：基于描述和 agent 类型
-- `childCwd` 指向 worktree 路径，subagent 的所有文件操作都在隔离环境中执行
-- 执行完成后，worktree 信息写入 subagent 的返回结果（`SubagentResult`），包含 `worktreePath`、`worktreeBranch`、`baseCommit`
-- 支持 `remote` 隔离方式作为 alternative（通过远程执行器而非本地 worktree）
+- `childCwd` 指向 worktree 路径——所有子 agent 文件操作在隔离环境中运行
+- 完成时，worktree 信息包含在子 agent 结果中（`SubagentResult`），包含 `worktreePath`、`worktreeBranch` 和 `baseCommit`
+- `remote` 隔离也作为替代方案支持（通过远程执行器而非本地 worktree）
 
-## Session Store 集成
+## 会话存储集成
 
-Worktree 信息在 session 存储层的贯穿路径：
+Worktree 信息通过会话存储层的路径：
 
-1. **创建时**：`forkSession` → `createBranch` → `sqlite-backend.ts` / `session-adapter.ts` 将 `worktreePath`、`worktreeBranch`、`baseCommit` 存入持久化存储
-2. **查询时**：`listSessions` 读取分支信息，REPL `/branches` 命令会显示有 worktree 的 session（标注 "worktree" 标记）
-3. **跨 worktree 查询**：`sessionDirsFor(cwd, includeWorktrees=true)` 会扫描 `git worktree list --porcelain` 输出，将所有 worktree 路径纳入 session 搜索范围
+1. **创建**：`forkSession` -> `createBranch` -> `sqlite-backend.ts` / `session-adapter.ts` 将 `worktreePath`、`worktreeBranch` 和 `baseCommit` 持久化
+2. **查询**：`listSessions` 读取分支信息；REPL 的 `/branches` 命令展示带 worktree 的会话（标记 "worktree" 标签）
+3. **跨 worktree 查询**：`sessionDirsFor(cwd, includeWorktrees=true)` 扫描 `git worktree list --porcelain` 输出，将所有 worktree 路径纳入会话搜索范围
 
 ## 工作区导航
 
-REPL 中的 workspace 模块（`repl/workspace.ts`）处理 `/try` 分支的工作目录切换：
+REPL 中的工作区模块（`repl/workspace.ts`）处理 `/try` 分支的工作目录切换：
 
-- 从 session summary 读取 `branch.worktreePath`
+- 从会话摘要中读取 `branch.worktreePath`
 - 如果 worktree 路径存在（`existsSync`），返回 `{ cwd: worktreePath }`
-- 如果 worktree 路径缺失（被手动删除或磁盘故障），输出警告并回退到原 cwd
+- 如果 worktree 路径缺失（手动删除或磁盘故障），输出警告并回退到原始 cwd
 
 ## 当前状态
 
 - `/try` 命令：已完成
 - `/merge` 命令（含 `--check` 和 `--drop`）：已完成
 - `/drop` 命令：已完成
-- Subagent worktree 隔离（`isolation: "try"`）：已完成
-- Session store 中的 worktree 持久化：已完成（SQLite + JSONL 双后端）
-- 跨 worktree session 查询：已完成
+- 子 agent worktree 隔离（`isolation: "try"`）：已完成
+- Worktree 在会话存储中的持久化：已完成（SQLite 和 JSONL 双后端）
+- 跨 worktree 会话查询：已完成
 - 尚未实现的功能：
   - Worktree 列表的可视化管理界面
   - Worktree 之间的 cherry-pick 合并
-  - 自动过期清理策略（一定天数未操作的 worktree 自动提醒）
+  - 自动过期清理策略（N 天未操作的 worktree 自动提醒）

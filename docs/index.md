@@ -51,17 +51,31 @@ ai init --force  # force re-run even if config exists
 // .vera/settings.json
 {
   "providers": {
-    "compony": { "adapter": "anthropic", "api_key": "..." }
+    "compony": {
+      "adapter": "anthropic",
+      "api_key": "...",
+      "base_url": "https://your-api-gateway.example.com"
+    }
   },
   "default_model": "deepseek-v4-flash"
 }
 ```
 
-Enable model routing to auto-switch by task complexity:
+`base_url` points to a company API gateway or custom endpoint. Omit to use each adapter's default.
+
+### Model Routing
+
+Model routing automatically selects the best model for each task based on complexity — cheap models for simple questions, powerful models for complex tasks. Classification takes ~100ms and typically reduces cost by 60%+ without sacrificing quality.
 
 ```jsonc
-"routing": { "enabled": true, "classifier": "...", "l0": "...", "l1": "...", "l2": "..." }
+"routing": { "enabled": true, "classifier": "deepseek-v4-flash", "l0": "...", "l1": "...", "l2": "..." }
 ```
+
+| Level | Task Type | Example |
+|---|---|---|
+| L0 | Casual chat, simple Q&A | "What is TypeScript?" |
+| L1 | Single-step tasks | "Write a function to parse CSV" |
+| L2 | Multi-step, deep reasoning | "Design a distributed lock system" |
 
 | Field | Purpose |
 |---|---|
@@ -144,7 +158,7 @@ apps/
 | **P2** | Self-evolution | Dreaming, Proposal Pipeline, Skill evolution, Strategy store, Change tracking | 🏗️ In Progress |
 | **P3** | Universal agent platform | Computer Use, MCP, Multi-agent networks, RAG, Sandbox, Channel adapters | 🏗️ In Progress |
 
-[→ Full roadmap](/roadmap) · [→ P0 Improvement Plan](/P0-IMPROVEMENT-PLAN) · [→ P1 Implementation Plan](/P1-IMPLEMENTATION-PLAN)
+[→ Full roadmap](/roadmap)
 
 ## Technology Stack
 

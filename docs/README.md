@@ -1,177 +1,131 @@
-# OpenVera — Documentation Directory
+# OpenVera Documentation
 
-> OpenVera is a Harness-native agent runtime — self-planning, self-looping, self-critiquing, self-evolving.
+> A Harness-native agent runtime — self-planning, self-looping, self-critiquing, self-evolving.
+
+OpenVera is a TypeScript agent runtime built around the **Harness kernel**. Instead of giving an LLM direct access to tools, Vera routes every action through a structured execution framework: intent routing picks the right model, a flow state machine drives execution, and an independent Challenger critiques every step. The result is a runtime that plans its own work, catches its own mistakes, and improves itself over time — not through prompt engineering, but through engineered system capabilities.
+
+Docs are bilingual. English pages live at `/`; Chinese translations live at `/zh/`.
 
 ---
 
-## Quick Start
+## Getting Started
 
-1. Copy the configuration template and add your API keys:
+New to OpenVera? Start here.
+
+| Document | Description |
+|---|---|
+| [Installation](./guide/install.md) | Install the CLI, run the setup wizard, configure providers and models |
+| [CLI Reference](./guide/routing.md) | Intent routing — L0/L1/L2 classification, automatic model selection by task complexity |
+| [Architecture](./architecture.md) | Core vs Harness responsibility boundaries, dependency direction, module layout |
+| [Roadmap](./roadmap.md) | Phased plan: P0 runtime, P1 self-loop, P2 self-evolution, P3 platform expansion |
+
+**Quick install:**
 
 ```bash
-cp .vera/settings.example.json .vera/settings.json
-# Edit .vera/settings.json, fill in provider api_key values
+npm i @open-vera/openvera@latest -g
+ai
 ```
 
-2. Start the REPL:
-
-```bash
-pnpm repl
-```
-
-Configuration notes:
-- `providers`: LLM provider configuration (anthropic / openai / gemini / deepseek / groq / azure)
-- `default_provider`: default provider to use
-- `routing`: intent routing configuration, auto-selects models by L0-L3 complexity
-- `.vera/settings.json` contains secrets, is `.gitignore`d, and is never committed
+`ai`, `vera`, and `openvera` are all aliases. First run launches an interactive setup wizard.
 
 ---
 
-## Project Overview
+## Architecture and Design
+
+OpenVera is a monorepo structured in four layers. Dependency direction is strict: `harness -> core`, and Core never imports from Harness.
+
+### Core (`packages/core`)
+
+Stateless, single-call agent loop. Adapters, tools, context, session — everything one LLM invocation needs.
 
 | Document | Description |
 |---|---|
-| [PROJECT_INTRO.md](./PROJECT_INTRO.md) | Project introduction (English) — philosophy, vision, architecture, value proposition |
-| [PROJECT_INTRO_CN.md](./PROJECT_INTRO_CN.md) | Project introduction (Chinese) — philosophy, vision, architecture, value proposition |
+| [Agent](./core/agent.md) | Agent capability landscape, system prompt composition, model adapters |
+| [Runtime](./core/runtime.md) | Core runtime design — adapter abstraction, agent loop, streaming |
+| [Plan Mode](./core/plan-mode.md) | Structured ExecutionPlan, 11-state flow machine, nested planning, checkpoint/resume |
+| [Context](./core/context.md) | Context window management, token budgeting, message ordering |
+| [Compression](./core/compression.md) | Progressive compression, micro-compact, reactive compact, recall |
+| [Subagent](./core/subagent.md) | Orchestrator/worker model, dependency DAG, isolation modes, scheduling |
+| [Tools](./core/tools.md) | Built-in tool registry, tool lifecycle, parameter validation |
+| [Tool Runtime](./core/tool-runtime.md) | Middleware pipeline, before/after/onError hooks, error isolation |
+| [Tool Rendering](./core/tool-render.md) | Output rendering, RenderHint, renderer components |
+| [Skills](./core/skill.md) | Markdown-defined custom skills, intent-driven activation, hot-reload |
+| [Skill Evolution](./core/skill-evo.md) | Self-improving skill definitions, proposal and rollout pipeline |
+| [Session](./core/session.md) | Session persistence, AI-generated titles, cost tracking, branching |
+| [Loaders](./core/loaders.md) | Project context loading, CLAUDE.md, path-scoped rules |
+| [Op Recorder](./core/op-recorder.md) | Operation recording and replay for debugging and evaluation |
+| [Worktree](./core/worktree.md) | Git worktree integration for isolated task execution |
 
----
+### Harness (`packages/harness`)
 
-## High-Level Planning
-
-| Document | Description |
-|---|---|
-| [roadmap.md](./roadmap.md) | Phase roadmap — P0 core runtime -> P1 self-loop -> P2 self-evolution -> P3 platform expansion |
-| [roadmap.md#known-defects-and-tech-debt](./roadmap.md#known-defects-and-tech-debt) | 2026-04-28 architecture audit — 5 Critical, 6 High, 6 Medium issues |
-
----
-
-## Module Documentation
-
-### Core — `@vera/core`
-
-Foundation runtime layer: LLM adapters, agent loop, intent routing, context management.
-
-| Document | Description |
-|---|---|
-| [agent-design.md](./core/agent-design.md) | Agent capability landscape, Hermes highlights, Dreaming, Subagent, Plan Mode overview |
-| [subagent-design.md](./core/subagent-design.md) | Subagent system design — when to use, communication protocol, context sharing, scheduling modes |
-| [intent-routing.md](./core/intent-routing.md) | Intent classification and model routing — L0/L1/L2/L3 tiering |
-| [runtime-design.md](./core/runtime-design.md) | Core runtime design — adapter abstraction, loop, streaming |
-| [tool-rendering.md](./core/tool-rendering.md) | Tool output rendering — RenderHint, ToolResultView, renderer components |
-| [capability-gaps.md](./core/capability-gaps.md) | Current capability gaps and near-term implementation roadmap — permissions, context, UI, reliability |
-| [p0-alignment-checklist.md](./core/p0-alignment-checklist.md) | P0 post-alignment code verification checklist — done / partial / outstanding |
-| [plan-mode-implementation.md](./core/plan-mode-implementation.md) | **[P0 Complete]** Plan Mode — planner, parser, state machine, REPL integration |
-| [infinite-context-implementation.md](./core/infinite-context-implementation.md) | **[P0 Complete]** Infinite context — progressive compression, micro-compact, reactive compact |
-
--> [core/README.md](./core/README.md)
-
----
-
-### Harness — `@vera/harness`
-
-Execution kernel: Flow lifecycle, tool permission constraints, Critique loop, approval gates.
+Stateful orchestration. Flow state machine, Critique loop, Proposal Pipeline, skill evolution — multi-step task execution.
 
 | Document | Description |
 |---|---|
-| [design.md](./harness/design.md) | Harness overall design — terminology, Flow State machine, permission boundaries, Proposal Pipeline |
-| [runtime-implementation.md](./harness/runtime-implementation.md) | Harness Runtime implementation details — module responsibilities and current code structure |
-| [plan-mode-implementation.md](./core/plan-mode-implementation.md) | Plan Mode implementation — planner, parser, state machine, HarnessRuntime |
-| [tool-rendering.md](./core/tool-rendering.md) | Tool output rendering — RenderHint, ToolResultView, renderer components |
+| [Overview](./harness/overview.md) | Harness role in the Vera stack — execution kernel, not safety wrapper |
+| [Design](./harness/design.md) | Flow state machine, permission boundaries, Challenger independence, Proposal Pipeline |
+| [Runtime](./harness/runtime.md) | HarnessRuntime implementation, module responsibilities, code structure |
+| [Evolution](./harness/evolution.md) | Self-evolution loop — benchmark-gated proposals, evidence-driven improvement |
+| [Technical Reference](./harness/tech.md) | Implementation details, data structures, internal protocols |
 
--> [harness/README.md](./harness/README.md)
+### Platform (`packages/platform`)
 
----
-
-### TUI / Web UI Integration
-
-Terminal UI improvements, OpenTUI alternatives, and unified event protocol roadmap for future Web UI/clients.
+Extension capabilities. Channel adapters, sandbox execution, MCP, RAG, multi-agent networks.
 
 | Document | Description |
 |---|---|
-| [tui/README.md](./tui/README.md) | TUI evaluation and recommended path — Hermes/OpenCode/Codex comparison, decision matrix |
-| [tui/ink-evolution.md](./tui/ink-evolution.md) | Incremental Ink-based improvements — event protocol, state separation, composer, performance |
-| [tui/opentui-rewrite.md](./tui/opentui-rewrite.md) | Full OpenTUI migration plan — capabilities, cost, risk, PoC, and migration phases |
+| [Overview](./platform/overview.md) | Platform layer architecture and extension points |
+| [Plugin System](./platform/plugin.md) | Plugin API, lifecycle hooks, registry |
+| [Computer Use](./platform/computer-use.md) | Browser and desktop automation, benchmark integration |
+| [Multi-Agent](./platform/multi-agent.md) | Multi-agent networks, communication protocols, coordination patterns |
+| [MCP Integration](./platform/mcp.md) | Model Context Protocol, tool servers, resource providers |
+| [RAG](./platform/rag.md) | Retrieval-augmented generation, vector stores, embedding pipelines |
+| [Sandbox](./platform/sandbox.md) | Code execution isolation, path boundary enforcement, security plugins |
+| [Channel](./platform/channel.md) | ChannelAdapter interface, CLI/HTTP/Discord/Feishu backends |
+| [Storage](./platform/storage.md) | Persistence layer — SQLite, JSONL, session store, vector store |
 
----
+### Gateway (`apps/gateway-ui`)
 
-### Eval — `@vera/benchmark` + Evaluation System
-
-Quantifies Vera's task completion rate, tool accuracy, and stability.
-
-| Document | Description |
-|---|---|
-| [benchmark.md](./eval/benchmark.md) | Benchmark design — evaluation dimensions, GAIA/SWE-bench/ToolBench open-source suites, run cadence |
-
--> [eval/README.md](./eval/README.md)
-
----
-
-### Platform — Platform Extension Capabilities
-
-Computer Use, MCP integration, intelligent UI testing, and other P2/P3 capabilities.
+Management console and API server.
 
 | Document | Description |
 |---|---|
-| [computer-use.md](./platform/computer-use.md) | Computer Use — browser automation, desktop control, benchmark integration |
-| [intelligent-testing.md](./platform/intelligent-testing.md) | Intelligent automated testing — AI-driven UI testing, multi-strategy element location, self-healing tests |
+| [Control Panel](./gateway/control.md) | Run workspace, capability manager, project registry, system doctor |
+| [Harness UI](./gateway/harness-ui.md) | Visual Flow runs, streaming logs, artifact browsing |
 
--> [platform/README.md](./platform/README.md)
+---
 
-### Testing — Test Coverage and Acceptance
+## Governance and Quality
 
 | Document | Description |
 |---|---|
-| [storage/README.md](./testing/storage/README.md) | Storage/UI test coverage plan — SQLite, Session migration, DataExporter, black-box acceptance |
+| [Overview](./governance/overview.md) | Code governance philosophy, review process, quality gates |
+| [Benchmark](./governance/benchmark.md) | Evaluation framework — GAIA, SWE-bench, ToolBench, scoring methodology |
+| [Coverage](./governance/coverage.md) | Test coverage targets, measurement tooling, gap analysis |
+| [Static Analysis](./governance/static.md) | oxlint, eslint-plugin-sonarjs, jscpd — rules, thresholds, CI integration |
 
 ---
 
-### Apps — Application Layer
-
-| App | Description |
-|---|---|
-| harness-ui | Harness Web UI — visual Flow runs, streaming logs, Artifact browsing |
-| audio-label | Audio annotation tool |
-
--> [apps/README.md](./apps/README.md)
-
----
-
-### Code Governance
+## Reference
 
 | Document | Description |
 |---|---|
-| [static-analysis.md](./code-governance/static-analysis.md) | Static code quality scanning — oxlint + jscpd parallel approach, metric thresholds, Skill design |
+| [Roadmap](./roadmap.md) | Phased roadmap with deliverable tracking, known defects, and tech debt |
+| [Changelog](./changelog.md) | Chronological change index linked to detailed per-session entries |
+| [Releases](./releases/v0.3.1.md) | Release notes and migration guides for each published version |
+| [GitHub](https://github.com/open-vera/OpenVera) | Source code, issues, discussions |
 
 ---
 
-## Reference Materials
+## Reading Order
 
-Curated external articles, organized by source:
+If you are new to the codebase, follow this path:
 
-| Directory | Content |
-|---|---|
-| [refrence/anthropic/](./refrence/anthropic/) | Anthropic official articles (with Chinese translations) — agent design, tool use, Harness, evals, etc. |
-| [refrence/harness/](./refrence/harness/) | Harness-specific references — overall approach, extension practices, multi-agent patterns, anti-patterns |
-| [refrence/OpenAI/](./refrence/OpenAI/) | Codex engineering practices |
-
----
-
-## Recommended Reading Order
-
-```
-roadmap.md                          Understand global goals and phases (including P0 status and known tech debt)
-  v
-harness/design.md                   Understand Harness kernel design (most important)
-  v
-core/agent-design.md                Understand agent capability landscape
-  v
-core/intent-routing.md              Intent routing (complete, can skim)
-  v
-core/plan-mode-implementation.md        P0 Complete — Plan Mode foundation
-  v
-core/infinite-context-implementation.md   P0 Complete — Infinite context
-  v
-core/capability-gaps.md             Review P0 post-alignment items (permissions/context/UI/subagent)
-  v
-eval/benchmark.md                   Understand evaluation system (P2 preparation)
-```
+1. **[Roadmap](./roadmap.md)** — understand the vision, phases, and current status
+2. **[Architecture](./architecture.md)** — learn the Core/Harness boundary and dependency rules
+3. **[Harness Design](./harness/design.md)** — study the execution kernel (most important)
+4. **[Core Agent](./core/agent.md)** — understand the agent capability landscape
+5. **[Core Runtime](./core/runtime.md)** — see how a single call flows through the system
+6. **[Plan Mode](./core/plan-mode.md)** — structured planning and flow state machine
+7. **[Compression](./core/compression.md)** — infinite context via progressive compaction
+8. **[Governance Overview](./governance/overview.md)** — quality gates and contribution expectations

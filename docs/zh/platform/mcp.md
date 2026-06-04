@@ -1,10 +1,10 @@
-# MCP — Model Context Protocol 支持
+# MCP —— Model Context Protocol 支持
 
-## 定位
+## 概述
 
-MCP（Model Context Protocol）是 Anthropic 提出的开放协议，定义了 LLM 应用与外部工具服务器之间的标准化通信方式。Vera 作为 MCP client 接入第三方 MCP 服务器，将其暴露的工具、资源和提示词映射到 Vera 的 ToolRegistry 中，实现对 MCP 生态的兼容。
+MCP（Model Context Protocol）是 Anthropic 提出的开放协议，定义了 LLM 应用与外部工具服务器之间的标准化通信格式。Vera 作为 MCP 客户端，连接第三方 MCP 服务器，将其暴露的工具、资源和提示词映射到 Vera 的 ToolRegistry 中，实现 MCP 生态兼容。
 
-在 Vera 的架构中，MCP 位于**能力扩展层**：它不是运行时核心的一部分，而是通过适配器模式将外部 MCP 服务器的工具"翻译"为 Vera 原生工具，agent 调用时完全无感知。
+在 Vera 的架构中，MCP 位于**能力扩展层**：它不是运行时核心的一部分，而是使用适配器模式将外部 MCP 服务器工具"翻译"为 Vera 原生工具，使 Agent 可以透明地调用它们。
 
 ---
 
@@ -13,38 +13,38 @@ MCP（Model Context Protocol）是 Anthropic 提出的开放协议，定义了 L
 ### 架构角色
 
 ```
-┌─────────────────────────────────────────────────┐
-│ Vera Agent Runtime                              │
-│                                                 │
-│  ToolRegistry                                   │
-│  ┌──────────┐  ┌──────────┐  ┌───────────────┐ │
-│  │ 内置工具  │  │ Sandbox  │  │ MCP 工具代理   │ │
-│  │ read_file│  │  工具     │  │ (McpToolReg)  │ │
-│  │ bash     │  │          │  │               │ │
-│  └──────────┘  └──────────┘  └───────┬───────┘ │
-│                                      │          │
-│                              McpClient          │
-│                              ┌─────────┐        │
-│                              │ connect │        │
-│                              │callTool │        │
-│                              └────┬────┘        │
-└───────────────────────────────────┼─────────────┘
-                                    │
-                    ┌───────────────┼───────────────┐
-                    │ stdio         │ sse           │
-                    ▼               ▼               ▼
-              ┌──────────┐  ┌──────────┐  ┌──────────────┐
-              │ MCP      │  │ MCP      │  │ MCP          │
-              │ Server A │  │ Server B │  │ Server C     │
-              │ (本地进程) │  │ (HTTP)   │  │ (streamable) │
-              └──────────┘  └──────────┘  └──────────────┘
++---------------------------------------------------+
+| Vera Agent Runtime                                |
+|                                                   |
+|  ToolRegistry                                     |
+|  +----------+  +----------+  +-----------------+  |
+|  | 内置工具 |  | Sandbox  |  | MCP 工具代理    |  |
+|  | read_file|  | 工具     |  | (McpToolReg)    |  |
+|  | bash     |  |          |  |                 |  |
+|  +----------+  +----------+  +--------+--------+  |
+|                                       |            |
+|                               McpClient            |
+|                               +----------+         |
+|                               | connect  |         |
+|                               |callTool  |         |
+|                               +----+-----+         |
++------------------------------------+---------------+
+                                     |
+                     +---------------+---------------+
+                     | stdio         | sse           |
+                     v               v               v
+               +----------+  +----------+  +----------------+
+               | MCP      |  | MCP      |  | MCP            |
+               | Server A |  | Server B |  | Server C       |
+               | (本地)   |  | (HTTP)   |  | (streamable)   |
+               +----------+  +----------+  +----------------+
 ```
 
 ### 支持的传输方式
 
-| Transport | 适用场景 | 连接方式 |
-|-----------|---------|---------|
-| `stdio` | 本地进程（通过 stdin/stdout JSON-RPC 通信） | `command` + `args` 启动子进程 |
+| 传输方式 | 用例 | 连接方式 |
+|---------|------|---------|
+| `stdio` | 本地进程（stdin/stdout JSON-RPC） | `command` + `args` 启动子进程 |
 | `sse` | 远程 HTTP 服务器（Server-Sent Events） | `url` 指向 SSE 端点 |
 | `streamable-http` | 远程 HTTP 服务器（Streamable HTTP） | `url` 指向 HTTP 端点 |
 
@@ -57,8 +57,8 @@ packages/core/src/mcp/
   types.ts      # 协议类型 + 配置类型
   client.ts     # McpClient 连接管理与工具调用
   discovery.ts  # McpDiscovery 服务发现
-  registry.ts   # McpToolRegistry 工具映射到 Vera ToolRegistry
-  index.ts      # Barrel export
+  registry.ts   # McpToolRegistry 将工具映射到 Vera ToolRegistry
+  index.ts      # Barrel 导出
 
 packages/core/src/config/
   types.ts      # MCPServerConfig（settings.json 中的 mcp_servers 字段）
@@ -68,27 +68,27 @@ packages/core/src/config/
 
 ## MCP 服务器生命周期
 
-### 1. 发现（Discovery）
+### 1. 发现
 
-`McpDiscovery`（`packages/core/src/mcp/discovery.ts`）负责从多个来源发现可用的 MCP 服务器配置：
+`McpDiscovery`（`packages/core/src/mcp/discovery.ts`）从多个来源发现可用的 MCP 服务器配置：
 
 ```ts
 class McpDiscovery {
   constructor(client: McpClient, config?: DiscoveryConfig);
 
-  // 扫描所有源，返回发现的配置和连接状态
+  // 扫描所有来源，返回发现的配置和连接状态
   async discover(): Promise<DiscoveryResult>;
 }
 ```
 
 **发现来源**：
 
-| 来源 | 说明 | 优先级 |
+| 来源 | 描述 | 优先级 |
 |------|------|--------|
 | 配置文件 | `~/.claude/mcp-servers.json` 或 `.mcp-servers.json` | 高 |
 | 环境变量 | `MCP_SERVER_<ID>_COMMAND` / `MCP_SERVER_<ID>_URL` 格式 | 低 |
 
-**配置文件格式**（支持两种）：
+**支持的配置文件格式**（两种均可）：
 
 ```json
 // 数组格式
@@ -122,10 +122,10 @@ export MCP_SERVER_MY_SERVER_ARGS="./mcp-server.js --port 3000"
 export MCP_SERVER_REMOTE_TOOL_URL="https://mcp.example.com/sse"
 ```
 
-- Server ID 从环境变量名中提取：`MCP_SERVER_` 前缀后的内容（转小写）
-- URL 中包含 `/sse` 的自动识别为 SSE 传输，否则为 streamable-http
+- 服务器 ID 从环境变量名中提取：`MCP_SERVER_` 前缀后的内容（转小写）
+- 包含 `/sse` 的 URL 自动识别为 SSE 传输；否则为 streamable-http
 
-### 2. 连接（Connect）
+### 2. 连接
 
 `McpClient.connect()` 建立与 MCP 服务器的连接：
 
@@ -143,39 +143,39 @@ const state = await client.connect({
 连接过程中的状态转换：
 
 ```
-disconnected → connecting → connected
-                              │
-                              ├─ 成功: status="connected"
-                              │        - 记录 lastConnected
-                              │        - 获取工具列表
-                              │
-                              └─ 失败: status="error"
-                                       - 记录错误信息
+disconnected -> connecting -> connected
+                                |
+                                +-- 成功：status="connected"
+                                |        - 记录 lastConnected
+                                |        - 获取工具列表
+                                |
+                                +-- 失败：status="error"
+                                         - 记录错误信息
 ```
 
 ### 3. 健康检查
 
-当前版本在 `connect()` 时进行初始化握手（`initialize` JSON-RPC 请求），获取服务器能力和版本信息。持续健康检查（心跳）暂未实现，计划在 P3 加入。
+当前版本在 `connect()` 期间执行初始化握手（`initialize` JSON-RPC 请求），获取服务器能力和版本信息。持续健康检查（心跳）尚未实现，计划在 P3 阶段。
 
-### 4. 工具列表（List Tools）
+### 4. 列出工具
 
-连接成功后自动调用 `listTools` 获取服务器提供的工具列表。工具定义包含：
+连接成功后自动调用 `listTools` 获取服务器的工具列表。工具定义包括：
 
 ```ts
 interface McpToolDefinition {
-  name: string;                       // 工具名称
-  description: string;                // 工具描述
+  name: string;                          // 工具名称
+  description: string;                   // 工具描述
   inputSchema: Record<string, unknown>;  // 参数 JSON Schema
 }
 ```
 
-工具列表存储在 `McpConnectionState.tools` 中，可通过 `client.getAllTools()` 获取所有已连接服务器的工具汇总。
+工具列表存储在 `McpConnectionState.tools` 中，可通过 `client.getAllTools()` 获取所有已连接服务器的汇总视图。
 
-### 5. 断开（Disconnect）
+### 5. 断开连接
 
 ```ts
 await client.disconnect("my-server");
-// 状态 → disconnected，工具列表清空
+// 状态 -> disconnected，工具列表清空
 ```
 
 ---
@@ -210,7 +210,7 @@ class McpClient {
 interface McpConnectionState {
   serverId: string;
   status: "disconnected" | "connecting" | "connected" | "error";
-  error?: string;           // 错误详情（status=error 时）
+  error?: string;           // status=error 时的错误详情
   lastConnected?: string;   // ISO 时间戳
   tools: McpToolDefinition[];
 }
@@ -218,7 +218,7 @@ interface McpConnectionState {
 
 ---
 
-## MCP 工具映射到 Vera ToolRegistry
+## MCP 工具到 Vera ToolRegistry 的映射
 
 `McpToolRegistry`（`packages/core/src/mcp/registry.ts`）是将 MCP 工具桥接到 Vera 工具系统的核心适配器。
 
@@ -228,13 +228,13 @@ interface McpConnectionState {
 class McpToolRegistry {
   constructor(client: McpClient);
 
-  // 同步所有 MCP 工具到 Vera ToolDef 格式
+  // 将所有 MCP 工具同步为 Vera ToolDef 格式
   syncTools(): ToolDef[];
 
   // 执行 MCP 工具调用
   executeMcpTool(name: string, args: Record<string, unknown>, context?: ToolContext): Promise<ToolResult>;
 
-  // 辅助查询
+  // 辅助方法
   isMcpTool(name: string): boolean;
   getToolServer(name: string): string | undefined;
   getToolCount(): number;
@@ -243,13 +243,13 @@ class McpToolRegistry {
 
 ### 转换逻辑
 
-1. **名称转换**：MCP 工具名直接在 Vera 中注册，不做重命名
-2. **描述前缀**：MCP 工具的描述前添加 `[MCP:<serverId>]` 前缀，让用户知道工具来源
-3. **参数透传**：`inputSchema` 直接映射为 `ToolDef.parameters`（JSON Schema）
-4. **执行代理**：`execute` 函数内部调用 `McpClient.callTool()` 再转为 `ToolResult`
+1. **名称**：MCP 工具名称直接注册到 Vera 中，不做重命名。
+2. **描述前缀**：MCP 工具描述前添加 `[MCP:<serverId>]` 前缀，方便用户知道工具来源。
+3. **参数**：`inputSchema` 直接映射到 `ToolDef.parameters`（JSON Schema）。
+4. **执行代理**：`execute` 函数内部调用 `McpClient.callTool()` 并转换为 `ToolResult`。
 
 ```ts
-// MCP 工具 → Vera 工具
+// MCP 工具 -> Vera 工具
 function convertToVeraTool(mcpTool): ToolDef {
   return {
     name: mcpTool.name,
@@ -264,10 +264,10 @@ function convertToVeraTool(mcpTool): ToolDef {
 
 ### 结果转换
 
-MCP 工具返回的结果包含多种内容类型，转换时优先提取文本：
+MCP 工具结果可能包含多种内容类型；转换时优先提取文本：
 
 ```ts
-// McpToolCallResult → ToolResult
+// McpToolCallResult -> ToolResult
 function convertResult(mcpResult): ToolResult {
   const textParts = mcpResult.content
     .filter(c => c.type === "text")
@@ -281,13 +281,13 @@ function convertResult(mcpResult): ToolResult {
 }
 ```
 
-当前版本对 `image` 和 `resource` 类型的内容做过滤处理（不包含在文本输出中），完整的多模态 MCP 内容支持计划在 P3 实现。
+目前 `image` 和 `resource` 内容类型会被过滤掉（不包含在文本输出中）。完整的多模态 MCP 内容支持计划在 P3 阶段。
 
 ---
 
 ## 配置：settings.json 中的 mcp_servers
 
-Vera 通过 `VeraConfig.mcp_servers` 配置 MCP 服务器（`packages/core/src/config/types.ts`）：
+Vera 通过 `VeraConfig.mcp_servers`（`packages/core/src/config/types.ts`）配置 MCP 服务器：
 
 ```json
 {
@@ -327,7 +327,7 @@ interface MCPServerConfig {
 }
 ```
 
-当前配置仅支持 `stdio` 传输（通过 `command` + `args` 启动子进程）。SSE 和 streamable-http 传输的 URL 配置在 `McpServerConfig` 接口中已定义，但 settings.json 中的 `MCPServerConfig` 尚未包含 `url` 字段，计划在 P3 补全。
+当前配置仅支持 `stdio` 传输（通过 `command` + `args` 启动子进程）。SSE 和 streamable-http 的 URL 配置已在 `McpServerConfig` 接口中定义，但尚未进入 settings.json 的 `MCPServerConfig`；计划在 P3 阶段完成。
 
 ---
 
@@ -342,16 +342,16 @@ type McpContent =
   | { type: "resource"; resource: { uri: string; text?: string } };
 ```
 
-当前 Vera 的 MCP 实现：
-- **text**：完整支持，提取文本内容
-- **image**：接收但不渲染到文本结果中
-- **resource**：接收但不展开（仅提取 resource.text 如果存在）
+当前 Vera MCP 实现：
+- **text**：完全支持，文本内容被提取。
+- **image**：接受但不渲染到文本结果中。
+- **resource**：接受但不展开（仅提取 `resource.text`（如果存在））。
 
 ---
 
 ## 错误处理
 
-MCP 模块的错误通过 `McpConnectionState.error` 传递（而非抛异常），设计理念是让调用方可以检查和决策：
+MCP 模块的错误通过 `McpConnectionState.error` 传播（不抛出异常），允许调用方检查并决策：
 
 ```ts
 const state = await client.connect(config);
@@ -366,7 +366,7 @@ if (result.isError) {
 }
 ```
 
-`McpToolRegistry.executeMcpTool` 则使用 try/catch 捕获 `McpClient.callTool` 的异常，转为 `ToolResult` 标准错误格式。
+`McpToolRegistry.executeMcpTool` 使用 try/catch 捕获 `McpClient.callTool` 的异常，并转换为标准的 `ToolResult` 错误格式。
 
 ---
 
@@ -374,42 +374,42 @@ if (result.isError) {
 
 ### 当前状态
 
-MCP 在 Vera 中处于**框架已就绪、传输未实现**的阶段：
+Vera 中的 MCP 处于**框架就绪、传输未实现**阶段：
 
 | 组件 | 状态 | 说明 |
 |------|------|------|
-| 类型定义 | 完成 | `McpServerConfig`, `McpToolDefinition`, `McpConnectionState` 等 |
-| McpClient | 骨架 | 连接/工具列表/工具调用方法已定义，内部 JSON-RPC 未实现 |
-| McpDiscovery | 完成 | 配置文件扫描 + 环境变量扫描 |
-| McpToolRegistry | 完成 | Vera ToolDef 格式转换 + 执行代理 |
-| stdio 传输 | 未实现 | 子进程启动 + stdin/stdout JSON-RPC 通信待开发 |
-| SSE 传输 | 未实现 | HTTP SSE 客户端待开发 |
-| streamable-http 传输 | 未实现 | HTTP streamable 客户端待开发 |
-| settings.json 集成 | 部分 | `MCPServerConfig` 已定义，仅支持 comamnd 模式 |
+| 类型定义 | 已完成 | `McpServerConfig`、`McpToolDefinition`、`McpConnectionState` 等 |
+| McpClient | 骨架 | 定义了 connect/工具列表/工具调用方法；内部 JSON-RPC 未实现 |
+| McpDiscovery | 已完成 | 配置文件扫描 + 环境变量扫描 |
+| McpToolRegistry | 已完成 | Vera ToolDef 格式转换 + 执行代理 |
+| stdio 传输 | 未实现 | 子进程启动 + stdin/stdout JSON-RPC 待完成 |
+| SSE 传输 | 未实现 | HTTP SSE 客户端待完成 |
+| streamable-http 传输 | 未实现 | HTTP streamable 客户端待完成 |
+| settings.json 集成 | 部分完成 | `MCPServerConfig` 已定义，仅 command 模式 |
 
 ### 路线图
 
-Vera 的 MCP 支持规划在 **P3** 阶段（"向通用 agent 平台扩展"）：
+Vera 的 MCP 支持计划在 **P3**（"向通用 Agent 平台扩展"）阶段：
 
 | 里程碑 | 内容 | 优先级 |
 |--------|------|--------|
-| **M1: stdio 传输** | 子进程管理、JSON-RPC 编解码、初始化握手、工具列表/调用 | P3 — 高 |
-| **M2: SSE 传输** | HTTP SSE 客户端、重连机制、心跳 | P3 — 高 |
-| **M3: settings.json 完善** | `url` 字段支持、`transport` 自动识别 | P3 — 高 |
-| **M4: 权限治理** | MCP 工具纳入 SecurityPlugin 白名单、按来源隔离 | P3 — 中 |
-| **M5: 多模态内容** | image / resource 类型完整支持 | P3 — 中 |
-| **M6: 自动重连** | 连接断开后自动重试（指数退避） | P3 — 低 |
-| **M7: MCP 服务器热加载** | 运行时动态添加/移除 MCP 服务器 | P3 — 低 |
+| **M1: stdio 传输** | 子进程管理、JSON-RPC 编解码、初始化握手、工具列表/调用 | P3 - 高 |
+| **M2: SSE 传输** | HTTP SSE 客户端、重连、心跳 | P3 - 高 |
+| **M3: settings.json 完善** | `url` 字段支持、自动传输检测 | P3 - 高 |
+| **M4: 权限治理** | MCP 工具在 SecurityPlugin 允许列表中、基于来源的隔离 | P3 - 中 |
+| **M5: 多模态内容** | 完整的 image/resource 类型支持 | P3 - 中 |
+| **M6: 自动重连** | 断连时自动重试（指数退避） | P3 - 低 |
+| **M7: MCP 服务器热加载** | 运行时动态添加/移除 MCP 服务器 | P3 - 低 |
 
 ### 与 Claude Code 的关系
 
-Vera 的 MCP 配置兼容 Claude Code 的 `mcp-servers.json` 格式，可以从 `~/.claude/mcp-servers.json` 读取现有 MCP 服务器配置，实现无缝迁移。环境变量前缀 `MCP_SERVER_` 也与之保持一致。
+Vera 的 MCP 配置与 Claude Code 的 `mcp-servers.json` 格式兼容，可通过读取 `~/.claude/mcp-servers.json` 中已有的 MCP 服务器配置实现无缝迁移。`MCP_SERVER_` 环境变量前缀也保持一致。
 
 ---
 
 ## 使用示例
 
-### 注册 MCP 工具到 Vera
+### 将 MCP 工具注册到 Vera
 
 ```ts
 import { McpClient, McpToolRegistry, McpDiscovery } from "@vera/core";
@@ -433,11 +433,11 @@ const mcpTools = mcpRegistry.syncTools();
 
 // 4. 合并到 Vera ToolRegistry
 for (const tool of mcpTools) {
-  veraToolRegistry.register(tool); // tool.name, tool.description 包含 [MCP:serverId] 前缀
+  veraToolRegistry.register(tool); // tool.description 包含 [MCP:serverId] 前缀
 }
 
-// 5. Agent 使用时无感知
-// agent 调用 tool "github_search_repos" → McpToolRegistry → McpClient → MCP Server
+// 5. Agent 透明使用
+// agent 调用工具 "github_search_repos" -> McpToolRegistry -> McpClient -> MCP Server
 ```
 
 ### 查询 MCP 工具
@@ -446,10 +446,10 @@ for (const tool of mcpTools) {
 // 列出所有 MCP 工具
 const allTools = client.getAllTools();
 for (const t of allTools) {
-  console.log(`${t.name} (来自 ${t.serverId}): ${t.description}`);
+  console.log(`${t.name}（来自 ${t.serverId}）: ${t.description}`);
 }
 
-// 查找工具所属服务器
+// 查找工具所属的服务器
 const server = client.findToolServer("github_search_repos");
-console.log(`github_search_repos 在 ${server} 上`);
+console.log(`github_search_repos 位于 ${server}`);
 ```
