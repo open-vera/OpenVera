@@ -1,66 +1,69 @@
-# Multi-Agent Network -- 多 Agent 网络
+# Multi-Agent Network -- Cross-Agent Communication and Collaboration
 
-## 定位
+## Overview
 
-多 Agent 网络为 Vera 提供跨 agent 通信与协作基础设施。当单个 agent 无法完成复杂任务时，通过 MessageBus 实现 agent 间消息路由，通过 TaskScheduler 实现基于能力的任务分配，通过 SharedMemory 实现跨 agent 知识共享。
+The Multi-Agent Network provides cross-agent communication and collaboration infrastructure for Vera. When a single agent cannot complete a complex task, the MessageBus enables message routing between agents, the TaskScheduler enables capability-based task allocation, and SharedMemory enables cross-agent knowledge sharing.
 
-三大组件的关系：
+Relationships among the three components:
 
 ```
 ┌──────────────────────────────────────────────┐
-│              Multi-Agent Network              │
+│            Multi-Agent Network                │
 │                                              │
 │  ┌─────────────┐  ┌──────────────┐           │
 │  │ MessageBus  │  │TaskScheduler │           │
-│  │  消息路由    │  │  任务分配    │           │
-│  │  pub/sub    │  │  负载均衡    │           │
+│  │  Message    │  │  Task        │           │
+│  │  routing    │  │  allocation  │           │
+│  │  pub/sub    │  │  load        │           │
+│  │             │  │  balancing   │           │
 │  └──────┬──────┘  └──────┬───────┘           │
 │         │                │                   │
 │         └───────┬────────┘                   │
 │                 │                            │
 │         ┌───────┴────────┐                   │
 │         │ SharedMemory   │                   │
-│         │  知识共享存储    │                   │
+│         │  Knowledge      │                   │
+│         │  sharing store  │                   │
 │         └────────────────┘                   │
 └──────────────────────────────────────────────┘
 ```
 
-所有组件定义在 `packages/core/src/network/` 中，作为 `@vera/core` 的公共导出。
+All components are defined in `packages/core/src/network/` and exported as public APIs from `@vera/core`.
 
 ---
 
-## MessageBus -- 消息总线
+## MessageBus -- Message Bus
 
-MessageBus 是 agent 间通信的核心，提供基于 pub/sub 模式的消息路由。
+The MessageBus is the core of inter-agent communication, providing pub/sub-based message routing.
 
-### 消息类型（MessageType）
+### Message Types (MessageType)
 
-| 类型 | 说明 | 典型场景 |
-|------|------|----------|
-| `task_request` | 任务请求 | Agent A 向 Agent B 下发任务 |
-| `task_result` | 任务结果 | Agent B 向 Agent A 返回执行结果 |
-| `status_update` | 状态更新 | Agent 广播自身状态变化（就绪/忙碌/错误） |
-| `resource_request` | 资源请求 | Agent 请求访问另一个 agent 持有的资源 |
-| `resource_response` | 资源响应 | 返回所请求的资源 |
-| `broadcast` | 广播消息 | 向所有 agent 发送通知 |
-| `direct` | 直连消息 | Agent 间点对点通信 |
+| Type | Description | Typical Scenario |
+|------|-------------|------------------|
+| `task_request` | Task request | Agent A dispatches a task to Agent B |
+| `task_result` | Task result | Agent B returns execution result to Agent A |
+| `status_update` | Status update | An agent broadcasts its status change (ready/busy/error) |
+| `resource_request` | Resource request | An agent requests access to a resource held by another agent |
+| `resource_response` | Resource response | Returns the requested resource |
+| `broadcast` | Broadcast message | Send a notification to all agents |
+| `direct` | Direct message | Point-to-point communication between agents |
 
-### 消息结构（Message）
+### Message Structure
 
 ```ts
 interface Message {
-  id: string;          // 唯一消息 ID，格式：msg-{timestamp}-{random}
-  type: MessageType;   // 消息类型
-  from: string;        // 发送者 agent ID
-  to: string | "*";    // 接收者 agent ID，"*" 表示广播
-  payload: unknown;    // 消息负载
-  timestamp: string;   // ISO 时间戳
-  replyTo?: string;    // 关联的请求消息 ID（用于 request-reply 模式）
+  id: string;          // Unique message ID, format: msg-{timestamp}-{random}
+  type: MessageType;   // Message type
+  from: string;        // Sender agent ID
+  to: string | "*";    // Recipient agent ID, "*" for broadcast
+  payload: unknown;    // Message payload
+  timestamp: string;   // ISO timestamp
+  replyTo?: string;    // Associated request message ID (for request-reply pattern)
   priority: "low" | "normal" | "high" | "urgent";
 }
 ```
 
-### Pub/Sub 模型
+### Pub/Sub Model
 
 ```
 publish(msg) → ┌─────────────┐
@@ -72,224 +75,224 @@ publish(msg) → ┌─────────────┐
                │  global  → [logger]
                └─────────────┘
                       │
-                      ├─→ 指定接收者: 路由到对应 agent 的 handler 集合
-                      ├─→ 全局订阅者: 所有 globalSubscribers 收到消息
-                      └─→ 广播(*): 所有 agent（除发送者）收到消息
+                      ├─→ Direct recipient: routed to the target agent's handler set
+                      ├─→ Global subscribers: all globalSubscribers receive the message
+                      └─→ Broadcast (*): all agents (except sender) receive the message
 ```
 
-**关键行为：**
-- `subscribe(agentId, handler)` 订阅特定 agent 的消息，返回取消订阅函数
-- `subscribeAll(handler)` 订阅所有消息（用于监控/日志）
-- `publish(message)` 发布消息，自动生成 ID 和时间戳，写入历史记录（默认保留 1000 条）
-- 向 `"*"` 发布时，消息同时投递到所有已注册 agent 和全局订阅者
+**Key behaviors:**
+- `subscribe(agentId, handler)` subscribes to a specific agent's messages, returns an unsubscribe function
+- `subscribeAll(handler)` subscribes to all messages (for monitoring/logging)
+- `publish(message)` publishes a message, auto-generates ID and timestamp, writes to history (default retains 1000 entries)
+- When publishing to `"*"`, the message is delivered to all registered agents and global subscribers
 
-### Request-Reply 模式
+### Request-Reply Pattern
 
-MessageBus 提供了同步风格的 `request()` 方法，封装异步请求-应答模式：
+The MessageBus provides a synchronous-style `request()` method that wraps the asynchronous request-reply pattern:
 
 ```
 Agent A                            Agent B
   │                                  │
   │── request(from, to, payload) ──→│
   │   (type: task_request)           │
-  │                                  │── 处理任务
+  │                                  │── Process task
   │                                  │── publish reply (replyTo: msgId)
   │←── resolve(reply) ──────────────│
   │                                  │
 ```
 
 ```ts
-// Agent A 向 Agent B 发送请求，等待回复
+// Agent A sends a request to Agent B and waits for a reply
 const reply = await messageBus.request(
   "agent-a",
   "agent-b",
   { command: "analyze", file: "/data/report.csv" },
-  10_000 // 超时 10 秒
+  10_000 // 10-second timeout
 );
 ```
 
-`request()` 内部发布 `task_request` 消息后，订阅自身的回复（`replyTo` 匹配请求 ID），超时抛出错误。
+Feedback mechanism: after `request()` internally publishes a `task_request` message, it subscribes to its own replies (matching `replyTo` with the request ID), throwing an error on timeout.
 
-### 消息历史与查询
+### Message History and Queries
 
 ```ts
-// 获取全部历史
+// Get full history
 messageBus.getHistory();
 
-// 按条件过滤
+// Filter by criteria
 messageBus.getHistory({ from: "agent-a", type: "task_request" });
 
-// 获取注册的 agent 列表
+// Get list of registered agents
 messageBus.getRegisteredAgents(); // ["agent-a", "agent-b"]
 
-// 获取某个 agent 的订阅者数量
+// Get subscriber count for an agent
 messageBus.getSubscriberCount("agent-a");
 ```
 
 ---
 
-## TaskScheduler -- 任务调度器
+## TaskScheduler -- Task Scheduler
 
-TaskScheduler 负责将任务分配给最合适的 agent，基于能力匹配和负载均衡进行决策。
+The TaskScheduler assigns tasks to the most suitable agent based on capability matching and load balancing.
 
-### Agent 能力注册（AgentCapability）
+### Agent Capability Registration (AgentCapability)
 
 ```ts
 interface AgentCapability {
-  agentId: string;       // Agent 唯一标识
-  skills: string[];      // 技能标签列表，如 ["browser", "code-analysis", "data-processing"]
-  maxConcurrent: number; // 最大并发任务数
-  priority: number;      // Agent 优先级（越高越优先接收任务）
-  currentLoad: number;   // 当前负载（正在执行的任务数）
+  agentId: string;       // Unique agent identifier
+  skills: string[];      // Skill tag list, e.g. ["browser", "code-analysis", "data-processing"]
+  maxConcurrent: number; // Maximum concurrent tasks
+  priority: number;      // Agent priority (higher = preferred for task assignment)
+  currentLoad: number;   // Current load (number of executing tasks)
 }
 ```
 
-Agent 启动时通过 `registerAgent()` 注册自身能力到调度器。
+Agents register their capabilities with the scheduler via `registerAgent()` at startup.
 
-### 任务请求（TaskRequest）
+### Task Request (TaskRequest)
 
 ```ts
 interface TaskRequest {
-  id: string;                                // 任务 ID
-  requiredSkills: string[];                  // 必需技能，如 ["browser", "screenshot"]
+  id: string;                                // Task ID
+  requiredSkills: string[];                  // Required skills, e.g. ["browser", "screenshot"]
   priority: "low" | "normal" | "high" | "urgent";
-  payload: unknown;                          // 任务具体内容
-  deadline?: string;                         // 截止时间（ISO 格式）
+  payload: unknown;                          // Task-specific content
+  deadline?: string;                         // Deadline (ISO format)
 }
 ```
 
-### 分配算法
+### Allocation Algorithm
 
-`findBestAgent()` 执行两步筛选：
+`findBestAgent()` performs a two-step filter:
 
-1. **能力匹配**：agent 的 `skills` 必须包含 `requiredSkills` 中的所有技能
-2. **容量检查**：agent 的 `currentLoad < maxConcurrent`
+1. **Capability matching**: The agent's `skills` must contain ALL skills in `requiredSkills`
+2. **Capacity check**: `currentLoad < maxConcurrent`
 
-通过筛选的候选 agent 按以下规则排序：
+Candidates that pass the filter are sorted by:
 
 ```
-1. priority 降序（优先级高的 agent 优先）
-2. currentLoad 升序（负载低的优先，实现负载均衡）
-3. 取排序后的第一个 agent
+1. priority descending (higher-priority agents preferred)
+2. currentLoad ascending (lower load preferred, achieving load balancing)
+3. The first agent in the sorted list is selected
 ```
 
-如果没有可用 agent，任务进入队列（`taskQueue`），等待 agent 完成当前任务后自动重新分配。
+If no agent is available, the task enters the queue (`taskQueue`) and will be automatically re-assigned when an agent completes its current task.
 
-### 任务生命周期
+### Task Lifecycle
 
 ```
 submitTask(task)
   │
-  ├─→ 有可用 agent
+  ├─→ Agent available
   │     └─→ assignTask(task, agent)
-  │           └─→ 创建 TaskAssignment (status: "assigned")
+  │           └─→ Create TaskAssignment (status: "assigned")
   │                 └─→ agent.currentLoad++
   │
-  └─→ 无可用 agent
-        └─→ 进入 taskQueue 等待
-              └─→ completeTask / failTask 触发 processQueue()
-                    └─→ 尝试分配队列中的任务
+  └─→ No agent available
+        └─→ Enter taskQueue and wait
+              └─→ completeTask / failTask triggers processQueue()
+                    └─→ Attempt to assign queued tasks
 ```
 
-### 任务分配记录（TaskAssignment）
+### Task Assignment (TaskAssignment)
 
 ```ts
 interface TaskAssignment {
   taskId: string;
   agentId: string;
-  assignedAt: string;  // ISO 时间戳
+  assignedAt: string;  // ISO timestamp
   status: "assigned" | "in_progress" | "completed" | "failed";
   result?: unknown;
 }
 ```
 
-### 调度器 API
+### Scheduler API
 
-| 方法 | 说明 |
-|------|------|
-| `registerAgent(capability)` | 注册 agent 能力 |
-| `unregisterAgent(agentId)` | 注销 agent |
-| `updateLoad(agentId, load)` | 更新 agent 负载 |
-| `submitTask(task)` | 提交任务，返回 TaskAssignment 或 null（进队列） |
-| `completeTask(taskId, result?)` | 标记任务完成，触发队列处理 |
-| `failTask(taskId)` | 标记任务失败 |
-| `getAssignment(taskId)` | 查询任务分配 |
-| `getAgentAssignments(agentId)` | 查询 agent 的所有任务 |
-| `getQueueLength()` | 获取排队任务数 |
-| `getAgentStatus()` | 获取所有 agent 状态 |
+| Method | Description |
+|--------|-------------|
+| `registerAgent(capability)` | Register agent capabilities |
+| `unregisterAgent(agentId)` | Unregister an agent |
+| `updateLoad(agentId, load)` | Update agent load |
+| `submitTask(task)` | Submit a task, returns TaskAssignment or null (queued) |
+| `completeTask(taskId, result?)` | Mark task as completed, triggers queue processing |
+| `failTask(taskId)` | Mark task as failed |
+| `getAssignment(taskId)` | Query task assignment |
+| `getAgentAssignments(agentId)` | Query all tasks for an agent |
+| `getQueueLength()` | Get number of queued tasks |
+| `getAgentStatus()` | Get all agent statuses |
 
 ---
 
-## SharedMemory -- 共享知识存储
+## SharedMemory -- Shared Knowledge Store
 
-SharedMemory 提供 agent 间的共享语义记忆层，类似分布式 key-value 存储，支持可见性控制和 TTL。
+SharedMemory provides a shared semantic memory layer between agents, analogous to a distributed key-value store, with visibility control and TTL support.
 
-### 内存条目（MemoryEntry）
+### Memory Entry (MemoryEntry)
 
 ```ts
 interface MemoryEntry {
-  key: string;                              // 键
-  value: unknown;                           // 值（任意可序列化数据）
-  owner: string;                            // 创建者 agent ID
-  visibility: "private" | "shared" | "public"; // 可见范围
-  createdAt: string;                        // 创建时间
-  updatedAt: string;                        // 更新时间
-  ttl?: number;                             // 过期时间（ms），超期自动删除
-  tags: string[];                           // 标签，用于分类检索
+  key: string;                              // Key
+  value: unknown;                           // Value (any serializable data)
+  owner: string;                            // Creating agent ID
+  visibility: "private" | "shared" | "public"; // Visibility scope
+  createdAt: string;                        // Creation time
+  updatedAt: string;                        // Last update time
+  ttl?: number;                             // Time-to-live in ms, auto-deleted on expiry
+  tags: string[];                           // Tags for categorization and search
 }
 ```
 
-### 可见性模型
+### Visibility Model
 
-| 级别 | 规则 |
-|------|------|
-| `private` | 仅创建者（owner）可读，其他 agent 查询不到 |
-| `shared` | 所有 agent 可读，仅创建者可写/删 |
-| `public` | 所有 agent 可读，仅创建者可写/删（语义上区别于 shared） |
+| Level | Rule |
+|-------|------|
+| `private` | Only the creator (owner) can read; invisible to other agents |
+| `shared` | All agents can read; only the owner can write/delete |
+| `public` | All agents can read; only the owner can write/delete (semantically distinct from shared) |
 
 ### API
 
-| 方法 | 说明 |
-|------|------|
-| `set(key, value, owner, options?)` | 写入/更新值，可选 visibility、ttl、tags |
-| `get(key, requester)` | 读取值，自动检查可见性和 TTL |
-| `delete(key, requester)` | 删除值（仅 owner 可删） |
-| `query(query, requester)` | 多条件查询，支持 key、keyPattern、owner、visibility、tags、since 过滤 |
-| `keys()` | 获取所有 key |
-| `size()` | 获取条目总数 |
-| `cleanup()` | 清除所有过期条目，返回清除数量 |
+| Method | Description |
+|--------|-------------|
+| `set(key, value, owner, options?)` | Write/update a value, optional visibility, ttl, tags |
+| `get(key, requester)` | Read a value, automatically checks visibility and TTL |
+| `delete(key, requester)` | Delete a value (owner only) |
+| `query(query, requester)` | Multi-condition query, supports key, keyPattern, owner, visibility, tags, since filters |
+| `keys()` | Get all keys |
+| `size()` | Get total entry count |
+| `cleanup()` | Clear all expired entries, returns count of entries cleaned |
 
-### 查询条件（MemoryQuery）
+### Query Conditions (MemoryQuery)
 
 ```ts
 interface MemoryQuery {
-  key?: string;           // 精确匹配 key
-  keyPattern?: string;    // 模糊匹配 key（contains）
-  owner?: string;         // 按创建者过滤
+  key?: string;           // Exact key match
+  keyPattern?: string;    // Fuzzy key match (contains)
+  owner?: string;         // Filter by creator
   visibility?: "private" | "shared" | "public";
-  tags?: string[];        // 必须包含所有指定标签
-  since?: string;         // ISO 时间，仅返回此时间之后更新的条目
+  tags?: string[];        // Must contain all specified tags
+  since?: string;         // ISO time, only return entries updated after this time
 }
 ```
 
 ---
 
-## 跨 Agent 通信模式
+## Cross-Agent Communication Patterns
 
-### 模式 1：任务委派
+### Pattern 1: Task Delegation
 
-Source agent 通过 MessageBus 发布 `task_request`，目标 agent 处理后返回 `task_result`。
+A source agent publishes a `task_request` via MessageBus; the target agent processes it and returns a `task_result`.
 
 ```
 Agent A                          Agent B
   │── task_request ──────────────→│
-  │                               │── 执行任务
+  │                               │── Execute task
   │←─ task_result ───────────────│
 ```
 
-### 模式 2：广播协作
+### Pattern 2: Broadcast Collaboration
 
-一个 agent 发布 `broadcast` 消息，所有在线 agent 接收并各自响应。
+One agent publishes a `broadcast` message; all online agents receive it and respond independently.
 
 ```
 Agent A ── broadcast ──→ Agent B
@@ -297,50 +300,50 @@ Agent A ── broadcast ──→ Agent B
                       ──→ Agent D
 ```
 
-### 模式 3：状态轮询
+### Pattern 3: Status Polling
 
-Agent 定期发布 `status_update`，其他 agent 通过全局订阅者监听以感知网络状态。
+Agents periodically publish `status_update` messages; other agents listen via global subscribers to perceive network state.
 
-### 模式 4：知识共享
+### Pattern 4: Knowledge Sharing
 
-Agent 通过 SharedMemory 写入中间结果，其他 agent 读取后继续处理，形成流水线：
+Agents write intermediate results to SharedMemory; other agents read and continue processing, forming a pipeline:
 
 ```
 Agent A ──set("raw_data", ...)──→ SharedMemory
-Agent B ──get("raw_data")───────→ 处理后 ──set("processed_data", ...)──→ SharedMemory
-Agent C ──get("processed_data")──→ 继续处理
+Agent B ──get("raw_data")───────→ Process ──set("processed_data", ...)──→ SharedMemory
+Agent C ──get("processed_data")──→ Continue processing
 ```
 
 ---
 
-## 与 Subagent 系统的集成
+## Integration with the Subagent System
 
-多 Agent 网络设计为与 Vera 的 Subagent 系统协同工作：
+The Multi-Agent Network is designed to work with Vera's Subagent system:
 
-- **Subagent 注册**：每个 subagent 启动时向 `TaskScheduler` 注册自身能力（通过 `skills` 数组声明）
-- **消息路由**：父 agent 通过 `MessageBus.publish()` 向 subagent 发送指令，subagent 通过 `MessageBus.subscribe()` 接收
-- **结果汇总**：subagent 完成后通过 `task_result` 消息返回结果，或写入 `SharedMemory` 供父 agent 读取
-- **负载感知**：调度器根据 `currentLoad` 决定将新任务分配给空闲的 subagent，避免单点过载
+- **Subagent registration**: Each subagent registers its capabilities with the `TaskScheduler` at startup (declared via the `skills` array)
+- **Message routing**: The parent agent sends instructions to subagents via `MessageBus.publish()`; subagents receive them via `MessageBus.subscribe()`
+- **Result aggregation**: After completion, subagents return results via `task_result` messages or write to `SharedMemory` for the parent agent to read
+- **Load awareness**: The scheduler decides which idle subagent receives new tasks based on `currentLoad`, preventing single-point overload
 
 ---
 
-## 配置示例
+## Configuration Examples
 
-### 初始化多 Agent 网络
+### Initializing the Multi-Agent Network
 
 ```ts
 import { MessageBus, TaskScheduler, SharedMemory } from "@vera/core/network";
 
-// 创建消息总线（保留最近 2000 条历史消息）
+// Create message bus (retain last 2000 messages in history)
 const bus = new MessageBus({ maxHistory: 2000 });
 
-// 创建任务调度器
+// Create task scheduler
 const scheduler = new TaskScheduler();
 
-// 创建共享内存
+// Create shared memory
 const memory = new SharedMemory();
 
-// 注册 agent
+// Register agents
 scheduler.registerAgent({
   agentId: "browser-agent",
   skills: ["browser", "screenshot", "dom-manipulation"],
@@ -358,17 +361,17 @@ scheduler.registerAgent({
 });
 ```
 
-### 任务委派示例
+### Task Delegation Example
 
 ```ts
-// Agent A 订阅自己的消息
+// Agent A subscribes to its own messages
 bus.subscribe("agent-a", async (msg) => {
   if (msg.type === "task_result") {
-    console.log(`收到来自 ${msg.from} 的结果:`, msg.payload);
+    console.log(`Received result from ${msg.from}:`, msg.payload);
   }
 });
 
-// 调度器分配任务
+// Scheduler assigns the task
 const assignment = scheduler.submitTask({
   id: "task-001",
   requiredSkills: ["browser"],
@@ -377,7 +380,7 @@ const assignment = scheduler.submitTask({
 });
 
 if (assignment) {
-  // 通过消息总线通知被分配的 agent
+  // Notify the assigned agent via message bus
   await bus.publish({
     type: "task_request",
     from: "orchestrator",
@@ -386,20 +389,20 @@ if (assignment) {
     priority: "high",
   });
 } else {
-  console.log("任务已排队，无可用 agent");
+  console.log("Task queued, no available agent");
 }
 ```
 
 ---
 
-## 当前状态
+## Current Status
 
-| 组件 | 状态 | 说明 |
-|------|------|------|
-| `MessageBus` | 已完成 | pub/sub 消息路由、request-reply 模式、历史查询、7 种消息类型 |
-| `TaskScheduler` | 已完成 | 能力匹配 + 负载均衡、优先级排序、任务队列 |
-| `SharedMemory` | 已完成 | 三级可见性、TTL 过期、标签索引、多条件查询 |
-| `StepPatterns` 集成 | 已完成 | 预定义的 browseAndAnalyze / login / downloadAndParse 模式 |
-| 持久化 | 未实现 | 当前为内存存储，重启后数据丢失 |
-| 跨进程通信 | 未实现 | 当前仅支持同进程内 agent 通信 |
-| 网络拓扑 | 未实现 | 当前为扁平结构，无分层路由 |
+| Component | Status | Notes |
+|-----------|--------|-------|
+| `MessageBus` | Complete | Pub/sub message routing, request-reply pattern, history queries, 7 message types |
+| `TaskScheduler` | Complete | Capability matching + load balancing, priority sorting, task queue |
+| `SharedMemory` | Complete | Three-level visibility, TTL expiry, tag indexing, multi-condition queries |
+| `StepPatterns` integration | Complete | Predefined browseAndAnalyze / login / downloadAndParse patterns |
+| Persistence | Not implemented | Currently in-memory storage; data lost on restart |
+| Cross-process communication | Not implemented | Currently only supports in-process agent communication |
+| Network topology | Not implemented | Currently flat structure, no hierarchical routing |

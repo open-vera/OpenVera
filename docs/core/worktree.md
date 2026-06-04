@@ -66,7 +66,7 @@ Worktree names (slugs) must pass `validateWorktreeSlug` validation:
 
 ## Commands and Use Cases
 
-### /try — Create an Experiment Branch
+### /try -- Create an Experiment Branch
 
 Entering `/try <name>` in the REPL forks the current session into an isolated worktree:
 
@@ -85,7 +85,7 @@ Internal flow:
 4. Use `SessionStore.forkSession` to create a branch record, linking the worktree info
 5. Switch to the new branch by calling `ctx.onResume`
 
-### /merge — Merge Experiment Branch Changes
+### /merge -- Merge Experiment Branch Changes
 
 Apply changes made in a `/try` branch back to the original workspace:
 
@@ -116,7 +116,7 @@ Safety mechanisms:
 - Changes remain uncommitted; the user decides whether to commit.
 - Already-merged branches cannot be merged again.
 
-### /drop — Discard an Experiment Branch
+### /drop -- Discard an Experiment Branch
 
 ```bash
 > /drop a1b2c3d4
@@ -154,7 +154,7 @@ if (isolation === "try") {
 Subagent worktree characteristics:
 
 - Auto-generated slug: based on description and agent type
-- `childCwd` points to the worktree path — all subagent file operations run in the isolated environment
+- `childCwd` points to the worktree path -- all subagent file operations run in the isolated environment
 - On completion, worktree info is included in the subagent result (`SubagentResult`), containing `worktreePath`, `worktreeBranch`, and `baseCommit`
 - `remote` isolation is also supported as an alternative (via a remote executor instead of a local worktree)
 

@@ -1,49 +1,49 @@
-# Self-Evolution Pipeline
+# 自进化管道（Self-Evolution Pipeline）
 
-The self-evolution pipeline is Vera's P2 core capability. Its goal is not "run more tests" but to give Vera a real, controlled evolution mechanism. The pipeline starts from experience distillation, flows through proposal generation, human review, and benchmark-gated rollout, forming a closed-loop self-improvement system.
-
----
-
-## 1. Architecture Overview
-
-```
-Experience Data (Episodic Memory / Failure Logs)
-        │
-        ▼
-  DreamingRunner          ← Analyze experiences, extract Insights, generate Proposals
-        │
-        ▼
-  ProposalStore           ← Persistent storage, lifecycle management
-        │
-        ▼
-  Human Review            ← pending → approved / rejected / deferred
-        │
-        ▼
-  Benchmark-gated Rollout ← Validate improvements via EvalHarness
-        │
-        ├─ Pass → applied  → Update StrategyStore
-        └─ Fail → rejected → Write back failure reason, trigger next Dreaming
-```
-
-Full pipeline: **Critique / Dreaming → Proposal → Human Review → Benchmark Gate → Strategic Rollout → Feedback Loop**
+自进化管道是 Vera 的 P2 核心能力，目标不是"多做点测试"，而是让 Vera 具备真正的受控进化机制。整个管道从经验蒸馏开始，经过提案生成、人工审核、基准门控发布，最终形成闭环的自我改进系统。
 
 ---
 
-## 2. Dreaming System
+## 1. 整体架构
 
-Dreaming is the entry point of the self-evolution pipeline. It runs during agent idle time to analyze historical experiences (episodic memory, benchmark failures) and extract actionable improvement suggestions.
+```
+经验数据（Episodic Memory / 失败日志）
+        │
+        ▼
+  DreamingRunner          ← 分析经验，提取 Insight，生成 Proposal
+        │
+        ▼
+  ProposalStore           ← 持久化存储，生命周期管理
+        │
+        ▼
+  人工审核                 ← pending → approved / rejected / deferred
+        │
+        ▼
+  Benchmark-gated Rollout ← 通过 EvalHarness 验证改进是否有效
+        │
+        ├─ 通过 → applied  → 更新 StrategyStore
+        └─ 失败 → rejected → 回写失败原因，触发下一轮 Dreaming
+```
 
-**Source:** `packages/harness/src/dreaming/runner.ts`
+完整链路：**Critique / Dreaming → Proposal → Human Review → Benchmark Gate → Strategic Rollout → Feedback Loop**
+
+---
+
+## 2. Dreaming 系统
+
+Dreaming 是自进化管道的入口——在 agent 空闲时运行，分析历史经验（episodic memory、benchmark 失败记录），提取可操作的改进建议。
+
+**代码位置：** `packages/harness/src/dreaming/runner.ts`
 
 ### 2.1 DreamingRunner
 
-`DreamingRunner` is the core class that accepts a list of experiences and produces insights and proposals.
+`DreamingRunner` 是 dreaming 的核心类，接收经验列表，产出洞察（Insight）和提案（Proposal）。
 
 ```typescript
 const runner = new DreamingRunner({
-  maxExperiences: 100,   // Max experiences to analyze per run
-  minConfidence: 0.5,    // Minimum confidence threshold for insights
-  maxProposals: 10,      // Maximum proposals to generate
+  maxExperiences: 100,   // 每次分析最多 100 条经验
+  minConfidence: 0.5,    // 最低置信度阈值
+  maxProposals: 10,      // 最多生成 10 条提案
   proposalTypes: ["prompt", "tool_policy", "workflow", "skill"],
 });
 
@@ -51,49 +51,49 @@ const result = await runner.dream(experiences);
 // result: { insights, proposals, experiencesAnalyzed, duration }
 ```
 
-### 2.2 Experience Model
+### 2.2 经验模型（Experience）
 
 ```typescript
 interface Experience {
   id: string;
-  type: "success" | "failure" | "partial";  // Execution outcome
+  type: "success" | "failure" | "partial";  // 执行结果
   taskDescription: string;
-  toolCalls: string[];                        // Tools used during execution
-  duration: number;                           // Execution time in ms
-  outcome: string;                            // Result description
+  toolCalls: string[];                        // 使用的工具列表
+  duration: number;                           // 执行耗时（ms）
+  outcome: string;                            // 结果描述
   metadata?: Record<string, unknown>;
 }
 ```
 
-### 2.3 Insight Extraction
+### 2.3 洞察提取（Insight Extraction）
 
-`extractInsights()` performs four types of analysis:
+`extractInsights()` 执行四类分析：
 
-| Analysis Type | Method | Insight Category |
-|---------------|--------|------------------|
-| Successful tool patterns | `findToolPatterns(experiences, "success")` | `pattern` |
-| Failing tool patterns | `findToolPatterns(experiences, "failure")` | `anti_pattern` |
-| Slow task identification | `findSlowTasks(experiences)` | `optimization` |
-| Capability gaps | `findGaps(experiences)` | `gap` |
+| 分析类型 | 方法 | 产生的 Insight 类别 |
+|----------|------|-------------------|
+| 成功工具组合 | `findToolPatterns(experiences, "success")` | `pattern` |
+| 失败工具组合 | `findToolPatterns(experiences, "failure")` | `anti_pattern` |
+| 慢任务识别 | `findSlowTasks(experiences)` | `optimization` |
+| 能力缺口 | `findGaps(experiences)` | `gap` |
 
-**Tool pattern analysis:** Sorts each experience's tool calls and joins them as combination keys (e.g., `"bash+read_file+write_file"`), counting occurrences in success/failure experiences. A pattern requires at least 2 occurrences to trigger an insight. Confidence formula: `min(0.9, count / 10 + 0.3)`.
+**工具组合分析：** 将每条经验按工具调用排序后拼接为组合键（如 `"bash+read_file+write_file"`），统计同组合在成功/失败经验中的出现次数。至少出现 2 次才会生成洞察。置信度计算公式：`min(0.9, count / 10 + 0.3)`。
 
-**Slow task identification:** Calculates the average duration across all experiences and flags tasks exceeding 2x the average as "slow." Confidence is fixed at 0.7.
+**慢任务识别：** 计算所有经验的平均耗时，将超过 2 倍平均耗时的任务标记为"慢任务"。置信度固定为 0.7。
 
-**Capability gap identification:** Filters all failure experiences, grouping by tool combination. Combinations with at least 2 repeated failures are considered capability gaps. Confidence formula: `min(0.85, count / 5 + 0.4)`.
+**能力缺口识别：** 筛选所有失败经验，按工具组合分组。至少 2 次重复失败的组合被认为代表能力缺口。置信度计算公式：`min(0.85, count / 5 + 0.4)`。
 
-### 2.4 Proposal Generation
+### 2.4 提案生成（Proposal Generation）
 
-`generateProposals()` maps each filtered Insight (confidence >= `minConfidence`) to an `ImprovementProposal`:
+`generateProposals()` 将每个过滤后的 Insight（置信度 >= `minConfidence`）映射为 `ImprovementProposal`：
 
-| Insight Category | Proposal Type | Priority | Suggested Change Direction |
-|-----------------|--------------|----------|---------------------------|
-| `pattern` (success) | `workflow` | medium | Create a skill or workflow template chaining these tools |
-| `anti_pattern` (failure) | `tool_policy` | high | Add warning or alternative strategy when this combination is attempted |
-| `optimization` (slow) | `prompt` | low | Add time-awareness to prompts or implement early termination |
-| `gap` (missing capability) | `skill` | critical | Develop a new skill or tool to handle this task type |
+| Insight 类别 | Proposal 类型 | 优先级 | 建议变更方向 |
+|-------------|--------------|--------|-------------|
+| `pattern`（成功模式） | `workflow` | medium | 创建组合这些工具的 skill 或 workflow 模板 |
+| `anti_pattern`（反模式） | `tool_policy` | high | 遇到此工具组合时添加警告或替代策略 |
+| `optimization`（优化） | `prompt` | low | 在 prompt 中加入时间感知或实现提前终止 |
+| `gap`（缺口） | `skill` | critical | 开发新 skill 或工具来处理这类任务 |
 
-### 2.5 Proposal Data Structure
+### 2.5 提案数据结构
 
 ```typescript
 interface ImprovementProposal {
@@ -103,10 +103,10 @@ interface ImprovementProposal {
   status: "pending" | "approved" | "rejected" | "deferred" | "applied";
   title: string;
   description: string;
-  rationale: string;            // Why this change is needed
-  insights: string[];           // Linked insight IDs
-  suggestedChange: string;      // Concrete change suggestion
-  expectedImpact: string;       // Expected outcome
+  rationale: string;            // 为什么要这样改
+  insights: string[];           // 关联的 insight ID
+  suggestedChange: string;      // 具体变更建议
+  expectedImpact: string;       // 预期效果
   createdAt: string;
 }
 ```
@@ -115,76 +115,76 @@ interface ImprovementProposal {
 
 ## 3. Proposal Store
 
-The proposal store provides persistent stateful lifecycle management.
+提案存储为有状态的生命周期管理提供持久化支持。
 
-**Source:** `packages/harness/src/proposal/store.ts`
+**代码位置：** `packages/harness/src/proposal/store.ts`
 
-### 3.1 Core API
+### 3.1 核心功能
 
-| Method | Purpose |
-|--------|---------|
-| `add(proposal)` | Add a proposal (deduplicated by ID) |
-| `addAll(proposals)` | Batch add proposals |
-| `updateStatus(id, status)` | Update proposal status |
-| `list(filter?)` | List proposals filtered by status/type/priority/time |
-| `getReadyForRollout()` | Get all approved proposals awaiting rollout |
-| `getApplied()` | Get all applied proposals (for verification/rollback) |
-| `countByStatus()` | Count proposals grouped by status |
-| `remove(id)` | Remove a specific proposal |
+| 方法 | 功能 |
+|------|------|
+| `add(proposal)` | 添加提案（按 ID 去重） |
+| `addAll(proposals)` | 批量添加 |
+| `updateStatus(id, status)` | 更新提案状态 |
+| `list(filter?)` | 按状态/类型/优先级/时间过滤列表 |
+| `getReadyForRollout()` | 获取所有已批准待上线的提案 |
+| `getApplied()` | 获取所有已应用的提案（用于验证/回滚） |
+| `countByStatus()` | 按状态统计数量 |
+| `remove(id)` | 删除指定提案 |
 
-### 3.2 Lifecycle
+### 3.2 生命周期
 
 ```
-pending → approved → applied → verified (future)
+pending → approved → applied → verified（未来）
    ↓         ↓
 rejected  deferred
 ```
 
-- **pending**: Initial state from DreamingRunner or manual creation
-- **approved**: Passed human review, awaiting rollout
-- **rejected**: Rejected with reason
-- **deferred**: Temporarily shelved for later evaluation
-- **applied**: Deployed to production
+- **pending**：DreamingRunner 产出或人工创建的初始状态
+- **approved**：人工审核通过，等待 rollout
+- **rejected**：人工驳回（含驳回原因）
+- **deferred**：暂时搁置，后续再评估
+- **applied**：已部署到生产环境
 
-### 3.3 Persistence
+### 3.3 持久化
 
-Data is stored as a JSON array at the specified path, auto-saved on every mutation. Idempotent addition is supported (same ID is not inserted twice).
+数据以 JSON 数组格式存储在指定路径，每次变更自动保存。支持幂等添加（相同 ID 不重复插入）。
 
 ---
 
 ## 4. Strategy Store
 
-The Strategy Store is the institutional knowledge layer. Each validated improvement is solidified as a Strategy, organized by task domain, with continuous outcome tracking.
+策略库（Strategy Store）是机构知识的积累层。每一个已验证生效的改进会固化为一条 Strategy，按任务域组织，并持续跟踪执行效果。
 
-**Source:** `packages/harness/src/strategy/strategy-store.ts` and `types.ts`
+**代码位置：** `packages/harness/src/strategy/strategy-store.ts` 和 `types.ts`
 
-### 4.1 Strategy Data Structure
+### 4.1 Strategy 数据结构
 
 ```typescript
 interface Strategy {
   id: string;
   name: string;
-  domain: StrategyDomain;       // Target task domain
+  domain: StrategyDomain;       // 适用任务域
   status: "active" | "deprecated" | "candidate" | "retired";
-  version: number;              // Incremented on each update
-  prompt: PromptTemplate;       // Prompt template with variable substitution
-  model: ModelConfig;           // Model configuration
-  toolPolicy: ToolPolicy;       // Tool usage policy (allow/deny/constraints)
+  version: number;              // 版本号，每次更新递增
+  prompt: PromptTemplate;       // 提示词模板（含变量替换）
+  model: ModelConfig;           // 模型配置
+  toolPolicy: ToolPolicy;       // 工具策略（allow/deny/constraints）
   createdAt: string;
   updatedAt: string;
   tags?: string[];
 }
 ```
 
-### 4.2 Task Domains (StrategyDomain)
+### 4.2 任务域（StrategyDomain）
 
 ```
 coding | debugging | research | writing | data-analysis | planning | review | testing | devops | general
 ```
 
-### 4.3 Outcome Tracking
+### 4.3 执行结果跟踪
 
-Every strategy execution records a `StrategyOutcome`:
+每次策略被使用时，记录 `StrategyOutcome`：
 
 ```typescript
 interface StrategyOutcome {
@@ -197,47 +197,47 @@ interface StrategyOutcome {
 }
 ```
 
-### 4.4 Auto-Tuning
+### 4.4 自动调优（autoTune）
 
-`autoTune(promoteThreshold, deprecateThreshold, minRuns)` adjusts strategy status based on historical success rates:
+`autoTune(promoteThreshold, deprecateThreshold, minRuns)` 根据历史成功率自动调整策略状态：
 
-- **candidate → active**: successRate >= `promoteThreshold` (default 0.7) AND runs >= `minRuns` (default 5)
-- **active → deprecated**: successRate < `deprecateThreshold` (default 0.3) AND runs >= `minRuns`
-- **deprecated/retired**: Not auto-changed (manual only)
+- **候选 → 激活**：成功率 >= `promoteThreshold`（默认 0.7）且运行次数 >= `minRuns`（默认 5）
+- **激活 → 弃用**：成功率 < `deprecateThreshold`（默认 0.3）且运行次数 >= `minRuns`
+- **弃用/退役**：不自动变更（仅手动操作）
 
-### 4.5 Statistics and Comparison
+### 4.5 统计与对比
 
-| Method | Purpose |
-|--------|---------|
-| `getStats(strategyId)` | Aggregated statistics (success rate, avg duration, token usage) |
-| `compare(idA, idB)` | Compare two strategies, returns winner and confidence |
-| `getBestForDomain(domain, minRuns)` | Get the best strategy for a domain by success rate |
-| `getDomainSummary(domain)` | Domain-level summary: strategy count, total runs, overall success rate |
+| 方法 | 功能 |
+|------|------|
+| `getStats(strategyId)` | 获取策略聚合统计（成功率、平均耗时、Token 用量） |
+| `compare(idA, idB)` | 对比两个策略，返回胜者与置信度 |
+| `getBestForDomain(domain, minRuns)` | 获取某域最佳策略（按成功率排序） |
+| `getDomainSummary(domain)` | 域级别汇总：策略数、总运行次数、整体成功率 |
 
-### 4.6 Trend Detection
+### 4.6 趋势检测
 
-`getTrend(strategyId, recentWindow, olderWindow)` compares success rates between two time windows:
+`getTrend(strategyId, recentWindow, olderWindow)` 对比两个时间窗口的成功率变化：
 
-| Trend Direction | Condition |
-|-----------------|-----------|
-| `improving` | recentRate - olderRate > 5% |
-| `declining` | recentRate - olderRate < -5% |
-| `stable` | Difference within ±5% |
-| `insufficient_data` | Both windows have fewer runs than `minRunsForTrend` (default 3) |
+| 趋势方向 | 判断条件 |
+|----------|----------|
+| `improving` | 近期成功率 - 历史成功率 > 5% |
+| `declining` | 近期成功率 - 历史成功率 < -5% |
+| `stable` | 差值在 ±5% 以内 |
+| `insufficient_data` | 两个窗口的运行次数都低于 `minRunsForTrend`（默认 3） |
 
-### 4.7 Windowed Statistics
+### 4.7 时间窗口统计
 
-Supports predefined windows (`1h`, `6h`, `24h`, `7d`, `30d`) and custom millisecond durations, filtering outcomes by time range before recomputing statistics.
+支持预定义窗口（`1h` / `6h` / `24h` / `7d` / `30d`）和自定义毫秒窗口，按时间过滤 outcomes 后重新计算统计。
 
 ---
 
 ## 5. Change Store
 
-The change tracking system stores agent tool call records in daily JSONL files, supporting query, filter, and archival.
+变更追踪系统以 JSONL 格式按天存储 agent 的工具调用记录，支持查询、过滤和归档。
 
-**Source:** `packages/harness/src/tracking/change-store.ts`
+**代码位置：** `packages/harness/src/tracking/change-store.ts`
 
-### 5.1 Data Structure
+### 5.1 数据结构
 
 ```typescript
 interface ChangeRecord {
@@ -253,27 +253,27 @@ interface ChangeRecord {
 }
 ```
 
-### 5.2 Storage Format
+### 5.2 存储格式
 
-One JSONL file per day: `~/.vera/changes/YYYY-MM-DD.jsonl`, each line a complete ChangeRecord JSON.
+每日一个 JSONL 文件：`~/.vera/changes/YYYY-MM-DD.jsonl`，每行一条完整的 ChangeRecord JSON。
 
-### 5.3 Query Capabilities
+### 5.3 查询能力
 
-`query(options)` supports filtering by time range, agent ID, tool name, and file path, with a configurable result limit (default 100).
+`query(options)` 支持按时间范围、agent ID、工具名称、文件路径过滤，返回结果数可限制（默认 100）。
 
-### 5.4 Archival
+### 5.4 归档
 
-`archive()` moves log files older than `retentionDays` (default 30) to an `archive/` subdirectory and removes the originals.
+`archive()` 将超过 `retentionDays`（默认 30 天）的日志文件移动到 `archive/` 子目录，并从主目录中移除原文件。
 
 ---
 
-## 6. Eval Harness Integration
+## 6. Eval Harness 集成
 
-The evaluation framework acts as the "gatekeeper" for evolution — no proposal can be deployed without passing benchmark validation.
+评测框架（Eval Harness）是推进化的"守门人"——任何 Proposal 在真正上线前必须通过基准测试验证。
 
-**Source:** `packages/harness/src/eval/harness.ts`
+**代码位置：** `packages/harness/src/eval/harness.ts`
 
-### 6.1 Core Components
+### 6.1 核心组件
 
 ```typescript
 class EvalHarness {
@@ -284,68 +284,68 @@ class EvalHarness {
 }
 ```
 
-### 6.2 Evaluation Types
+### 6.2 评测类型
 
-| evalType | Scoring Logic | Use Case |
-|----------|--------------|----------|
-| `exact` | Response matches expected exactly (case-insensitive) | QA with precise answers |
-| `contains` | Expected text appears in response | Key information extraction |
-| `regex` | Response matches regex pattern | Format validation |
-| `tool_match` | Actual tool calls match expected tool set | Tool selection correctness |
-| `llm_judge` | Reserved interface (currently returns 0.5) | Subjective quality assessment |
+| evalType | 判定逻辑 | 适用场景 |
+|----------|----------|----------|
+| `exact` | 响应与期望完全一致（不区分大小写） | 有精确答案的问答 |
+| `contains` | 期望文本出现在响应中 | 关键信息提取 |
+| `regex` | 响应匹配正则表达式 | 格式验证 |
+| `tool_match` | 实际调用的工具与期望工具集匹配 | 工具选择正确性 |
+| `llm_judge` | 预留接口（当前返回 0.5） | 主观质量评估 |
 
-### 6.3 Test Cases
+### 6.3 评测用例
 
 ```typescript
 interface EvalCase {
   id: string;
   description: string;
-  level: 1 | 2 | 3;           // Difficulty level
-  prompt: string;              // Prompt sent to agent
-  expected?: string;           // Expected answer
+  level: 1 | 2 | 3;           // 难度等级
+  prompt: string;              // 发送给 agent 的提示词
+  expected?: string;           // 期望答案
   evalType: EvalType;
-  expectedTools?: string[];    // Expected tools for tool_match type
-  tags?: string[];             // Category tags
-  timeoutMs?: number;          // Timeout (default 60000ms)
-  maxCostUsd?: number;         // Cost ceiling (default $1.0)
+  expectedTools?: string[];    // tool_match 类型的期望工具
+  tags?: string[];             // 分类标签
+  timeoutMs?: number;          // 超时（默认 60000ms）
+  maxCostUsd?: number;         // 费用上限（默认 $1.0）
 }
 ```
 
-### 6.4 Evaluation Report
+### 6.4 评测报告
 
 ```typescript
 interface EvalReport {
   benchmark: string;
   model: string;
-  passRate: number;            // Overall pass rate
-  avgScore: number;            // Average score
-  avgDurationMs: number;       // Average duration
-  totalCostUsd: number;        // Total cost
+  passRate: number;            // 通过率
+  avgScore: number;            // 平均分
+  avgDurationMs: number;       // 平均耗时
+  totalCostUsd: number;        // 总费用
   byLevel: Record<number, { total, passed, passRate }>;
-  results: EvalResult[];       // Per-case results
+  results: EvalResult[];       // 逐条结果
 }
 ```
 
-### 6.5 Role in Self-Evolution
+### 6.5 在自进化中的作用
 
-1. Proposal generated → human review approved
-2. → Run full benchmark via EvalHarness
-3. → Compare against baseline (current strategy) scores
-4. → Positive improvement → mark as applied, update StrategyStore
-5. → No improvement or regression → mark as rejected, write back failure reason
+1. Proposal 生成后 → 人工审核通过
+2. → 在 EvalHarness 中跑完整 benchmark
+3. → 对比 baseline（当前策略）的分数
+4. → 有正向提升 → 标记 applied，更新 StrategyStore
+5. → 无提升或降低 → 标记 rejected，回写失败原因
 
 ---
 
-## 7. Configuration
+## 7. 配置
 
 ### 7.1 DreamingRunner
 
 ```typescript
 interface DreamingConfig {
-  maxExperiences?: number;      // Default 100
-  minConfidence?: number;       // Default 0.5
-  maxProposals?: number;        // Default 10
-  proposalTypes?: ProposalType[];  // Default: all types
+  maxExperiences?: number;    // 默认 100
+  minConfidence?: number;     // 默认 0.5
+  maxProposals?: number;      // 默认 10
+  proposalTypes?: ProposalType[];  // 默认全部
 }
 ```
 
@@ -353,8 +353,8 @@ interface DreamingConfig {
 
 ```typescript
 interface ChangeStoreOptions {
-  storeDir?: string;            // Default: ~/.vera/changes
-  retentionDays?: number;       // Default: 30
+  storeDir?: string;          // 默认 ~/.vera/changes
+  retentionDays?: number;     // 默认 30
 }
 ```
 
@@ -362,37 +362,37 @@ interface ChangeStoreOptions {
 
 ```typescript
 interface EvalRunnerOptions {
-  name: string;                 // Benchmark name
-  casesPath?: string;           // Path to test cases JSON file
-  concurrency?: number;         // Concurrency (default 1)
-  timeoutMs?: number;           // Global timeout per case (default 60000)
-  model?: string;               // Model/agent name for reporting
+  name: string;               // Benchmark 名称
+  casesPath?: string;         // 测试用例 JSON 文件路径
+  concurrency?: number;       // 并发数（默认 1）
+  timeoutMs?: number;         // 全局超时（默认 60000）
+  model?: string;             // 模型/agent 名称
 }
 ```
 
 ---
 
-## 8. Current Status
+## 8. 当前状态
 
-The self-evolution pipeline is in the **P2 phase** (roadmap: "Establish the self-evolution closed loop"):
+自进化管道属于 **P2 阶段**（roadmap 中的"建立自我进化闭环"）：
 
-| Component | Status | Notes |
-|-----------|--------|-------|
-| `DreamingRunner` | Implemented | Rule-driven experience analysis, 4 insight types, proposal mapping |
-| `ProposalStore` | Implemented | Persistent storage, lifecycle management, filtered queries |
-| `StrategyStore` | Implemented | Strategy CRUD, success rate tracking, auto-tuning, trend detection, domain summaries |
-| `ChangeStore` | Implemented | Daily JSONL storage, time/agent/tool/file filtering, archival |
-| `EvalHarness` | Implemented | 5 evaluation types, report generation, AgentExecutor interface decoupling |
-| LLM-driven Dreaming | Planned | Current dreaming is rule-driven; future versions should use LLM for deeper experience analysis |
-| Full closed-loop automation | Planned | Proposal → review → benchmark → rollout currently requires manual triggering |
-| Production feedback loop | Planned | Real-world task failures auto-ingested into benchmark pool after human confirmation |
+| 组件 | 状态 | 说明 |
+|------|------|------|
+| `DreamingRunner` | 已实现 | 规则驱动的经验分析，四类 Insight 提取，Proposal 映射 |
+| `ProposalStore` | 已实现 | 持久化存储、生命周期管理、过滤查询 |
+| `StrategyStore` | 已实现 | 策略 CRUD、成功率跟踪、自动调优、趋势检测、域汇总 |
+| `ChangeStore` | 已实现 | JSONL 按天存储、时间/agent/工具/文件过滤、归档 |
+| `EvalHarness` | 已实现 | 5 种评测类型、报告生成、AgentExecutor 接口解耦 |
+| LLM-driven Dreaming | 待实现 | 当前 Dreaming 是规则驱动的，未来应由 LLM 进行更深度的经验分析 |
+| 完整闭环自动化 | 待实现 | Proposal → 审核 → Benchmark → Rollout 链路目前需要人工触发，尚未全自动串联 |
+| 线上反馈闭环 | 待实现 | 真实任务失败自动入 benchmark 池，人工确认后固化 |
 
 ---
 
-## 9. Key Design Decisions
+## 9. 关键设计决策
 
-1. **Dreaming lives in the Harness layer**: Dreaming depends on episodic memory and benchmark results, which are Harness-level concepts. The Core layer does not perceive experience "success" or "failure."
-2. **Strategy and Proposal are separate**: Proposal is "what to change"; Strategy is "validated best practice deposited as institutional knowledge." They represent different lifecycle stages.
-3. **EvalHarness decouples via AgentExecutor interface**: No direct dependency on Core's agent loop; can connect to any agent implementation.
-4. **Change tracking uses JSONL**: Append-only, crash-safe, daily-sharded for easy archival and parallel queries.
-5. **Auto-tuning has minimum-sample protection**: The `minRuns` parameter (default 5) prevents false positives from small sample sizes.
+1. **Dreaming 放在 Harness 层**：因为 Dreaming 依赖 episodic memory 和 benchmark 结果，这些都是 Harness 层面的概念。Core 层不感知经验的"成败"。
+2. **Strategy 与 Proposal 分离**：Proposal 是"建议改什么"，Strategy 是"验证后沉淀的最佳实践"。两者是不同的生命周期阶段。
+3. **EvalHarness 通过 AgentExecutor 接口解耦**：不直接依赖 Core 的 agent loop，可对接任意 agent 实现。
+4. **变更追踪用 JSONL**：追加写入、崩溃安全、按天分片便于归档和并行查询。
+5. **自动调优有最小样本保护**：`minRuns` 参数（默认 5）防止小样本情况下的误判。

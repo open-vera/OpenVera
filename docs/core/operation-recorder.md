@@ -46,7 +46,7 @@ The most common recording method. Use `recorder.wrapTool(tool, ctx)` to wrap an 
 ```typescript
 const recorder = new OperationRecorder("my-task", sessionId);
 const wrappedTool = recorder.wrapTool(myTool, ctx);
-// Use wrappedTool for operations — each call is auto-recorded
+// Use wrappedTool for operations -- each call is auto-recorded
 const recording = recorder.finish();
 ```
 
@@ -96,11 +96,11 @@ The `replay()` function accepts an `OperationRecording` and re-executes each too
 import { replay } from "@vera/core";
 
 const result = await replay(recording, resolveTool, ctx, {
-  startFromStep: 0,      // Start replaying from this step
-  stopAtStep: 5,         // Stop after this step (inclusive)
-  argsOverrides: new Map([[2, { newArg: "override" }]]), // Override args at specific steps
-  dryRun: true,          // Dry-run mode
-  signal: abortController.signal, // Cancellation signal
+  startFromStep: 0,
+  stopAtStep: 5,
+  argsOverrides: new Map([[2, { newArg: "override" }]]),
+  dryRun: true,
+  signal: abortController.signal,
 });
 ```
 
@@ -111,7 +111,7 @@ const result = await replay(recording, resolveTool, ctx, {
 | `startFromStep` | `number` | `0` | Start replaying from this step index |
 | `stopAtStep` | `number` | Last step | Stop replaying after this step (inclusive) |
 | `argsOverrides` | `Map<number, Record<string, unknown>>` | - | Override args for specific step indices |
-| `dryRun` | `boolean` | `false` | Dry-run mode — tools receive `ctx.dryRun = true` |
+| `dryRun` | `boolean` | `false` | Dry-run mode -- tools receive `ctx.dryRun = true` |
 | `signal` | `AbortSignal` | - | AbortSignal for cancellation |
 
 ### ReplayResult
