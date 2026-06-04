@@ -1,6 +1,6 @@
 {
   "name": "@open-vera/openvera",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -19,7 +19,7 @@
   },
   "scripts": {
     "dev": "VERA_CONFIG_DIR=../../.vera tsx --conditions=development --tsconfig tsconfig.json src/cli/index.ts repl --dir ../..",
-    "build": "tsc",
+    "build": "NODE_ENV=production tsc",
     "postbuild": "chmod +x dist/cli/index.js",
     "release": "pnpm build && pnpm publish --no-git-checks",
     "typecheck": "tsc --noEmit",

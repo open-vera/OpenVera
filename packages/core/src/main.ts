@@ -110,7 +110,7 @@ const promptsDir = process.env.VERA_CONFIG_DIR
 if (promptsDir) {
   const loaded = loadTemplates(promptStore, promptsDir);
   if (loaded > 0) {
-    console.error(`[prompt] loaded ${loaded} templates/profiles from ${promptsDir}`);
+    log.info(`[prompt] loaded ${loaded} templates/profiles from ${promptsDir}`);
   }
 }
 
@@ -141,14 +141,13 @@ if (routingConfig?.enabled) {
       if (routedProvider) adapter = buildAdapter(routedProvider, routed);
       model = routed;
       if (intent) {
-        console.error(
+        log.info(
           `[intent] L${intent.level} | domain=${intent.domain} | provider=${routedProvider} | model=${model}`
         );
       }
     }
   } catch (err) {
-    log.warn("intent routing failed, using default provider/model", { error: String(err) });
-    console.error(`[intent] routing failed: ${err instanceof Error ? err.message : String(err)} — using default`);
+    log.warn(`[intent] routing failed: ${err instanceof Error ? err.message : String(err)} — using default`);
   }
 }
 
@@ -256,7 +255,7 @@ if (process.argv[2]) {
     (delta) => process.stdout.write(delta)
   );
   process.stdout.write("\n");
-  console.error(`\n[done] ${answer.length} chars | profile=${resolved?.profileId ?? "none"}`);
+  log.info(`[done] ${answer.length} chars | profile=${resolved?.profileId ?? "none"}`);
   } catch (err) {
     log.error("single-shot execution failed", { error: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
     process.stderr.write(`\nError: ${err instanceof Error ? err.message : String(err)}\n`);

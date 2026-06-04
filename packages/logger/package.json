@@ -1,6 +1,6 @@
 {
   "name": "@open-vera/logger",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -19,7 +19,7 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "NODE_ENV=production tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
