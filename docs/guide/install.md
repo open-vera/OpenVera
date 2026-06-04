@@ -62,6 +62,55 @@ ai init --force  # 强制重新初始化
 
 ---
 
+## 初始化与首次运行 {#init}
+
+首次运行时，如果不存在配置文件，Vera 会自动执行三步：
+
+**1. 自动同步外部配置**
+
+从其他 AI 编码工具（Claude Code、Codex、OpenClaw、Hermes）同步已有配置：
+
+```
+~/.claude/ → ~/.vera/imports/claude/
+~/.codex/ → ~/.vera/imports/codex/
+```
+
+rules、skills、memories、CLAUDE.md 等资源通过符号链接导入，重复运行自动跳过已有链接。
+
+**2. Claude Code 配置自动迁移**
+
+如果检测到 `~/.claude/settings.json`，Vera 自动读取 API key 和模型配置，生成对应的 Vera 配置文件，provider 命名为 `"claude-code"` 避免与手动配置冲突。
+
+**3. 交互式安装向导**
+
+无可迁移配置时，自动进入三步向导：选择 provider → 输入 API key → 选择默认模型 → 写入 `~/.vera/settings.json`。
+
+```bash
+ai init          # 手动重新运行配置向导
+ai init --force  # 强制覆盖已有配置
+```
+
+## 同步外部配置 {#sync}
+
+随时手动同步其他 agent 工具的配置：
+
+```bash
+ai sync          # 同步所有已支持的外部工具配置
+```
+
+同步来源：
+
+| 工具 | 源路径 | 环境变量 |
+|---|---|---|
+| Claude Code | `~/.claude/` | `CLAUDE_CONFIG_DIR` |
+| Codex | `~/.codex/` | `CODEX_CONFIG_DIR` |
+| OpenClaw | `~/.openclaw/` | `OPENCLAW_CONFIG_DIR` |
+| Hermes | `~/.hermes/` | `HERMES_CONFIG_DIR` |
+
+同步内容：rules、skills、memories、commands、CLAUDE.md 等。通过符号链接导入 `~/.vera/imports/`，不重复占用磁盘空间。
+
+---
+
 ### Lookup Order (`resolveConfigLocation`)
 
 Vera searches for `settings.json` in the following priority order:
