@@ -4,175 +4,112 @@ layout: home
 hero:
   name: "OpenVera"
   text: "Harness-native Agent Runtime"
-  tagline: Self-planning, self-looping, self-critiquing, self-evolving
+  tagline: Self-planning · self-looping · self-critiquing · self-evolving
   actions:
     - theme: brand
-      text: Get Started
+      text: Install →
       link: "#install"
     - theme: alt
-      text: View on GitHub
-      link: https://github.com/open-vera/OpenVera
+      text: Documentation
+      link: /README
     - theme: alt
-      text: Roadmap
-      link: /roadmap
+      text: GitHub
+      link: https://github.com/open-vera/OpenVera
 ---
 
-## Why Vera? {#why}
+## Vision
 
-Most agent systems are smarter assistants: they follow instructions and call tools. Vera is different — its kernel isn't a safety wrapper, it's the **engine that drives everything**. Every tool call, every flow transition, every self-improvement passes through a principled execution framework that keeps agents both powerful and controllable.
+> **Accelerate human creativity, achieve SOTA AGI.**
 
-::: tip Vision
-**Accelerate human creativity, achieve SOTA AGI.** — Don't design a system that produces more output. Design a system that is harder to let unqualified output through.
-:::
+We are at an inflection point: models are capable enough, but the execution framework is the bottleneck. Vera's mission is to build the **reliable, verifiable, compounding** agent runtime that turns human ideas into working reality — at a pace and quality no manual process can match.
+
+### Core Beliefs
+
+- **Harness is the kernel, not a safety wrapper.** Every tool call, every state transition, every self-improvement passes through a principled execution framework.
+- **Don't design a system that produces more output. Design a system that is harder to let unqualified output through.**
+- **Critique must be structurally independent.** The same agent cannot be implementer, evaluator, and judge of its own work.
+- **Failure must produce attribution, not just retry.** Without root cause analysis, recovery is just higher-cost repetition.
+- **Improvement must be evidence-driven.** Every change earns its way in through benchmarks, not intuition.
 
 ## Install {#install}
 
 ```bash
 npm i @open-vera/openvera@latest -g
-```
-
-Launch the REPL:
-
-```bash
 ai
 ```
 
-::: tip Tip
-`ai`, `vera`, and `openvera` are all aliases for the same command.
-:::
-
-On first run, an interactive setup wizard guides you through selecting an LLM provider and entering your API key.
+`ai`, `vera`, and `openvera` are all aliases. First run launches an interactive setup wizard.
 
 ```bash
-ai init          # run setup wizard
-ai init --force  # re-run even if config exists
+ai init          # re-run setup wizard
+ai init --force  # force re-run even if config exists
 ```
 
-### From Source
-
-```bash
-git clone https://github.com/open-vera/OpenVera.git
-cd OpenVera
-pnpm install && pnpm build
-cp .vera/settings.example.json .vera/settings.json
-# Edit .vera/settings.json with your API key
-pnpm repl
-```
-
-## Configuration {#config}
-
-Configuration lookup order: project config (`./.vera/settings.json`) → global config (`~/.vera/settings.json`).
-
-**Simplest setup — one provider, one model:**
+## Quick Config
 
 ```jsonc
+// .vera/settings.json
 {
   "providers": {
-    "compony": {
-      "adapter": "anthropic",
-      "api_key": "...",
-      "base_url": "https://gateway-claude-api.example.com"
-    }
+    "compony": { "adapter": "anthropic", "api_key": "..." }
   },
   "default_model": "deepseek-v4-flash"
 }
 ```
 
-**With routing — auto-switch model by task complexity:**
+Enable model routing to auto-switch by task complexity:
 
 ```jsonc
-{
-  "providers": {
-    "compony": {
-      "adapter": "anthropic",
-      "api_key": "...",
-      "base_url": "https://gateway-claude-api.example.com"
-    }
-  },
-  "models": ["deepseek-v4-flash", "deepseek-v4-pro"],
-  "routing": {
-    "enabled": true,
-    "classifier": "deepseek-v4-flash",
-    "l0": "deepseek-v4-flash",
-    "l1": "deepseek-v4-flash",
-    "l2": "deepseek-v4-pro"
-  }
-}
+"routing": { "enabled": true, "classifier": "...", "l0": "...", "l1": "...", "l2": "..." }
 ```
 
-| Field | Description |
+| Field | Purpose |
 |---|---|
-| `providers` | Connection config: `adapter`, `api_key`, optional `base_url` |
-| `default_provider` | Default provider; only needed with multiple providers |
-| `default_model` | Model used when routing is disabled |
-| `routing` | Optional L0/L1/L2 model routing by task complexity |
-| `models` | Optional model aliases for cross-provider reuse |
-| `session` | Optional: AI title generation, compaction settings |
+| `providers` | Connection config per provider (adapter, api_key, base_url) |
+| `default_model` | Model when routing is disabled |
+| `routing` | L0/L1/L2 auto model selection by task complexity |
+| `session` | AI title generation, long-session compaction |
 
-Supported adapters: `anthropic`, `openai` (OpenAI-compatible including DeepSeek/Groq/Azure), `gemini`.
-
-## Web UI (Gateway)
-
-Vera ships with a built-in management console — start the server and launch the UI:
-
-```bash
-pnpm serve   # starts the API server at :7720
-pnpm ui      # starts the dev UI at :7704, proxied to the server
-```
-
-The Gateway UI provides:
-
-| Capability | Description |
-|---|---|
-| **Overview Dashboard** | Active runs, session stats, cost tracking |
-| **Run Workspace** | Per-run shell with Overview / Memory / Checkpoints / Subagents / Timeline tabs |
-| **Capability Manager** | Skills directory, MCP servers, RAG pipelines — hot-reload |
-| **Project Registry** | Multi-project management, context configuration |
-| **Doctor** | System health checks, configuration diagnostics |
-| **Chat Console** | Direct agent interaction with conversation history |
-| **Settings** | Provider/model config, routing, session preferences |
-
-See [docs/README](/README) for full configuration guide.
+[→ Full configuration guide](/README)
 
 ## Features
 
-::: tip Core Capabilities (P0 ✅)
-- **Intent Routing** — L0/L1/L2 automatic model selection, ~100ms classification
-- **7 Built-in Tools** — read_file, write_file, edit_file, list_dir, glob, grep, bash
-- **Infinite Context** — Progressive compression, micro-compact, reactive compact, recall
-- **Plan Mode** — Structured ExecutionPlan, flow state machine, 11 states
-- **Critique Loop** — Independent Challenger scores every step, confidence < 0.7 triggers replan
-- **Session Persistence** — JSONL store, cost tracking, resume, branching, AI titles
-- **Subagent System** — Orchestrator/worker, dependency DAG, parallel execution, 3 isolation modes
-- **Permission System** — Persistent allow/deny rules, bash risk gates, path enforcement
-- **Project Context** — `.vera/rules.md`, `CLAUDE.md`, path-scoped rule activation
-- **CLI Theme** — Semantic color tokens, dark theme
-- **Custom Agent Definitions** — `~/.vera/agents/*.md`, `.vera/agents/*.md`
-:::
+### Agent Runtime
 
-::: info Self-Loop & Self-Correction (P1 ✅)
-- **Checkpoint & Resume** — JSONL checkpoint store, auto-compact, dedup
-- **Memory Persistence** — Thread-safe writes, crash-safety, tier separation (semantic/episodic/working)
-- **Subagent Orchestrator** — Dependency DAG, parallel execution, abort/timeout
-- **Subagent Pool** — Concurrency limits, submit/complete/fail/cancel tracking
-- **Tool Middleware** — Multi-layer before/after/onError pipeline
-- **Agent Runner Registry** — Multi-level fallback chains, capability-based routing
-:::
+| Capability | Description |
+|---|---|
+| **Intent Routing** | L0/L1/L2 classification (~100ms), automatic model selection by task complexity |
+| **Plan Mode** | Structured ExecutionPlan, 11-state flow machine, nested planning, checkpoint/resume |
+| **Critique Loop** | Independent Challenger scores every step, confidence < 0.7 triggers automatic replan |
+| **Infinite Context** | Progressive compression + micro-compact + reactive compact + recall; first message always preserved |
+| **Subagent System** | Orchestrator/worker architecture, dependency DAG, 3 isolation modes (none / try / remote) |
+| **Tool Middleware** | Multi-layer before/after/onError pipeline, error isolation per layer |
 
-::: warning Self-Evolution (P2 — Planned)
-Dreaming → distill episodic memory into insights → Proposal generation → Human review → Benchmark-gated Rollout → Regression feedback loop
-:::
+### Data & Persistence
 
-::: tip Platform (P3 — Planned)
-Computer Use, MCP protocol, multi-agent networks, adaptive strategies, universal agent platform
-:::
+| Capability | Description |
+|---|---|
+| **Session Store** | JSONL persistence, AI-generated titles, cost tracking, branching (/try, /merge) |
+| **Memory System** | Thread-safe writes, crash-safe, tier separation (semantic / episodic / working) |
+| **Permission Rules** | Persistent allow/deny per tool/path, bash risk confirmation gates |
+| **Project Context** | `.vera/rules.md`, `CLAUDE.md`, path-scoped rule activation |
+
+### Tools & Platform
+
+| Capability | Description |
+|---|---|
+| **7 Built-in Tools** | `read_file` `write_file` `edit_file` `list_dir` `glob` `grep` `bash` |
+| **Custom Skills** | Markdown-defined skills, intent-driven activation, hot-reload |
+| **Gateway UI** | Management console: Run workspace, Capability manager, Doctor, Project registry |
+| **Multi-Channel** | CLI REPL, HTTP API, Discord bot, Feishu bot — via unified ChannelAdapter interface |
+| **Sandbox** | Code execution isolation, path boundary enforcement, security-plugin architecture |
 
 ## Architecture
 
 ```
 Human Idea
-  → Intent classification & model routing (L0/L1/L2)
-  → Structured Flow (ExecutionPlan)
+  → Intent classification & model routing (L0 / L1 / L2)
+  → Structured Flow → ExecutionPlan
   → Step-by-step execution via tool runtime
   → Independent Critique (Challenger)
   → Failure attribution & Replan
@@ -183,50 +120,28 @@ Human Idea
 
 **Separation of concerns:**
 
-| Role | Responsibility | Constraint |
-|---|---|---|
-| **Planner** | Reads context, generates ExecutionPlan | Flow definition is advice, not command |
-| **Role Agent** | Executes steps to exit criteria, produces deliverables | Never decides if its own work is complete |
-| **Challenger** | Independently scores every output, accumulates lessons | Must give scores and requiredFixes; has veto power |
-| **Orchestrator** | Schedules agents, manages context resets, enforces gates | Decides continue/rework/delegate/escalate |
+```
+packages/
+├── core/        Stateless agent loop — adapters, tools, session, context
+├── harness/     Stateful orchestration — flow state machine, critique, skill
+├── gateway/     Capability registry, project registry, doctor
+├── logger/      Structured logging with redaction
+└── shared/      Shared types and utilities
 
-## What Makes Vera Different
+apps/
+├── gateway-ui/web/    Vue 3 management console
+└── gateway-ui/server/ API server
+```
 
-| Typical Agent | Vera |
-|---|---|
-| Model calls tools directly | All tool calls dispatched through Harness |
-| Model decides whether to continue | Harness owns Flow State transitions |
-| Model self-assesses completion | Challenger independently scores every step |
-| Safety = prompt constraints | Safety = architectural boundaries |
-| Failure = retry | Failure = attribution + proposal + validated fix |
+> **The critical constraint:** A Role Agent never decides whether its own work is complete. That right belongs exclusively to the Challenger. See [Harness Design →](/harness/design)
 
-**Subagent isolation modes:**
+## Roadmap
 
-| Mode | Mechanism | Use Case |
-|---|---|---|
-| `none` | Shared context (default) | Standard delegation |
-| `try` | Isolated git worktree, reviewable via `/merge` | Experimental changes |
-| `remote` | Pluggable external executor | Distributed/sandboxed execution |
+| Phase | Goal | Key Deliverables | Status |
+|---|---|---|---|
+| **P0** | Harness-driven execution runtime | Intent routing, 7 tools, infinite context, Plan Mode, Critique, Session, Subagent | ✅ Complete |
+| **P1** | Self-loop & self-correction | Checkpoint/Resume, Memory persistence, Subagent orchestrator/pool, Tool middleware | ✅ Complete |
+| **P2** | Self-evolution | Dreaming → Proposal → Human review → Benchmark-gated Rollout → Regression loop | 📋 Planned |
+| **P3** | Universal agent platform | Computer Use, MCP, multi-agent networks, adaptive strategies | 📋 Planned |
 
-**Three-layer context system:**
-
-| Layer | Mechanism | Trigger |
-|---|---|---|
-| Sliding window | Drop earliest turns, keep task anchor | 80% token threshold |
-| Progressive compression | LLM summarization of old turns | Token threshold exceeded |
-| Micro-compaction | Heuristic cleanup of stale tool results (no LLM) | Time-gap based |
-| Reactive compaction | Aggressive compression on `prompt-too-long` error | API error response |
-
-> **The first message (original task definition) is always preserved.** The agent never loses its goal.
-
-## Technology Stack
-
-| Layer | Technology |
-|---|---|
-| Language | TypeScript (strict, ESM) |
-| Package manager | pnpm workspace monorepo |
-| LLM adapters | Anthropic, OpenAI, Gemini, DeepSeek, Groq, Azure |
-| Terminal UI | React + Ink |
-| Web UI | Vue 3 + Vite |
-| Test runner | Vitest |
-| Static analysis | oxlint + eslint-plugin-sonarjs + jscpd |
+[→ Full roadmap](/roadmap)

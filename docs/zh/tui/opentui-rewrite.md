@@ -1,0 +1,1 @@
+../../tui/opentui-rewrite.md
