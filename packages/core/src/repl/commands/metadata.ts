@@ -24,7 +24,7 @@ export const REPL_COMMANDS: ReplCommandMeta[] = [
   { name: "drop", description: "Discard a branch", surface: "runtime" },
   { name: "title", description: "Set session title", surface: "runtime" },
   { name: "model", description: "List available models", surface: "runtime" },
-  { name: "provider", description: "Show configured providers", surface: "runtime" },
+  { name: "provider", description: "List or switch providers. /provider to list, /provider <name> to switch", surface: "runtime" },
   { name: "help", description: "Show all commands", surface: "runtime" },
   { name: "exit", description: "Exit", aliases: ["quit"], surface: "process" },
 ];

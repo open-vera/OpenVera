@@ -1,5 +1,5 @@
-import { readFileSync, existsSync } from "fs";
-import { resolve } from "path";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { resolve, dirname } from "path";
 import type { VeraConfig } from "./types.js";
 import { ConfigError } from "../errors.js";
 
@@ -13,11 +13,7 @@ const CONFIG_FILENAME = "settings.json";
  * - 找不到：返回空配置 {}
  */
 export function loadConfig(configPath?: string): VeraConfig {
-  const filePath = configPath
-    ? resolve(configPath)
-    : process.env.VERA_CONFIG_DIR
-    ? resolve(process.env.VERA_CONFIG_DIR, CONFIG_FILENAME)
-    : resolve(process.cwd(), ".vera", CONFIG_FILENAME);
+  const filePath = resolveConfigPath(configPath);
 
   if (!existsSync(filePath)) {
     return {};
@@ -29,4 +25,19 @@ export function loadConfig(configPath?: string): VeraConfig {
   } catch (err) {
     throw new ConfigError(`Failed to parse config at ${filePath}: ${String(err)}`, { cause: err });
   }
+}
+
+function resolveConfigPath(configPath?: string): string {
+  return configPath
+    ? resolve(configPath)
+    : process.env.VERA_CONFIG_DIR
+    ? resolve(process.env.VERA_CONFIG_DIR, CONFIG_FILENAME)
+    : resolve(process.cwd(), ".vera", CONFIG_FILENAME);
+}
+
+export function writeConfig(config: VeraConfig, configPath?: string): void {
+  const filePath = resolveConfigPath(configPath);
+  const dir = dirname(filePath);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(filePath, JSON.stringify(config, null, 2) + "\n", "utf-8");
 }

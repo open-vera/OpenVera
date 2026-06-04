@@ -6,6 +6,7 @@ export interface SelectOption<T = string> {
   value: T;
   label: string;
   description?: string;
+  groupHeader?: boolean;
 }
 
 interface SelectPromptProps<T = string> {
@@ -23,20 +24,41 @@ export function SelectPrompt<T = string>({
   onConfirm,
   onCancel,
 }: SelectPromptProps<T>) {
-  const [focusedIndex, setFocusedIndex] = useState(0);
+  const getFirstReal = (): number => {
+    for (let i = 0; i < options.length; i++) {
+      if (!options[i]!.groupHeader) return i;
+    }
+    return -1;
+  };
+  const [focusedIndex, setFocusedIndex] = useState(getFirstReal());
   const [selectedValues, setSelectedValues] = useState<Set<T>>(new Set());
 
   useInput((input, key) => {
     if (key.upArrow) {
-      setFocusedIndex((prev) => (prev - 1 + options.length) % options.length);
+      setFocusedIndex((prev) => {
+        let next = prev;
+        for (let i = 0; i < options.length; i++) {
+          next = (next - 1 + options.length) % options.length;
+          if (!options[next]!.groupHeader) return next;
+        }
+        return prev;
+      });
     } else if (key.downArrow) {
-      setFocusedIndex((prev) => (prev + 1) % options.length);
+      setFocusedIndex((prev) => {
+        let next = prev;
+        for (let i = 0; i < options.length; i++) {
+          next = (next + 1) % options.length;
+          if (!options[next]!.groupHeader) return next;
+        }
+        return prev;
+      });
     } else if (input === " " && multiSelect) {
-      const value = options[focusedIndex]!.value;
+      const option = options[focusedIndex];
+      if (!option || option.groupHeader) return;
       setSelectedValues((prev) => {
         const next = new Set(prev);
-        if (next.has(value)) next.delete(value);
-        else next.add(value);
+        if (next.has(option.value)) next.delete(option.value);
+        else next.add(option.value);
         return next;
       });
     } else if (key.return) {
@@ -44,7 +66,7 @@ export function SelectPrompt<T = string>({
         onConfirm([...selectedValues]);
       } else {
         const focused = options[focusedIndex];
-        if (focused) onConfirm([focused.value]);
+        if (focused && !focused.groupHeader) onConfirm([focused.value]);
       }
     } else if (key.escape || (key.ctrl && input === "c")) {
       onCancel();
@@ -56,6 +78,16 @@ export function SelectPrompt<T = string>({
       <Text color={theme.warning}>⚠  {message}</Text>
       <Box flexDirection="column" marginTop={1}>
         {options.map((option, index) => {
+          if (option.groupHeader) {
+            return (
+              <Box key={index}>
+                <Text color={theme.textDim}>  {option.label}</Text>
+                {option.description && (
+                  <Text color={theme.textSubtle}> {option.description}</Text>
+                )}
+              </Box>
+            );
+          }
           const isFocused = index === focusedIndex;
           const isSelected = selectedValues.has(option.value);
 

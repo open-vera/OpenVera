@@ -31,13 +31,20 @@ export function buildCliAdapter(
   const apiKey = apiKeyArg ?? pc.api_key ?? resolveEnvKey(pc.adapter, providerName);
 
   if (!apiKey) {
+    const configured = Object.entries(config.providers ?? {})
+      .filter(([, p]) => p.api_key)
+      .map(([n]) => n);
+    const hint =
+      configured.length > 0
+        ? `\n  Providers with keys configured: ${configured.join(", ")}\n` +
+          `  Use  /provider  in the REPL to switch, or edit .vera/settings.json\n` +
+          `  and change "default_provider" to one of: ${configured.join(", ")}\n`
+        : `\n  To configure, either:\n` +
+          `    1. Run  openvera  again (first-time setup wizard)\n` +
+          `    2. Set  ${envVarFor(pc.adapter)}=<key>  environment variable\n` +
+          `    3. Add  "api_key": "<key>"  to .vera/settings.json\n`;
     console.error(
-      `Error: No API key for provider "${providerName}".\n` +
-      `\n` +
-      `  To configure, either:\n` +
-      `    1. Run  openvera  again (first-time setup wizard)\n` +
-      `    2. Set  ${envVarFor(pc.adapter)}=<key>  environment variable\n` +
-      `    3. Add  "api_key": "<key>"  to .vera/settings.json\n`
+      `Error: No API key for provider "${providerName}".\n` + hint
     );
     process.exit(1);
   }

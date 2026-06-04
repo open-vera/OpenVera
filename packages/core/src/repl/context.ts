@@ -49,5 +49,7 @@ export interface ReplContext {
   onResume?: (loaded: LoadedSession) => void;
   onSwitchWorkspace?: (cwd: string, sessionStore: SessionStore) => void;
   onShowSessionPicker?: () => void;
+  onSwitchProvider?: (provider: string, model: string) => void;
+  onSwitchModel?: (model: string) => void;
 }
 

@@ -145,6 +145,16 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     setSessionPickerOpen: (open) => dispatchOverlay({ type: open ? "open.sessionPicker" : "close" }),
   });
 
+  // Wire onSwitchProvider so commands can update the UI when switching providers
+  useEffect(() => {
+    ctxRef.current.onSwitchProvider = (provider, model) => {
+      setRouting((prev) => ({ ...prev, provider, model }));
+    };
+    ctxRef.current.onSwitchModel = (model) => {
+      setRouting((prev) => ({ ...prev, model }));
+    };
+  }, []);
+
   // ── Streaming helpers ────────────────────────────────────────────────────────
 
   const { onTextDelta, onThinkingDelta, onUsage, handleCancel, handleScrollUp, handleScrollDown } = useStreamingHelpers({
@@ -390,7 +400,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
     }
   }, [setMessages]);
 
-  if (overlay.type === "diff" || overlay.type === "sessionPicker") {
+  if (overlay.type === "diff" || overlay.type === "sessionPicker" || overlay.type === "providerPicker" || overlay.type === "modelPicker") {
     debugLog(`[App] rendering full-screen overlay: ${overlay.type}`);
     return (
       <OverlayHost

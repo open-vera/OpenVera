@@ -2,7 +2,7 @@ import type { AccumulatedCost } from "../../../session/index.js";
 import type { ReplContext } from "../../context.js";
 import { debugLog } from "../../debugLog.js";
 import type { ChatMessage, RoutingInfo, TokenUsage } from "../types.js";
-import type { OverlayAction } from "../state/overlayStore.js";
+import type { OverlayAction, ProviderEntry, ModelEntry } from "../state/overlayStore.js";
 import {
   formatStatusMessage,
   handleQueueCommand,
@@ -61,6 +61,77 @@ export async function handleSlashCommandSubmission(
 
   if (isUiCommand(cmd, "diff")) {
     options.dispatchOverlay({ type: "open.diff" });
+    return { handled: true };
+  }
+
+  if (cmd === "provider" && args.length === 0) {
+    const providers = options.ctx.config.providers ?? {};
+    const entries: ProviderEntry[] = Object.entries(providers).map(([name, p]) => ({
+      name,
+      adapter: p.adapter,
+      base_url: p.base_url,
+    }));
+    if (entries.length === 0) {
+      options.setMessages((prev) => [...prev, { role: "assistant", content: "No providers configured." }]);
+      return { handled: true };
+    }
+    options.dispatchOverlay({
+      type: "open.providerPicker",
+      providers: entries,
+      currentProvider: options.ctx.config.default_provider ?? "",
+    });
+    return { handled: true };
+  }
+
+  if (cmd === "model") {
+    const providerNames = args.length > 0 ? args : Object.keys(options.ctx.config.providers ?? {});
+    if (providerNames.length === 0) {
+      options.setMessages((prev) => [...prev, { role: "assistant", content: "No providers configured." }]);
+      return { handled: true };
+    }
+
+    options.setMessages((prev) => [...prev, { role: "user", content: options.line }]);
+    options.setMessages((prev) => [...prev, { role: "assistant", content: "Fetching models..." }]);
+
+    const results = await Promise.allSettled(
+      providerNames.map(async (name) => {
+        const adapter = options.ctx.buildAdapter(name);
+        if (!adapter.listModels) {
+          return { name, models: [] as { id: string; display_name?: string; context_window?: number }[] };
+        }
+        const models = await adapter.listModels();
+        return { name, models };
+      }),
+    );
+
+    const modelEntries: ModelEntry[] = [];
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        for (const m of result.value.models) {
+          modelEntries.push({
+            id: m.id,
+            provider: result.value.name,
+            display_name: m.display_name,
+            context_window: m.context_window,
+          });
+        }
+      }
+    }
+
+    if (modelEntries.length === 0) {
+      options.setMessages((prev) => [...prev, { role: "assistant", content: "No models found." }]);
+      return { handled: true };
+    }
+
+    // Replace the "Fetching..." message by triggering the overlay.
+    // setMessages to remove the fetching message, then open overlay.
+    options.setMessages((prev) => prev.slice(0, -1));
+    options.dispatchOverlay({
+      type: "open.modelPicker",
+      models: modelEntries,
+      currentModel: options.ctx.model,
+      currentProvider: options.routing.provider,
+    });
     return { handled: true };
   }
 

@@ -21,7 +21,7 @@ Commands:
   /drop <id-prefix>      Discard a branch by ID prefix
   /title <name>          Set a title for the current session
   /model [provider...]   List models from all (or specified) providers
-  /provider              Show configured providers
+  /provider [name]       List configured providers, or switch to <name>
   /help                  Show this help
   /exit, /quit           Exit
 
