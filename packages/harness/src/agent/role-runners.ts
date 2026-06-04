@@ -183,6 +183,12 @@ export class RoleAgentRunner implements AgentRunner {
     options: RunAssignmentOptions
   ): Promise<StepResult> {
     const { streamAgent } = await import("@open-vera/core/agent");
+    const bundle = assignment.assignedAgent
+      ? options.agentSkillBundles?.[assignment.assignedAgent]
+      : undefined;
+    const baseTools = bundle?.tools ?? options.tools;
+    const system = bundle?.system ?? this.systemPrompt;
+    const executors = bundle?.executors ?? options.executors;
 
     // Build role-specific prompt
     const prompt = [
@@ -200,10 +206,10 @@ export class RoleAgentRunner implements AgentRunner {
 
     // Filter tools by role's allowed list
     const tools = this.allowedTools
-      ? (options.tools ?? []).filter((t: any) =>
+      ? (baseTools ?? []).filter((t: any) =>
           this.allowedTools!.includes(t.name ?? t)
         )
-      : options.tools;
+      : baseTools;
 
     const toolCalls: StepResult["toolCalls"] = [];
 
@@ -213,12 +219,12 @@ export class RoleAgentRunner implements AgentRunner {
         adapter: this.adapter,
         model: this.model,
         tools,
-        system: this.systemPrompt,
+        system,
         maxTurns: this.maxTurns,
         onToolCall: async (name: string, args: Record<string, unknown>) => {
           let result: string;
-          if (options.executors?.has(name)) {
-            result = await options.executors.get(name)!(args);
+          if (executors?.has(name)) {
+            result = await executors.get(name)!(args);
           } else if (options.onToolCall) {
             result = await options.onToolCall(name, args);
           } else {

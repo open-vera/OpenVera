@@ -23,6 +23,7 @@ import type {
   MessageCallback,
   SendMessageOptions,
 } from "./types.js";
+import { appendBotMessage, filterChannelHistory, subscribeMessage } from "./channel-helpers.js";
 import { ChannelNotConnectedError, ChannelSendError, ChannelConnectionError } from "./types.js";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
@@ -373,44 +374,23 @@ export class WeComChannelAdapter implements ChannelAdapter {
       throw new ChannelSendError(this.name, `WeCom API error: ${data.errmsg} (code: ${data.errcode})`);
     }
 
-    const message: ChannelMessage = {
-      id: this.config.generateId(),
-      channelType: this.channelType,
-      senderId: "bot",
-      content: options.content,
-      attachments: options.attachments ?? [],
-      timestamp: new Date().toISOString(),
-    };
-    this.history.push(message);
+    const message = appendBotMessage(
+      this.history,
+      this.channelType,
+      options,
+      this.config.generateId
+    );
     this.sentCount++;
 
     return message;
   }
 
   onMessage(callback: MessageCallback): () => void {
-    this.callbacks.push(callback);
-    return () => {
-      const idx = this.callbacks.indexOf(callback);
-      if (idx >= 0) this.callbacks.splice(idx, 1);
-    };
+    return subscribeMessage(this.callbacks, callback);
   }
 
   async getHistory(options?: HistoryOptions): Promise<ChannelMessage[]> {
-    let result = [...this.history];
-
-    if (options?.after) {
-      result = result.filter((m) => m.timestamp > options.after!);
-    }
-    if (options?.before) {
-      result = result.filter((m) => m.timestamp < options.before!);
-    }
-    if (options?.senderId) {
-      result = result.filter((m) => m.senderId === options.senderId);
-    }
-    if (options?.limit) {
-      result = result.slice(0, options.limit);
-    }
-    return result;
+    return filterChannelHistory(this.history, options);
   }
 
   // ── HTTP Request Handling ──────────────────────────────────────────────────

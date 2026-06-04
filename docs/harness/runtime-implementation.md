@@ -18,7 +18,7 @@
 
 1. 迁运行模式，不迁旧类型
 2. 用 `@vera/core/src/types/runtime.ts` 作为统一协议
-3. `.flow/Markdown` 只作为输入配置层
+3. `.vera/flows` Markdown 只作为输入配置层
 4. retrospective / challenger lesson 最终进入 Proposal Pipeline
 
 ---
@@ -31,8 +31,8 @@
   第一版 `HarnessRuntime` 类
 - `critique.ts`
   `Plan` / `Step` 批判执行与旧 challenge 结果适配
-- `markdown.ts`
-  `.flow/flow.md` 输入解析
+- `flow-config/parser.ts`
+  `.vera/flows/flow/<name>/main.md`、`stages/*/main.md`、`agents/*/main.md` 输入解析
 - `flow.ts`
   `TaskFlow` / `Checkpoint` 组装
 - `approval.ts`
@@ -52,7 +52,7 @@
 
 [runtime.ts](/Users/yang.zhou/workspace/open-vera/packages/harness/src/runtime/runtime.ts:1) 当前提供：
 
-- `loadMarkdownFlow(flowDir)`
+- `loadFlowDefinition(flowDir)`
 - `startFlow(input)`
 - `dispatchStep(handle, stepId?)`
 - `runAgentAssignment(handle, assignment, options?)`

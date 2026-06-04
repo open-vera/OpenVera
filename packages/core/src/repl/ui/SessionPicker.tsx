@@ -1,5 +1,5 @@
+import React, { useState, useRef, useLayoutEffect, useCallback, useEffect } from "react";
 import { Box, Text, useStdin } from "ink";
-import { useState, useRef, useLayoutEffect, useCallback, useEffect } from "react";
 import { SessionStore } from "../../session/index.js";
 import type { SessionSummary, SessionTranscriptPreview } from "../../session/index.js";
 import { debugLog } from "../debugLog.js";

@@ -35,9 +35,9 @@
 ## Phase 5：Core Server 扩展 — 给 harness-ui server 加 Express 路由
 
 - [x] **5.1** 在 `apps/harness-ui/server/src/types.ts` 新增类型：`MemorySnapshot`（episodicCount/semanticCount/workingCount）、`MemoryEntryItem`（id/tier/content/tags/createdAt/importance/source）、`CheckpointIndex`（checkpointId/flowId/state/createdAt/activeStepId）、`SubagentPoolStatus`（totalSlots/activeAgents/queuedTasks）、`SubagentCallTreeNode`（taskId/agentType/status/dependsOn/children）
-- [x] **5.2** 新增 `apps/harness-ui/server/src/handlers/memory.ts`：GET /api/runs/:runId/memory → 扫描 `.flow/iterations/<runId>/memory/` 目录，读取 episodic.jsonl 和 semantic.jsonl，返回 snapshot + 最近 50 条 entries。支持 `?tier=` 和 `?search=` 参数
-- [x] **5.3** 新增 `apps/harness-ui/server/src/handlers/checkpoints.ts`：GET /api/runs/:runId/checkpoints → 读取 `.flow/iterations/<runId>/checkpoints.ndjson`，逐行解析返回 checkpoint 列表；GET /api/runs/:runId/checkpoints/:id → 返回单条 checkpoint JSON
-- [x] **5.4** 新增 `apps/harness-ui/server/src/handlers/subagents.ts`：GET /api/runs/:runId/subagents → 读取 `.flow/iterations/<runId>/subagents.json`，返回 pool status + orchestrator call tree
+- [x] **5.2** 新增 `apps/harness-ui/server/src/handlers/memory.ts`：GET /api/runs/:runId/memory → 扫描 `.vera/flows/iterations/<runId>/memory/` 目录，读取 episodic.jsonl 和 semantic.jsonl，返回 snapshot + 最近 50 条 entries。支持 `?tier=` 和 `?search=` 参数
+- [x] **5.3** 新增 `apps/harness-ui/server/src/handlers/checkpoints.ts`：GET /api/runs/:runId/checkpoints → 读取 `.vera/flows/iterations/<runId>/checkpoints.ndjson`，逐行解析返回 checkpoint 列表；GET /api/runs/:runId/checkpoints/:id → 返回单条 checkpoint JSON
+- [x] **5.4** 新增 `apps/harness-ui/server/src/handlers/subagents.ts`：GET /api/runs/:runId/subagents → 读取 `.vera/flows/iterations/<runId>/subagents.json`，返回 pool status + orchestrator call tree
 - [x] **5.5** 在 `apps/harness-ui/server/src/router.ts` 注册 4 条新路由，编译验证 `pnpm --filter @vera/harness-ui-server run build`
 
 ## Phase 6：Core UI — Agent 运行监控

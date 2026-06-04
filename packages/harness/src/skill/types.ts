@@ -25,6 +25,10 @@ export interface Skill {
   name: string;
   description: string;
   triggers: SkillTrigger[];
+  /** Source file used for lazy loading and diagnostics. */
+  sourcePath?: string;
+  /** Load the full skill body/tools on demand. */
+  load?: () => Skill;
   /** 注入到 system prompt 的文本片段 */
   systemFragment?: string;
   /** 本 skill 携带的工具 */

@@ -1,5 +1,5 @@
+import React, { useState } from "react";
 import { useInput, Box, Text } from "ink";
-import { useState } from "react";
 import { theme } from "./theme.js";
 
 export interface SelectOption<T = string> {

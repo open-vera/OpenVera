@@ -12,7 +12,7 @@ vi.mock("ink", () => ({
 }));
 
 import type { ExecutionPlan, TaskFlow } from "@open-vera/core/types";
-import { CheckpointStore, makeCheckpointId } from "../src/runtime/checkpoint-store.js";
+import { CheckpointStore } from "../src/runtime/checkpoint-store.js";
 import {
   checkpointFromFlow,
   createTaskFlow,

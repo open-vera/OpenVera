@@ -190,6 +190,7 @@ export interface TaskFlow {
 
 export type RuntimeEvent =
   | { type: "flow_started"; flowId: string }
+  | { type: "batch_started"; flowId: string; stepIds: string[] }
   | { type: "step_dispatched"; flowId: string; stepId: string; agentId: string }
   | { type: "tool_blocked"; flowId: string; tool: string; reason: string }
   | { type: "approval_requested"; flowId: string; action: string }

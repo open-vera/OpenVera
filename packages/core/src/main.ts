@@ -31,7 +31,7 @@ import {
   loadAgentDefinitions,
   runSubagentTool,
 } from "./agent/subagent.js";
-import { createLogger } from "./utils/logger.js";
+import { createLogger } from "@open-vera/logger";
 
 const log = createLogger("core");
 

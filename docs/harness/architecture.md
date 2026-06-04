@@ -202,57 +202,36 @@ pnpm --filter @vera/core test
 pnpm --filter @vera/web-ui dev
 pnpm --filter @vera/web-ui dev:tauri
 
-# Markdown Harness Flow
-vera flow run --dir ./demo
+# Harness Flow
+vera run auto-dev --dir ./demo
 ```
 
 ## Harness Flow 系统
 
 ### 设计理念
 
-**目录结构即配置，Markdown 即定义。** 用户不需要写 YAML 脚本，只需要在项目中创建 `.flow/` 目录，用 Markdown 描述角色、步骤和标准。
+**目录结构即配置，Markdown 即定义。** 用户不需要写 YAML 脚本，只需要在项目中创建 `.vera/flows/` 目录，用 Markdown 描述角色、步骤和标准。
 
 ### 工作目录结构
 
 ```
 my-project/                           # 用户项目根目录
 ├── src/                              # 用户项目代码
-└── .flow/                            # Vera harness 配置
-    ├── flow.md                       # 主编排：步骤顺序 + 衔接关系
-    ├── task/
-    │   └── goal.md                   # 本次目标描述
-    ├── agents/                       # 角色定义（完全开放）
-    │   ├── developer/
-    │   │   ├── main.md               # 角色名片 + 模型配置
-    │   │   ├── code-standards.md     # 知识库：代码规范
-    │   │   └── tech-stack.md         # 知识库：技术栈
-    │   ├── pm/
-    │   │   ├── main.md
-    │   │   └── prd-template.md
-    │   ├── tester/
-    │   │   ├── main.md
-    │   │   └── test-strategy.md
-    │   ├── designer/
-    │   │   ├── main.md
-    │   │   └── design-system.md
-    │   └── user/
-    │       └── main.md
-    └── flows/                        # 步骤定义
-        ├── requirement/
-        │   ├── README.md             # 准出标准 + 产物定义
-        │   └── output/               # 步骤产出
-        ├── design/
-        │   ├── README.md
-        │   └── output/
-        ├── implement/
-        │   ├── README.md
-        │   └── output/
-        ├── testing/
-        │   ├── README.md
-        │   └── output/
-        └── review/
-            ├── README.md
-            └── output/
+└── .vera/flows/                       # Vera harness 配置
+    ├── flow/
+    │   └── main.md                    # 主编排：串并行 stage 依赖
+    ├── agents/                        # 角色定义
+    │   ├── developer/main.md          # 角色名片 + 模型/能力配置
+    │   ├── pm/main.md
+    │   └── tester/main.md
+    ├── stages/                        # 可复用步骤定义
+    │   ├── requirement/main.md        # 准出标准 + 产物定义
+    │   ├── design/main.md
+    │   ├── implement/main.md
+    │   ├── testing/main.md
+    │   └── review/main.md
+    └── iterations/                    # 运行日志，按 flow name 归档
+        └── <flow-name>/iter-*/
 ```
 
 ### 核心概念
@@ -262,19 +241,19 @@ my-project/                           # 用户项目根目录
 | **目标** | `task/goal.md` | 本次 harness 要达成什么 |
 | **角色** | `agents/xxx/main.md` | 角色名片 + 使用的模型 |
 | **知识库** | `agents/xxx/*.md` | 角色的专业资料，按需读取 |
-| **步骤** | `flows/xxx/README.md` | 定义产物、准出标准、参与角色 |
-| **产物** | `flows/xxx/output/` | 步骤的输出文件 |
-| **编排** | `flow.md` | 步骤顺序 + 输入输出衔接 |
+| **步骤** | `stages/xxx/main.md` | 定义产物、准出标准、参与角色 |
+| **产物** | `iterations/<flow-name>/iter-*/artifacts/` | 运行产物 |
+| **编排** | `flow/<name>/main.md` | 步骤顺序 + 输入输出衔接 |
 
 ### 执行流程
 
 ```
-解析 flow.md → 按步骤顺序遍历
+解析 flow/<name>/main.md → 按步骤顺序遍历
     ↓
 每步骤:
   1. 读取 task/goal.md (任务目标)
   2. 读取参与角色的 main.md + 知识库文件
-  3. 读取步骤 README.md (准出标准)
+  3. 读取 stage main.md (准出标准)
   4. 读取上一步骤的 output/ (输入链)
   5. 组装 prompt → 调用 Agent
   6. 解析输出 → 写入 output/

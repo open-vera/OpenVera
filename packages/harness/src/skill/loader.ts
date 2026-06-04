@@ -15,7 +15,7 @@
 //     - bash
 //   ---
 //
-//   （body 作为 systemFragment 注入）
+//   Directory scans load metadata only; matched skills lazy-load the body.
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, extname } from "node:path";
@@ -141,7 +141,28 @@ export function loadSkillFile(
 ): Skill {
   const raw = readFileSync(filePath, "utf8");
   const { meta, body } = parseFrontmatter(raw);
+  return buildSkill(filePath, meta, body, toolProvider);
+}
 
+export function loadSkillMetadataFile(
+  filePath: string,
+  toolProvider?: BuiltinToolProvider
+): Skill {
+  const raw = readFileSync(filePath, "utf8");
+  const { meta } = parseFrontmatter(raw);
+  const skill = buildSkill(filePath, meta, "", undefined);
+  return {
+    ...skill,
+    load: () => loadSkillFile(filePath, toolProvider),
+  };
+}
+
+function buildSkill(
+  filePath: string,
+  meta: Record<string, unknown>,
+  body: string,
+  toolProvider?: BuiltinToolProvider,
+): Skill {
   const id = String(meta.id ?? filePath);
   const name = String(meta.name ?? id);
   const description = String(meta.description ?? "");
@@ -168,6 +189,7 @@ export function loadSkillFile(
     name,
     description,
     triggers,
+    sourcePath: filePath,
     systemFragment: fragments.length > 0 ? fragments.join("\n\n") : undefined,
     tools: skillTools.length > 0 ? skillTools : undefined,
   };
@@ -191,7 +213,7 @@ export function loadSkillDir(
     .filter((f) => extname(f) === ".md")
     .map((f) => {
       try {
-        return loadSkillFile(join(dir, f), toolProvider);
+        return loadSkillMetadataFile(join(dir, f), toolProvider);
       } catch {
         return null;
       }

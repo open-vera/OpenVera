@@ -1,5 +1,5 @@
+import React, { useState, useEffect } from "react";
 import { Box, Text } from "ink";
-import { useState, useEffect } from "react";
 import type { StreamStatus } from "./types.js";
 import { theme } from "./theme.js";
 

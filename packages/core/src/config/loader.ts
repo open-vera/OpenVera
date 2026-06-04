@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { dirname } from "path";
 import type { VeraConfig } from "./types.js";
 import { ConfigError } from "../errors.js";
-import { createLogger } from "../utils/logger.js";
+import { createLogger } from "@open-vera/logger";
 import { resolveConfigLocation } from "./paths.js";
 import { migrateClaudeCodeConfigIfAvailable } from "./claude-code-migration.js";
 import { syncExternalResources } from "./resource-sync.js";

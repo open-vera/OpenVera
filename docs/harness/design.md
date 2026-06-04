@@ -100,7 +100,7 @@ Harness 的核心不是"多起几个 agent 一起跑"，而是**认知职责必�
 ```
 ┌──────────────────────────────────────────────────────────┐
 │                    Planner（计划驱动）                      │
-│     读取 .flow/ 目录 → 生成 ExecutionPlan → 含每步 challenge│
+│     读取 .vera/flows/ 目录 → 生成 ExecutionPlan → 含每步 challenge│
 └──────────────────────────────────────────────────────────┘
         │                   │                   │
         ▼                   ▼                   ▼
@@ -115,7 +115,7 @@ Harness 的核心不是"多起几个 agent 一起跑"，而是**认知职责必�
 
 | 角色 | 职责 | 关键约束 |
 |---|---|---|
-| **Planner** | 读 `.flow/` 上下文，生成结构化 ExecutionPlan，为每步定制 challenge prompt | flow.md 是建议不是命令；可增删步骤 |
+| **Planner** | 读 `.vera/flows/` 上下文，生成结构化 ExecutionPlan，为每步定制 challenge prompt | flow/<name>/main.md 是建议不是命令；可增删步骤 |
 | **Role Agent** | 按步骤 README.md 的准出标准执行，输出具体交付物 | 不拥有"完成"的判断权 |
 | **Challenger** | 系统内置对抗角色，对计划和每步产出独立打分，积累 lessons | 必须给出分值和 requiredFixes，拥有否决权 |
 | **Orchestrator** | 读取 ExecutionPlan，调度 agent 子进程，管理 context reset，执行门控 | 决定继续/返工/降级/转人工 |
@@ -124,14 +124,14 @@ Harness 的核心不是"多起几个 agent 一起跑"，而是**认知职责必�
 
 ---
 
-## .flow/ 目录结构
+## .vera/flows/ 目录结构
 
 所有定义用 Markdown 文件描述，不用 YAML schema。
 
 ```
 project/
-└── .flow/
-    ├── flow.md                    # 流程意图描述（对 Planner 是建议，不是命令）
+└── .vera/flows/
+    ├── flow/<name>/main.md                    # 流程意图描述（对 Planner 是建议，不是命令）
     ├── task/
     │   └── goal.md                # 任务目标
     ├── agents/
@@ -157,7 +157,7 @@ project/
             └── ...
 ```
 
-### flow.md 示例
+### flow/<name>/main.md 示例
 
 ```markdown
 ---
@@ -238,7 +238,7 @@ adapter: claude-code
 
 ## Planner 生成 ExecutionPlan
 
-Planner 读取整个 `.flow/` 上下文后，生成 JSON 格式的 ExecutionPlan。**每步都包含定制的 challenge prompt**，让 Challenger 的攻击角度与步骤性质匹配。
+Planner 读取整个 `.vera/flows/` 上下文后，生成 JSON 格式的 ExecutionPlan。**每步都包含定制的 challenge prompt**，让 Challenger 的攻击角度与步骤性质匹配。
 
 ```typescript
 interface ExecutionPlan {
@@ -303,7 +303,7 @@ Challenger 是系统内置的对抗角色，**不是某个具体的业务 agent*
 
 ### Lessons 积累机制
 
-每次运行后，Challenger 将发现的漏洞模式追加到 `.flow/challenger/lessons/{step}.md`：
+每次运行后，Challenger 将发现的漏洞模式追加到 `.vera/flows/challenger/lessons/{step}.md`：
 
 ```markdown
 ## 2026-04-04
@@ -325,7 +325,7 @@ Challenger 下次运行时会读取这些 lessons，**攻击角度越来越精�
 Orchestrator 启动
     │
     ▼
-Planner 读取 .flow/ 上下文
+Planner 读取 .vera/flows/ 上下文
     │
     ▼
 生成 ExecutionPlan（含每步 challengePrompt）
@@ -353,7 +353,7 @@ Challenger 审查 Plan ──→ 未通过 → 附 critique → Planner 修改�
 每次运行创建带时间戳的迭代目录，完整保留执行记录：
 
 ```
-.flow/iterations/iter-2026-04-04T05-59-08/
+.vera/flows/iterations/iter-2026-04-04T05-59-08/
 ├── plan.md                          # 本次 ExecutionPlan
 ├── plan-challenge.json              # 计划挑战结果
 ├── timeline.ndjson                  # 事件流水日志
@@ -454,17 +454,11 @@ interface TaskScope {
 ### CLI 入口
 
 ```bash
-# 在项目目录下运行（该目录有 .flow/）
-vera flow run
+# 在项目目录下运行（该目录有 .vera/flows/）
+vera run auto-dev
 
 # 指定项目目录
-vera flow run --dir ./my-project
-
-# 注入运行时变量
-vera flow run --dir ./demo --var PROJECT_ROOT=/abs/path
-
-# 从上次断点恢复
-vera flow run --dir ./demo --resume
+vera run auto-dev --dir ./my-project
 ```
 
 ### Flow 状态机
@@ -503,7 +497,7 @@ running
 |---|---|---|
 | **1. 生成型** | 快速产出，主流程看起来完成 | 边界、测试、补尾明显不足 |
 | **2. 分工式** | 角色开始区分，但流程硬编码在 YAML/代码里 | 不够灵活，复杂任务仍退回人工 |
-| **3. MD 驱动** | `.flow/` 描述意图，Planner 生成计划，steps 自治 | Challenger 还在写死规则 |
+| **3. MD 驱动** | `.vera/flows/` 描述意图，Planner 生成计划，steps 自治 | Challenger 还在写死规则 |
 | **4. 门控型** | Challenger 内置对抗验证，有否决权，失败有结构化处理 | lessons 积累但还不系统 |
 | **5. 运营型** | Challenger lessons 越跑越精准，系统可演进，质量可被经营 | — |
 

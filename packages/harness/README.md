@@ -55,7 +55,7 @@ A Role Agent never decides whether its own work is complete — that right belon
 
 ## Challenger Learns Over Time
 
-After every run the Challenger appends discovered failure patterns to `.flow/challenger/lessons/{step}.md`. On the next run it reads those lessons and applies them as attack angles — the system becomes harder to fool as it accumulates institutional knowledge about where this specific workflow tends to fail.
+After every run the Challenger appends discovered failure patterns to `.vera/flows/challenger/lessons/{step}.md`. On the next run it reads those lessons and applies them as attack angles — the system becomes harder to fool as it accumulates institutional knowledge about where this specific workflow tends to fail.
 
 ## Quick Start
 
@@ -75,7 +75,7 @@ await runtime.run("Refactor the authentication module and add unit tests");
 
 ```bash
 # Run a flow
-openvera flow run
+openvera run auto-dev
 
 # Launch REPL with Harness
 openvera repl --dir .

@@ -1,8 +1,0 @@
-{"ts":"2026-05-27T14:08:54.806Z","type":"flow_started","flowId":"iter-2026-05-27T14-08-54-804Z"}
-{"ts":"2026-05-27T14:08:54.807Z","type":"step_dispatched","flowId":"iter-2026-05-27T14-08-54-804Z","stepId":"flows/requirement","agentId":"pm"}
-{"ts":"2026-05-27T14:13:45.214Z","type":"critique_completed","flowId":"iter-2026-05-27T14-08-54-804Z","confidence":0.7,"detail":"flows/requirement"}
-{"ts":"2026-05-27T14:14:15.896Z","type":"critique_completed","flowId":"iter-2026-05-27T14-08-54-804Z","confidence":0.7,"detail":"replan:flows/requirement preserved=1 modified=[flows/design,flows/implement,flows/testing,flows/deploy] added=[] removed=[]"}
-{"ts":"2026-05-27T14:14:15.897Z","type":"step_dispatched","flowId":"iter-2026-05-27T14-08-54-804Z","stepId":"flows/design","agentId":"developer"}
-{"ts":"2026-05-27T14:15:39.767Z","type":"critique_completed","flowId":"iter-2026-05-27T14-08-54-804Z","confidence":0,"detail":"flows/design"}
-{"ts":"2026-05-27T14:16:13.836Z","type":"critique_completed","flowId":"iter-2026-05-27T14-08-54-804Z","confidence":0,"detail":"replan:flows/design preserved=2 modified=[flows/implement,flows/testing,flows/deploy] added=[] removed=[]"}
-{"ts":"2026-05-27T14:16:13.837Z","type":"flow_completed","flowId":"iter-2026-05-27T14-08-54-804Z"}

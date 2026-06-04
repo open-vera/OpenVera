@@ -96,8 +96,8 @@
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch --preserveWatchOutput",
-    "dev": "tsx src/main.ts",
-    "dev:watch": "tsx watch --clear-screen=false src/main.ts",
+    "dev": "tsx --tsconfig tsconfig.json src/main.ts",
+    "dev:watch": "tsx watch --clear-screen=false --tsconfig tsconfig.json src/main.ts",
     "release": "pnpm build && pnpm publish --no-git-checks",
     "test": "vitest run",
     "test:smoke": "vitest run tests/p0-alignment-smoke.test.ts",
@@ -106,6 +106,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@open-vera/logger": "workspace:*",
     "@anthropic-ai/sdk": "^0.54.0",
     "@google/generative-ai": "^0.24.1",
     "@types/figlet": "^1.7.0",

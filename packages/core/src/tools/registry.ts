@@ -12,7 +12,7 @@ import type {
 import { toolDefToSchema, errorResult } from "./types.js";
 import { executeWithTimeout } from "./executor.js";
 import { ToolStatsCollector } from "./tool-stats.js";
-import { createLogger, previewForLog, sanitizeForLog } from "../utils/logger.js";
+import { createLogger, previewForLog, sanitizeForLog } from "@open-vera/logger";
 
 const log = createLogger("tool:registry");
 

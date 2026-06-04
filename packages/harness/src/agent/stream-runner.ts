@@ -2,7 +2,7 @@ import type { LLMAdapter } from "@open-vera/core/adapters";
 import type { AgentAssignment, StepResult } from "@open-vera/core/types";
 import type { RunAssignmentOptions } from "../runtime/internal.js";
 import type { AgentRunner } from "./types.js";
-import { createLogger } from "@open-vera/core";
+import { createLogger } from "@open-vera/logger";
 
 const log = createLogger("harness:stream-runner");
 
@@ -45,6 +45,12 @@ export class StreamAgentRunner implements AgentRunner {
   ): Promise<StepResult> {
     const startMs = Date.now();
     const { streamAgent } = await import("@open-vera/core/agent");
+    const bundle = assignment.assignedAgent
+      ? options.agentSkillBundles?.[assignment.assignedAgent]
+      : undefined;
+    const tools = bundle?.tools ?? options.tools;
+    const system = bundle?.system ?? options.system;
+    const executors = bundle?.executors ?? options.executors;
 
     const prompt = buildAssignmentPrompt(assignment);
     const toolCalls: StepResult["toolCalls"] = [];
@@ -56,13 +62,13 @@ export class StreamAgentRunner implements AgentRunner {
       {
         adapter: this.adapter,
         model: this.model,
-        tools: options.tools,
-        system: options.system,
+        tools,
+        system,
         maxTurns: options.maxTurns,
         onToolCall: async (name: string, args: Record<string, unknown>) => {
           let result: string;
-          if (options.executors?.has(name)) {
-            result = await options.executors.get(name)!(args);
+          if (executors?.has(name)) {
+            result = await executors.get(name)!(args);
           } else if (options.onToolCall) {
             result = await options.onToolCall(name, args);
           } else {

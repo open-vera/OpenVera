@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import { useMemo } from "react";
+import React, { useMemo } from "react";
 import figlet from "figlet";
 import type { RoutingInfo } from "./types.js";
 import { InputBar } from "./InputBar.js";

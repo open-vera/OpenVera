@@ -14,6 +14,7 @@ import type {
   TaskScope,
   Tool,
 } from "@open-vera/core/types";
+import type { SkillBundle } from "../skill/index.js";
 
 export interface LegacyChallengeIssue {
   severity: "critical" | "major" | "minor";
@@ -28,21 +29,6 @@ export interface LegacyChallengeResult {
   critiques: LegacyChallengeIssue[];
   verdict: string;
   requiredFixes: string[];
-}
-
-export interface MarkdownFlowStepInput {
-  index: number;
-  name: string;
-  dir: string;
-  agents: string[];
-  inputs: string[];
-}
-
-export interface MarkdownFlowInput {
-  workspaceRel: string;
-  maxRetries: number;
-  steps: MarkdownFlowStepInput[];
-  rawFlowBody: string;
 }
 
 export type TimelineEntry = RuntimeEvent & {
@@ -91,6 +77,7 @@ export interface RunAssignmentOptions {
   tools?: Tool[];
   system?: string;
   maxTurns?: number;
+  agentSkillBundles?: Record<string, SkillBundle>;
   /** Pre-resolved executors from SkillResolver; if provided, onToolCall is ignored */
   executors?: Map<string, (args: Record<string, unknown>) => Promise<string> | string>;
   onToolCall?: (
@@ -199,6 +186,7 @@ export interface StepExecutionBundle {
 
 export type FlowLoopEvent =
   | { type: "step_start"; stepId: string }
+  | { type: "batch_start"; stepIds: string[] }
   | { type: "step_result"; stepId: string; score: number; passed: boolean; nextAction: string }
   | { type: "step_retry"; stepId: string }
   | { type: "replan"; stepId: string; diff: PlanDiff }
@@ -206,6 +194,7 @@ export type FlowLoopEvent =
 
 export interface RunFlowLoopOptions extends RunAssignmentOptions {
   maxSteps?: number;
+  maxParallel?: number;
   stepReadmeByStepId?: Record<string, string>;
   stepPromptByStepId?: Record<string, string>;
   onEvent?: (event: FlowLoopEvent) => void;

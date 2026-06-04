@@ -1,5 +1,5 @@
 import { useApp, useStdout, Box, Text } from "ink";
-import { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { loadAgentDefinitions } from "../../agent/subagent.js";
 import { shouldPlan } from "../../intent/classifier.js";
 import type { IntentResult } from "../../intent/classifier.js";

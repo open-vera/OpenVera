@@ -1,6 +1,6 @@
+import React, { useState, useRef, useMemo, useEffect, useLayoutEffect } from "react";
 import { Box, Text, useInput, useStdin } from "ink";
 import type { Key } from "ink";
-import { useState, useRef, useMemo, useEffect, useLayoutEffect } from "react";
 import { debugLog } from "../debugLog.js";
 import { theme } from "./theme.js";
 import stringWidth from "string-width";

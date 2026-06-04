@@ -1,3 +1,4 @@
+import React from "react";
 import { Box, Text } from "ink";
 import { theme } from "./theme.js";
 import type { ActiveTurnState } from "./state/turnStore.js";

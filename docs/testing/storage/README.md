@@ -12,17 +12,17 @@ pnpm typecheck
 pnpm test
 pnpm --filter @open-vera/core typecheck
 pnpm --filter @open-vera/core test
-pnpm --filter @vera/admin-ui-server build
-pnpm --filter @vera/admin-ui-web build
-pnpm --filter @vera/core-ui-web build
+pnpm --filter @open-vera/gateway build
+pnpm --filter @vera/gateway-ui-server build
+pnpm --filter @vera/gateway-ui-web build
 ```
 
 Current passing baseline after the latest merge:
 
 - Core: 75 test files, 1054 tests
 - Harness: 15 test files, 268 tests
-- Root typecheck: core, harness, benchmark, harness-ui server
-- UI builds: admin-ui server, admin-ui web, core-ui web
+- Root typecheck: core, harness, benchmark, gateway packages
+- UI builds: gateway-ui server, gateway-ui web
 
 ## Feature Surface To Cover
 
@@ -145,10 +145,8 @@ packages/core/src/storage/tests/session-migration-edge.test.ts
 packages/core/src/storage/tests/storage-query-integration.test.ts
 packages/core/src/storage/tests/memory-persistence-search.test.ts
 packages/core/tests/session-sqlite-branch-errors.test.ts
-apps/harness-ui/server/tests/routes.test.ts
-apps/admin-ui/server/tests/routes.test.ts
-apps/core-ui/tests/smoke.spec.ts
-apps/admin-ui/web/tests/smoke.spec.ts
+apps/gateway-ui/server/tests/routes.test.ts
+apps/gateway-ui/web/tests/smoke.spec.ts
 ```
 
 If UI Playwright is too heavy for this phase, start with server route smoke tests and keep browser smoke as a follow-up.
@@ -277,9 +275,9 @@ Use this before merging storage/UI changes:
 - [ ] `pnpm typecheck`
 - [ ] `pnpm test`
 - [ ] `pnpm --filter @open-vera/core test`
-- [ ] `pnpm --filter @vera/admin-ui-server build`
-- [ ] `pnpm --filter @vera/admin-ui-web build`
-- [ ] `pnpm --filter @vera/core-ui-web build`
+- [ ] `pnpm --filter @open-vera/gateway build`
+- [ ] `pnpm --filter @vera/gateway-ui-server build`
+- [ ] `pnpm --filter @vera/gateway-ui-web build`
 - [ ] SQLite session black-box flow passes.
 - [ ] Data export black-box flow passes.
 - [ ] UI/API smoke passes.

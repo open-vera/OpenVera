@@ -344,7 +344,7 @@ Subagents inherit parent Harness constraints. They cannot escalate permissions. 
 
 ### 5. Challenger Learns — Attacks Get Sharper Over Time
 
-After every run, the Challenger appends discovered failure patterns to `.flow/challenger/lessons/{step}.md`. On the next run, it reads those lessons and applies them as attack angles. Over time, the system becomes harder to fool — not because the model improves, but because the framework accumulates institutional knowledge about where this specific codebase or workflow tends to fail.
+After every run, the Challenger appends discovered failure patterns to `.vera/flows/challenger/lessons/{step}.md`. On the next run, it reads those lessons and applies them as attack angles. Over time, the system becomes harder to fool — not because the model improves, but because the framework accumulates institutional knowledge about where this specific codebase or workflow tends to fail.
 
 ### 6. Self-Evolution Through a Governed Pipeline
 

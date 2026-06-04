@@ -21,14 +21,14 @@ packages/harness/src/
     timeline.ts       appendTimeline——NDJSON trace 写入
     artifacts.ts      Artifact 存储
     proposal.ts       PolicyProposal 生成（stub）
-    markdown.ts       Markdown Flow 格式解析
+    flow-config/      `.vera/flows` Flow/Stage/Agent 配置解析
     planner.ts        planFromPrompt（LLM 生成 ExecutionPlan）
     plan-parser.ts    LLM 计划解析（JSON/list fallback）
     flow-state.ts     Flow 状态机与合法迁移校验
     json.ts           critique/planner JSON 纠错与重试
   cli/
     flow-run.ts       CLI 入口
-    plan.ts           markdownToPlan
+    plan.ts           flowDefinitionToPlan
     adapter.ts        CLI adapter 适配
     repl-plan-executor.ts REPL Plan Executor（plan → act → critique）
 ```

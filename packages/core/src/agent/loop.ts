@@ -1,6 +1,7 @@
 import type { LLMAdapter } from "../adapters/base.js";
 import type {
   CompletionRequest,
+  CompletionResponse,
   Message,
   Tool,
   ContentPart,
@@ -36,7 +37,7 @@ import {
   insertCompressionInstruction,
   resolveInsertCompress,
 } from "../context/compression.js";
-import { createLogger, previewForLog, sanitizeForLog, truncateForLog } from "../utils/logger.js";
+import { createLogger, previewForLog, sanitizeForLog, truncateForLog } from "@open-vera/logger";
 
 const log = createLogger("agent:loop");
 
@@ -437,6 +438,199 @@ async function tryReactiveCompact(
   return { messages: compressed.messages, compressionState: compressed.state, retries: reactiveRetries + 1 };
 }
 
+type CompletionAttempt =
+  | { status: "ok"; response: CompletionResponse }
+  | {
+      status: "retry";
+      messages: Message[];
+      compressionState: CompressionState | null;
+      reactiveRetries: number;
+    };
+
+type ReactiveCompactRetry = {
+  status: "retry";
+  messages: Message[];
+  compressionState: CompressionState | null;
+  reactiveRetries: number;
+};
+
+async function reactiveCompactOnError(
+  err: unknown,
+  messages: Message[],
+  compressionState: CompressionState | null,
+  reactiveRetries: number,
+  maxReactiveRetries: number,
+  options: AgentOptions,
+  adapter: LLMAdapter,
+  model: string,
+  microCompactState: MicroCompactState | null,
+  hooks: AgentHooks | undefined
+): Promise<ReactiveCompactRetry | null> {
+  const rc = await tryReactiveCompact(
+    err,
+    messages,
+    compressionState,
+    reactiveRetries,
+    maxReactiveRetries,
+    options,
+    adapter,
+    model,
+    microCompactState,
+    hooks
+  );
+  if (!rc) return null;
+  return {
+    status: "retry",
+    messages: rc.messages,
+    compressionState: rc.compressionState,
+    reactiveRetries: rc.retries,
+  };
+}
+
+async function completeWithReactiveCompact(
+  request: CompletionRequest,
+  messages: Message[],
+  compressionState: CompressionState | null,
+  reactiveRetries: number,
+  maxReactiveRetries: number,
+  options: AgentOptions,
+  adapter: LLMAdapter,
+  model: string,
+  microCompactState: MicroCompactState | null,
+  hooks: AgentHooks | undefined
+): Promise<CompletionAttempt> {
+  try {
+    const response = await adapter.complete(request);
+    return { status: "ok", response };
+  } catch (err) {
+    const retry = await reactiveCompactOnError(
+      err,
+      messages,
+      compressionState,
+      reactiveRetries,
+      maxReactiveRetries,
+      options,
+      adapter,
+      model,
+      microCompactState,
+      hooks
+    );
+    if (!retry) throw err;
+    return retry;
+  }
+}
+
+interface StreamTurnResult {
+  status: "ok";
+  turnText: string;
+  turnThinking: string;
+  turnUsage: Usage | undefined;
+  collectedToolCalls: Array<{ id: string; name: string; arguments: string }>;
+}
+
+async function streamTurnWithReactiveCompact(
+  request: CompletionRequest,
+  messages: Message[],
+  compressionState: CompressionState | null,
+  reactiveRetries: number,
+  maxReactiveRetries: number,
+  options: AgentOptions,
+  adapter: LLMAdapter,
+  model: string,
+  microCompactState: MicroCompactState | null,
+  hooks: AgentHooks | undefined,
+  onText: (delta: string) => void,
+  onThinking: ((text: string) => void) | undefined,
+  onUsage: ((usage: Usage) => void) | undefined
+): Promise<StreamTurnResult | ReactiveCompactRetry> {
+  const collectedToolCalls: Array<{ id: string; name: string; arguments: string }> = [];
+  let turnText = "";
+  let turnThinking = "";
+  let turnUsage: Usage | undefined;
+
+  try {
+    for await (const event of adapter.stream(request)) {
+      if (event.type === "text") {
+        onText(event.text);
+        turnText += event.text;
+      } else if (event.type === "thinking") {
+        onThinking?.(event.text);
+        turnThinking += event.text;
+      } else if (event.type === "tool_call") {
+        collectedToolCalls.push(event);
+      } else if (event.type === "done") {
+        turnUsage = event.usage;
+        if (event.usage) onUsage?.(event.usage);
+      }
+    }
+    return { status: "ok", turnText, turnThinking, turnUsage, collectedToolCalls };
+  } catch (err) {
+    const retry = await reactiveCompactOnError(
+      err,
+      messages,
+      compressionState,
+      reactiveRetries,
+      maxReactiveRetries,
+      options,
+      adapter,
+      model,
+      microCompactState,
+      hooks
+    );
+    if (!retry) throw err;
+    return retry;
+  }
+}
+
+function shouldOmitEmptyAssistantMessage(message: Message): boolean {
+  return (
+    message.role === "assistant" &&
+    !extractText(message).trim() &&
+    extractToolCalls(message).length === 0
+  );
+}
+
+async function resolveInsertCompressIfNeeded(
+  messages: Message[],
+  assistantText: string,
+  pendingCompression: InsertCompressPending | undefined,
+  compressionState: CompressionState | null,
+  hooks: AgentHooks | undefined
+): Promise<{ messages: Message[]; compressionState: CompressionState | null; assistantText: string }> {
+  if (!pendingCompression || !compressionState) {
+    return { messages, compressionState, assistantText };
+  }
+
+  const resolved = resolveInsertCompress(messages, assistantText, pendingCompression, compressionState);
+  if (!resolved) return { messages, compressionState, assistantText };
+
+  const lastMsg = resolved.messages[resolved.messages.length - 1];
+  await hooks?.onCompression?.("insert-resolved", resolved.messages.length, resolved.messages.length);
+  return {
+    messages: resolved.messages,
+    compressionState: resolved.state,
+    assistantText: lastMsg ? extractText(lastMsg) : assistantText,
+  };
+}
+
+function finalizeNoToolCalls(
+  assistantText: string,
+  lastTurnHadToolResults: boolean,
+  emptyAfterToolRetries: number,
+  turn: number,
+  maxTurns: number | undefined
+): { outcome: "done" | "retry_empty"; result?: string } {
+  if (
+    lastTurnHadToolResults &&
+    assistantText.trim() === "" &&
+    emptyAfterToolRetries < MAX_EMPTY_AFTER_TOOL_RETRIES &&
+    hasAnotherTurnAfter(turn, maxTurns)
+  ) {
+    return { outcome: "retry_empty" };
+  }
+  return { outcome: "done", result: assistantText };
+}
+
 // ── Non-streaming agent ───────────────────────────────────────────────────────
 
 /** Non-streaming run; returns the final text response. */
@@ -510,15 +704,26 @@ export async function runAgent(
       await hooks?.onTurnStart?.(turn, apiMessages);
 
       // ── API call with reactive compact ─────────────────────────────────
-      let response;
-      try {
-        response = await adapter.complete(request);
-        reactiveRetries = 0;
-      } catch (err) {
-        const rc = await tryReactiveCompact(err, messages, compressionState, reactiveRetries, MAX_REACTIVE_RETRIES, options, adapter, model, microCompactState, hooks);
-        if (rc) { messages = rc.messages; compressionState = rc.compressionState; reactiveRetries = rc.retries; continue; }
-        throw err;
+      const completion = await completeWithReactiveCompact(
+        request,
+        messages,
+        compressionState,
+        reactiveRetries,
+        MAX_REACTIVE_RETRIES,
+        options,
+        adapter,
+        model,
+        microCompactState,
+        hooks
+      );
+      if (completion.status === "retry") {
+        messages = completion.messages;
+        compressionState = completion.compressionState;
+        reactiveRetries = completion.reactiveRetries;
+        continue;
       }
+      reactiveRetries = 0;
+      const response = completion.response;
 
       // ── onTurnEnd (before tool execution) ─────────────────────────────
       let assistantText = extractText(response.message);
@@ -535,44 +740,41 @@ export async function runAgent(
         toolCalls: summarizeToolCallsForLog(extractToolCalls(response.message)),
       });
 
-      // Filter out empty assistant messages that would cause API errors
-      const isEmptyAssistant = response.message.role === "assistant" &&
-        !extractText(response.message).trim() &&
-        extractToolCalls(response.message).length === 0;
-      if (!isEmptyAssistant) {
+      if (!shouldOmitEmptyAssistantMessage(response.message)) {
         messages.push(response.message);
       }
       if (microCompactState) microCompactState = { ...microCompactState, lastAssistantTs: Date.now() };
 
       // ── OC1: Resolve insert-then-compress ─────────────────────────────
-      if (pendingCompression && compressionState) {
-        const resolved = resolveInsertCompress(messages, assistantText, pendingCompression, compressionState);
-        if (resolved) {
-          messages = resolved.messages;
-          compressionState = resolved.state;
-          // Re-extract assistant text from the (possibly trimmed) last message
-          const lastMsg = messages[messages.length - 1];
-          if (lastMsg) assistantText = extractText(lastMsg);
-          await hooks?.onCompression?.("insert-resolved", messages.length, messages.length);
-        }
-      }
+      const resolvedInsert = await resolveInsertCompressIfNeeded(
+        messages,
+        assistantText,
+        pendingCompression,
+        compressionState,
+        hooks
+      );
+      messages = resolvedInsert.messages;
+      compressionState = resolvedInsert.compressionState;
+      assistantText = resolvedInsert.assistantText;
 
       options.onContextUpdate?.(messages, { compressionState, microCompactState });
 
       const toolCalls = extractToolCalls(response.message);
       if (toolCalls.length === 0) {
-        if (
-          lastTurnHadToolResults &&
-          assistantText.trim() === "" &&
-          emptyAfterToolRetries < MAX_EMPTY_AFTER_TOOL_RETRIES &&
-          hasAnotherTurnAfter(turn, maxTurns)
-        ) {
+        const noTools = finalizeNoToolCalls(
+          assistantText,
+          lastTurnHadToolResults,
+          emptyAfterToolRetries,
+          turn,
+          maxTurns
+        );
+        if (noTools.outcome === "retry_empty") {
           messages.push({ role: "user", content: EMPTY_AFTER_TOOL_RESULT_PROMPT });
           emptyAfterToolRetries++;
           options.onContextUpdate?.(messages, { compressionState, microCompactState });
           continue;
         }
-        result = assistantText;
+        result = noTools.result ?? assistantText;
         break;
       }
 
@@ -718,37 +920,29 @@ export async function streamAgent(
       // ── onTurnStart ────────────────────────────────────────────────────
       await hooks?.onTurnStart?.(turn, apiMessages);
 
-      const collectedToolCalls: Array<{
-        id: string;
-        name: string;
-        arguments: string;
-      }> = [];
-      let turnText = "";
-      let turnThinking = "";
-      let turnUsage: Usage | undefined;
-
-      // ── Stream with reactive compact ───────────────────────────────────
-      try {
-        for await (const event of adapter.stream(request)) {
-          if (event.type === "text") {
-            onText(event.text);
-            turnText += event.text;
-          } else if (event.type === "thinking") {
-            onThinking?.(event.text);
-            turnThinking += event.text;
-          } else if (event.type === "tool_call") {
-            collectedToolCalls.push(event);
-          } else if (event.type === "done") {
-            turnUsage = event.usage;
-            if (event.usage) onUsage?.(event.usage);
-          }
-        }
-        reactiveRetries = 0;
-      } catch (err) {
-        const rc = await tryReactiveCompact(err, messages, compressionState, reactiveRetries, MAX_REACTIVE_RETRIES, options, adapter, model, microCompactState, hooks);
-        if (rc) { messages = rc.messages; compressionState = rc.compressionState; reactiveRetries = rc.retries; continue; }
-        throw err;
+      const streamResult = await streamTurnWithReactiveCompact(
+        request,
+        messages,
+        compressionState,
+        reactiveRetries,
+        MAX_REACTIVE_RETRIES,
+        options,
+        adapter,
+        model,
+        microCompactState,
+        hooks,
+        onText,
+        onThinking,
+        onUsage
+      );
+      if (streamResult.status === "retry") {
+        messages = streamResult.messages;
+        compressionState = streamResult.compressionState;
+        reactiveRetries = streamResult.reactiveRetries;
+        continue;
       }
+      reactiveRetries = 0;
+      const { turnText, turnThinking, turnUsage, collectedToolCalls } = streamResult;
 
       // ── onTurnEnd (before tool execution) ─────────────────────────────
       await hooks?.onTurnEnd?.(turn, turnUsage, turnText);
@@ -794,30 +988,33 @@ export async function streamAgent(
       if (microCompactState) microCompactState = { ...microCompactState, lastAssistantTs: Date.now() };
 
       // ── OC1: Resolve insert-then-compress ─────────────────────────────
-      if (pendingCompression && compressionState) {
-        const resolved = resolveInsertCompress(messages, turnText, pendingCompression, compressionState);
-        if (resolved) {
-          messages = resolved.messages;
-          compressionState = resolved.state;
-          await hooks?.onCompression?.("insert-resolved", messages.length, messages.length);
-        }
-      }
+      const resolvedInsert = await resolveInsertCompressIfNeeded(
+        messages,
+        turnText,
+        pendingCompression,
+        compressionState,
+        hooks
+      );
+      messages = resolvedInsert.messages;
+      compressionState = resolvedInsert.compressionState;
 
       options.onContextUpdate?.(messages, { compressionState, microCompactState });
 
       if (collectedToolCalls.length === 0) {
-        if (
-          lastTurnHadToolResults &&
-          turnText.trim() === "" &&
-          emptyAfterToolRetries < MAX_EMPTY_AFTER_TOOL_RETRIES &&
-          hasAnotherTurnAfter(turn, maxTurns)
-        ) {
+        const noTools = finalizeNoToolCalls(
+          turnText,
+          lastTurnHadToolResults,
+          emptyAfterToolRetries,
+          turn,
+          maxTurns
+        );
+        if (noTools.outcome === "retry_empty") {
           messages.push({ role: "user", content: EMPTY_AFTER_TOOL_RESULT_PROMPT });
           emptyAfterToolRetries++;
           options.onContextUpdate?.(messages, { compressionState, microCompactState });
           continue;
         }
-        finalText = turnText;
+        finalText = noTools.result ?? turnText;
         break;
       }
 

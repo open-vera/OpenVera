@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import { Box, Text } from "ink";
 import type { ChatMessage, PlanStepUI } from "./types.js";
 import { ToolResultView } from "./ToolResultView.js";

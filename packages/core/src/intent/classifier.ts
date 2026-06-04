@@ -1,7 +1,7 @@
 import type { LLMAdapter } from "../adapters/base.js";
 import type { RoutingConfig, RoutingTarget } from "../config/types.js";
 import type { ContentPart, Usage } from "../types/index.js";
-import { createLogger } from "../utils/logger.js";
+import { createLogger } from "@open-vera/logger";
 
 const log = createLogger("intent");
 

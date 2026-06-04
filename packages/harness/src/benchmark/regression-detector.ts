@@ -6,7 +6,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { dirname } from "node:path";
 import type { BenchmarkResult } from "./harness.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────

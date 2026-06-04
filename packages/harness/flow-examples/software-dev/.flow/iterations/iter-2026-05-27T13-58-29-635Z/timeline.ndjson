@@ -1,7 +1,0 @@
-{"ts":"2026-05-27T13:58:29.636Z","type":"flow_started","flowId":"iter-2026-05-27T13-58-29-635Z"}
-{"ts":"2026-05-27T13:59:36.275Z","type":"critique_completed","flowId":"iter-2026-05-27T13-58-29-635Z","confidence":0.75,"detail":"plan"}
-{"ts":"2026-05-27T13:59:36.276Z","type":"step_dispatched","flowId":"iter-2026-05-27T13-58-29-635Z","stepId":"flows/requirement","agentId":"pm"}
-{"ts":"2026-05-27T14:00:40.986Z","type":"critique_completed","flowId":"iter-2026-05-27T13-58-29-635Z","confidence":0,"detail":"flows/requirement"}
-{"ts":"2026-05-27T14:01:27.576Z","type":"critique_completed","flowId":"iter-2026-05-27T13-58-29-635Z","confidence":0,"detail":"replan:flows/requirement preserved=1 modified=[flows/design,flows/implement,flows/testing,flows/deploy] added=[flows/prepare_requirement] removed=[]"}
-{"ts":"2026-05-27T14:01:27.577Z","type":"step_dispatched","flowId":"iter-2026-05-27T13-58-29-635Z","stepId":"flows/prepare_requirement","agentId":"pm"}
-{"ts":"2026-05-27T14:03:49.912Z","type":"critique_completed","flowId":"iter-2026-05-27T13-58-29-635Z","confidence":0.85,"detail":"flows/prepare_requirement"}

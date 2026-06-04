@@ -20,7 +20,7 @@ import type { StepResult } from "@open-vera/core/types";
 import type { HarnessRuntime } from "../runtime/runtime.js";
 import type { FlowHandle, FlowLoopResult } from "../runtime/internal.js";
 import type { CriticAgent, CriticResult } from "../critic/index.js";
-import { createLogger } from "@open-vera/core";
+import { createLogger } from "@open-vera/logger";
 
 const log = createLogger("harness:self-loop");
 

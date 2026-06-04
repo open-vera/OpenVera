@@ -18,7 +18,7 @@
     "ai": "./dist/cli/index.js"
   },
   "scripts": {
-    "dev": "VERA_CONFIG_DIR=../../.vera tsx --conditions=development src/cli/index.ts repl --dir ../..",
+    "dev": "VERA_CONFIG_DIR=../../.vera tsx --conditions=development --tsconfig tsconfig.json src/cli/index.ts repl --dir ../..",
     "build": "tsc",
     "postbuild": "chmod +x dist/cli/index.js",
     "release": "pnpm build && pnpm publish --no-git-checks",
@@ -27,6 +27,9 @@
   },
   "dependencies": {
     "@open-vera/core": "workspace:*",
+    "@open-vera/gateway": "workspace:*",
+    "@open-vera/logger": "workspace:*",
+    "@open-vera/shared": "workspace:*",
     "tsx": "^4.19.0"
   },
   "devDependencies": {

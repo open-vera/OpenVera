@@ -5,7 +5,7 @@
  * multi-run averaging, and regression detection.
  */
 
-import type { EvalCase, EvalResult, EvalReport, AgentExecutor, AgentResponse } from "../eval/harness.js";
+import type { EvalCase, EvalResult, AgentExecutor } from "../eval/harness.js";
 import { EvalHarness } from "../eval/harness.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────

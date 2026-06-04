@@ -1,38 +1,41 @@
 import type { ExecutionPlan } from "@open-vera/core/types";
-import type { MarkdownFlowInput } from "../runtime/internal.js";
+import type { FlowDefinition, FlowStageRef, StageDefinition } from "../flow-config/index.js";
 
 /**
- * Convert a parsed MarkdownFlowInput into an ExecutionPlan.
- * Steps are chained sequentially (each depends on the previous).
+ * Convert a parsed FlowDefinition into an ExecutionPlan.
+ * Stage dependencies come directly from flow/<name>/main.md, so independent stages
+ * can be dispatched in parallel by the runtime.
  */
-export function markdownToPlan(input: MarkdownFlowInput, flowId: string): ExecutionPlan {
-  const goal = extractGoal(input.rawFlowBody);
+export function flowDefinitionToPlan(input: FlowDefinition, flowId: string): ExecutionPlan {
   return {
     planId: flowId,
-    goal,
+    goal: input.goal,
     assumptions: [],
-    steps: input.steps.map((step, i) => ({
-      id: step.dir,
+    steps: input.stages.map((step) => ({
+      id: step.id,
       type: "delegate" as const,
-      action:
-        `Execute "${step.name}"` +
-        (step.agents.length ? ` — agents: ${step.agents.join(", ")}` : ""),
-      dependsOn: i > 0 ? [input.steps[i - 1]!.dir] : [],
-      assignedAgent: step.agents[0],
+      action: buildStageInstruction(step, input.stageDefinitions.get(step.stage)),
+      dependsOn: step.dependsOn,
+      assignedAgent: resolveStageAgents(step, input.stageDefinitions.get(step.stage))[0],
       status: "pending" as const,
     })),
     risk: "medium" as const,
   };
 }
 
-function extractGoal(body: string): string {
-  // Look for a "# 目标" / "# Goal" section and take its first non-empty line
-  const match = body.match(/^#\s+(?:目标|Goal)\s*\n([\s\S]*?)(?=\n#|$)/m);
-  if (match) {
-    const first = match[1]!.split("\n").find((l) => l.trim());
-    if (first) return first.trim();
-  }
-  // Fallback: first non-heading non-blank line
-  const first = body.split("\n").find((l) => l.trim() && !l.startsWith("#"));
-  return first?.trim() ?? "Execute flow";
+function buildStageInstruction(step: FlowStageRef, definition?: StageDefinition): string {
+  const agents = resolveStageAgents(step, definition);
+  const lines = [
+    `Execute stage "${definition?.name ?? step.stage}"`,
+    ``,
+    `Stage id: ${step.id}`,
+    `Stage definition: ${step.stage}`,
+  ];
+  if (agents.length) lines.push(`Agents: ${agents.join(", ")}`);
+  if (definition?.body) lines.push(``, definition.body);
+  return lines.join("\n");
+}
+
+function resolveStageAgents(step: FlowStageRef, definition?: StageDefinition): string[] {
+  return step.agents.length > 0 ? step.agents : definition?.agents ?? [];
 }

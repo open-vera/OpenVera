@@ -4,7 +4,7 @@ import type {
   JsonCompletionResult,
 } from "./internal.js";
 import type { Message, ContentPart } from "@open-vera/core/types";
-import { createLogger } from "@open-vera/core";
+import { createLogger } from "@open-vera/logger";
 
 const log = createLogger("harness:json");
 

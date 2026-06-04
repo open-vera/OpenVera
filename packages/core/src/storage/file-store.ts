@@ -9,6 +9,7 @@ import type {
   StorageQueryResult,
 } from "./types.js";
 import { StorageBackendError, StorageTransactionError } from "./types.js";
+import { entryMatchesStorageQuery } from "./entry-filter.js";
 
 interface NamespaceData {
   entries: Record<string, StorageEntry>;
@@ -384,35 +385,9 @@ export class FileStore implements StorageProvider {
     const results: Array<{ key: string; entry: StorageEntry }> = [];
 
     for (const [key, entry] of Object.entries(entries)) {
-      if (!filter.includeExpired && this.isExpired(entry)) continue;
-
-      if (filter.keyPrefix && !key.startsWith(filter.keyPrefix)) continue;
-
-      if (filter.keyPattern) {
-        if (!this.matchGlob(key, filter.keyPattern)) continue;
+      if (!entryMatchesStorageQuery(key, entry, filter, (e) => this.isExpired(e), (v, p) => this.matchGlob(v, p))) {
+        continue;
       }
-
-      if (filter.tags?.length) {
-        const entryTags = entry.tags ?? [];
-        if (!filter.tags.every((t) => entryTags.includes(t))) continue;
-      }
-
-      if (filter.hasTtl !== undefined) {
-        const hasTtl = Boolean(entry.ttl && entry.ttl > 0);
-        if (filter.hasTtl !== hasTtl) continue;
-      }
-
-      if (filter.createdAfter && entry.createdAt <= filter.createdAfter) continue;
-      if (filter.createdBefore && entry.createdAt >= filter.createdBefore) continue;
-      if (filter.updatedAfter && entry.updatedAt <= filter.updatedAfter) continue;
-      if (filter.updatedBefore && entry.updatedAt >= filter.updatedBefore) continue;
-
-      if (filter.fullTextSearch) {
-        const needle = filter.fullTextSearch.toLowerCase();
-        const haystack = JSON.stringify(entry.value).toLowerCase();
-        if (!haystack.includes(needle)) continue;
-      }
-
       results.push({ key, entry });
     }
 

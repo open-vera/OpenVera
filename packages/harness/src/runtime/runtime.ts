@@ -26,7 +26,6 @@ import {
   updateFlowState,
   attachArtifacts,
 } from "./flow.js";
-import { readMarkdownFlow } from "./markdown.js";
 import { createProposalFromRetrospective } from "./proposal.js";
 import { appendTimeline, createArtifactStore } from "./timeline.js";
 import type {
@@ -39,7 +38,6 @@ import type {
   FlowHandle,
   FlowLoopEvent,
   FlowLoopResult,
-  MarkdownFlowInput,
   PlanCritiqueInput,
   PlanDiff,
   ReplanInput,
@@ -59,7 +57,7 @@ import type { ResumeOptions, ForkOptions } from "./internal.js";
 import { SelfLoopRunner } from "../flow/self-loop.js";
 import type { SelfLoopRunnerConfig, SelfLoopResult } from "../flow/self-loop.js";
 import type { CriticAgent } from "../critic/critic-agent.js";
-import { createLogger } from "@open-vera/core";
+import { createLogger } from "@open-vera/logger";
 
 const log = createLogger("harness:runtime");
 
@@ -91,6 +89,23 @@ function clonePlanWithStepStatus(
 
 function getPendingStepId(plan: ExecutionPlan | undefined): string | undefined {
   return plan?.steps.find((step) => step.status === "pending")?.id;
+}
+
+function getDispatchableStepIds(
+  plan: ExecutionPlan | undefined,
+  limit: number
+): string[] {
+  if (!plan) return [];
+  const doneIds = new Set(
+    plan.steps.filter((step) => step.status === "done").map((step) => step.id)
+  );
+  return plan.steps
+    .filter((step) => {
+      if (step.status !== "pending") return false;
+      return (step.dependsOn ?? []).every((dep) => doneIds.has(dep));
+    })
+    .slice(0, Math.max(1, limit))
+    .map((step) => step.id);
 }
 
 /**
@@ -169,10 +184,6 @@ export class HarnessRuntime {
     return runner;
   }
 
-  async loadMarkdownFlow(flowDir: string): Promise<MarkdownFlowInput> {
-    return readMarkdownFlow(flowDir);
-  }
-
   /**
    * Generate an ExecutionPlan from a natural-language goal and start a Flow.
    * This is the "从用户输入到完整执行" entry point — replaces the need to
@@ -247,17 +258,18 @@ export class HarnessRuntime {
       assignedAgent: step.assignedAgent,
     };
 
-    const flow = updateFlowState(
-      {
-        ...handle.flow,
-        activeStepId: step.id,
-        assignedAgents: step.assignedAgent
-          ? [step.assignedAgent]
-          : handle.flow.assignedAgents,
-        plan: clonePlanWithStepStatus(handle.flow.plan, step.id, "running"),
-      },
-      "executing"
-    );
+    const nextFlow = {
+      ...handle.flow,
+      activeStepId: step.id,
+      assignedAgents: step.assignedAgent
+        ? [step.assignedAgent]
+        : handle.flow.assignedAgents,
+      plan: clonePlanWithStepStatus(handle.flow.plan, step.id, "running"),
+    };
+    const flow =
+      handle.flow.state === "executing"
+        ? nextFlow
+        : updateFlowState(nextFlow, "executing");
 
     void appendTimeline(handle.store, {
       ts: now(),
@@ -457,131 +469,181 @@ export class HarnessRuntime {
     let handle = initialHandle;
     const completedSteps: string[] = [];
     const maxSteps = options.maxSteps ?? handle.flow.plan?.steps.length ?? 0;
+    const maxParallel = Math.max(1, options.maxParallel ?? 1);
 
-    log.info("flow loop start", { flowId: handle.flow.flowId, maxSteps, goal: handle.flow.goal });
+    log.info("flow loop start", { flowId: handle.flow.flowId, maxSteps, maxParallel, goal: handle.flow.goal });
 
-    for (let count = 0; count < maxSteps; count++) {
+    for (let count = 0; count < maxSteps;) {
       const pendingStepId = getPendingStepId(handle.flow.plan);
       if (!pendingStepId) {
         handle = this.completeFlow(handle);
         return { handle, completedSteps };
       }
 
-      const dispatched = this.dispatchStep(handle, pendingStepId);
-      handle = dispatched.handle;
-
-      // Enrich assignment with step README if available
-      const stepReadme = options.stepReadmeByStepId?.[pendingStepId];
-      if (stepReadme) {
-        dispatched.assignment = {
-          ...dispatched.assignment,
-          instruction: `${dispatched.assignment.instruction}\n\n## 步骤详细说明\n\n${stepReadme}`,
-        };
-      }
-
-      options.onEvent?.({ type: "step_start", stepId: pendingStepId });
-
-      const executed = await this.runAgentAssignment(
-        handle,
-        dispatched.assignment,
-        options
+      const stepIds = getDispatchableStepIds(
+        handle.flow.plan,
+        Math.min(maxParallel, maxSteps - count)
       );
-      handle = executed.handle;
+      if (stepIds.length === 0) {
+        break;
+      }
+      count += stepIds.length;
 
-      const critique = await this.runStepCritique(handle, {
-        stepName: executed.assignment.stepId,
-        goal: handle.flow.goal,
-        stepReadme:
-          options.stepReadmeByStepId?.[executed.assignment.stepId] ??
-          executed.assignment.instruction,
-        customChallengePrompt:
-          options.stepPromptByStepId?.[executed.assignment.stepId],
-        outputs: buildStepCritiqueOutputs(executed.result),
+      await appendTimeline(handle.store, {
+        ts: now(),
+        type: "batch_started",
+        flowId: handle.flow.flowId,
+        stepIds,
+        detail: `parallel=${stepIds.length}`,
       });
-      handle = critique.handle;
+      options.onEvent?.({ type: "batch_start", stepIds });
 
-      const nextAction = critique.result.critique.nextAction;
-      options.onEvent?.({
-        type: "step_result",
-        stepId: executed.assignment.stepId,
-        score: critique.result.critique.confidence,
-        passed: nextAction === "complete",
-        nextAction,
-      });
+      const dispatchedBatch: AssignmentBundle[] = [];
+      for (const stepId of stepIds) {
+        const dispatched = this.dispatchStep(handle, stepId);
+        handle = dispatched.handle;
 
-      if (nextAction === "complete") {
-        completedSteps.push(executed.assignment.stepId);
-        // Generate retrospective to capture lessons from this step
-        try {
-          const retro = await this.runStepRetrospective(
-            handle,
-            executed.assignment.stepId,
-            critique.result.critique
-          );
-          handle = retro.handle;
-        } catch {
-          // Retrospective is non-blocking; continue even if it fails
+        const stepReadme = options.stepReadmeByStepId?.[stepId];
+        if (stepReadme) {
+          dispatched.assignment = {
+            ...dispatched.assignment,
+            instruction: `${dispatched.assignment.instruction}\n\n## 步骤详细说明\n\n${stepReadme}`,
+          };
         }
-        handle = {
-          ...handle,
-          flow: {
-            ...updateFlowState(handle.flow, "dispatching"),
-            activeStepId: undefined,
-          },
-        };
-        await this.autoCheckpointFlow(handle);
-        continue;
+
+        options.onEvent?.({ type: "step_start", stepId });
+        dispatchedBatch.push(dispatched);
       }
 
-      if (nextAction === "ask_human") {
-        handle = {
-          ...handle,
-          flow: updateFlowState(handle.flow, "waiting_approval"),
-        };
-        await this.autoCheckpointFlow(handle);
-        options.onEvent?.({ type: "flow_paused", pausedOnStepId: executed.assignment.stepId });
-        return {
-          handle,
-          completedSteps,
-          pausedOnStepId: executed.assignment.stepId,
+      const artifactIdsBefore = new Set(handle.flow.artifacts.map((artifact) => artifact.id));
+      const executedBatch = await Promise.all(
+        dispatchedBatch.map((dispatched) =>
+          this.runAgentAssignment(handle, dispatched.assignment, options)
+        )
+      );
+
+      let mergedFlow = handle.flow;
+      for (const executed of executedBatch) {
+        const newArtifacts = executed.handle.flow.artifacts.filter(
+          (artifact) => !artifactIdsBefore.has(artifact.id)
+        );
+        artifactIdsBefore.clear();
+        for (const artifact of mergedFlow.artifacts) artifactIdsBefore.add(artifact.id);
+        mergedFlow = attachArtifacts(mergedFlow, newArtifacts);
+        mergedFlow = {
+          ...mergedFlow,
+          plan: clonePlanWithStepStatus(
+            mergedFlow.plan,
+            executed.assignment.stepId,
+            "done"
+          ),
         };
       }
+      handle = {
+        ...handle,
+        flow: updateFlowState(mergedFlow, "critiquing"),
+      };
 
-      if (nextAction === "replan") {
-        handle = {
-          ...handle,
-          flow: updateFlowState(handle.flow, "replanning"),
-        };
-        const replanned = await this.replanFlow(handle, {
-          plan: handle.flow.plan!,
-          failedStepId: executed.assignment.stepId,
-          critique: critique.result.critique,
-          projectContext:
+      for (const executed of executedBatch) {
+        const critique = await this.runStepCritique(handle, {
+          stepName: executed.assignment.stepId,
+          goal: handle.flow.goal,
+          stepReadme:
             options.stepReadmeByStepId?.[executed.assignment.stepId] ??
             executed.assignment.instruction,
+          customChallengePrompt:
+            options.stepPromptByStepId?.[executed.assignment.stepId],
+          outputs: buildStepCritiqueOutputs(executed.result),
         });
-        handle = replanned.handle;
-        await this.autoCheckpointFlow(handle);
-        options.onEvent?.({ type: "replan", stepId: executed.assignment.stepId, diff: replanned.diff });
-        continue;
+        handle = critique.handle;
+
+        const nextAction = critique.result.critique.nextAction;
+        options.onEvent?.({
+          type: "step_result",
+          stepId: executed.assignment.stepId,
+          score: critique.result.critique.confidence,
+          passed: nextAction === "complete",
+          nextAction,
+        });
+
+        if (nextAction === "complete") {
+          completedSteps.push(executed.assignment.stepId);
+          // Generate retrospective to capture lessons from this step
+          try {
+            const retro = await this.runStepRetrospective(
+              handle,
+              executed.assignment.stepId,
+              critique.result.critique
+            );
+            handle = retro.handle;
+          } catch {
+            // Retrospective is non-blocking; continue even if it fails
+          }
+          continue;
+        }
+
+        if (nextAction === "ask_human") {
+          handle = {
+            ...handle,
+            flow: updateFlowState(handle.flow, "waiting_approval"),
+          };
+          await this.autoCheckpointFlow(handle);
+          options.onEvent?.({ type: "flow_paused", pausedOnStepId: executed.assignment.stepId });
+          return {
+            handle,
+            completedSteps,
+            pausedOnStepId: executed.assignment.stepId,
+          };
+        }
+
+        if (nextAction === "replan") {
+          handle = {
+            ...handle,
+            flow: updateFlowState(handle.flow, "replanning"),
+          };
+          const replanned = await this.replanFlow(handle, {
+            plan: handle.flow.plan!,
+            failedStepId: executed.assignment.stepId,
+            critique: critique.result.critique,
+            projectContext:
+              options.stepReadmeByStepId?.[executed.assignment.stepId] ??
+              executed.assignment.instruction,
+          });
+          handle = replanned.handle;
+          await this.autoCheckpointFlow(handle);
+          options.onEvent?.({ type: "replan", stepId: executed.assignment.stepId, diff: replanned.diff });
+          break;
+        }
+
+        if (nextAction === "retry") {
+          options.onEvent?.({ type: "step_retry", stepId: executed.assignment.stepId });
+          handle = {
+            ...handle,
+            flow: {
+              ...handle.flow,
+              plan: clonePlanWithStepStatus(
+                handle.flow.plan,
+                executed.assignment.stepId,
+                "pending"
+              ),
+            },
+          };
+        }
       }
 
-      if (nextAction === "retry") {
-        options.onEvent?.({ type: "step_retry", stepId: executed.assignment.stepId });
-        handle = {
-          ...handle,
-          flow: {
-            ...updateFlowState(handle.flow, "dispatching"),
-            plan: clonePlanWithStepStatus(
-              handle.flow.plan,
-              executed.assignment.stepId,
-              "pending"
-            ),
-          },
-        };
-        await this.autoCheckpointFlow(handle);
-        continue;
-      }
+      handle = {
+        ...handle,
+        flow: {
+          ...updateFlowState(handle.flow, "dispatching"),
+          activeStepId: undefined,
+        },
+      };
+      await this.autoCheckpointFlow(handle);
+    }
+
+    if (!getPendingStepId(handle.flow.plan)) {
+      handle = this.completeFlow(handle);
+      return { handle, completedSteps };
     }
 
     const failedHandle = this.failFlow(handle);

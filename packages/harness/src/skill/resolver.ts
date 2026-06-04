@@ -22,13 +22,27 @@ export class SkillResolver {
     const active = [...this.skills.values()].filter((s) =>
       s.triggers.some((t) => this.matches(t, intent, s.id))
     );
+    return this.buildBundle(active, baseSystem);
+  }
 
+  resolveExplicit(ids: string[], baseSystem: string): SkillBundle {
+    const allowed = new Set(ids);
+    const active = [...this.skills.values()].filter((skill) => allowed.has(skill.id));
+    return this.buildBundle(active, baseSystem);
+  }
+
+  private buildBundle(active: Skill[], baseSystem: string): SkillBundle {
     const fragments: string[] = [];
+    const index = this.buildSkillIndex();
+    if (index) fragments.push(index);
     const tools: SkillBundle["tools"] = [];
     const executors: SkillBundle["executors"] = new Map();
 
-    for (const skill of active) {
-      if (skill.systemFragment) fragments.push(skill.systemFragment);
+    for (const skillRef of active) {
+      const skill = this.hydrate(skillRef);
+      if (skill.systemFragment) {
+        fragments.push(`## Skill: ${skill.name} (${skill.id})\n${skill.systemFragment}`);
+      }
       for (const t of skill.tools ?? []) {
         // Last-registered wins on name collision
         if (!executors.has(t.definition.name)) {
@@ -45,6 +59,26 @@ export class SkillResolver {
       tools,
       executors,
     };
+  }
+
+  private buildSkillIndex(): string | undefined {
+    const skills = [...this.skills.values()];
+    if (skills.length === 0) return undefined;
+    const lines = skills.map((skill) => {
+      const auto = skill.triggers.some((trigger) => trigger.type !== "explicit") ? "auto" : "manual";
+      const description = skill.description || "No description";
+      const path = skill.sourcePath ? `; file: ${skill.sourcePath}` : "";
+      return `- ${skill.id}: ${skill.name} — ${description} (${auto}${path})`;
+    });
+    return [
+      "# Available Skills",
+      "Only the skill index is loaded by default. Use the normal file read tool to inspect a skill file when you need its full instructions.",
+      ...lines,
+    ].join("\n");
+  }
+
+  private hydrate(skill: Skill): Skill {
+    return skill.load ? skill.load() : skill;
   }
 
   /** List skills visible to the user (for /skill command). */

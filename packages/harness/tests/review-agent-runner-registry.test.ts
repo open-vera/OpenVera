@@ -6,7 +6,7 @@
  * including those with no caps declared. This makes findByCapabilities({})
  * behave as "return everything" rather than "return nothing".
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import type { AgentRunner, AgentRunnerCapabilities } from "../src/agent/types.js";
 import { AgentRunnerRegistry } from "../src/agent/types.js";
 import type { AgentAssignment, StepResult } from "@open-vera/core/types";

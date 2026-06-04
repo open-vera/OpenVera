@@ -14,6 +14,7 @@ dist/
 # Local config (may contain keys)
 .vera/settings.json
 .vera/worktrees/
+.vera/flows/iterations/
 .qwen/
 .gemini/
 .cubesandbox/
@@ -49,6 +50,8 @@ coverage/
 .cache/
 .eslintcache
 *.tmp
+*.tmp.*
+tmp/
 
 # Skill-generated reports (may contain session content or sensitive quotes)
 docs/agent-changes/

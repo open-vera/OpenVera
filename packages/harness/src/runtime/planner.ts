@@ -2,7 +2,7 @@ import type { LLMAdapter } from "@open-vera/core/adapters";
 import type { ExecutionPlan, PlanStep } from "@open-vera/core/types";
 import { completeJson } from "./json.js";
 import { PlannerError } from "@open-vera/core/errors";
-import { createLogger } from "@open-vera/core";
+import { createLogger } from "@open-vera/logger";
 
 const log = createLogger("harness:planner");
 // Re-export for tests

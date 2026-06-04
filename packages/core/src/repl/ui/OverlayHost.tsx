@@ -1,4 +1,4 @@
-import type { MutableRefObject, ReactNode } from "react";
+import React, { type Dispatch, type MutableRefObject, type ReactNode, type SetStateAction } from "react";
 import { Box } from "ink";
 import { SessionStore } from "../../session/index.js";
 import type { ReplContext } from "../context.js";
@@ -19,7 +19,7 @@ export interface OverlayHostProps {
   ctxRef: MutableRefObject<ReplContext>;
   columns: number;
   rows: number;
-  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
   onClose: () => void;
   children?: ReactNode;
 }

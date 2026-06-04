@@ -1,18 +1,20 @@
 import { resolve, join } from "node:path";
-import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { HarnessRuntime } from "../runtime/runtime.js";
 import type { FlowLoopEvent, RunFlowLoopOptions } from "../runtime/internal.js";
 import { buildCliAdapter } from "./adapter.js";
-import { markdownToPlan } from "./plan.js";
+import { flowDefinitionToPlan } from "./plan.js";
 import { createSkillResolver, RegistryToolProvider } from "../skill/index.js";
+import type { SkillBundle } from "../skill/index.js";
 import { createToolRegistry } from "@open-vera/core/tools";
 import { SessionStore } from "@open-vera/core/session";
 import { globalVeraDir, loadConfig, isConfigEmpty, projectResourcePath, runSetupWizard, syncExternalResources } from "@open-vera/core/config";
 import { loadAgents, createRunnersFromAgents } from "./agent-loader.js";
+import { loadFlowDefinition, type FlowAgentDefinition } from "../flow-config/index.js";
 
 export interface FlowRunArgs {
   dir?: string;
+  flow?: string;
   model?: string;
   provider?: string;
   apiKey?: string;
@@ -45,20 +47,15 @@ function dim(msg: string) {
   console.log(`  ${C.gray}${msg}${C.reset}`);
 }
 
-async function tryReadFile(path: string): Promise<string | undefined> {
-  if (existsSync(path)) return readFile(path, "utf-8");
-  return undefined;
-}
-
 // ── main command ──────────────────────────────────────────────────────────────
 
 export async function runFlowCommand(args: FlowRunArgs): Promise<void> {
   const projectDir = resolve(args.dir ?? ".");
-  const flowDir = join(projectDir, ".flow");
+  const flowDir = join(projectDir, ".vera", "flows");
 
   if (!existsSync(flowDir)) {
-    console.error(`Error: No .flow/ directory found in ${projectDir}`);
-    console.error("Create .flow/flow.md to define a flow.");
+    console.error(`Error: No .vera/flows/ directory found in ${projectDir}`);
+    console.error("Create .vera/flows/flow/<name>/main.md to define a flow.");
     process.exit(1);
   }
 
@@ -89,19 +86,20 @@ export async function runFlowCommand(args: FlowRunArgs): Promise<void> {
   const projectSkillsDir = projectResourcePath(projectDir, "skills");
   const skillResolver = createSkillResolver(toolProvider, userSkillsDir, projectSkillsDir);
 
-  // Build skill bundle for a code-level agent (tools + system fragment)
-  const bundle = skillResolver.resolve(
+  const defaultBundle = skillResolver.resolve(
     { domain: "code", level: 2, needs_tools: true },
     "You are Vera, an AI agent that executes structured workflows."
   );
 
+  const flowInput = await loadFlowDefinition(flowDir, args.flow);
+
   // ── Agent roles setup ───────────────────────────────────────────────────
-  // Load agent definitions from .flow/agents/*/main.md
+  // Load agent definitions from .vera/flows/agents/*/main.md
   const agentDefs = await loadAgents(flowDir);
   let agents: Map<string, import("../agent/types.js").AgentRunner> | undefined;
 
   if (agentDefs.length > 0) {
-    dim(`Loading ${agentDefs.length} agent roles from .flow/agents/...`);
+    dim(`Loading ${agentDefs.length} agent roles from .vera/flows/agents/...`);
     agents = createRunnersFromAgents(agentDefs, adapter, model);
     for (const def of agentDefs) {
       dim(`  ✓ ${def.id}: ${def.name}${def.model ? ` (model: ${def.model})` : ""}`);
@@ -109,34 +107,32 @@ export async function runFlowCommand(args: FlowRunArgs): Promise<void> {
   }
 
   const runtime = new HarnessRuntime(adapter, model, {
-    artifactsRootDir: args.artifactsDir ?? join(flowDir, "iterations"),
+    artifactsRootDir: args.artifactsDir ?? join(flowDir, "iterations", flowInput.name),
     agents,
   });
 
-  const flowInput = await runtime.loadMarkdownFlow(flowDir);
   const flowId = `iter-${new Date().toISOString().replace(/[:.]/g, "-")}`;
-  const plan = markdownToPlan(flowInput, flowId);
-  const artifactsBase = args.artifactsDir ?? join(flowDir, "iterations");
+  const plan = flowDefinitionToPlan(flowInput, flowId);
+  const artifactsBase = args.artifactsDir ?? join(flowDir, "iterations", flowInput.name);
+  const agentSkillBundles = buildAgentSkillBundles(agentDefs, skillResolver, defaultBundle);
 
   console.log("");
   console.log(`  ${C.bold}Vera Harness — Flow Runner${C.reset}`);
   info(`Flow dir:  ${flowDir}`);
+  info(`Flow:      ${flowInput.id}`);
   info(`Plan:      ${plan.steps.length} steps — ${plan.goal}`);
   info(`Model:     ${model}`);
   info(`Artifacts: ${join(artifactsBase, flowId)}`);
   console.log("");
 
-  // Load step READMEs and extract exit criteria for challenger
   const stepReadmeByStepId: Record<string, string> = {};
   const stepPromptByStepId: Record<string, string> = {};
-  for (const step of plan.steps) {
-    const readme = await tryReadFile(join(flowDir, step.id, "README.md"));
-    if (readme) {
-      stepReadmeByStepId[step.id] = readme;
-      // Extract "准出标准" section as challenger prompt
-      const exitMatch = readme.match(/## 准出标准\n([\s\S]*?)(?=\n## |\n$)/);
-      if (exitMatch) {
-        stepPromptByStepId[step.id] = `请根据以下准出标准评估本步骤的执行结果：\n${exitMatch[1]!.trim()}`;
+  for (const stage of flowInput.stages) {
+    const definition = flowInput.stageDefinitions.get(stage.stage);
+    if (definition) {
+      stepReadmeByStepId[stage.id] = definition.body;
+      if (definition.exitCriteria) {
+        stepPromptByStepId[stage.id] = `请根据以下准出标准评估本步骤的执行结果：\n${definition.exitCriteria}`;
       }
     }
   }
@@ -156,7 +152,7 @@ export async function runFlowCommand(args: FlowRunArgs): Promise<void> {
     dim("Critiquing plan...");
     const planCritique = await runtime.runPlanCritique(handle, {
       plan,
-      projectContext: flowInput.rawFlowBody.slice(0, 2000),
+      projectContext: flowInput.rawBody.slice(0, 2000),
     });
     handle = planCritique.handle;
 
@@ -169,7 +165,7 @@ export async function runFlowCommand(args: FlowRunArgs): Promise<void> {
         `Plan critique: score=${score.toFixed(2)} — ${planCritique.result.critique.rationale}`
       );
       if (score < 0.5) {
-        console.error("\n  Plan score too low, aborting. Fix .flow/flow.md and retry.");
+        console.error(`\n  Plan score too low, aborting. Fix ${flowInput.filePath} and retry.`);
         process.exit(1);
       }
       info("  Continuing despite warnings...");
@@ -183,11 +179,13 @@ export async function runFlowCommand(args: FlowRunArgs): Promise<void> {
 
   const loopOptions: RunFlowLoopOptions = {
     maxSteps: args.maxSteps ?? totalSteps * (flowInput.maxRetries + 1),
+    maxParallel: flowInput.maxParallel,
     stepReadmeByStepId,
     stepPromptByStepId,
-    tools: bundle.tools,
-    system: bundle.system,
-    executors: bundle.executors,
+    tools: defaultBundle.tools,
+    system: defaultBundle.system,
+    executors: defaultBundle.executors,
+    agentSkillBundles,
     onEvent: (event: FlowLoopEvent) => {
       switch (event.type) {
         case "step_start":
@@ -244,4 +242,39 @@ export async function runFlowCommand(args: FlowRunArgs): Promise<void> {
     }
   }
   console.log("");
+}
+
+function buildAgentSkillBundles(
+  agentDefs: FlowAgentDefinition[],
+  skillResolver: ReturnType<typeof createSkillResolver>,
+  defaultBundle: SkillBundle
+): Record<string, SkillBundle> {
+  const bundles: Record<string, SkillBundle> = {};
+  for (const def of agentDefs) {
+    const hasVisibilityConfig =
+      Boolean(def.skills?.length) ||
+      Boolean(def.rules?.length) ||
+      Boolean(def.mcp?.length);
+    if (!hasVisibilityConfig) continue;
+
+    const baseSystem = buildAgentSystem(def);
+    bundles[def.id] = def.skills?.length
+      ? skillResolver.resolveExplicit(def.skills, baseSystem)
+      : {
+          system: baseSystem,
+          tools: defaultBundle.tools,
+          executors: defaultBundle.executors,
+        };
+  }
+  return bundles;
+}
+
+function buildAgentSystem(def: FlowAgentDefinition): string {
+  const visibility: string[] = [];
+  if (def.rules?.length) visibility.push(`Visible rules: ${def.rules.join(", ")}`);
+  if (def.mcp?.length) visibility.push(`Visible MCP servers: ${def.mcp.join(", ")}`);
+  if (def.skills?.length) visibility.push(`Visible skills: ${def.skills.join(", ")}`);
+  return visibility.length
+    ? `${def.systemPrompt}\n\n# Visibility\n${visibility.join("\n")}`
+    : def.systemPrompt;
 }

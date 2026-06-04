@@ -6,7 +6,7 @@
  * (updated on save/compact/clear) instead of raw line count,
  * preventing false compaction triggers from corrupt/duplicate lines.
  */
-import { mkdirSync, readFileSync, rmSync, appendFileSync } from "node:fs";
+import { mkdirSync, rmSync, appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";

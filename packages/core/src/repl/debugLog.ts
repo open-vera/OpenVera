@@ -1,7 +1,7 @@
 // Debug logger that delegates to the new structured logger.
 // Use process.stderr.write so logs are always visible during development.
 
-import { createLogger } from "../utils/logger.js";
+import { createLogger } from "@open-vera/logger";
 
 const log = createLogger("repl");
 

@@ -38,6 +38,10 @@ describe("CLI Flags", () => {
     expect(output).toContain("Usage: openvera|vera|ai");
     expect(output).toContain("init");
     expect(output).toContain("sync");
+    expect(output).toContain("run <flow>");
+    expect(output).toContain(".vera/flows");
+    expect(output).not.toContain("flow run");
+    expect(output).not.toContain("--flow");
     expect(output).toContain("--force");
     expect(output).toContain("-v, --version");
   });

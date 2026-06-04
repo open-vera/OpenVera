@@ -179,7 +179,7 @@ export class ChangeTracker {
   private extractChangedFiles(
     toolName: string,
     args: Record<string, unknown>,
-    result: ToolResult,
+    _result: ToolResult,
   ): string[] {
     const files: string[] = [];
 

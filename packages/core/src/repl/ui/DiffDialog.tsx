@@ -1,5 +1,5 @@
+import React, { useState, useEffect } from "react";
 import { useInput, Box, Text } from "ink";
-import { useState, useEffect } from "react";
 import type { StructuredPatchHunk } from "diff";
 import { fetchGitDiff, fetchGitDiffHunks } from "../../utils/gitDiff.js";
 import type { GitDiffStats, PerFileStats } from "../../utils/gitDiff.js";

@@ -4,7 +4,7 @@ process.on("SIGINT", () => process.exit(0));
 process.on("SIGTERM", () => process.exit(0));
 
 import { readFileSync } from "node:fs";
-import { createLogger } from "@open-vera/core";
+import { createLogger } from "@open-vera/logger";
 
 const log = createLogger("cli");
 
@@ -64,7 +64,7 @@ function printHelp() {
   console.log("  init                  Configure providers and models interactively");
   console.log("  sync                  Sync settings and resources from other agents");
   console.log("  repl                  Start REPL with full skill support");
-  console.log("  flow run              Run the flow defined in .flow/");
+  console.log("  run <flow>            Run .vera/flows/flow/<flow>/main.md");
   console.log("");
   console.log("Options (global):");
   console.log("  -v, --version           Show version number");
@@ -84,8 +84,8 @@ function printHelp() {
   console.log("Options (sync):");
   console.log("  --force                 Replace conflicting symlinks");
   console.log("");
-  console.log("Options (flow run):");
-  console.log("  --dir <path>            Project directory with .flow/  (default: .)");
+  console.log("Options (run):");
+  console.log("  --dir <path>            Project directory with .vera/flows/  (default: .)");
   console.log("  --model <id>            LLM model override");
   console.log("  --provider <name>       LLM provider override");
   console.log("  --api-key <key>         API key override");
@@ -99,11 +99,8 @@ function printHelp() {
   console.log("  vera");
   console.log("  ai repl");
   console.log("  openvera init --force");
-  console.log("  openvera flow run");
-  console.log("  openvera flow run --dir flow-examples/software-dev");
-  console.log("  openvera flow run --dir flow-examples/travel-planning");
-  console.log("  openvera flow run --dir flow-examples/financial-research");
-  console.log("  openvera flow run --dir flow-examples/annotation-qa");
+  console.log("  openvera run auto-dev");
+  console.log("  openvera run test --dir /path/to/project");
   console.log("");
 }
 
@@ -134,10 +131,11 @@ try {
     runSyncCommand({
       force: Boolean(flags["force"]),
     });
-  } else if (command[0] === "flow" && command[1] === "run") {
+  } else if (command[0] === "run") {
     const { runFlowCommand } = await import("./flow-run.js");
     await runFlowCommand({
       dir: flags["dir"] as string | undefined,
+      flow: command[1],
       model: flags["model"] as string | undefined,
       provider: flags["provider"] as string | undefined,
       apiKey: flags["api-key"] as string | undefined,

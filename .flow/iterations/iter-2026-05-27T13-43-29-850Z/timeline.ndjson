@@ -1,3 +1,0 @@
-{"ts":"2026-05-27T13:43:29.852Z","type":"flow_started","flowId":"iter-2026-05-27T13-43-29-850Z"}
-{"ts":"2026-05-27T13:44:08.286Z","type":"critique_completed","flowId":"iter-2026-05-27T13-43-29-850Z","confidence":0.65,"detail":"plan"}
-{"ts":"2026-05-27T13:44:08.289Z","type":"step_dispatched","flowId":"iter-2026-05-27T13-43-29-850Z","stepId":"flows/requirement","agentId":"pm"}
