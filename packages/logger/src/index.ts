@@ -121,7 +121,8 @@ function getConfiguredLevel(): LogLevel {
   const explicit = process.env["VERA_LOG_LEVEL"];
   if (explicit && explicit in LEVEL_WEIGHT) return explicit as LogLevel;
   if (process.env["NODE_ENV"] === "production") return "info";
-  return "debug";
+  if (process.env["NODE_ENV"] === "development" || process.env["VERA_LOG_LEVEL"] === "debug") return "debug";
+  return "info";
 }
 
 // ── File transport ──────────────────────────────────────────────────────────────
