@@ -1,25 +1,25 @@
-# 安装与配置
+# Installation & Configuration
 
-## 安装
+## Install
 
 ```bash
 npm i @open-vera/openvera@latest -g
 ```
 
-启动：
+Launch:
 
 ```bash
 ai
 ```
 
-`ai`、`vera`、`openvera` 三个命令等价。首次运行自动进入交互式配置向导。
+`ai`, `vera`, and `openvera` are all aliases. First run launches an interactive setup wizard.
 
 ```bash
-ai init          # 重新运行配置向导
-ai init --force  # 强制重新初始化
+ai init          # re-run setup wizard
+ai init --force  # force re-initialize
 ```
 
-## 最简配置
+## Minimal Config
 
 ```jsonc
 // ~/.vera/settings.json
@@ -35,11 +35,11 @@ ai init --force  # 强制重新初始化
 }
 ```
 
-`base_url` 指向公司 API 网关或自定义端点，不填则使用各 adapter 默认地址。
+`base_url` points to a company API gateway or custom endpoint. Omit to use each adapter's default.
 
-## 模型路由（可选）
+## Model Routing (Optional)
 
-开启后按任务复杂度自动选择最优模型，通常可降低 60%+ 成本：
+Enables automatic model selection by task complexity, typically reducing costs by 60%+:
 
 ```jsonc
 {
@@ -54,60 +54,60 @@ ai init --force  # 强制重新初始化
 }
 ```
 
-| 级别 | 场景 | 示例 |
+| Level | Task Type | Example |
 |---|---|---|
-| L0 | 闲聊、简单问答 | "TypeScript 是什么？" |
-| L1 | 单步任务 | "写一个解析 CSV 的函数" |
-| L2 | 多步、深度推理 | "设计一个分布式锁系统" |
+| L0 | Casual chat, simple Q&A | "What is TypeScript?" |
+| L1 | Single-step tasks | "Write a function to parse CSV" |
+| L2 | Multi-step, deep reasoning | "Design a distributed lock system" |
 
 ---
 
-## 初始化与首次运行 {#init}
+## First-Run Initialization {#init}
 
-首次运行时，如果不存在配置文件，Vera 会自动执行三步：
+On first run with no config file, Vera automatically performs three steps:
 
-**1. 自动同步外部配置**
+**1. Auto-sync external configurations**
 
-从其他 AI 编码工具（Claude Code、Codex、OpenClaw、Hermes）同步已有配置：
+Syncs existing config from other AI coding tools (Claude Code, Codex, OpenClaw, Hermes):
 
 ```
 ~/.claude/ → ~/.vera/imports/claude/
 ~/.codex/ → ~/.vera/imports/codex/
 ```
 
-rules、skills、memories、CLAUDE.md 等资源通过符号链接导入，重复运行自动跳过已有链接。
+Rules, skills, memories, CLAUDE.md, and other resources are imported via symbolic links. Repeated runs skip existing links automatically.
 
-**2. Claude Code 配置自动迁移**
+**2. Claude Code config auto-migration**
 
-如果检测到 `~/.claude/settings.json`，Vera 自动读取 API key 和模型配置，生成对应的 Vera 配置文件，provider 命名为 `"claude-code"` 避免与手动配置冲突。
+If `~/.claude/settings.json` is detected, Vera automatically reads API key and model configuration to generate a Vera config file. The migrated provider is named `"claude-code"` to avoid conflicts with manual configuration.
 
-**3. 交互式安装向导**
+**3. Interactive setup wizard**
 
-无可迁移配置时，自动进入三步向导：选择 provider → 输入 API key → 选择默认模型 → 写入 `~/.vera/settings.json`。
-
-```bash
-ai init          # 手动重新运行配置向导
-ai init --force  # 强制覆盖已有配置
-```
-
-## 同步外部配置 {#sync}
-
-随时手动同步其他 agent 工具的配置：
+When no migratable config exists, a three-step wizard launches: select provider → enter API key → select default model → write `~/.vera/settings.json`.
 
 ```bash
-ai sync          # 同步所有已支持的外部工具配置
+ai init          # manually re-run setup wizard
+ai init --force  # force overwrite existing config
 ```
 
-同步来源：
+## Sync External Config {#sync}
 
-| 工具 | 源路径 | 环境变量 |
+Manually sync configurations from other agent tools at any time:
+
+```bash
+ai sync          # sync all supported external tool configs
+```
+
+Sync sources:
+
+| Tool | Source Path | Env Variable |
 |---|---|---|
 | Claude Code | `~/.claude/` | `CLAUDE_CONFIG_DIR` |
 | Codex | `~/.codex/` | `CODEX_CONFIG_DIR` |
 | OpenClaw | `~/.openclaw/` | `OPENCLAW_CONFIG_DIR` |
 | Hermes | `~/.hermes/` | `HERMES_CONFIG_DIR` |
 
-同步内容：rules、skills、memories、commands、CLAUDE.md 等。通过符号链接导入 `~/.vera/imports/`，不重复占用磁盘空间。
+Synced content: rules, skills, memories, commands, CLAUDE.md, etc. Imported via symbolic links into `~/.vera/imports/` — no duplicate disk usage.
 
 ---
 

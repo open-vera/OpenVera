@@ -1,139 +1,139 @@
-# 多智能体协作系统 — 方案选型与技术决策
+# Multi-Agent Collaboration System -- Approach Selection and Technical Decisions
 
-> 基于 PRD（mvp.prd.md）及 Anthropic Harness / OpenAI Codex 等参考资料，对 MVP 实现的关键技术选型进行调研、对比与决策。
+> Based on the PRD (mvp.prd.md) and references such as Anthropic Harness / OpenAI Codex, this document surveys, compares, and decides on key technical choices for MVP implementation.
 
 ---
 
-## 一、选型总览
+## 1. Selection Overview
 
-| 决策点 | 选择 | 备选 | 决策理由 |
+| Decision Point | Choice | Alternative | Rationale |
 |--------|------|------|----------|
-| 运行时 | Node.js 20+ LTS | Python / Bun / Deno | TypeScript 类型安全、生态成熟、CLI 工具链天然兼容 |
-| FSM 引擎 | 自定义轻量实现 | XState / Robot / Stately | PRD 的 FSM 语义简单（7 个状态、线性 + 条件分支），XState 过重 |
-| YAML 解析 | `yaml` (v2) | js-yaml / fastyaml-rs | `yaml` 原生 TS、类型推断、规范合规、pnpm 已验证 |
-| 子进程管理 | `execa` (v9) | 原生 child_process / zx | Promise API、流式 stdout、跨平台、错误处理优秀 |
-| 条件表达式 | `expr-eval` | 手写解析器 / jsep / safe-eval | 安全（无 eval）、轻量、支持比较/逻辑运算 |
-| Schema 校验 | `zod` | ajv / yup / io-ts | 运行时校验 + 类型推导一体化、TS 生态首选 |
-| 日志 | `pino` | winston / bunyan | 性能最优（NDJSON 原生）、低开销、生态成熟 |
-| 配置合并 | `deepmerge-ts` | lodash.merge | 零依赖、TS 友好、类型安全 |
-| 测试框架 | `vitest` + `@testing-library` | jest / mocha | 与 Vite 生态统一、速度快、原生 TS |
-| 构建工具 | `tsup` | tsc / esbuild / rollup | 零配置、esbuild 底层、dts 生成、CLI 友好 |
+| Runtime | Node.js 20+ LTS | Python / Bun / Deno | TypeScript type safety, mature ecosystem, native CLI toolchain compatibility |
+| FSM Engine | Custom lightweight implementation | XState / Robot / Stately | PRD's FSM semantics are simple (7 states, linear + conditional branching), XState is too heavy |
+| YAML Parsing | `yaml` (v2) | js-yaml / fastyaml-rs | `yaml` is native TS, type inference, spec-compliant, pnpm-verified |
+| Subprocess Management | `execa` (v9) | Native child_process / zx | Promise API, streaming stdout, cross-platform, excellent error handling |
+| Condition Expressions | `expr-eval` | Handwritten parser / jsep / safe-eval | Safe (no eval), lightweight, supports comparison/logical operators |
+| Schema Validation | `zod` | ajv / yup / io-ts | Integrated runtime validation + type inference, top choice in TS ecosystem |
+| Logging | `pino` | winston / bunyan | Best performance (NDJSON native), low overhead, mature ecosystem |
+| Config Merging | `deepmerge-ts` | lodash.merge | Zero dependencies, TS-friendly, type-safe |
+| Test Framework | `vitest` + `@testing-library` | jest / mocha | Unified with Vite ecosystem, fast, native TS |
+| Build Tool | `tsup` | tsc / esbuild / rollup | Zero config, esbuild under the hood, dts generation, CLI-friendly |
 
 ---
 
-## 二、详细选型分析
+## 2. Detailed Selection Analysis
 
-### 2.1 运行时：Node.js 20+ LTS
+### 2.1 Runtime: Node.js 20+ LTS
 
-**选择理由：**
-- 目标 Agent（Claude Code、Codex、Gemini CLI、OpenCode）均为 Node.js 生态 CLI 工具
-- `child_process.spawn` 提供原生 stdin/stdout/stderr 流控制
-- npm 生态覆盖所有依赖
-- LTS 版本（20.x / 22.x/ 24.x）长期支持
+**Selection rationale:**
+- Target Agents (Claude Code, Codex, Gemini CLI, OpenCode) are all Node.js ecosystem CLI tools
+- `child_process.spawn` provides native stdin/stdout/stderr stream control
+- npm ecosystem covers all dependencies
+- LTS versions (20.x / 22.x / 24.x) have long-term support
 
-**对比分析：**
+**Comparative analysis:**
 
 | | Node.js | Python | Bun | Deno |
 |--|---------|--------|-----|------|
-| 子进程控制 | spawn 原生支持 | subprocess 成熟 | 兼容 Node API | 权限模型限制多 |
-| Agent 生态 | ✅ 原生兼容 | ❌ 需跨语言适配 | ⚠️ 兼容但不稳定 | ❌ 权限沙盒冲突 |
-| 类型安全 | TypeScript | mypy/pyright | TypeScript | TypeScript |
-| 部署复杂度 | 零额外依赖 | 需 venv/pip | 需安装 Bun | 需安装 Deno |
-| 性能 | 足够（I/O 密集） | 足够 | 更快 | 相当 |
+| Subprocess control | spawn native support | subprocess mature | Compatible with Node API | Permission model imposes many restrictions |
+| Agent ecosystem | Done natively compatible | No needs cross-language adaptation | Caution compatible but unstable | No permission sandbox conflicts |
+| Type safety | TypeScript | mypy/pyright | TypeScript | TypeScript |
+| Deployment complexity | Zero extra dependencies | Needs venv/pip | Needs Bun installed | Needs Deno installed |
+| Performance | Sufficient (I/O bound) | Sufficient | Faster | Comparable |
 
-**决策：Node.js 20+ LTS，TypeScript 5.x**
+**Decision: Node.js 20+ LTS, TypeScript 5.x**
 
 ---
 
-### 2.2 FSM 编排引擎：自定义轻量实现
+### 2.2 FSM Orchestration Engine: Custom Lightweight Implementation
 
-**PRD 需求：**
-- 7 个状态（INIT → PROPOSE → CRITIQUE → REFINE → DECIDE → AWAITING_APPROVAL → END）
-- 线性流程 + 条件分支 + 循环 + 并行（fan-out/fan-in）
-- 配置驱动（YAML FlowConfig）
+**PRD requirements:**
+- 7 states (INIT -> PROPOSE -> CRITIQUE -> REFINE -> DECIDE -> AWAITING_APPROVAL -> END)
+- Linear flow + conditional branching + looping + parallel (fan-out/fan-in)
+- Config-driven (YAML FlowConfig)
 
-**候选方案对比：**
+**Candidate comparison:**
 
-| 方案 | 包大小 | 学习成本 | 并行支持 | 配置驱动 | 适用度 |
+| Option | Bundle size | Learning curve | Parallel support | Config-driven | Suitability |
 |------|--------|----------|----------|----------|--------|
-| **自定义实现** | 0 | 低 | 自行实现 | 天然支持 | ⭐⭐⭐⭐⭐ |
-| XState v5 | ~15KB gzipped | 高 | 不原生支持 | 需转换层 | ⭐⭐ |
-| `@xstate/fsm` | ~1KB gzipped | 中 | 不支持 | 不支持 | ⭐ |
-| Robot | ~1KB | 低 | 不支持 | 不支持 | ⭐ |
-| Stately (SaaS) | 云端依赖 | 中 | 支持 | 需 API | ⭐⭐ |
+| **Custom implementation** | 0 | Low | Self-implemented | Native support | Excellent |
+| XState v5 | ~15KB gzipped | High | Not natively supported | Needs translation layer | Low |
+| `@xstate/fsm` | ~1KB gzipped | Medium | Not supported | Not supported | Minimal |
+| Robot | ~1KB | Low | Not supported | Not supported | Minimal |
+| Stately (SaaS) | Cloud dependency | Medium | Supported | Needs API | Low |
 
-**决策：自定义轻量实现。**
+**Decision: Custom lightweight implementation.**
 
-理由：
-1. PRD 的 FSM 语义是**配置驱动的调度器**，而非传统 UI 状态机
-2. 核心逻辑 = 遍历 steps 数组 → 执行当前 step → 评估 condition → 转移状态
-3. XState 的 statechart 概念（hierarchical states, history states, delayed transitions）对本场景是过度设计
-4. 自定义实现可天然支持 YAML 配置、并行 fan-out、condition 表达式求值
-5. 代码量预计 < 500 行，可维护性高
+Rationale:
+1. The PRD's FSM semantics describe a **config-driven scheduler**, not a traditional UI state machine
+2. The core logic = iterate over steps array -> execute current step -> evaluate condition -> transition state
+3. XState's statechart concepts (hierarchical states, history states, delayed transitions) are over-engineering for this scenario
+4. A custom implementation natively supports YAML config, parallel fan-out, and condition expression evaluation
+5. Expected code size < 500 lines, highly maintainable
 
-**实现要点：**
+**Implementation outline:**
 ```typescript
 class FSMOrchestrator {
   private currentStep: number;
   private state: FSMStateName;
-  
+
   async step(): Promise<TransitionResult> {
     const stepDef = this.config.steps[this.currentStep];
-    // 1. 评估 condition
-    // 2. 执行 step（单步 or 并行 fan-out）
-    // 3. 评估 break_condition
-    // 4. 转移到下一状态
+    // 1. Evaluate condition
+    // 2. Execute step (single or parallel fan-out)
+    // 3. Evaluate break_condition
+    // 4. Transition to next state
   }
 }
 ```
 
 ---
 
-### 2.3 YAML 解析：`yaml` (v2)
+### 2.3 YAML Parsing: `yaml` (v2)
 
-**候选方案对比：**
+**Candidate comparison:**
 
-| 方案 | 下载量/周 | TS 支持 | 规范合规 | 类型推断 | 维护状态 |
+| Option | Weekly downloads | TS support | Spec compliance | Type inference | Maintenance status |
 |------|-----------|---------|----------|----------|----------|
-| **`yaml` v2** | ~30M | ✅ 原生 | YAML 1.2 | ✅ 强类型 | 活跃（v3 RC 中） |
-| js-yaml | ~40M | ❌ 需 @types | YAML 1.1 | ❌ 无 | 维护缓慢 |
-| fastyaml-rs | 新兴 | ✅ 原生 | YAML 1.2.2 | ✅ | 早期 |
+| **`yaml` v2** | ~30M | Done native | YAML 1.2 | Done strongly typed | Active (v3 RC in progress) |
+| js-yaml | ~40M | No needs @types | YAML 1.1 | No none | Slow maintenance |
+| fastyaml-rs | Emerging | Done native | YAML 1.2.2 | Done | Early stage |
 
-**决策：`yaml` v2。**
+**Decision: `yaml` v2.**
 
-理由：
-- pnpm 已从 js-yaml 迁移到 `yaml`，社区趋势明确
-- 原生 TypeScript，类型推断优秀（`YAML.parse<FlowConfig>(str)`）
-- YAML 1.2 规范，避免 js-yaml 的 1.1 兼容性问题
-- 支持 `!!set`、`!!omap` 等高级类型（未来扩展用）
+Rationale:
+- pnpm has already migrated from js-yaml to `yaml`, clear community trend
+- Native TypeScript, excellent type inference (`YAML.parse<FlowConfig>(str)`)
+- YAML 1.2 spec, avoids js-yaml's 1.1 compatibility issues
+- Supports `!!set`, `!!omap` and other advanced types (for future expansion)
 
 ---
 
-### 2.4 子进程管理：`execa` v9
+### 2.4 Subprocess Management: `execa` v9
 
-**PRD 需求：**
-- spawn 子进程，双向 stdin/stdout 流通信
-- 超时控制、重试、优雅终止（SIGTERM → SIGKILL）
-- 跨平台兼容（macOS/Linux/Windows）
+**PRD requirements:**
+- Spawn subprocess, bidirectional stdin/stdout stream communication
+- Timeout control, retry, graceful termination (SIGTERM -> SIGKILL)
+- Cross-platform compatibility (macOS/Linux/Windows)
 
-**候选方案对比：**
+**Candidate comparison:**
 
-| 方案 | 下载量/周 | Promise API | 流式输出 | 超时控制 | 优雅终止 | 跨平台 |
+| Option | Weekly downloads | Promise API | Streaming output | Timeout control | Graceful termination | Cross-platform |
 |------|-----------|-------------|----------|----------|----------|--------|
-| **`execa` v9** | ~114M | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 原生 child_process | 内置 | ❌ 需封装 | ✅ | ❌ 需封装 | ⚠️ 需封装 | ✅ |
-| zx | ~20M | ✅ | ⚠️ 有限 | ⚠️ 有限 | ❌ | ✅ |
-| shelljs | ~5M | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **`execa` v9** | ~114M | Done | Done | Done | Done | Done |
+| Native child_process | Built-in | No needs wrapping | Done | No needs wrapping | Caution needs wrapping | Done |
+| zx | ~20M | Done | Caution limited | Caution limited | No | Done |
+| shelljs | ~5M | No | No | No | No | Done |
 
-**决策：`execa` v9。**
+**Decision: `execa` v9.**
 
-理由：
-- 114M 周下载量，事实标准
-- 原生 Promise + async iterable stdout，完美适配 NDJSON 流式解析
-- 内置 timeout、cleanup、graceful termination
-- 跨平台路径处理
+Rationale:
+- 114M weekly downloads, de facto standard
+- Native Promise + async iterable stdout, perfect fit for NDJSON streaming parse
+- Built-in timeout, cleanup, graceful termination
+- Cross-platform path handling
 
-**关键用法：**
+**Key usage:**
 ```typescript
 const subprocess = execa('claude', ['--output-format', 'json', '-p', prompt], {
   stdio: ['pipe', 'pipe', 'pipe'],
@@ -141,115 +141,115 @@ const subprocess = execa('claude', ['--output-format', 'json', '-p', prompt], {
   env: { ANTHROPIC_API_KEY }
 });
 
-// 流式读取 stdout
+// Stream stdout
 for await (const line of subprocess.iterable()) {
-  // 启发式 JSON 提取
+  // Heuristic JSON extraction
 }
 ```
 
 ---
 
-### 2.5 条件表达式：`expr-eval`
+### 2.5 Condition Expressions: `expr-eval`
 
-**PRD 需求：**
-- 支持 `==`、`!=`、`>`、`>=`、`<`、`<=`、`&&`、`||`、`!`
-- 变量从 Blackboard 状态派生
-- **禁止使用 `eval()`**
+**PRD requirements:**
+- Support `==`, `!=`, `>`, `>=`, `<`, `<=`, `&&`, `||`, `!`
+- Variables derived from Blackboard state
+- **Forbid use of `eval()`**
 
-**候选方案对比：**
+**Candidate comparison:**
 
-| 方案 | 大小 | 安全性 | 运算符支持 | 维护状态 |
+| Option | Size | Security | Operator support | Maintenance status |
 |------|------|--------|------------|----------|
-| **`expr-eval`** | ~5KB | ✅ 沙盒 | ✅ 全部 | 活跃 |
-| jsep | ~3KB | ✅ 沙盒 | ✅ 需插件 | 活跃 |
-| safe-eval | ~10KB | ⚠️ 有限 | ❌ 有限 | 不活跃 |
-| 手写解析器 | 自定义 | ✅ | 需实现 | 需维护 |
+| **`expr-eval`** | ~5KB | Done sandboxed | Done all | Active |
+| jsep | ~3KB | Done sandboxed | Done needs plugin | Active |
+| safe-eval | ~10KB | Caution limited | No limited | Inactive |
+| Handwritten parser | Custom | Done | Needs implementation | Needs maintenance |
 
-**决策：`expr-eval`。**
+**Decision: `expr-eval`.**
 
-理由：
-- 安全沙盒执行，无 `eval()` 风险
-- 轻量（5KB），零依赖
-- 支持所有 PRD 定义的运算符
-- 变量注入简单：`Parser.parse(expr).evaluate(context)`
+Rationale:
+- Safe sandboxed execution, no `eval()` risk
+- Lightweight (5KB), zero dependencies
+- Supports all PRD-defined operators
+- Simple variable injection: `Parser.parse(expr).evaluate(context)`
 
 ---
 
-### 2.6 Schema 校验：`zod`
+### 2.6 Schema Validation: `zod`
 
-**PRD 需求：**
-- 运行时校验 Agent 消息格式
-- 与 TypeScript 类型联动
-- 错误信息可读（用于 L2 错误处理）
+**PRD requirements:**
+- Runtime validation of Agent message format
+- Coupled with TypeScript types
+- Readable error messages (for L2 error handling)
 
-**候选方案对比：**
+**Candidate comparison:**
 
-| 方案 | 下载量/周 | 类型推导 | 运行时校验 | 错误信息 | bundle 大小 |
+| Option | Weekly downloads | Type inference | Runtime validation | Error messages | Bundle size |
 |------|-----------|----------|------------|----------|-------------|
-| **`zod`** | ~25M | ✅ | ✅ | ✅ 详细 | ~13KB |
-| ajv | ~15M | ❌ 需生成 | ✅ | ✅ 详细 | ~40KB |
-| yup | ~5M | ⚠️ 有限 | ✅ | ✅ | ~15KB |
-| io-ts | ~2M | ✅ | ✅ | ⚠️ 复杂 | ~10KB |
+| **`zod`** | ~25M | Done | Done | Done detailed | ~13KB |
+| ajv | ~15M | No needs generation | Done | Done detailed | ~40KB |
+| yup | ~5M | Caution limited | Done | Done | ~15KB |
+| io-ts | ~2M | Done | Done | Caution complex | ~10KB |
 
-**决策：`zod`。**
+**Decision: `zod`.**
 
-理由：
-- TS 生态事实标准，类型推导零成本
-- `z.infer<typeof schema>` 直接从 schema 生成类型
-- 错误信息结构化，可用于 L2 错误修正 prompt
-- 与 PRD 的 TypeScript 类型定义可双向对齐
+Rationale:
+- De facto standard in TS ecosystem, zero-cost type inference
+- `z.infer<typeof schema>` generates types directly from schema
+- Structured error messages usable for L2 error correction prompts
+- Two-way alignment possible with PRD TypeScript type definitions
 
 ---
 
-### 2.7 日志：`pino`
+### 2.7 Logging: `pino`
 
-**PRD 需求：**
-- NDJSON 格式（与传输协议一致）
-- 低开销（Agent 调用密集）
-- 支持脱敏（API Key 过滤）
+**PRD requirements:**
+- NDJSON format (consistent with transport protocol)
+- Low overhead (dense Agent invocations)
+- Support sanitization (API Key filtering)
 
-**候选方案对比：**
+**Candidate comparison:**
 
-| 方案 | 性能 | NDJSON 原生 | 生态 | 脱敏支持 |
+| Option | Performance | NDJSON native | Ecosystem | Sanitization support |
 |------|------|-------------|------|----------|
-| **`pino`** | ⭐⭐⭐⭐⭐ | ✅ | 成熟 | ✅ 自定义 serializer |
-| winston | ⭐⭐⭐ | ❌ 需配置 | 成熟 | ✅ 但配置复杂 |
-| bunyan | ⭐⭐⭐ | ✅ | 不活跃 | ✅ |
+| **`pino`** | Best | Done | Mature | Done custom serializer |
+| winston | Good | No needs config | Mature | Done but complex config |
+| bunyan | Good | Done | Inactive | Done |
 
-**决策：`pino`。**
+**Decision: `pino`.**
 
-理由：
-- 性能最优（异步写入、对象池）
-- 原生 NDJSON 输出，与 PRD 的 trace log 格式天然一致
-- 自定义 serializer 实现 API Key 脱敏
-- pino-pretty 开发时可读输出
+Rationale:
+- Best performance (async writes, object pooling)
+- Native NDJSON output, naturally consistent with PRD trace log format
+- Custom serializer for API Key sanitization
+- pino-pretty for readable output during development
 
 ---
 
-### 2.8 构建工具：`tsup`
+### 2.8 Build Tool: `tsup`
 
-**候选方案对比：**
+**Candidate comparison:**
 
-| 方案 | 配置复杂度 | 构建速度 | d.ts 生成 | CLI 友好 |
+| Option | Config complexity | Build speed | d.ts generation | CLI-friendly |
 |------|------------|----------|-----------|----------|
-| **`tsup`** | 零配置 | ⭐⭐⭐⭐⭐ | ✅ | ✅ |
-| tsc | 需 tsconfig | ⭐⭐ | ✅ | ⚠️ |
-| esbuild | 需配置 | ⭐⭐⭐⭐⭐ | ❌ | ⚠️ |
-| rollup | 复杂 | ⭐⭐⭐ | ✅ | ✅ |
+| **`tsup`** | Zero config | Best | Done | Done |
+| tsc | Needs tsconfig | Slow | Done | Caution |
+| esbuild | Needs config | Best | No | Caution |
+| rollup | Complex | Good | Done | Done |
 
-**决策：`tsup`。**
+**Decision: `tsup`.**
 
-理由：
-- 零配置，基于 esbuild（极快）
-- 自动生成 d.ts
-- 原生支持 CLI 入口（`bin` 字段）
-- 单行配置搞定
+Rationale:
+- Zero config, based on esbuild (extremely fast)
+- Auto-generates d.ts
+- Native CLI entry support (`bin` field)
+- Single-line config gets it done
 
 ---
 
-## 三、依赖清单
+## 3. Dependency List
 
-### 生产依赖
+### Production Dependencies
 
 ```json
 {
@@ -264,7 +264,7 @@ for await (const line of subprocess.iterable()) {
 }
 ```
 
-### 开发依赖
+### Dev Dependencies
 
 ```json
 {
@@ -278,174 +278,174 @@ for await (const line of subprocess.iterable()) {
 }
 ```
 
-### 依赖体积估算
+### Dependency Size Estimates
 
-| 依赖 | 包大小 | 解压后 | 说明 |
+| Dependency | Package size | Unpacked | Description |
 |------|--------|--------|------|
-| yaml | 370KB | 1.2MB | YAML 解析 |
-| execa | 50KB | 200KB | 子进程 |
-| zod | 13KB | 60KB | Schema 校验 |
-| pino | 80KB | 300KB | 日志 |
-| expr-eval | 5KB | 20KB | 表达式求值 |
-| deepmerge-ts | 10KB | 30KB | 深度合并 |
-| **总计** | **~528KB** | **~1.8MB** | 轻量 |
+| yaml | 370KB | 1.2MB | YAML parsing |
+| execa | 50KB | 200KB | Subprocess |
+| zod | 13KB | 60KB | Schema validation |
+| pino | 80KB | 300KB | Logging |
+| expr-eval | 5KB | 20KB | Expression evaluation |
+| deepmerge-ts | 10KB | 30KB | Deep merge |
+| **Total** | **~528KB** | **~1.8MB** | Lightweight |
 
 ---
 
-## 四、架构决策记录（ADR）
+## 4. Architecture Decision Records (ADR)
 
-### ADR-001：自定义 FSM 而非 XState
+### ADR-001: Custom FSM instead of XState
 
-**状态：** 已采纳  
-**上下文：** PRD 定义了 7 个状态的 FSM，支持条件分支、循环、并行。  
-**决策：** 使用自定义轻量实现，不引入 XState。  
-**理由：**
-- XState 的 statechart 模型（嵌套状态、历史状态、延迟转移）对本场景是过度设计
-- PRD 的 FSM 本质是**配置驱动的步骤调度器**，遍历 steps 数组即可
-- 自定义实现可原生支持 YAML 配置和 condition 表达式
-- 代码量 < 500 行，可维护性高  
-**后果：** 需要自行实现并行 fan-out/fan-in 逻辑，但复杂度可控。
+**Status:** Accepted
+**Context:** PRD defines a 7-state FSM supporting conditional branching, loops, and parallelism.
+**Decision:** Use a custom lightweight implementation, not XState.
+**Rationale:**
+- XState's statechart model (nested states, history states, delayed transitions) is over-engineering for this scenario
+- The PRD's FSM is essentially a **config-driven step scheduler** -- just iterate over the steps array
+- Custom implementation natively supports YAML config and condition expressions
+- Code size < 500 lines, highly maintainable
+**Consequences:** Need to self-implement parallel fan-out/fan-in logic, but complexity is manageable.
 
-### ADR-002：NDJSON 而非 Length-Prefix Framing
+### ADR-002: NDJSON instead of Length-Prefix Framing
 
-**状态：** 已采纳  
-**上下文：** PRD 定义了两种消息帧格式。  
-**决策：** MVP 使用 NDJSON，Length-Prefix 作为备选。  
-**理由：**
-- NDJSON 人类可读，调试方便（`tail -f trace.ndjson`）
-- CLI 工具天然支持行输出
-- 启发式 JSON 提取器可处理噪音  
-**后果：** 需要实现健壮的 JSON 提取管线（PRD 4.1.1 节已详细定义）。
+**Status:** Accepted
+**Context:** PRD defines two message framing formats.
+**Decision:** Use NDJSON for MVP, Length-Prefix as alternative.
+**Rationale:**
+- NDJSON is human-readable, easy to debug (`tail -f trace.ndjson`)
+- CLI tools natively support line output
+- Heuristic JSON extractor can handle noise
+**Consequences:** Need to implement a robust JSON extraction pipeline (already detailed in PRD section 4.1.1).
 
-### ADR-003：single-shot 优先于 long-running
+### ADR-003: single-shot prioritized over long-running
 
-**状态：** 已采纳  
-**上下文：** PRD 定义了两种 Agent 接入模式。  
-**决策：** MVP 仅实现 single-shot 模式，long-running（MCP）放入 v2。  
-**理由：**
-- single-shot 实现简单，无需心跳、持久化会话、增量上下文
-- Claude Code / Gemini CLI 的 single-shot 模式已足够 MVP 验证
-- 降低 MVP 复杂度，快速验证核心协议  
-**后果：** 每次调用需重新启动进程，有启动开销。MVP 阶段可接受。
+**Status:** Accepted
+**Context:** PRD defines two Agent access modes.
+**Decision:** MVP only implements single-shot mode; long-running (MCP) deferred to v2.
+**Rationale:**
+- Single-shot is simple to implement, no need for heartbeat, persistent sessions, or incremental context
+- Claude Code / Gemini CLI single-shot mode is sufficient for MVP validation
+- Reduces MVP complexity, quickly validates core protocol
+**Consequences:** Each call requires restarting the process, incurring startup overhead. Acceptable for MVP phase.
 
-### ADR-004：文件级 Artifact 而非内存共享
+### ADR-004: File-level Artifacts instead of in-memory sharing
 
-**状态：** 已采纳  
-**上下文：** Harness 文档强调 "Context must crystallize into artifacts"。  
-**决策：** Blackboard 内存实现 + 异步持久化到文件（WAL 模式）。  
-**理由：**
-- 内存实现简单，满足 single-shot 模式需求
-- WAL 持久化提供崩溃恢复能力（PRD 19 节）
-- 文件级 handoff 为 v2 的 long-running 模式预留接口  
-**后果：** 需要实现 WAL 写入和恢复逻辑，但复杂度可控。
+**Status:** Accepted
+**Context:** Harness documents emphasize "Context must crystallize into artifacts".
+**Decision:** Blackboard in-memory implementation + async persistence to files (WAL mode).
+**Rationale:**
+- In-memory implementation is simple, meets single-shot mode requirements
+- WAL persistence provides crash recovery capability (PRD section 19)
+- File-level handoff reserves interface for v2 long-running mode
+**Consequences:** Need to implement WAL write and recovery logic, but complexity is manageable.
 
-### ADR-005：异构模型强制分离
+### ADR-005: Enforced heterogeneous model separation
 
-**状态：** 已采纳  
-**上下文：** PRD 13 节防止 Groupthink，要求 proposer 和 critic 使用不同模型。  
-**决策：** 在 `role_mapping` 配置中强制校验，同一 session 中 proposer 和 critic 不可使用相同 provider。  
-**理由：**
-- 同源模型容易产生共识偏移
-- 配置层校验比运行时检测更早发现问题  
-**后果：** 用户需配置至少两个不同的 Agent provider。
-
----
-
-## 五、从参考资料中提取的关键设计原则
-
-### 5.1 Anthropic Harness 启示
-
-| 原则 | 来源 | 在本系统中的体现 |
-|------|------|-----------------|
-| 角色分离 > 更多 Agent | Effective Agents | proposer / critic / judge 严格分离 |
-| 独立评估 > 自我评估 | Harness Design | critic 不看 proposer reasoning |
-| 上下文重置 > 长上下文 | Context Engineering | session 间 context reset |
-| 失败归因 > 简单重试 | Harness Design | L1-L4 错误分类 + 归因 |
-| 模型越强，harness 越简 | Harness Evolution | MVP 保持精简，随模型进化 |
-
-### 5.2 OpenAI Codex 启示
-
-| 原则 | 来源 | 在本系统中的体现 |
-|------|------|-----------------|
-| 代码库对 Agent 可读 | Engineering in Agentic World | AGENTS.md 入口文档、结构化 handoff 文件 |
-| 机械编码架构不变量 | Engineering in Agentic World | Blackboard 写入约束 + Schema 校验 |
-| 持续垃圾回收 | Engineering in Agentic World | Trace Log + 成本追踪 + 资源限制 |
-| 环境设计 > 代码编写 | Engineering in Agentic World | FlowConfig 配置驱动、Adapter 抽象 |
-
-### 5.3 Harness 方法论启示
-
-| 原则 | 来源 | 在本系统中的体现 |
-|------|------|-----------------|
-| 先定义完成，再执行 | 00-整体方案 | `done-criteria` 在 session_init 时注入 |
-| 长任务分阶段 | 00-整体方案 | FSM 步骤拆分 + max_rounds 硬终止 |
-| 验证贴近真实使用 | 00-整体方案 | critic 评审贴近实际使用场景 |
-| 上下文结晶为文件 | 00-整体方案 | Blackboard 持久化 + WAL |
-| 不让不合格结果通过 | 03-反模式 | Human-in-the-Loop 审批 + Gate 机制 |
+**Status:** Accepted
+**Context:** PRD section 13 prevents Groupthink, requiring proposer and critic to use different models.
+**Decision:** Enforce validation in `role_mapping` config; proposer and critic in the same session cannot use the same provider.
+**Rationale:**
+- Same-source models easily produce consensus drift
+- Config-layer validation catches issues earlier than runtime detection
+**Consequences:** Users must configure at least two different Agent providers.
 
 ---
 
-## 六、MVP 实现路线图
+## 5. Key Design Principles Extracted from References
 
-### Phase 1：核心协议（Week 1）
+### 5.1 Anthropic Harness Insights
 
-**目标：** 能跑通 single-shot 的线性流程
+| Principle | Source | Embodiment in this system |
+|------|------|-----------------|
+| Role separation > More Agents | Effective Agents | proposer / critic / judge strictly separated |
+| Independent evaluation > Self-evaluation | Harness Design | critic does not see proposer reasoning |
+| Context reset > Long context | Context Engineering | context reset between sessions |
+| Failure attribution > Simple retry | Harness Design | L1-L4 error classification + attribution |
+| Stronger model, simpler harness | Harness Evolution | MVP stays lean, evolves with model |
 
-| 模块 | 文件 | 依赖 | 说明 |
+### 5.2 OpenAI Codex Insights
+
+| Principle | Source | Embodiment in this system |
+|------|------|-----------------|
+| Codebase readable by Agent | Engineering in Agentic World | AGENTS.md entry document, structured handoff files |
+| Mechanically encode architecture invariants | Engineering in Agentic World | Blackboard write constraints + Schema validation |
+| Continuous garbage collection | Engineering in Agentic World | Trace Log + Cost tracking + Resource limits |
+| Environment design > Code writing | Engineering in Agentic World | FlowConfig config-driven, Adapter abstraction |
+
+### 5.3 Harness Methodology Insights
+
+| Principle | Source | Embodiment in this system |
+|------|------|-----------------|
+| Define completion before execution | 00-overall-plan | `done-criteria` injected at session_init |
+| Break long tasks into phases | 00-overall-plan | FSM step splitting + max_rounds hard termination |
+| Validate close to real usage | 00-overall-plan | critic review mirrors real usage scenarios |
+| Context crystallizes into files | 00-overall-plan | Blackboard persistence + WAL |
+| Don't let substandard results through | 03-anti-patterns | Human-in-the-Loop approval + Gate mechanism |
+
+---
+
+## 6. MVP Implementation Roadmap
+
+### Phase 1: Core Protocol (Week 1)
+
+**Goal:** Get single-shot linear flow running
+
+| Module | File | Dependencies | Description |
 |------|------|------|------|
-| 类型定义 | `src/types/*.ts` | zod | PRD 第 20 章全部类型 |
-| NDJSON 传输 | `src/transport/ndjson-stream.ts` | 无 | 编解码 + 启发式提取 |
-| Claude Code Adapter | `src/adapters/claude-code.ts` | execa | single-shot 模式 |
-| Gemini CLI Adapter | `src/adapters/gemini-cli.ts` | execa | single-shot 模式 |
-| 基础 FSM | `src/orchestrator/fsm.ts` | expr-eval | 线性流程 |
-| Blackboard | `src/blackboard/blackboard.ts` | zod | 内存实现 + 写入约束 |
+| Type definitions | `src/types/*.ts` | zod | All PRD chapter 20 types |
+| NDJSON transport | `src/transport/ndjson-stream.ts` | None | Encoding/decoding + heuristic extraction |
+| Claude Code Adapter | `src/adapters/claude-code.ts` | execa | single-shot mode |
+| Gemini CLI Adapter | `src/adapters/gemini-cli.ts` | execa | single-shot mode |
+| Basic FSM | `src/orchestrator/fsm.ts` | expr-eval | Linear flow |
+| Blackboard | `src/blackboard/blackboard.ts` | zod | In-memory implementation + write constraints |
 
-**验收标准：**
+**Acceptance criteria:**
 ```bash
 vera run --flow minimal --task "Review this function"
-# 输出: PROPOSE → CRITIQUE → DECIDE → END
-# 生成 sessions/{id}/trace.ndjson
+# Output: PROPOSE -> CRITIQUE -> DECIDE -> END
+# Generates sessions/{id}/trace.ndjson
 ```
 
-### Phase 2：健壮性（Week 2）
+### Phase 2: Robustness (Week 2)
 
-| 模块 | 文件 | 说明 |
+| Module | File | Description |
 |------|------|------|
-| 错误重试 | `src/error/retry.ts` | L1/L2 重试策略 |
-| 条件分支 | `src/orchestrator/fsm.ts` | condition / break_condition |
-| 终止机制 | `src/orchestrator/termination.ts` | 硬/软终止 |
-| YAML 加载 | `src/config/loader.ts` | FlowConfig / agents.yaml / adapters.yaml |
-| Trace Log | `src/observability/tracer.ts` | pino + NDJSON 文件 |
-| 成本追踪 | `src/observability/cost-tracker.ts` | token 统计 |
+| Error retry | `src/error/retry.ts` | L1/L2 retry strategy |
+| Conditional branching | `src/orchestrator/fsm.ts` | condition / break_condition |
+| Termination mechanism | `src/orchestrator/termination.ts` | Hard/soft termination |
+| YAML loading | `src/config/loader.ts` | FlowConfig / agents.yaml / adapters.yaml |
+| Trace Log | `src/observability/tracer.ts` | pino + NDJSON file |
+| Cost tracking | `src/observability/cost-tracker.ts` | Token statistics |
 
-### Phase 3：可观测 + CLI（Week 3）
+### Phase 3: Observability + CLI (Week 3)
 
-| 模块 | 文件 | 说明 |
+| Module | File | Description |
 |------|------|------|
-| CLI 入口 | `src/cli/run.ts` | vera run 命令 |
-| 运行时交互 | `src/cli/interactive.ts` | Ctrl+C / p / r / s |
-| 审批 UI | `src/cli/approval.ts` | Diff / Accept / Reject / Edit / Skip |
-| Replay | `src/observability/replay.ts` | trace.ndjson 回放 |
-| 安全 | `src/security/sanitizer.ts` | API Key 脱敏 |
+| CLI entry | `src/cli/run.ts` | vera run command |
+| Runtime interaction | `src/cli/interactive.ts` | Ctrl+C / p / r / s |
+| Approval UI | `src/cli/approval.ts` | Diff / Accept / Reject / Edit / Skip |
+| Replay | `src/observability/replay.ts` | trace.ndjson playback |
+| Security | `src/security/sanitizer.ts` | API Key redaction |
 
 ---
 
-## 七、风险与缓解
+## 7. Risks and Mitigations
 
-| 风险 | 影响 | 概率 | 缓解措施 |
+| Risk | Impact | Probability | Mitigation |
 |------|------|------|----------|
-| Agent CLI 接口变更 | Adapter 失效 | 中 | 版本锁定 + 适配测试 |
-| NDJSON 提取失败率高 | 流程中断 | 中 | 启发式提取管线 + L2 重试 |
-| single-shot 启动慢 | 用户体验差 | 高 | 预热机制（并行 spawn） |
-| 成本失控 | 财务风险 | 低 | 资源限制 + 成本预警 |
-| 自定义 FSM 扩展困难 | 技术债 | 低 | 接口抽象 + 测试覆盖 |
+| Agent CLI interface changes | Adapter breakage | Medium | Version pinning + adaptation tests |
+| High NDJSON extraction failure rate | Flow interruption | Medium | Heuristic extraction pipeline + L2 retry |
+| Slow single-shot startup | Poor UX | High | Warm-up mechanism (parallel spawn) |
+| Cost spiraling | Financial risk | Low | Resource limits + cost warnings |
+| Custom FSM difficult to extend | Technical debt | Low | Interface abstraction + test coverage |
 
 ---
 
-## 八、参考文档索引
+## 8. Reference Document Index
 
-| 文档 | 路径 | 用途 |
+| Document | Path | Purpose |
 |------|------|------|
-| PRD 完整方案 | `mvp.prd.md` | 系统架构、协议、类型定义 |
-| Anthropic Harness | `anthropic/` | 多 Agent 模式、Harness 设计 |
-| Harness 方法论 | `harness/` | 角色分离、失败归因、成熟度模型 |
-| OpenAI 实践 | `OpenAI/` | 大规模 Agent 工程实践 |
+| PRD full plan | `mvp.prd.md` | System architecture, protocol, type definitions |
+| Anthropic Harness | `anthropic/` | Multi-agent patterns, Harness design |
+| Harness methodology | `harness/` | Role separation, failure attribution, maturity model |
+| OpenAI practices | `OpenAI/` | Large-scale Agent engineering practices |
