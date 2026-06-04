@@ -41,11 +41,13 @@ const VALID_CONFIG = JSON.parse(VALID_JSON);
 beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.VERA_CONFIG_DIR;
+  delete process.env.CLAUDE_CONFIG_DIR;
   process.env.VERA_HOME = "/tmp/global-vera-home";
 });
 
 afterEach(() => {
   delete process.env.VERA_CONFIG_DIR;
+  delete process.env.CLAUDE_CONFIG_DIR;
   delete process.env.VERA_HOME;
 });
 
@@ -145,6 +147,48 @@ describe("loadConfig", () => {
       expect(config).toEqual({});
       // readFileSync must NOT be called when existsSync is false
       expect(mockReadFileSync).not.toHaveBeenCalled();
+    });
+
+    it("migrates global Claude Code settings when Vera configs are missing", () => {
+      const claudeDir = "/tmp/claude-config";
+      const claudePath = `${claudeDir}/settings.json`;
+      const globalDir = "/tmp/global-vera-home/.vera";
+      const globalPath = `${globalDir}/settings.json`;
+      const authKey = ["ANTHROPIC", "AUTH", "TOKEN"].join("_");
+      const baseUrlKey = ["ANTHROPIC", "BASE", "URL"].join("_");
+      const apiValue = "not-sensitive";
+      process.env.CLAUDE_CONFIG_DIR = claudeDir;
+      mockExistsSync.mockImplementation((path) => path === claudePath);
+      mockReadFileSync.mockImplementation((path) => {
+        if (path !== claudePath) throw new Error("unexpected read");
+        return JSON.stringify({
+          env: {
+            [authKey]: apiValue,
+            [baseUrlKey]: "http://127.0.0.1:15721",
+            ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-custom",
+            ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME: "fast-model",
+            ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-custom",
+            ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: "strong-model",
+            ANTHROPIC_DEFAULT_OPUS_MODEL: "claude-opus-custom",
+            ANTHROPIC_DEFAULT_OPUS_MODEL_NAME: "strong-model",
+          },
+        });
+      });
+
+      const config = loadConfig();
+
+      expect(config.default_provider).toBe("claude-code");
+      expect(config.routing).toMatchObject({
+        classifier: "fast-model",
+        l1: "strong-model",
+        l2: "strong-model-opus",
+      });
+      expect(mockMkdirSync).toHaveBeenCalledWith(globalDir, { recursive: true });
+      expect(mockWriteFileSync).toHaveBeenCalledWith(
+        globalPath,
+        expect.stringContaining('"default_provider": "claude-code"'),
+        "utf-8",
+      );
     });
 
     it("returns empty object {} when file does not exist at explicit path", () => {

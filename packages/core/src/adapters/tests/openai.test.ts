@@ -107,6 +107,7 @@ describe("OpenAIAdapter", () => {
       expect(MockOpenAI).toHaveBeenCalledWith({
         apiKey: "sk-123",
         baseURL: "https://api.openai.com/v1",
+        defaultHeaders: undefined,
       });
     });
 
@@ -115,6 +116,7 @@ describe("OpenAIAdapter", () => {
       expect(MockOpenAI).toHaveBeenCalledWith({
         apiKey: undefined,
         baseURL: undefined,
+        defaultHeaders: undefined,
       });
     });
 
@@ -123,6 +125,17 @@ describe("OpenAIAdapter", () => {
       expect(MockOpenAI).toHaveBeenCalledWith({
         apiKey: "sk-only",
         baseURL: undefined,
+        defaultHeaders: undefined,
+      });
+    });
+
+    it("should pass headers to OpenAI client", () => {
+      const headers = { "X-Test": "enabled" };
+      new OpenAIAdapter("key", "https://api.openai.com/v1", headers);
+      expect(MockOpenAI).toHaveBeenCalledWith({
+        apiKey: "key",
+        baseURL: "https://api.openai.com/v1",
+        defaultHeaders: headers,
       });
     });
   });

@@ -30,7 +30,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   const flags: Record<string, string | boolean> = {};
 
   for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
+    const arg = argv[i];
     if (arg.startsWith("--")) {
       const key = arg.slice(2);
       const next = argv[i + 1];
@@ -58,10 +58,11 @@ function parseArgs(argv: string[]): ParsedArgs {
 }
 
 function printHelp() {
-  console.log("Usage: openvera <command> [options]");
+  console.log("Usage: openvera|vera|ai <command> [options]");
   console.log("");
   console.log("Commands:");
   console.log("  init                  Configure providers and models interactively");
+  console.log("  sync                  Sync settings and resources from other agents");
   console.log("  repl                  Start REPL with full skill support");
   console.log("  flow run              Run the flow defined in .flow/");
   console.log("");
@@ -80,6 +81,9 @@ function printHelp() {
   console.log("  --dir <path>            Project directory  (default: .)");
   console.log("  --force                 Run setup even when config already exists");
   console.log("");
+  console.log("Options (sync):");
+  console.log("  --force                 Replace conflicting symlinks");
+  console.log("");
   console.log("Options (flow run):");
   console.log("  --dir <path>            Project directory with .flow/  (default: .)");
   console.log("  --model <id>            LLM model override");
@@ -91,6 +95,9 @@ function printHelp() {
   console.log("");
   console.log("Examples:");
   console.log("  openvera init");
+  console.log("  vera sync");
+  console.log("  vera");
+  console.log("  ai repl");
   console.log("  openvera init --force");
   console.log("  openvera flow run");
   console.log("  openvera flow run --dir flow-examples/software-dev");
@@ -120,6 +127,11 @@ try {
     const { runInitCommand } = await import("./init-run.js");
     await runInitCommand({
       dir: flags["dir"] as string | undefined,
+      force: Boolean(flags["force"]),
+    });
+  } else if (command[0] === "sync") {
+    const { runSyncCommand } = await import("./sync-run.js");
+    runSyncCommand({
       force: Boolean(flags["force"]),
     });
   } else if (command[0] === "flow" && command[1] === "run") {

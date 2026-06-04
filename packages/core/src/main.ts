@@ -4,7 +4,7 @@
 // IMPORTANT: This file has top-level side effects (config load, setup wizard,
 // intent routing, single-shot agent run, REPL launch). It must NOT be imported
 // as a library. The library entry is `index.ts`, which is side-effect free.
-import { loadConfig } from "./config/index.js";
+import { loadConfig, syncExternalResources } from "./config/index.js";
 import {
   resolveClassifierTarget,
   resolveDefaultTarget,
@@ -53,6 +53,7 @@ let config = loadConfig();
 // When config is empty (no API key) and stdin is a TTY, launch the interactive
 // setup wizard so the user can get started without manually editing config files.
 if (isConfigEmpty(config) && process.stdin.isTTY) {
+  syncExternalResources();
   const selectedProvider = await runSetupWizard(process.cwd());
   if (selectedProvider) {
     config = loadConfig(); // Reload the freshly-written config
@@ -71,12 +72,12 @@ function buildAdapter(providerName?: string, modelName?: string): LLMAdapter {
   // Ink UI can display the error in context rather than crashing at startup.
   switch (pc.adapter) {
     case "openai":
-      return new OpenAIAdapter(apiKey, pc.base_url);
+      return new OpenAIAdapter(apiKey, pc.base_url, pc.headers);
     case "gemini":
       return new GeminiAdapter(apiKey);
     case "anthropic":
     default:
-      return new AnthropicAdapter(apiKey, pc.base_url);
+      return new AnthropicAdapter(apiKey, pc.base_url, pc.headers);
   }
 }
 

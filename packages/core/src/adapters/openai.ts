@@ -15,8 +15,8 @@ const log = createLogger("adapter:openai");
 export class OpenAIAdapter implements LLMAdapter {
   private client: OpenAI;
 
-  constructor(apiKey?: string, baseUrl?: string) {
-    this.client = new OpenAI({ apiKey, baseURL: baseUrl });
+  constructor(apiKey?: string, baseUrl?: string, headers?: Record<string, string>) {
+    this.client = new OpenAI({ apiKey, baseURL: baseUrl, defaultHeaders: headers });
   }
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {

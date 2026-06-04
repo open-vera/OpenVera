@@ -6,8 +6,16 @@ import { createToolRegistry } from "@open-vera/core/tools";
 import { PromptStore } from "@open-vera/core/prompt";
 import { AnthropicAdapter, OpenAIAdapter, GeminiAdapter } from "@open-vera/core/adapters";
 import type { LLMAdapter } from "@open-vera/core/adapters";
-import { globalVeraDir, loadConfig, isConfigEmpty, projectResourcePath, runSetupWizard } from "@open-vera/core/config";
-import type { ProviderConfig } from "@open-vera/core/config";
+import {
+  globalVeraDir,
+  isConfigEmpty,
+  loadConfig,
+  projectResourcePath,
+  resolveDefaultTarget,
+  resolveProviderModelConfig,
+  runSetupWizard,
+  syncExternalResources,
+} from "@open-vera/core/config";
 import { createSkillResolver, RegistryToolProvider } from "../skill/index.js";
 import { buildCliAdapter } from "./adapter.js";
 import { createHarnessPlanExecutor } from "./repl-plan-executor.js";
@@ -41,6 +49,7 @@ export async function runReplCommand(args: ReplRunArgs): Promise<void> {
   // interactive setup wizard so the user can get started without manually
   // editing config files.
   if (isConfigEmpty(config) && process.stdin.isTTY) {
+    syncExternalResources();
     const selectedProvider = await runSetupWizard(cwd);
     if (selectedProvider) {
       config = loadConfig(undefined, cwd); // Reload the freshly-written config
@@ -65,16 +74,20 @@ export async function runReplCommand(args: ReplRunArgs): Promise<void> {
   const projectSkillsDir = projectResourcePath(cwd, "skills");
   const skillResolver = createSkillResolver(toolProvider, userSkillsDir, projectSkillsDir);
 
-  function buildAdapter(providerName: string): LLMAdapter {
-    const pc: ProviderConfig = config.providers?.[providerName] ?? { adapter: "anthropic" };
+  function buildAdapter(providerName: string, modelName?: string): LLMAdapter {
+    const defaultTarget = resolveDefaultTarget(config);
+    const pc = resolveProviderModelConfig(config, {
+      provider: providerName,
+      model: modelName ?? defaultTarget.model,
+    });
     const apiKey = pc.api_key ??
       (pc.adapter === "openai" ? process.env.OPENAI_API_KEY :
        pc.adapter === "gemini" ? process.env.GEMINI_API_KEY :
        process.env.ANTHROPIC_API_KEY);
     switch (pc.adapter) {
-      case "openai": return new OpenAIAdapter(apiKey, pc.base_url);
+      case "openai": return new OpenAIAdapter(apiKey, pc.base_url, pc.headers);
       case "gemini": return new GeminiAdapter(apiKey);
-      default: return new AnthropicAdapter(apiKey, pc.base_url);
+      default: return new AnthropicAdapter(apiKey, pc.base_url, pc.headers);
     }
   }
 

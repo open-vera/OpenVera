@@ -135,6 +135,7 @@ describe("AnthropicAdapter", () => {
       expect(MockAnthropic).toHaveBeenCalledWith({
         apiKey: "key-123",
         baseURL: "https://api.example.com",
+        defaultHeaders: undefined,
       });
     });
 
@@ -143,6 +144,7 @@ describe("AnthropicAdapter", () => {
       expect(MockAnthropic).toHaveBeenCalledWith({
         apiKey: undefined,
         baseURL: undefined,
+        defaultHeaders: undefined,
       });
     });
 
@@ -151,6 +153,17 @@ describe("AnthropicAdapter", () => {
       expect(MockAnthropic).toHaveBeenCalledWith({
         apiKey: "key-abc",
         baseURL: undefined,
+        defaultHeaders: undefined,
+      });
+    });
+
+    it("should pass headers to Anthropic client", () => {
+      const headers = { "X-Test": "enabled" };
+      new AnthropicAdapter("key-abc", "https://api.example.com", headers);
+      expect(MockAnthropic).toHaveBeenCalledWith({
+        apiKey: "key-abc",
+        baseURL: "https://api.example.com",
+        defaultHeaders: headers,
       });
     });
   });

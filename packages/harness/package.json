@@ -1,6 +1,6 @@
 {
   "name": "@open-vera/openvera",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -13,10 +13,12 @@
     "access": "public"
   },
   "bin": {
-    "openvera": "./dist/cli/index.js"
+    "openvera": "./dist/cli/index.js",
+    "vera": "./dist/cli/index.js",
+    "ai": "./dist/cli/index.js"
   },
   "scripts": {
-    "dev": "VERA_CONFIG_DIR=../../.vera tsx src/cli/index.ts repl --dir ../..",
+    "dev": "VERA_CONFIG_DIR=../../.vera tsx --conditions=development src/cli/index.ts repl --dir ../..",
     "build": "tsc",
     "postbuild": "chmod +x dist/cli/index.js",
     "release": "pnpm build && pnpm publish --no-git-checks",

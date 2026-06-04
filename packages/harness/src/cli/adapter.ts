@@ -1,4 +1,4 @@
-import { loadConfig } from "@open-vera/core/config";
+import { loadConfig, resolveDefaultTarget, resolveProviderModelConfig } from "@open-vera/core/config";
 import { AnthropicAdapter, OpenAIAdapter, GeminiAdapter } from "@open-vera/core/adapters";
 import type { LLMAdapter } from "@open-vera/core/adapters";
 
@@ -27,8 +27,12 @@ export function buildCliAdapter(
   cwd?: string,
 ): { adapter: LLMAdapter; model: string } {
   const config = loadConfig(undefined, cwd);
-  const providerName = providerArg ?? config.default_provider ?? "anthropic";
-  const pc = config.providers?.[providerName] ?? { adapter: "anthropic" as const };
+  const defaultTarget = resolveDefaultTarget(config);
+  const target = providerArg
+    ? { provider: providerArg, model: defaultTarget.model }
+    : defaultTarget;
+  const providerName = target.provider;
+  const pc = resolveProviderModelConfig(config, target);
   const apiKey = apiKeyArg ?? pc.api_key ?? resolveEnvKey(pc.adapter, providerName);
 
   if (!apiKey) {
@@ -53,15 +57,15 @@ export function buildCliAdapter(
   let adapter: LLMAdapter;
   switch (pc.adapter) {
     case "openai":
-      adapter = new OpenAIAdapter(apiKey, pc.base_url);
+      adapter = new OpenAIAdapter(apiKey, pc.base_url, pc.headers);
       break;
     case "gemini":
       adapter = new GeminiAdapter(apiKey);
       break;
     default:
-      adapter = new AnthropicAdapter(apiKey, pc.base_url);
+      adapter = new AnthropicAdapter(apiKey, pc.base_url, pc.headers);
   }
 
-  const model = config.default_model ?? "claude-opus-4-6";
+  const model = target.model;
   return { adapter, model };
 }

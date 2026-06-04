@@ -15,10 +15,11 @@ const log = createLogger("adapter:anthropic");
 export class AnthropicAdapter implements LLMAdapter {
   private client: Anthropic;
 
-  constructor(apiKey?: string, baseUrl?: string) {
+  constructor(apiKey?: string, baseUrl?: string, headers?: Record<string, string>) {
     this.client = new Anthropic({
       apiKey,
       baseURL: baseUrl || undefined,
+      defaultHeaders: headers,
     });
   }
 

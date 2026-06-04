@@ -1,6 +1,6 @@
 {
   "name": "@open-vera/core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -12,22 +12,86 @@
     "access": "public"
   },
   "exports": {
-    ".": "./dist/index.js",
-    "./types": "./dist/types/index.js",
-    "./adapters": "./dist/adapters/index.js",
-    "./agent": "./dist/agent/loop.js",
-    "./config": "./dist/config/index.js",
-    "./intent": "./dist/intent/index.js",
-    "./plan": "./dist/plan/index.js",
-    "./repl": "./dist/repl/index.js",
-    "./context": "./dist/context/index.js",
-    "./tools": "./dist/tools/index.js",
-    "./memory": "./dist/memory/index.js",
-    "./session": "./dist/session/index.js",
-    "./project-context": "./dist/project-context/index.js",
-    "./prompt": "./dist/prompt/index.js",
-    "./errors": "./dist/errors.js",
-    "./storage": "./dist/storage/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "development": "./src/types/index.ts",
+      "default": "./dist/types/index.js"
+    },
+    "./adapters": {
+      "types": "./dist/adapters/index.d.ts",
+      "development": "./src/adapters/index.ts",
+      "default": "./dist/adapters/index.js"
+    },
+    "./agent": {
+      "types": "./dist/agent/loop.d.ts",
+      "development": "./src/agent/loop.ts",
+      "default": "./dist/agent/loop.js"
+    },
+    "./config": {
+      "types": "./dist/config/index.d.ts",
+      "development": "./src/config/index.ts",
+      "default": "./dist/config/index.js"
+    },
+    "./intent": {
+      "types": "./dist/intent/index.d.ts",
+      "development": "./src/intent/index.ts",
+      "default": "./dist/intent/index.js"
+    },
+    "./plan": {
+      "types": "./dist/plan/index.d.ts",
+      "development": "./src/plan/index.ts",
+      "default": "./dist/plan/index.js"
+    },
+    "./repl": {
+      "types": "./dist/repl/index.d.ts",
+      "development": "./src/repl/index.ts",
+      "default": "./dist/repl/index.js"
+    },
+    "./context": {
+      "types": "./dist/context/index.d.ts",
+      "development": "./src/context/index.ts",
+      "default": "./dist/context/index.js"
+    },
+    "./tools": {
+      "types": "./dist/tools/index.d.ts",
+      "development": "./src/tools/index.ts",
+      "default": "./dist/tools/index.js"
+    },
+    "./memory": {
+      "types": "./dist/memory/index.d.ts",
+      "development": "./src/memory/index.ts",
+      "default": "./dist/memory/index.js"
+    },
+    "./session": {
+      "types": "./dist/session/index.d.ts",
+      "development": "./src/session/index.ts",
+      "default": "./dist/session/index.js"
+    },
+    "./project-context": {
+      "types": "./dist/project-context/index.d.ts",
+      "development": "./src/project-context/index.ts",
+      "default": "./dist/project-context/index.js"
+    },
+    "./prompt": {
+      "types": "./dist/prompt/index.d.ts",
+      "development": "./src/prompt/index.ts",
+      "default": "./dist/prompt/index.js"
+    },
+    "./errors": {
+      "types": "./dist/errors.d.ts",
+      "development": "./src/errors.ts",
+      "default": "./dist/errors.js"
+    },
+    "./storage": {
+      "types": "./dist/storage/index.d.ts",
+      "development": "./src/storage/index.ts",
+      "default": "./dist/storage/index.js"
+    }
   },
   "scripts": {
     "build": "tsc",

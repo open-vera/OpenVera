@@ -7,6 +7,8 @@ export interface ProviderModelConfig {
   api_key?: string;
   /** Optional endpoint override for this model. Defaults to the provider base_url. */
   base_url?: string;
+  /** Optional HTTP headers passed to compatible SDK clients. */
+  headers?: Record<string, string>;
 }
 
 export interface ModelConfig extends ProviderModelConfig {
@@ -22,6 +24,7 @@ export interface ProviderConfig {
   adapter: AdapterType;
   api_key?: string;
   base_url?: string;
+  headers?: Record<string, string>;
 }
 
 export interface RoutingTarget {

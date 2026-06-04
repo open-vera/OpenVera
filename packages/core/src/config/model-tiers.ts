@@ -106,6 +106,7 @@ export function resolveProviderModelConfig(
     ...(model?.adapter ? { adapter: model.adapter } : {}),
     ...(model?.api_key ? { api_key: model.api_key } : {}),
     ...(model?.base_url ? { base_url: model.base_url } : {}),
+    ...(model?.headers ? { headers: model.headers } : {}),
   };
 }
 

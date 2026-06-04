@@ -4,6 +4,8 @@ import type { VeraConfig } from "./types.js";
 import { ConfigError } from "../errors.js";
 import { createLogger } from "../utils/logger.js";
 import { resolveConfigLocation } from "./paths.js";
+import { migrateClaudeCodeConfigIfAvailable } from "./claude-code-migration.js";
+import { syncExternalResources } from "./resource-sync.js";
 export type { ConfigLocation, ConfigScope } from "./paths.js";
 export { globalConfigPath, projectConfigPath, resolveConfigLocation } from "./paths.js";
 
@@ -21,6 +23,17 @@ export function loadConfig(configPath?: string, cwd = process.cwd()): VeraConfig
   const { path: filePath } = resolveConfigLocation(configPath, cwd);
 
   if (!existsSync(filePath)) {
+    if (!configPath && !process.env.VERA_CONFIG_DIR) {
+      syncExternalResources();
+      const migrated = migrateClaudeCodeConfigIfAvailable(filePath);
+      if (migrated) {
+        log.info("migrated Claude Code settings to Vera config", {
+          source: migrated.sourcePath,
+          target: migrated.targetPath,
+        });
+        return migrated.config;
+      }
+    }
     log.debug("no config file found, returning empty config", { path: filePath });
     return {};
   }

@@ -8,7 +8,7 @@ import { markdownToPlan } from "./plan.js";
 import { createSkillResolver, RegistryToolProvider } from "../skill/index.js";
 import { createToolRegistry } from "@open-vera/core/tools";
 import { SessionStore } from "@open-vera/core/session";
-import { globalVeraDir, loadConfig, isConfigEmpty, projectResourcePath, runSetupWizard } from "@open-vera/core/config";
+import { globalVeraDir, loadConfig, isConfigEmpty, projectResourcePath, runSetupWizard, syncExternalResources } from "@open-vera/core/config";
 import { loadAgents, createRunnersFromAgents } from "./agent-loader.js";
 
 export interface FlowRunArgs {
@@ -65,6 +65,7 @@ export async function runFlowCommand(args: FlowRunArgs): Promise<void> {
   // ── First-run setup wizard ─────────────────────────────────────────────
   let config = loadConfig(undefined, projectDir);
   if (isConfigEmpty(config) && process.stdin.isTTY) {
+    syncExternalResources();
     const selectedProvider = await runSetupWizard(projectDir);
     if (selectedProvider) {
       config = loadConfig(undefined, projectDir);

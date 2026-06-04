@@ -5,7 +5,7 @@
 [![npm](https://img.shields.io/npm/v/@open-vera/openvera?style=flat&color=6366f1&label=npm)](https://www.npmjs.com/package/@open-vera/openvera)
 [![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](#)
-[![Coverage Status](https://coveralls.io/repos/github/open-vera/OpenVera/badge.svg)](https://coveralls.io/github/open-vera/OpenVera)
+[![Coverage Status](https://coveralls.io/repos/github/open-vera/OpenVera/badge.svg?branch=main)](https://coveralls.io/github/open-vera/OpenVera?branch=main)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](./CONTRIBUTING.md)
 [![stars](https://img.shields.io/github/stars/open-vera/OpenVera?style=flat&color=facc15)](https://github.com/open-vera/OpenVera)
 
