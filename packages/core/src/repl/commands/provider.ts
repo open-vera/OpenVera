@@ -1,5 +1,6 @@
 import type { ReplContext } from "../context.js";
 import { writeConfig } from "../../config/loader.js";
+import { resolveDefaultModelAliasForProvider, resolveDefaultTarget } from "../../config/model-tiers.js";
 
 export async function providerCommand(
   args: string[],
@@ -34,13 +35,16 @@ export async function providerCommand(
   }
 
   ctx.config.default_provider = name;
-  ctx.adapter = ctx.buildAdapter(name);
-  if (ctx.config.default_model) {
-    ctx.model = ctx.config.default_model;
+  if (!ctx.config.routing?.enabled) {
+    const alias = resolveDefaultModelAliasForProvider(ctx.config, name);
+    if (alias) ctx.config.default_model = alias;
   }
+  const target = resolveDefaultTarget(ctx.config);
+  ctx.model = target.model;
+  ctx.adapter = ctx.buildAdapter(name, ctx.model);
 
   try {
-    writeConfig(ctx.config);
+    writeConfig(ctx.config, undefined, ctx.cwd);
   } catch {
     // Non-fatal: config persists in memory for the session even if file write fails
   }

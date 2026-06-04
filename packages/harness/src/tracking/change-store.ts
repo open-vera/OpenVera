@@ -7,7 +7,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { globalDataPath } from "@open-vera/core/config";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -37,7 +37,7 @@ export class ChangeStore {
   private retentionDays: number;
 
   constructor(options: ChangeStoreOptions = {}) {
-    this.storeDir = options.storeDir ?? join(homedir(), ".vera", "changes");
+    this.storeDir = options.storeDir ?? globalDataPath("changes");
     this.retentionDays = options.retentionDays ?? 30;
   }
 

@@ -6,7 +6,6 @@ import {
   readdirSync,
   readFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import {
   basename,
   extname,
@@ -21,6 +20,7 @@ import type { ToolHandler } from "./loop.js";
 import { streamAgent } from "./loop.js";
 import { calculateCost, SessionStore } from "../session/index.js";
 import { createBranchWorktree } from "../worktree/index.js";
+import { globalVeraDir, projectResourcePath } from "../config/paths.js";
 
 export const SUBAGENT_TOOL_NAME = "agent";
 
@@ -208,7 +208,6 @@ export interface RunSubagentToolOptions {
 export interface LoadAgentDefinitionsOptions {
   cwd: string;
   includeUser?: boolean;
-  homeDir?: string;
 }
 
 export interface RunSubagentToolResult {
@@ -592,7 +591,6 @@ function addUsage(a: Usage, b: Usage): Usage {
 export function loadAgentDefinitions({
   cwd,
   includeUser = true,
-  homeDir = process.env.VERA_HOME || homedir(),
 }: LoadAgentDefinitionsOptions): AgentDefinition[] {
   const definitions = new Map<string, AgentDefinition>();
   for (const definition of BUILTIN_AGENT_DEFINITIONS) {
@@ -600,12 +598,12 @@ export function loadAgentDefinitions({
   }
 
   if (includeUser) {
-    for (const definition of readAgentsDir(join(homeDir, ".vera", "agents"), "user")) {
+    for (const definition of readAgentsDir(join(globalVeraDir(), "agents"), "user")) {
       definitions.set(normalizeAgentType(definition.agentType), definition);
     }
   }
 
-  for (const definition of readAgentsDir(join(resolve(cwd), ".vera", "agents"), "project")) {
+  for (const definition of readAgentsDir(projectResourcePath(resolve(cwd), "agents"), "project")) {
     definitions.set(normalizeAgentType(definition.agentType), definition);
   }
 

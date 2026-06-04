@@ -5,6 +5,12 @@
 // intent routing, single-shot agent run, REPL launch). It must NOT be imported
 // as a library. The library entry is `index.ts`, which is side-effect free.
 import { loadConfig } from "./config/index.js";
+import {
+  resolveClassifierTarget,
+  resolveDefaultTarget,
+  resolveProviderModelConfig,
+  resolveRoutingConfig,
+} from "./config/model-tiers.js";
 import { isConfigEmpty, runSetupWizard } from "./config/setup.js";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline";
@@ -12,7 +18,6 @@ import { AnthropicAdapter } from "./adapters/anthropic.js";
 import { OpenAIAdapter } from "./adapters/openai.js";
 import { GeminiAdapter } from "./adapters/gemini.js";
 import type { LLMAdapter } from "./adapters/base.js";
-import type { ProviderConfig } from "./config/types.js";
 import { resolveModel } from "./intent/classifier.js";
 import { startRepl } from "./repl/index.js";
 import { SessionStore } from "./session/index.js";
@@ -54,9 +59,12 @@ if (isConfigEmpty(config) && process.stdin.isTTY) {
   }
 }
 
-function buildAdapter(providerName?: string): LLMAdapter {
-  const name = providerName ?? config.default_provider ?? "anthropic";
-  const pc: ProviderConfig = config.providers?.[name] ?? { adapter: "anthropic" };
+function buildAdapter(providerName?: string, modelName?: string): LLMAdapter {
+  const target = providerName && modelName
+    ? { provider: providerName, model: modelName }
+    : resolveDefaultTarget(config);
+  const name = providerName ?? target.provider;
+  const pc = resolveProviderModelConfig(config, { provider: name, model: modelName ?? target.model });
   const apiKey = pc.api_key || resolveEnvKey(pc.adapter, name);
 
   // No early exit — let the adapter fail naturally on first API call so the
@@ -86,10 +94,11 @@ function resolveEnvKey(adapter: string, name: string): string | undefined {
   }
 }
 
-const defaultProvider = config.default_provider ?? "anthropic";
-const defaultModel = config.default_model ?? "claude-opus-4-6";
+const defaultTarget = resolveDefaultTarget(config);
+const defaultProvider = defaultTarget.provider;
+const defaultModel = defaultTarget.model;
 
-let adapter = buildAdapter(defaultProvider);
+let adapter = buildAdapter(defaultProvider, defaultModel);
 let model = defaultModel;
 
 // Prompt management
@@ -105,13 +114,12 @@ if (promptsDir) {
 }
 
 // Intent routing: classify first message if enabled (REPL will re-route per turn later)
-if (config.routing?.enabled) {
+const routingConfig = resolveRoutingConfig(config);
+if (routingConfig?.enabled) {
   try {
-    const classifierTarget = config.routing.classifier;
-    const classifierAdapter = classifierTarget
-      ? buildAdapter(classifierTarget.provider)
-      : adapter;
-    const classifierModel = classifierTarget?.model ?? "claude-haiku-4-5";
+    const classifierTarget = resolveClassifierTarget(config, defaultTarget);
+    const classifierAdapter = buildAdapter(classifierTarget.provider, classifierTarget.model);
+    const classifierModel = classifierTarget.model;
 
     // For REPL mode we skip pre-classification at startup; routing happens per turn
     // Single-shot mode (argv[2]) still benefits from routing
@@ -125,11 +133,11 @@ if (config.routing?.enabled) {
         singleShot,
         classifierAdapter,
         classifierModel,
-        config.routing,
+        routingConfig,
         defaultProvider,
         defaultModel
       );
-      if (routedProvider) adapter = buildAdapter(routedProvider);
+      if (routedProvider) adapter = buildAdapter(routedProvider, routed);
       model = routed;
       if (intent) {
         console.error(
@@ -182,19 +190,24 @@ if (process.argv[2]) {
     .join("\n\n");
   const runDir = dirname(sessionStore.filePath);
   const modelContextLimit = getModelContextLimit(model);
+  const compactConfig = config.session?.compact;
+  const compressionAdapter = compactConfig?.provider
+    ? buildAdapter(compactConfig.provider, compactConfig.model)
+    : undefined;
   const answer = await streamAgent(
     process.argv[2],
     {
       adapter,
       model,
+      ...(compressionAdapter ? { compressionAdapter } : {}),
       tools,
       system,
       runDir,
       compressionOptions: {
-        enabled: true,
+        enabled: compactConfig?.enabled !== false,
         triggerTokens: Math.floor(modelContextLimit * 0.78),
         keepRecentTurns: 6,
-        model,
+        model: compactConfig?.model ?? model,
       },
       microCompactOptions: {
         enabled: true,

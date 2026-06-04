@@ -434,7 +434,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
           <ConversationPanel messages={messages} width={columns} availableHeight={availableHeight} scrollOffset={scrollOffset} expandToolOutput={expandToolOutput} onScrollAdjust={handleScrollAdjust} />
           <ActivityLane turn={activeTurn} />
           <Box><Text color={theme.textSubtle}>{"─".repeat(columns)}</Text></Box>
-          <StatusBar status={streamStatus} outputTokens={activeTurn.outputTokens} pendingCount={queue.items.length} scrollOffset={scrollOffset} expandToolOutput={expandToolOutput} />
+          <StatusBar status={streamStatus} inputTokens={activeTurn.inputTokens} outputTokens={activeTurn.outputTokens} pendingCount={queue.items.length} scrollOffset={scrollOffset} expandToolOutput={expandToolOutput} />
           {queue.items.map((msg, i) => (
             <Box key={i}>
               <Text color={theme.warning}>{`⏎ ${i + 1}. `}</Text>

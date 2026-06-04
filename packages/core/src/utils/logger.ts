@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { globalDataPath } from "../config/paths.js";
 
 // ── Types ───────────────────────────────────────────────────────────────────────
 
@@ -19,6 +20,92 @@ export interface Logger {
   warn(message: string, meta?: Record<string, unknown>): void;
   error(message: string, meta?: Record<string, unknown>): void;
   child(name: string): Logger;
+}
+
+// ── Structured log safety helpers ─────────────────────────────────────────────
+
+const DEFAULT_PREVIEW_CHARS = 1_000;
+const MAX_ARRAY_ITEMS = 20;
+const MAX_OBJECT_KEYS = 50;
+const MAX_DEPTH = 5;
+
+const SENSITIVE_KEY_PATTERN =
+  /(^|[_-])(api[_-]?key|token|secret|password|passwd|authorization|credential|private[_-]?key)($|[_-])/i;
+
+function getPreviewChars(): number {
+  const raw = process.env["VERA_LOG_PREVIEW_CHARS"];
+  if (!raw) return DEFAULT_PREVIEW_CHARS;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_PREVIEW_CHARS;
+  return parsed;
+}
+
+export function truncateForLog(text: string, maxChars = getPreviewChars()): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}…[truncated ${text.length - maxChars} chars]`;
+}
+
+export function sanitizeForLog(value: unknown, maxStringLength = getPreviewChars()): unknown {
+  const seen = new WeakSet<object>();
+
+  function visit(current: unknown, depth: number, key?: string): unknown {
+    if (key && SENSITIVE_KEY_PATTERN.test(key)) return "[REDACTED]";
+    if (typeof current === "string") return truncateForLog(current, maxStringLength);
+    if (
+      current === null ||
+      typeof current === "number" ||
+      typeof current === "boolean" ||
+      typeof current === "undefined"
+    ) {
+      return current;
+    }
+    if (typeof current === "bigint") return current.toString();
+    if (typeof current === "symbol") return String(current);
+    if (typeof current === "function") return "[Function]";
+    if (depth >= MAX_DEPTH) return "[MaxDepth]";
+    if (current instanceof Error) {
+      return {
+        name: current.name,
+        message: truncateForLog(current.message, maxStringLength),
+        stack: current.stack ? truncateForLog(current.stack, maxStringLength) : undefined,
+      };
+    }
+    if (current instanceof Date) return current.toISOString();
+    if (current instanceof Uint8Array) return `[Uint8Array ${current.byteLength} bytes]`;
+    if (typeof current !== "object") return String(current);
+
+    if (seen.has(current)) return "[Circular]";
+    seen.add(current);
+
+    if (Array.isArray(current)) {
+      const items = current.slice(0, MAX_ARRAY_ITEMS).map((item) => visit(item, depth + 1));
+      if (current.length > MAX_ARRAY_ITEMS) {
+        items.push(`[... ${current.length - MAX_ARRAY_ITEMS} more items]`);
+      }
+      return items;
+    }
+
+    const out: Record<string, unknown> = {};
+    const entries = Object.entries(current as Record<string, unknown>);
+    for (const [entryKey, entryValue] of entries.slice(0, MAX_OBJECT_KEYS)) {
+      out[entryKey] = visit(entryValue, depth + 1, entryKey);
+    }
+    if (entries.length > MAX_OBJECT_KEYS) {
+      out.__truncated_keys = entries.length - MAX_OBJECT_KEYS;
+    }
+    return out;
+  }
+
+  return visit(value, 0);
+}
+
+export function previewForLog(value: unknown, maxStringLength = getPreviewChars()): string {
+  if (typeof value === "string") return truncateForLog(value, maxStringLength);
+  try {
+    return truncateForLog(JSON.stringify(sanitizeForLog(value, maxStringLength)), maxStringLength);
+  } catch {
+    return truncateForLog(String(value), maxStringLength);
+  }
 }
 
 // ── Level resolution ────────────────────────────────────────────────────────────
@@ -44,11 +131,9 @@ let logFilePath: string | null = null;
 
 function ensureLogDir(): string | null {
   if (logDir !== null) return logDir;
-  // Determine log directory from VERA_CONFIG_DIR or default to .vera/logs
-  const configDir = process.env["VERA_CONFIG_DIR"];
-  const baseDir = configDir
-    ? join(configDir, "logs")
-    : join(process.cwd(), ".vera", "logs");
+  const baseDir = process.env["VERA_LOG_DIR"]
+    ?? (process.env["VERA_CONFIG_DIR"] ? join(process.env["VERA_CONFIG_DIR"], "logs") : undefined)
+    ?? globalDataPath("logs");
   try {
     if (!existsSync(baseDir)) {
       mkdirSync(baseDir, { recursive: true });
@@ -64,15 +149,24 @@ function getLogFilePath(): string | null {
   if (logFilePath) return logFilePath;
   const dir = ensureLogDir();
   if (!dir) return null;
-  const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-  logFilePath = join(dir, `vera-${date}.log`);
+  const hour = getCurrentLogHour();
+  logFilePath = join(dir, `vera-${hour}.log`);
   return logFilePath;
 }
 
+function getCurrentLogHour(): string {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const hh = String(now.getHours()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}-${hh}`;
+}
+
 function writeToFile(entry: LogEntry): void {
-  // Check date rollover
-  const date = new Date().toISOString().slice(0, 10);
-  if (logFilePath && !logFilePath.endsWith(`vera-${date}.log`)) {
+  // Check hour rollover
+  const hour = getCurrentLogHour();
+  if (logFilePath && !logFilePath.endsWith(`vera-${hour}.log`)) {
     logFilePath = null;
   }
   const fp = getLogFilePath();
@@ -152,7 +246,7 @@ class LoggerImpl implements Logger {
       level,
       name: this.name,
       message,
-      ...(meta ? { meta } : {}),
+      ...(meta ? { meta: sanitizeForLog(meta) as Record<string, unknown> } : {}),
     };
 
     writeToStderr(entry);

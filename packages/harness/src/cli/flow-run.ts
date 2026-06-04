@@ -1,5 +1,4 @@
 import { resolve, join } from "node:path";
-import { homedir } from "node:os";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { HarnessRuntime } from "../runtime/runtime.js";
@@ -9,7 +8,7 @@ import { markdownToPlan } from "./plan.js";
 import { createSkillResolver, RegistryToolProvider } from "../skill/index.js";
 import { createToolRegistry } from "@open-vera/core/tools";
 import { SessionStore } from "@open-vera/core/session";
-import { loadConfig, isConfigEmpty, runSetupWizard } from "@open-vera/core/config";
+import { globalVeraDir, loadConfig, isConfigEmpty, projectResourcePath, runSetupWizard } from "@open-vera/core/config";
 import { loadAgents, createRunnersFromAgents } from "./agent-loader.js";
 
 export interface FlowRunArgs {
@@ -64,17 +63,17 @@ export async function runFlowCommand(args: FlowRunArgs): Promise<void> {
   }
 
   // ── First-run setup wizard ─────────────────────────────────────────────
-  let config = loadConfig();
+  let config = loadConfig(undefined, projectDir);
   if (isConfigEmpty(config) && process.stdin.isTTY) {
     const selectedProvider = await runSetupWizard(projectDir);
     if (selectedProvider) {
-      config = loadConfig();
+      config = loadConfig(undefined, projectDir);
     } else {
       process.exit(1);
     }
   }
 
-  const { adapter, model: defaultModel } = buildCliAdapter(args.provider, args.apiKey);
+  const { adapter, model: defaultModel } = buildCliAdapter(args.provider, args.apiKey, projectDir);
   const model = args.model ?? defaultModel;
 
   // ── Tool + Skill setup ──────────────────────────────────────────────────────
@@ -84,10 +83,10 @@ export async function runFlowCommand(args: FlowRunArgs): Promise<void> {
 
   const toolProvider = new RegistryToolProvider(toolRegistry, cwd, sessionStore.sessionId);
 
-  // Load skills: builtin + project-level (.vera/skills/) + user-level (~/.vera/skills/)
-  const projectSkillsDir = join(projectDir, ".vera", "skills");
-  const userSkillsDir = join(homedir(), ".vera", "skills");
-  const skillResolver = createSkillResolver(toolProvider, projectSkillsDir, userSkillsDir);
+  // Load skills: builtin + global (~/.vera/skills/) + project-level (.vera/skills/).
+  const userSkillsDir = join(globalVeraDir(), "skills");
+  const projectSkillsDir = projectResourcePath(projectDir, "skills");
+  const skillResolver = createSkillResolver(toolProvider, userSkillsDir, projectSkillsDir);
 
   // Build skill bundle for a code-level agent (tools + system fragment)
   const bundle = skillResolver.resolve(

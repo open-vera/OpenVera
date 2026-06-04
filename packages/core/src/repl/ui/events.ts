@@ -17,7 +17,7 @@ export type UiEvent =
   | { type: "tool.completed"; tool: ToolUse }
   | { type: "routing.failed"; message: string }
   | { type: "status.changed"; status: StreamStatus }
-  | { type: "usage.updated"; usage: Partial<TokenUsage>; outputTokensDelta?: number };
+  | { type: "usage.updated"; usage: Partial<TokenUsage>; inputTokensDelta?: number; outputTokensDelta?: number };
 
 export interface ReplViewModel {
   messages: ChatMessage[];

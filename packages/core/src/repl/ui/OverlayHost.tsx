@@ -4,6 +4,7 @@ import { SessionStore } from "../../session/index.js";
 import type { ReplContext } from "../context.js";
 import { debugLog } from "../debugLog.js";
 import { writeConfig } from "../../config/loader.js";
+import { normalizeModels, resolveDefaultModelAliasForProvider, resolveDefaultTarget, resolveModelReference } from "../../config/model-tiers.js";
 import type { ChatMessage } from "./types.js";
 import { resumedVisibleMessages } from "./utils.js";
 import type { OverlayState } from "./state/overlayStore.js";
@@ -102,13 +103,16 @@ export function OverlayHost({
 
           const ctxNow = ctxRef.current;
           ctxNow.config.default_provider = name;
-          ctxNow.adapter = ctxNow.buildAdapter(name);
-          if (ctxNow.config.default_model) {
-            ctxNow.model = ctxNow.config.default_model;
+          if (!ctxNow.config.routing?.enabled) {
+            const alias = resolveDefaultModelAliasForProvider(ctxNow.config, name);
+            if (alias) ctxNow.config.default_model = alias;
           }
+          const defaultTarget = resolveDefaultTarget(ctxNow.config);
+          ctxNow.model = defaultTarget.model;
+          ctxNow.adapter = ctxNow.buildAdapter(name, ctxNow.model);
 
           try {
-            writeConfig(ctxNow.config);
+            writeConfig(ctxNow.config, undefined, ctxNow.cwd);
           } catch {
             // Non-fatal: config persists in memory
           }
@@ -150,40 +154,47 @@ export function OverlayHost({
         options={options}
         onConfirm={([key]) => {
           if (!key) return;
-          const [provider, modelId] = key.split("::");
-          if (!provider || !modelId) return;
+          const [provider, selectedId] = key.split("::");
+          if (!provider || !selectedId) return;
 
           const ctxNow = ctxRef.current;
-          ctxNow.model = modelId;
-          ctxNow.config.default_model = modelId;
-
-          // If selecting a model from a different provider, switch provider too
-          if (provider !== ctxNow.config.default_provider) {
-            ctxNow.config.default_provider = provider;
-            ctxNow.adapter = ctxNow.buildAdapter(provider);
+          const configuredModels = normalizeModels(ctxNow.config);
+          const alias = configuredModels[selectedId]
+            ? selectedId
+            : `${provider}-${selectedId}`;
+          if (!configuredModels[alias]) {
+            ctxNow.config.models = {
+              ...configuredModels,
+              [alias]: { provider, model: selectedId },
+            };
           }
-
-          // When routing is enabled, also update all routing levels
           if (ctxNow.config.routing?.enabled) {
-            const r = ctxNow.config.routing;
-            for (const level of ["l0", "l1", "l2", "l3"] as const) {
-              if (r[level]) r[level] = { provider, model: modelId };
-            }
+            ctxNow.config.routing = {
+              ...ctxNow.config.routing,
+              l1: alias,
+            };
+            delete ctxNow.config.default_model;
+          } else {
+            ctxNow.config.default_model = alias;
           }
+          ctxNow.config.default_provider = provider;
+
+          const target = resolveModelReference(ctxNow.config, alias);
+          ctxNow.model = target.model;
+          ctxNow.adapter = ctxNow.buildAdapter(target.provider, target.model);
 
           try {
-            writeConfig(ctxNow.config);
+            writeConfig(ctxNow.config, undefined, ctxNow.cwd);
           } catch {
             // Non-fatal: config persists in memory
           }
 
           if (ctxNow.onSwitchProvider) {
-            ctxNow.onSwitchProvider(provider, modelId);
+            ctxNow.onSwitchProvider(target.provider, target.model);
           }
 
           onClose();
-          const routingNote = ctxNow.config.routing?.enabled ? " (all routing levels)" : "";
-          setMessages((prev) => [...prev, { role: "assistant", content: `Switched to ${provider} [${modelId}]${routingNote}` }]);
+          setMessages((prev) => [...prev, { role: "assistant", content: `Switched to ${target.provider} [${target.model}]` }]);
         }}
         onCancel={onClose}
       />

@@ -239,9 +239,9 @@ describe("routeTarget", () => {
     expect(target).toEqual({ provider: "gemini", model: "gemini-pro" });
   });
 
-  it("should route level 3 from config", () => {
+  it("should route level 3 through l2 config", () => {
     const routing: RoutingConfig = {
-      l3: { provider: "anthropic", model: "claude-opus-5" },
+      l2: { provider: "anthropic", model: "claude-opus-5" },
     };
     const target = routeTarget({ ...defaultIntent, level: 3 }, routing);
     expect(target).toEqual({ provider: "anthropic", model: "claude-opus-5" });
@@ -249,16 +249,16 @@ describe("routeTarget", () => {
 
   it("should fall back to DEFAULT_ROUTING when config key is missing", () => {
     const routing: RoutingConfig = {};
-    // Level 1 fallback: claude-haiku-4-5
+    // Level 1 fallback: claude-sonnet-4-6
     const target = routeTarget({ ...defaultIntent, level: 1 }, routing);
-    expect(target).toEqual({ provider: "anthropic", model: "claude-haiku-4-5" });
+    expect(target).toEqual({ provider: "anthropic", model: "claude-sonnet-4-6" });
   });
 
   it("should use DEFAULT_ROUTING for each level when empty config", () => {
     const routing: RoutingConfig = {};
     expect(routeTarget({ ...defaultIntent, level: 0 }, routing).model).toBe("claude-haiku-4-5");
-    expect(routeTarget({ ...defaultIntent, level: 1 }, routing).model).toBe("claude-haiku-4-5");
-    expect(routeTarget({ ...defaultIntent, level: 2 }, routing).model).toBe("claude-sonnet-4-6");
+    expect(routeTarget({ ...defaultIntent, level: 1 }, routing).model).toBe("claude-sonnet-4-6");
+    expect(routeTarget({ ...defaultIntent, level: 2 }, routing).model).toBe("claude-opus-4-6");
     expect(routeTarget({ ...defaultIntent, level: 3 }, routing).model).toBe("claude-opus-4-6");
   });
 
@@ -405,7 +405,7 @@ describe("resolveModel", () => {
       },
       stop_reason: "end_turn",
     });
-    const routing: RoutingConfig = {}; // no l3 defined
+    const routing: RoutingConfig = {}; // no l2 defined
 
     const result = await resolveModel(
       "complex plan",

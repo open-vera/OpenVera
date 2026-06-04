@@ -1,4 +1,5 @@
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
+import { globalDataPath } from "../../../config/paths.js";
 import { MemoryTracker } from "../../../memory/index.js";
 import type { MemoryFile } from "../../../memory/index.js";
 import type { CompressionState, MicroCompactState } from "../../../context/index.js";
@@ -73,7 +74,7 @@ export async function prepareTurnContext({
   }
 
   if (refs.memoryTrackerRef.current === null) {
-    refs.memoryTrackerRef.current = createMemoryTracker(join(runDir, "memory"));
+    refs.memoryTrackerRef.current = createMemoryTracker(globalDataPath("memory"));
   }
 
   const memoryTracker = refs.memoryTrackerRef.current;
@@ -93,7 +94,7 @@ export async function prepareTurnContext({
 
   const modelContextLimit = getModelContextLimit(activeModel);
   const dynamicContext = {
-    ...buildDynamicContextOptions(modelContextLimit, activeModel),
+    ...buildDynamicContextOptions(modelContextLimit, activeModel, ctx.config.session?.compact, ctx.buildAdapter),
     compressionState: refs.compressionStateRef.current,
     microCompactState: refs.microCompactStateRef.current,
     memoryTracker,

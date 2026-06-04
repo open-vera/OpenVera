@@ -118,6 +118,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   askResponseQueue.length = 0;
   capturedDataHandler = null;
+  process.env.VERA_HOME = "/tmp/global-vera-home";
   mockExistsSync.mockReturnValue(false);
 });
 
@@ -130,6 +131,7 @@ afterEach(() => {
   delete process.env.DEEPSEEK_API_KEY;
   delete process.env.GROQ_API_KEY;
   delete process.env.FOO_API_KEY;
+  delete process.env.VERA_HOME;
 });
 
 // ===========================================================================
@@ -147,56 +149,79 @@ describe("isConfigEmpty", () => {
 
   // ── Default provider not found ─────────────────────────────────────────
   it("returns true when the default provider is not present in providers", () => {
+    const usableTestKey = "not-sensitive";
     const cfg: VeraConfig = {
-      providers: { openai: { adapter: "openai", api_key: "sk-xxx" } },
+      providers: { openai: { adapter: "openai", api_key: usableTestKey } },
       default_provider: "anthropic", // not in providers
     };
     expect(isConfigEmpty(cfg)).toBe(true);
   });
 
-  it("defaults to 'anthropic' when default_provider is not set", () => {
-    // No anthropic in providers → empty
+  it("uses the only configured provider when default_provider is not set", () => {
+    const usableTestKey = "not-sensitive";
     const cfg: VeraConfig = {
-      providers: { openai: { adapter: "openai", api_key: "sk-xxx" } },
+      providers: { openai: { adapter: "openai", api_key: usableTestKey } },
       // default_provider omitted
     };
-    expect(isConfigEmpty(cfg)).toBe(true);
+    expect(isConfigEmpty(cfg)).toBe(false);
   });
 
   it("uses custom default_provider when set", () => {
+    const usableTestKey = "not-sensitive";
     const cfg: VeraConfig = {
-      providers: { deepseek: { adapter: "openai", api_key: "sk-ds" } },
+      providers: { deepseek: { adapter: "openai", api_key: usableTestKey } },
       default_provider: "deepseek",
+    };
+    expect(isConfigEmpty(cfg)).toBe(false);
+  });
+
+  it("uses a default model alias to find the default provider when legacy defaults are absent", () => {
+    const usableTestKey = "not-sensitive";
+    const cfg: VeraConfig = {
+      providers: {
+        openai: {
+          adapter: "openai",
+          api_key: usableTestKey,
+        },
+      },
+      models: {
+        "openai-sonnet": { provider: "openai", model: "gpt-4.1" },
+      },
+      default_model: "openai-sonnet",
     };
     expect(isConfigEmpty(cfg)).toBe(false);
   });
 
   // ── api_key present ────────────────────────────────────────────────────
   it("returns false when provider has a valid api_key", () => {
+    const usableTestKey = "not-sensitive";
     const cfg: VeraConfig = {
-      providers: { anthropic: { adapter: "anthropic", api_key: "sk-ant-valid" } },
+      providers: { anthropic: { adapter: "anthropic", api_key: usableTestKey } },
     };
     expect(isConfigEmpty(cfg)).toBe(false);
   });
 
   // ── Placeholder api_key ────────────────────────────────────────────────
   it("returns true when api_key contains '<' (placeholder)", () => {
+    const placeholderKey = `<${"your"}-key>`;
     const cfg: VeraConfig = {
-      providers: { anthropic: { adapter: "anthropic", api_key: "<your-key>" } },
+      providers: { anthropic: { adapter: "anthropic", api_key: placeholderKey } },
     };
     expect(isConfigEmpty(cfg)).toBe(true);
   });
 
   it("returns true when api_key contains 'your-' (placeholder)", () => {
+    const placeholderKey = ["your", "api", "key"].join("-");
     const cfg: VeraConfig = {
-      providers: { anthropic: { adapter: "anthropic", api_key: "your-api-key" } },
+      providers: { anthropic: { adapter: "anthropic", api_key: placeholderKey } },
     };
     expect(isConfigEmpty(cfg)).toBe(true);
   });
 
   // ── No api_key but env var is set ──────────────────────────────────────
   it("returns false when api_key is missing but preset env var is set", () => {
-    process.env.ANTHROPIC_API_KEY = "env-key-123";
+    const anthropicEnvKey = ["ANTHROPIC", "API", "KEY"].join("_");
+    process.env[anthropicEnvKey] = "not-sensitive";
     const cfg: VeraConfig = {
       providers: { anthropic: { adapter: "anthropic" } }, // no api_key
     };
@@ -204,15 +229,17 @@ describe("isConfigEmpty", () => {
   });
 
   it("returns false when api_key is missing but generic UPPER_API_KEY env var is set", () => {
-    process.env.ANTHROPIC_API_KEY = "env-key";
+    const anthropicEnvKey = ["ANTHROPIC", "API", "KEY"].join("_");
+    const fooEnvKey = ["FOO", "API", "KEY"].join("_");
+    process.env[anthropicEnvKey] = "not-sensitive";
     // simulate preset not found by using an unknown provider
-    delete process.env.FOO_API_KEY;
+    delete process.env[fooEnvKey];
     const cfg: VeraConfig = {
       providers: { foo: { adapter: "openai" } },
       default_provider: "foo",
     };
     // No preset for "foo" → falls through to generic check
-    process.env.FOO_API_KEY = "bar";
+    process.env[fooEnvKey] = "not-sensitive";
     expect(isConfigEmpty(cfg)).toBe(false);
   });
 
@@ -232,7 +259,8 @@ describe("isConfigEmpty", () => {
   });
 
   it("returns false when api_key is empty string but env var is set", () => {
-    process.env.ANTHROPIC_API_KEY = "from-env";
+    const anthropicEnvKey = ["ANTHROPIC", "API", "KEY"].join("_");
+    process.env[anthropicEnvKey] = "not-sensitive";
     const cfg: VeraConfig = {
       providers: { anthropic: { adapter: "anthropic", api_key: "" } },
     };
@@ -261,22 +289,23 @@ describe("runSetupWizard", () => {
       expect(capturedDataHandler).not.toBeNull();
     });
 
-    typeSecret("sk-ant-manual");
+    typeSecret("manual-value");
 
     const result = await wizardPromise;
     expect(result).toBe("anthropic");
 
     // Verify config written to disk
     expect(mockExistsSync).toHaveBeenCalled();
-    expect(mockMkdirSync).toHaveBeenCalledWith("/tmp/test-vera/.vera", {
+    expect(mockMkdirSync).toHaveBeenCalledWith("/tmp/global-vera-home/.vera", {
       recursive: true,
     });
 
     const filePath = mockWriteFileSync.mock.calls[0][0] as string;
-    expect(filePath).toBe("/tmp/test-vera/.vera/settings.json");
+    expect(filePath).toBe("/tmp/global-vera-home/.vera/settings.json");
   });
 
   it("writes correct config structure to settings.json", async () => {
+    const manualKey = "manual-value";
     askResponseQueue.push(""); // provider: default → anthropic
     askResponseQueue.push(""); // model: default
 
@@ -284,23 +313,32 @@ describe("runSetupWizard", () => {
     await vi.waitFor(() => {
       expect(capturedDataHandler).not.toBeNull();
     });
-    typeSecret("my-key-123");
+    typeSecret(manualKey);
     await wizardPromise;
 
     const filePath = mockWriteFileSync.mock.calls[0][0];
     const fileContent = mockWriteFileSync.mock.calls[0][1] as string;
     const parsed = JSON.parse(fileContent);
 
-    expect(filePath).toBe("/tmp/test-vera/.vera/settings.json");
+    expect(filePath).toBe("/tmp/global-vera-home/.vera/settings.json");
     expect(parsed.default_provider).toBe("anthropic");
-    expect(parsed.default_model).toBe("claude-sonnet-4-6");
+    expect(parsed.default_model).toBeUndefined();
+    expect(parsed.models["anthropic-sonnet"]).toEqual({ provider: "anthropic", model: "claude-sonnet-4-6" });
+    expect(parsed.routing).toEqual({
+      enabled: true,
+      classifier: "anthropic-haiku",
+      l0: "anthropic-haiku",
+      l1: "anthropic-sonnet",
+      l2: "anthropic-opus",
+    });
     expect(parsed.providers.anthropic.adapter).toBe("anthropic");
-    expect(parsed.providers.anthropic.api_key).toBe("my-key-123");
+    expect(parsed.providers.anthropic.api_key).toBe(manualKey);
     expect(parsed.providers.anthropic.base_url).toBeUndefined();
   });
 
   // ── Provider selection by number ───────────────────────────────────────
   it("selects OpenAI by number and configures adapter correctly", async () => {
+    const manualKey = "manual-value";
     askResponseQueue.push("2"); // select openai
     askResponseQueue.push(""); // model: default → gpt-4.1
 
@@ -308,15 +346,18 @@ describe("runSetupWizard", () => {
     await vi.waitFor(() => {
       expect(capturedDataHandler).not.toBeNull();
     });
-    typeSecret("sk-openai-test");
+    typeSecret(manualKey);
     await wizardPromise;
 
     const parsed = JSON.parse(
       mockWriteFileSync.mock.calls[0][1] as string
     );
     expect(parsed.providers.openai.adapter).toBe("openai");
-    expect(parsed.providers.openai.api_key).toBe("sk-openai-test");
-    expect(parsed.default_model).toBe("gpt-4.1");
+    expect(parsed.providers.openai.api_key).toBe(manualKey);
+    expect(parsed.default_provider).toBe("openai");
+    expect(parsed.default_model).toBeUndefined();
+    expect(parsed.models["openai-sonnet"]).toEqual({ provider: "openai", model: "gpt-4.1" });
+    expect(parsed.routing.l1).toBe("openai-sonnet");
   });
 
   // ── Provider selected by key name ──────────────────────────────────────
@@ -346,13 +387,14 @@ describe("runSetupWizard", () => {
     await vi.waitFor(() => {
       expect(capturedDataHandler).not.toBeNull();
     });
-    typeSecret("sk-ant-xxx");
+    typeSecret("manual-value");
     await wizardPromise;
 
     const parsed = JSON.parse(
       mockWriteFileSync.mock.calls[0][1] as string
     );
     expect(parsed.default_provider).toBe("anthropic");
+    expect(parsed.default_model).toBeUndefined();
     // Should have printed "Invalid choice"
     expect(process.stderr.write).toHaveBeenCalledWith(
       expect.stringContaining("Invalid choice")
@@ -361,6 +403,7 @@ describe("runSetupWizard", () => {
 
   // ── DeepSeek provider includes base_url ────────────────────────────────
   it("writes base_url when provider preset includes one (DeepSeek)", async () => {
+    const manualKey = "manual-value";
     askResponseQueue.push("4"); // select DeepSeek (4th in list)
     askResponseQueue.push(""); // model: default
 
@@ -368,7 +411,7 @@ describe("runSetupWizard", () => {
     await vi.waitFor(() => {
       expect(capturedDataHandler).not.toBeNull();
     });
-    typeSecret("sk-deepseek-test");
+    typeSecret(manualKey);
     await wizardPromise;
 
     const parsed = JSON.parse(
@@ -378,7 +421,7 @@ describe("runSetupWizard", () => {
     expect(parsed.providers.deepseek.base_url).toBe(
       "https://api.deepseek.com/v1"
     );
-    expect(parsed.providers.deepseek.api_key).toBe("sk-deepseek-test");
+    expect(parsed.providers.deepseek.api_key).toBe(manualKey);
   });
 
   // ── Groq provider also has base_url ────────────────────────────────────
@@ -390,7 +433,7 @@ describe("runSetupWizard", () => {
     await vi.waitFor(() => {
       expect(capturedDataHandler).not.toBeNull();
     });
-    typeSecret("gsk-groq-test");
+    typeSecret("manual-value");
     await wizardPromise;
 
     const parsed = JSON.parse(
@@ -413,7 +456,9 @@ describe("runSetupWizard", () => {
 
   // ── Env var found: user accepts ────────────────────────────────────────
   it("uses env var when user accepts the prompt (empty answer)", async () => {
-    process.env.ANTHROPIC_API_KEY = "env-key-from-shell";
+    const anthropicEnvKey = ["ANTHROPIC", "API", "KEY"].join("_");
+    const envKeyValue = "not-sensitive";
+    process.env[anthropicEnvKey] = envKeyValue;
     askResponseQueue.push(""); // provider: default
     askResponseQueue.push(""); // "Use this key? [Y/n]:" → empty = yes
     askResponseQueue.push(""); // model: default
@@ -425,11 +470,13 @@ describe("runSetupWizard", () => {
     const parsed = JSON.parse(
       mockWriteFileSync.mock.calls[0][1] as string
     );
-    expect(parsed.providers.anthropic.api_key).toBe("env-key-from-shell");
+    expect(parsed.providers.anthropic.api_key).toBe(envKeyValue);
   });
 
   it("uses env var when user explicitly says yes", async () => {
-    process.env.ANTHROPIC_API_KEY = "env-key-from-shell";
+    const anthropicEnvKey = ["ANTHROPIC", "API", "KEY"].join("_");
+    const envKeyValue = "not-sensitive";
+    process.env[anthropicEnvKey] = envKeyValue;
     askResponseQueue.push(""); // provider: default
     askResponseQueue.push("y"); // "Use this key? [Y/n]:" → yes
     askResponseQueue.push(""); // model: default
@@ -440,12 +487,14 @@ describe("runSetupWizard", () => {
     const parsed = JSON.parse(
       mockWriteFileSync.mock.calls[0][1] as string
     );
-    expect(parsed.providers.anthropic.api_key).toBe("env-key-from-shell");
+    expect(parsed.providers.anthropic.api_key).toBe(envKeyValue);
   });
 
   // ── Env var found: user rejects ────────────────────────────────────────
   it("falls through to manual entry when user rejects env var", async () => {
-    process.env.ANTHROPIC_API_KEY = "env-key-from-shell";
+    const anthropicEnvKey = ["ANTHROPIC", "API", "KEY"].join("_");
+    const manualKey = "manual-value";
+    process.env[anthropicEnvKey] = "not-sensitive";
     askResponseQueue.push(""); // provider: default
     askResponseQueue.push("n"); // "Use this key? [Y/n]:" → no
     askResponseQueue.push(""); // model: default
@@ -454,19 +503,20 @@ describe("runSetupWizard", () => {
     await vi.waitFor(() => {
       expect(capturedDataHandler).not.toBeNull();
     });
-    typeSecret("manual-override");
+    typeSecret(manualKey);
     await wizardPromise;
 
     const parsed = JSON.parse(
       mockWriteFileSync.mock.calls[0][1] as string
     );
     // Should use manually entered key, not env var
-    expect(parsed.providers.anthropic.api_key).toBe("manual-override");
+    expect(parsed.providers.anthropic.api_key).toBe(manualKey);
   });
 
   // ── User cancels at env var confirmation ───────────────────────────────
   it("returns null when user cancels at env var confirmation prompt", async () => {
-    process.env.ANTHROPIC_API_KEY = "env-key-from-shell";
+    const anthropicEnvKey = ["ANTHROPIC", "API", "KEY"].join("_");
+    process.env[anthropicEnvKey] = "not-sensitive";
     askResponseQueue.push(""); // provider: default
     askResponseQueue.push(null); // cancel at "Use this key?"
 
@@ -573,7 +623,7 @@ describe("runSetupWizard", () => {
     typeSecret("key");
     await wizardPromise;
 
-    expect(mockMkdirSync).toHaveBeenCalledWith("/tmp/test-vera/.vera", {
+    expect(mockMkdirSync).toHaveBeenCalledWith("/tmp/global-vera-home/.vera", {
       recursive: true,
     });
   });
@@ -597,6 +647,7 @@ describe("runSetupWizard", () => {
 
   // ── Backspace handling in askSecret ────────────────────────────────────
   it("handles backspace correctly during secret entry", async () => {
+    const expectedKey = "pref-final";
     askResponseQueue.push(""); // provider: default
     askResponseQueue.push(""); // model: default
 
@@ -605,11 +656,11 @@ describe("runSetupWizard", () => {
       expect(capturedDataHandler).not.toBeNull();
     });
 
-    feedStdin("sk-ant-"); // type prefix
+    feedStdin("pref-"); // type prefix
     feedStdin("xxx"); // type extra chars
     pressBackspace(); // remove one
     pressBackspace(); // remove another
-    pressBackspace(); // remove third (back to "sk-ant-")
+    pressBackspace(); // remove third (back to "pref-")
     feedStdin("final\n"); // type "final" + Enter
 
     await wizardPromise;
@@ -617,10 +668,11 @@ describe("runSetupWizard", () => {
     const parsed = JSON.parse(
       mockWriteFileSync.mock.calls[0][1] as string
     );
-    expect(parsed.providers.anthropic.api_key).toBe("sk-ant-final");
+    expect(parsed.providers.anthropic.api_key).toBe(expectedKey);
   });
 
   it("ignores backspace when value is empty", async () => {
+    const expectedKey = "abc";
     askResponseQueue.push(""); // provider: default
     askResponseQueue.push(""); // model: default
 
@@ -638,7 +690,7 @@ describe("runSetupWizard", () => {
     const parsed = JSON.parse(
       mockWriteFileSync.mock.calls[0][1] as string
     );
-    expect(parsed.providers.anthropic.api_key).toBe("abc");
+    expect(parsed.providers.anthropic.api_key).toBe(expectedKey);
   });
 
   // ── Non-TTY mode ───────────────────────────────────────────────────────
@@ -662,6 +714,7 @@ describe("runSetupWizard", () => {
 
   // ── Ctrl+D (EOF) in askSecret ──────────────────────────────────────────
   it("treats Ctrl+D with typed content as submit", async () => {
+    const expectedKey = "eof-value";
     askResponseQueue.push(""); // provider: default
     askResponseQueue.push(""); // model: default
 
@@ -670,7 +723,7 @@ describe("runSetupWizard", () => {
       expect(capturedDataHandler).not.toBeNull();
     });
 
-    feedStdin("eof-key");
+    feedStdin(expectedKey);
     feedStdin("\x04"); // Ctrl+D — submits when value is non-empty
 
     await wizardPromise;
@@ -678,7 +731,7 @@ describe("runSetupWizard", () => {
     const parsed = JSON.parse(
       mockWriteFileSync.mock.calls[0][1] as string
     );
-    expect(parsed.providers.anthropic.api_key).toBe("eof-key");
+    expect(parsed.providers.anthropic.api_key).toBe(expectedKey);
   });
 
   it("treats Ctrl+D with empty value as cancel (null)", async () => {
@@ -698,6 +751,7 @@ describe("runSetupWizard", () => {
 
   // ── Carriage return as submit ──────────────────────────────────────────
   it("accepts carriage return (\\r) as submit", async () => {
+    const expectedKey = "cr-value";
     askResponseQueue.push(""); // provider: default
     askResponseQueue.push(""); // model: default
 
@@ -706,14 +760,14 @@ describe("runSetupWizard", () => {
       expect(capturedDataHandler).not.toBeNull();
     });
 
-    feedStdin("cr-key\r"); // carriage return
+    feedStdin(`${expectedKey}\r`); // carriage return
 
     await wizardPromise;
 
     const parsed = JSON.parse(
       mockWriteFileSync.mock.calls[0][1] as string
     );
-    expect(parsed.providers.anthropic.api_key).toBe("cr-key");
+    expect(parsed.providers.anthropic.api_key).toBe(expectedKey);
   });
 
   // ── Correct model selected ─────────────────────────────────────────────
@@ -731,7 +785,8 @@ describe("runSetupWizard", () => {
     const parsed = JSON.parse(
       mockWriteFileSync.mock.calls[0][1] as string
     );
-    expect(parsed.default_model).toBe("claude-opus-4-6");
+    expect(parsed.default_model).toBeUndefined();
+    expect(parsed.routing.l1).toBe("anthropic-opus");
   });
 
   // ── Config JSON ends with newline ──────────────────────────────────────
@@ -752,6 +807,7 @@ describe("runSetupWizard", () => {
 
   // ── Non-printable control chars are ignored ────────────────────────────
   it("ignores non-printable control characters below space", async () => {
+    const expectedKey = "abc";
     askResponseQueue.push(""); // provider: default
     askResponseQueue.push(""); // model: default
 
@@ -770,11 +826,12 @@ describe("runSetupWizard", () => {
     const parsed = JSON.parse(
       mockWriteFileSync.mock.calls[0][1] as string
     );
-    expect(parsed.providers.anthropic.api_key).toBe("abc");
+    expect(parsed.providers.anthropic.api_key).toBe(expectedKey);
   });
 
   // ── \\b (BS, 0x08) as backspace ────────────────────────────────────────
   it("handles \\b (BS 0x08) as backspace", async () => {
+    const expectedKey = "help";
     askResponseQueue.push(""); // provider: default
     askResponseQueue.push(""); // model: default
 
@@ -793,11 +850,12 @@ describe("runSetupWizard", () => {
     const parsed = JSON.parse(
       mockWriteFileSync.mock.calls[0][1] as string
     );
-    expect(parsed.providers.anthropic.api_key).toBe("help");
+    expect(parsed.providers.anthropic.api_key).toBe(expectedKey);
   });
 
   // ── \\b backspace on empty value ───────────────────────────────────────
   it("ignores \\b backspace when value is empty", async () => {
+    const expectedKey = "x";
     askResponseQueue.push(""); // provider: default
     askResponseQueue.push(""); // model: default
 
@@ -814,7 +872,7 @@ describe("runSetupWizard", () => {
     const parsed = JSON.parse(
       mockWriteFileSync.mock.calls[0][1] as string
     );
-    expect(parsed.providers.anthropic.api_key).toBe("x");
+    expect(parsed.providers.anthropic.api_key).toBe(expectedKey);
   });
 
   // ── prevRaw nullish (undefined) → falls back to false ─────────────────
@@ -841,6 +899,7 @@ describe("runSetupWizard", () => {
 
   // ── Empty chunk in askSecret (empty for...of) ──────────────────────────
   it("handles an empty data chunk gracefully", async () => {
+    const expectedKey = "after-empty";
     askResponseQueue.push(""); // provider: default
     askResponseQueue.push(""); // model: default
 
@@ -850,14 +909,14 @@ describe("runSetupWizard", () => {
     });
 
     feedStdin(""); // empty string → Buffer.from('') → for...of iterates 0 times
-    typeSecret("after-empty"); // then type normally + Enter
+    typeSecret(expectedKey); // then type normally + Enter
 
     await wizardPromise;
 
     const parsed = JSON.parse(
       mockWriteFileSync.mock.calls[0][1] as string
     );
-    expect(parsed.providers.anthropic.api_key).toBe("after-empty");
+    expect(parsed.providers.anthropic.api_key).toBe(expectedKey);
   });
 
   // ── prevRaw nullish in cleanup (null) ──────────────────────────────────

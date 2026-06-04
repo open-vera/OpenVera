@@ -1,4 +1,5 @@
 import { AdapterError } from "../../errors.js";
+import { normalizeModels } from "../../config/model-tiers.js";
 import type { ReplContext } from "../context.js";
 
 export async function modelCommand(
@@ -15,6 +16,18 @@ export async function modelCommand(
 
   const results = await Promise.allSettled(
     providerNames.map(async (name) => {
+      const configuredModels = Object.entries(normalizeModels(ctx.config))
+        .filter(([, model]) => model.provider === name);
+      if (configuredModels.length > 0) {
+        return {
+          name,
+          models: configuredModels.map(([alias, model]) => ({
+            id: alias,
+            display_name: !model.model || model.model === alias ? undefined : model.model,
+            context_window: undefined as number | undefined,
+          })),
+        };
+      }
       const adapter = ctx.buildAdapter(name);
       if (!adapter.listModels) {
         throw new AdapterError("ADAPTER_NO_LISTMODELS", "listModels not supported for this adapter");

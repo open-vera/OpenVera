@@ -1,23 +1,24 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
-import { resolve, dirname } from "path";
+import { dirname } from "path";
 import type { VeraConfig } from "./types.js";
 import { ConfigError } from "../errors.js";
 import { createLogger } from "../utils/logger.js";
+import { resolveConfigLocation } from "./paths.js";
+export type { ConfigLocation, ConfigScope } from "./paths.js";
+export { globalConfigPath, projectConfigPath, resolveConfigLocation } from "./paths.js";
 
 const log = createLogger("config");
-
-const CONFIG_FILENAME = "settings.json";
 
 /**
  * 加载配置文件。
  * - 指定路径：直接读取
  * - VERA_CONFIG_DIR 环境变量：从该目录找 settings.json（dev 场景）
- * - 未指定：从当前工作目录找 .vera/settings.json
- * - 找不到：返回空配置 {}
+ * - 未指定：先找当前工作目录 .vera/settings.json，再找全局 ~/.vera/settings.json
+ * - 都找不到：返回空配置 {}
  */
-export function loadConfig(configPath?: string): VeraConfig {
+export function loadConfig(configPath?: string, cwd = process.cwd()): VeraConfig {
   const startMs = Date.now();
-  const filePath = resolveConfigPath(configPath);
+  const { path: filePath } = resolveConfigLocation(configPath, cwd);
 
   if (!existsSync(filePath)) {
     log.debug("no config file found, returning empty config", { path: filePath });
@@ -35,16 +36,8 @@ export function loadConfig(configPath?: string): VeraConfig {
   }
 }
 
-function resolveConfigPath(configPath?: string): string {
-  return configPath
-    ? resolve(configPath)
-    : process.env.VERA_CONFIG_DIR
-    ? resolve(process.env.VERA_CONFIG_DIR, CONFIG_FILENAME)
-    : resolve(process.cwd(), ".vera", CONFIG_FILENAME);
-}
-
-export function writeConfig(config: VeraConfig, configPath?: string): void {
-  const filePath = resolveConfigPath(configPath);
+export function writeConfig(config: VeraConfig, configPath?: string, cwd = process.cwd()): void {
+  const { path: filePath } = resolveConfigLocation(configPath, cwd);
   const dir = dirname(filePath);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(filePath, JSON.stringify(config, null, 2) + "\n", "utf-8");

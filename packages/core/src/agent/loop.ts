@@ -36,7 +36,7 @@ import {
   insertCompressionInstruction,
   resolveInsertCompress,
 } from "../context/compression.js";
-import { createLogger } from "../utils/logger.js";
+import { createLogger, previewForLog, sanitizeForLog, truncateForLog } from "../utils/logger.js";
 
 const log = createLogger("agent:loop");
 
@@ -160,6 +160,8 @@ export interface AgentOptions {
    * Default: disabled.
    */
   compressionOptions?: CompressionOptions;
+  /** Optional adapter override for LLM-based context compression. */
+  compressionAdapter?: LLMAdapter;
   /**
    * Time-based micro-compact: clears old tool results when the gap since
    * the last assistant message exceeds the threshold. Pure heuristic,
@@ -209,6 +211,86 @@ const EMPTY_AFTER_TOOL_RESULT_PROMPT =
 const MAX_EMPTY_AFTER_TOOL_RETRIES = 3;
 
 // ── Context helpers ───────────────────────────────────────────────────────────
+
+function parseToolArgsForLog(args: string): unknown {
+  try {
+    return sanitizeForLog(JSON.parse(args) as unknown);
+  } catch {
+    return { raw: truncateForLog(args) };
+  }
+}
+
+function summarizeContentForLog(content: Message["content"]): unknown {
+  if (typeof content === "string") {
+    return { type: "text", length: content.length, preview: truncateForLog(content) };
+  }
+  return content.map((part) => {
+    switch (part.type) {
+      case "text":
+        return { type: "text", length: part.text.length, preview: truncateForLog(part.text) };
+      case "thinking":
+        return { type: "thinking", length: part.thinking.length, preview: truncateForLog(part.thinking) };
+      case "tool_call":
+        return {
+          type: "tool_call",
+          id: part.id,
+          name: part.name,
+          args: parseToolArgsForLog(part.arguments),
+        };
+      case "tool_result":
+        return {
+          type: "tool_result",
+          tool_call_id: part.tool_call_id,
+          length: part.content.length,
+          preview: truncateForLog(part.content),
+        };
+      case "image_url":
+        return { type: "image_url", url: sanitizeForLog(part.image_url.url) };
+    }
+  });
+}
+
+function summarizeMessagesForLog(messages: Message[]): unknown[] {
+  return messages.map((message, index) => ({
+    index,
+    role: message.role,
+    tool_call_id: message.tool_call_id,
+    content: summarizeContentForLog(message.content),
+  }));
+}
+
+function summarizeToolCallsForLog(
+  toolCalls: Array<{ id: string; name: string; arguments: string }>
+): unknown[] {
+  return toolCalls.map((tc) => ({
+    id: tc.id,
+    name: tc.name,
+    args: parseToolArgsForLog(tc.arguments),
+  }));
+}
+
+function extractThinking(message: Message): string {
+  if (typeof message.content === "string") return "";
+  return message.content
+    .filter((p): p is ContentPart & { type: "thinking" } => p.type === "thinking")
+    .map((p) => p.thinking)
+    .join("\n");
+}
+
+function logLlmRequest(turn: number, request: CompletionRequest): void {
+  log.debug("llm request", {
+    turn,
+    model: request.model,
+    messageCount: request.messages.length,
+    messages: summarizeMessagesForLog(request.messages),
+    toolCount: request.tools?.length ?? 0,
+    tools: request.tools?.map((tool) => tool.name) ?? [],
+    systemLen: request.system?.length ?? 0,
+    systemPreview: request.system ? truncateForLog(request.system) : undefined,
+    max_tokens: request.max_tokens,
+    thinking_budget: request.thinking_budget,
+  });
+}
 
 function buildWindowOptions(
   model: string,
@@ -312,7 +394,7 @@ async function applyProactiveCompress(
 
   // Traditional approach: separate API call for compression
   const before = messages.length;
-  const compressed = await compressMessages(messages, compressionState, opts, adapter, model);
+  const compressed = await compressMessages(messages, compressionState, opts, options.compressionAdapter ?? adapter, model);
   if (compressed.usage) options.onUsage?.(compressed.usage);
   options.onContextUpdate?.(compressed.messages, { compressionState: compressed.state, microCompactState });
   if (compressed.messages.length !== before) {
@@ -346,7 +428,7 @@ async function tryReactiveCompact(
     messages,
     compressionState ?? createCompressionState(),
     options.compressionOptions,
-    adapter,
+    options.compressionAdapter ?? adapter,
     model,
     true,
   );
@@ -422,6 +504,7 @@ export async function runAgent(
       }
 
       const request: CompletionRequest = { model, messages: apiMessages, tools, system: activeSystem, signal };
+      logLlmRequest(turn, request);
 
       // ── onTurnStart ────────────────────────────────────────────────────
       await hooks?.onTurnStart?.(turn, apiMessages);
@@ -439,7 +522,18 @@ export async function runAgent(
 
       // ── onTurnEnd (before tool execution) ─────────────────────────────
       let assistantText = extractText(response.message);
+      const assistantThinking = extractThinking(response.message);
       await hooks?.onTurnEnd?.(turn, response.usage, assistantText);
+      log.debug("llm response", {
+        turn,
+        stop_reason: response.stop_reason,
+        usage: response.usage,
+        textLen: assistantText.length,
+        textPreview: truncateForLog(assistantText),
+        thinkingLen: assistantThinking.length,
+        thinkingPreview: truncateForLog(assistantThinking),
+        toolCalls: summarizeToolCallsForLog(extractToolCalls(response.message)),
+      });
 
       // Filter out empty assistant messages that would cause API errors
       const isEmptyAssistant = response.message.role === "assistant" &&
@@ -619,6 +713,7 @@ export async function streamAgent(
       }
 
       const request: CompletionRequest = { model, messages: apiMessages, tools, system: activeSystem, signal };
+      logLlmRequest(turn, request);
 
       // ── onTurnStart ────────────────────────────────────────────────────
       await hooks?.onTurnStart?.(turn, apiMessages);
@@ -629,6 +724,7 @@ export async function streamAgent(
         arguments: string;
       }> = [];
       let turnText = "";
+      let turnThinking = "";
       let turnUsage: Usage | undefined;
 
       // ── Stream with reactive compact ───────────────────────────────────
@@ -639,6 +735,7 @@ export async function streamAgent(
             turnText += event.text;
           } else if (event.type === "thinking") {
             onThinking?.(event.text);
+            turnThinking += event.text;
           } else if (event.type === "tool_call") {
             collectedToolCalls.push(event);
           } else if (event.type === "done") {
@@ -660,7 +757,11 @@ export async function streamAgent(
         turn,
         duration_ms: Date.now() - turnStartMs,
         textLen: turnText.length,
+        textPreview: truncateForLog(turnText),
+        thinkingLen: turnThinking.length,
+        thinkingPreview: truncateForLog(turnThinking),
         toolCalls: collectedToolCalls.length,
+        toolCallDetails: summarizeToolCallsForLog(collectedToolCalls),
         usage: turnUsage,
       });
 
@@ -734,6 +835,12 @@ export async function streamAgent(
           options.onContextUpdate?.(messages, { compressionState, microCompactState });
           continue;
         }
+        log.debug("tool call start", {
+          turn,
+          toolCallId: tc.id,
+          tool: tc.name,
+          args: sanitizeForLog(args),
+        });
         const rawResult = onToolCall
           ? await onToolCall(tc.name, args)
           : `Tool "${tc.name}" called`;
@@ -741,6 +848,15 @@ export async function streamAgent(
         const content = budgetState
           ? await processToolResult(tc.id, rawResult, budgetState, runDir, maxChars)
           : rawResult;
+        log.debug("tool call result", {
+          turn,
+          toolCallId: tc.id,
+          tool: tc.name,
+          rawResultLen: rawResult.length,
+          resultLen: content.length,
+          resultPreview: previewForLog(content),
+          budgeted: content !== rawResult,
+        });
         messages.push({ role: "tool", tool_call_id: tc.id, content });
         options.onContextUpdate?.(messages, { compressionState, microCompactState });
       }
@@ -777,6 +893,11 @@ async function handleToolCalls(
       });
       continue;
     }
+    log.debug("tool call start", {
+      toolCallId: tc.id,
+      tool: tc.name,
+      args: sanitizeForLog(args),
+    });
     const rawResult = onToolCall
       ? await onToolCall(tc.name, args)
       : `Tool "${tc.name}" called with ${JSON.stringify(args)}`;
@@ -784,6 +905,14 @@ async function handleToolCalls(
     const content = budgetState
       ? await processToolResult(tc.id, rawResult, budgetState, runDir, maxChars)
       : rawResult;
+    log.debug("tool call result", {
+      toolCallId: tc.id,
+      tool: tc.name,
+      rawResultLen: rawResult.length,
+      resultLen: content.length,
+      resultPreview: previewForLog(content),
+      budgeted: content !== rawResult,
+    });
     messages.push({ role: "tool", tool_call_id: tc.id, content });
   }
 }

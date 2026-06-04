@@ -61,6 +61,7 @@ function printHelp() {
   console.log("Usage: openvera <command> [options]");
   console.log("");
   console.log("Commands:");
+  console.log("  init                  Configure providers and models interactively");
   console.log("  repl                  Start REPL with full skill support");
   console.log("  flow run              Run the flow defined in .flow/");
   console.log("");
@@ -75,6 +76,10 @@ function printHelp() {
   console.log("  --api-key <key>         API key override");
   console.log("  --resume <sessionId>    Resume a previous session");
   console.log("");
+  console.log("Options (init):");
+  console.log("  --dir <path>            Project directory  (default: .)");
+  console.log("  --force                 Run setup even when config already exists");
+  console.log("");
   console.log("Options (flow run):");
   console.log("  --dir <path>            Project directory with .flow/  (default: .)");
   console.log("  --model <id>            LLM model override");
@@ -85,6 +90,8 @@ function printHelp() {
   console.log("  --skip-plan-critique    Skip plan-level critique");
   console.log("");
   console.log("Examples:");
+  console.log("  openvera init");
+  console.log("  openvera init --force");
   console.log("  openvera flow run");
   console.log("  openvera flow run --dir flow-examples/software-dev");
   console.log("  openvera flow run --dir flow-examples/travel-planning");
@@ -109,7 +116,13 @@ if (flags["help"] || flags["h"]) {
 }
 
 try {
-  if (command[0] === "flow" && command[1] === "run") {
+  if (command[0] === "init") {
+    const { runInitCommand } = await import("./init-run.js");
+    await runInitCommand({
+      dir: flags["dir"] as string | undefined,
+      force: Boolean(flags["force"]),
+    });
+  } else if (command[0] === "flow" && command[1] === "run") {
     const { runFlowCommand } = await import("./flow-run.js");
     await runFlowCommand({
       dir: flags["dir"] as string | undefined,

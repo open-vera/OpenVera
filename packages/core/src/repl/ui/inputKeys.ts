@@ -16,6 +16,10 @@ const ANSI_PAGE: Record<string, "pageUp" | "pageDown"> = {
   "\x1b[6~": "pageDown",
 };
 
+const FOCUS_EVENT_PATTERN = /^(?:\x1b\[(?:I|O)|\[(?:I|O))+$/;
+const SGR_MOUSE_PATTERN = /^(?:\x1b)?\[<\d+;\d+;\d+[mM]$/;
+const X10_MOUSE_PATTERN = /^(?:\x1b)?\[M[\s\S]{3}$/;
+
 export function emptyKey(): Key {
   return {
     upArrow: false,
@@ -35,10 +39,22 @@ export function emptyKey(): Key {
   };
 }
 
+export function isTerminalControlInput(input: string): boolean {
+  if (!input) return false;
+  return (
+    FOCUS_EVENT_PATTERN.test(input) ||
+    SGR_MOUSE_PATTERN.test(input) ||
+    X10_MOUSE_PATTERN.test(input)
+  );
+}
+
 // Parse a raw stdin chunk into Ink's (input, key) format.
 // Mirrors the logic in ink/build/hooks/use-input.js + parse-keypress.js.
 export function parseInputChunk(s: string): { input: string; key: Key } {
   const key = emptyKey();
+  if (isTerminalControlInput(s)) {
+    return { input: "", key };
+  }
   if (s === "\r") {
     key.return = true;
     return { input: "", key };

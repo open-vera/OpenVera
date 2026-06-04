@@ -20,7 +20,15 @@ export interface ToolDisplayModel {
 }
 
 export function toolArgsLabel(_toolName: string, args: Record<string, unknown>, maxChars = 50): string {
-  const value = args.path ?? args.command ?? args.pattern ?? args.query;
+  const value =
+    args.path ??
+    args.filePath ??
+    args.file_path ??
+    args.target_directory ??
+    args.glob_pattern ??
+    args.command ??
+    args.pattern ??
+    args.query;
   if (typeof value !== "string") return "";
   return value.length > maxChars ? `${value.slice(0, maxChars)}…` : value;
 }

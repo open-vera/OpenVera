@@ -26,7 +26,7 @@ export interface ReplContext {
   adapter: LLMAdapter;
   model: string;
   tools: Tool[];
-  buildAdapter: (provider: string) => LLMAdapter;
+  buildAdapter: (provider: string, model?: string) => LLMAdapter;
   sessionStore: SessionStore;
   registry?: ToolRegistry;
   createToolRegistry?: (opts: {

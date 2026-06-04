@@ -22,9 +22,8 @@ reason must be 12 words or fewer.`;
 
 const DEFAULT_ROUTING: Record<string, RoutingTarget> = {
   l0: { provider: "anthropic", model: "claude-haiku-4-5" },
-  l1: { provider: "anthropic", model: "claude-haiku-4-5" },
-  l2: { provider: "anthropic", model: "claude-sonnet-4-6" },
-  l3: { provider: "anthropic", model: "claude-opus-4-6" },
+  l1: { provider: "anthropic", model: "claude-sonnet-4-6" },
+  l2: { provider: "anthropic", model: "claude-opus-4-6" },
 };
 
 function extractJson(text: string): string {
@@ -72,14 +71,15 @@ export async function classifyIntent(
   return result;
 }
 
-type LevelRouteKey = "l0" | "l1" | "l2" | "l3";
+type LevelRouteKey = "l0" | "l1" | "l2";
 
 export function routeTarget(
   intent: IntentResult,
   routing: RoutingConfig
 ): RoutingTarget {
-  const key = `l${intent.level}` as LevelRouteKey;
-  return routing[key] ?? DEFAULT_ROUTING[key]!;
+  const key = intent.level >= 2 ? "l2" : (`l${intent.level}` as LevelRouteKey);
+  const target = routing[key];
+  return typeof target === "string" ? DEFAULT_ROUTING[key]! : target ?? DEFAULT_ROUTING[key]!;
 }
 
 export function shouldPlan(intent: IntentResult): boolean {

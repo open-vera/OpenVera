@@ -2,14 +2,15 @@
  * Interactive setup wizard for OpenVera.
  *
  * Prompts the user to select a provider, enter an API key, and choose a
- * default model. Writes the result to .vera/settings.json in the cwd.
+ * default model. Writes the result to the resolved config location.
  *
  * All UI output goes to stderr so Ink (which owns stdout) is not polluted.
  */
 
 import { createInterface } from "node:readline";
-import { mkdirSync, writeFileSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { resolveConfigLocation, writeConfig } from "./loader.js";
+import { resolveDefaultTarget } from "./model-tiers.js";
 import { PROVIDER_PRESETS, type ProviderPreset } from "./providers.js";
 import type { VeraConfig } from "./types.js";
 
@@ -17,6 +18,40 @@ import type { VeraConfig } from "./types.js";
 
 function out(msg: string) {
   process.stderr.write(msg + "\n");
+}
+
+function buildModels(provider: string, preset: ProviderPreset, selectedModel: string): NonNullable<VeraConfig["models"]> {
+  const [first, second, third] = preset.models;
+  if (provider === "anthropic") {
+    return {
+      "anthropic-haiku": { provider, model: "claude-haiku-4-5" },
+      "anthropic-sonnet": { provider, model: selectedModel === "claude-opus-4-6" ? "claude-sonnet-4-6" : selectedModel },
+      "anthropic-opus": { provider, model: "claude-opus-4-6" },
+    };
+  }
+  return {
+    [`${provider}-haiku`]: { provider, model: second ?? selectedModel },
+    [`${provider}-sonnet`]: { provider, model: selectedModel },
+    [`${provider}-opus`]: { provider, model: third ?? first ?? selectedModel },
+  };
+}
+
+function normalModelAlias(provider: string, selectedModel: string): string {
+  if (provider === "anthropic") {
+    return selectedModel === "claude-opus-4-6" ? "anthropic-opus" : "anthropic-sonnet";
+  }
+  return `${provider}-sonnet`;
+}
+
+function buildRouting(provider: string, selectedModel: string): NonNullable<VeraConfig["routing"]> {
+  const prefix = provider === "anthropic" ? "anthropic" : provider;
+  return {
+    enabled: true,
+    classifier: `${prefix}-haiku`,
+    l0: `${prefix}-haiku`,
+    l1: normalModelAlias(provider, selectedModel),
+    l2: `${prefix}-opus`,
+  };
 }
 
 /** Prompt on stderr and return user input. Returns null on EOF/abort. */
@@ -120,10 +155,10 @@ async function pickFromList(
  *
  * A config is considered empty when:
  * - It has no providers section, OR
- * - The default provider has no api_key AND no matching env var is set.
+ * - The resolved default provider has no api_key AND no matching env var is set.
  */
 export function isConfigEmpty(config: VeraConfig): boolean {
-  const defaultProvider = config.default_provider ?? "anthropic";
+  const defaultProvider = resolveDefaultTarget(config).provider;
   const pc = config.providers?.[defaultProvider];
 
   // No providers configured at all
@@ -228,9 +263,6 @@ export async function runSetupWizard(cwd: string): Promise<string | null> {
 
   // ── Write config ─────────────────────────────────────────────────────────
 
-  const veraDir = resolve(cwd, ".vera");
-  const settingsPath = resolve(veraDir, "settings.json");
-
   const config: VeraConfig = {
     providers: {
       [selectedProvider]: {
@@ -239,16 +271,13 @@ export async function runSetupWizard(cwd: string): Promise<string | null> {
         ...(preset.baseUrl ? { base_url: preset.baseUrl } : {}),
       },
     },
+    models: buildModels(selectedProvider, preset, selectedModel),
     default_provider: selectedProvider,
-    default_model: selectedModel,
+    routing: buildRouting(selectedProvider, selectedModel),
   };
 
-  // Ensure .vera/ directory exists
-  if (!existsSync(veraDir)) {
-    mkdirSync(veraDir, { recursive: true });
-  }
-
-  writeFileSync(settingsPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+  const target = resolveConfigLocation(undefined, cwd);
+  writeConfig(config, undefined, cwd);
 
   out("");
   out("╔══════════════════════════════════════════════════╗");
@@ -257,7 +286,7 @@ export async function runSetupWizard(cwd: string): Promise<string | null> {
   out("");
   out(`  Provider:  ${preset.label}`);
   out(`  Model:     ${selectedModel}`);
-  out(`  Config:    ${settingsPath}`);
+  out(`  Config:    ${target.path}`);
   out("");
   out("  You can change these anytime by editing the config file.");
   out("  Starting Vera...");

@@ -1,6 +1,8 @@
 import { Box, Text } from "ink";
 import { theme } from "./theme.js";
 import type { ActiveTurnState } from "./state/turnStore.js";
+import type { ToolUse } from "./types.js";
+import { toolArgsLabel } from "./controller/toolProjection.js";
 
 const MAX_TEXT_CHARS = 120;
 const MAX_TOOL_NAMES = 4;
@@ -14,10 +16,15 @@ export function formatActivityText(text: string, maxChars = MAX_TEXT_CHARS): str
 
 export function formatActivityTools(turn: ActiveTurnState): string {
   if (turn.tools.length === 0) return "";
-  const names = turn.tools.map((tool) => tool.name);
-  const visible = names.slice(-MAX_TOOL_NAMES);
-  const prefix = names.length > visible.length ? `+${names.length - visible.length} ` : "";
+  const labels = turn.tools.map((tool) => formatToolLabel(tool));
+  const visible = labels.slice(-MAX_TOOL_NAMES);
+  const prefix = labels.length > visible.length ? `+${labels.length - visible.length} ` : "";
   return `${prefix}${visible.join(" · ")}`;
+}
+
+export function formatToolLabel(tool: Pick<ToolUse, "name" | "args">, maxArgChars = 44): string {
+  const args = toolArgsLabel(tool.name, tool.args, maxArgChars);
+  return args ? `${tool.name} ${args}` : tool.name;
 }
 
 function formatLiveOutput(output: string): string[] {
@@ -64,6 +71,9 @@ export function ActivityLane({ turn }: ActivityLaneProps) {
           <Box>
             <Text color={theme.toolName}>exec </Text>
             <Text color={theme.suggestion} bold>{activeTool.name}</Text>
+            {toolArgsLabel(activeTool.name, activeTool.args) && (
+              <Text color={theme.textDim}> {toolArgsLabel(activeTool.name, activeTool.args)}</Text>
+            )}
             {liveLines.length > 0 && (
               <Text color={theme.textDim}> {"\u2026"}</Text>
             )}

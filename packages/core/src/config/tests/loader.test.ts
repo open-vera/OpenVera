@@ -3,20 +3,31 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // ---------------------------------------------------------------------------
 // Mocks — node:fs
 // ---------------------------------------------------------------------------
-const { mockExistsSync, mockReadFileSync } = vi.hoisted(() => ({
+const { mockExistsSync, mockReadFileSync, mockMkdirSync, mockWriteFileSync } = vi.hoisted(() => ({
   mockExistsSync: vi.fn(),
   mockReadFileSync: vi.fn(),
+  mockMkdirSync: vi.fn(),
+  mockWriteFileSync: vi.fn(),
 }));
 
 vi.mock("node:fs", () => ({
   existsSync: mockExistsSync,
   readFileSync: mockReadFileSync,
+  mkdirSync: mockMkdirSync,
+  writeFileSync: mockWriteFileSync,
+}));
+
+vi.mock("fs", () => ({
+  existsSync: mockExistsSync,
+  readFileSync: mockReadFileSync,
+  mkdirSync: mockMkdirSync,
+  writeFileSync: mockWriteFileSync,
 }));
 
 // ---------------------------------------------------------------------------
 // System under test (import triggers the mock resolution)
 // ---------------------------------------------------------------------------
-import { loadConfig } from "../loader.js";
+import { loadConfig, writeConfig } from "../loader.js";
 import { ConfigError } from "../../errors.js";
 
 // Helper: simulate a well-formed settings.json
@@ -30,10 +41,12 @@ const VALID_CONFIG = JSON.parse(VALID_JSON);
 beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.VERA_CONFIG_DIR;
+  process.env.VERA_HOME = "/tmp/global-vera-home";
 });
 
 afterEach(() => {
   delete process.env.VERA_CONFIG_DIR;
+  delete process.env.VERA_HOME;
 });
 
 // ===========================================================================
@@ -92,16 +105,30 @@ describe("loadConfig", () => {
   // -----------------------------------------------------------------------
   // Default .vera/settings.json
   // -----------------------------------------------------------------------
-  describe("default .vera/settings.json", () => {
-    it("falls back to cwd/.vera/settings.json when no env or explicit path", () => {
+  describe("default config resolution", () => {
+    it("uses cwd/.vera/settings.json when present", () => {
       const expectedPath = `${process.cwd()}/.vera/settings.json`;
-      mockExistsSync.mockReturnValue(true);
+      mockExistsSync.mockImplementation((path) => path === expectedPath);
       mockReadFileSync.mockReturnValue(VALID_JSON);
 
       const config = loadConfig();
 
       expect(mockExistsSync).toHaveBeenCalledWith(expectedPath);
       expect(mockReadFileSync).toHaveBeenCalledWith(expectedPath, "utf-8");
+      expect(config).toEqual(VALID_CONFIG);
+    });
+
+    it("falls back to global config when project config is missing", () => {
+      const projectPath = `${process.cwd()}/.vera/settings.json`;
+      const globalPath = "/tmp/global-vera-home/.vera/settings.json";
+      mockExistsSync.mockImplementation((path) => path === globalPath);
+      mockReadFileSync.mockReturnValue(VALID_JSON);
+
+      const config = loadConfig();
+
+      expect(mockExistsSync).toHaveBeenCalledWith(projectPath);
+      expect(mockExistsSync).toHaveBeenCalledWith(globalPath);
+      expect(mockReadFileSync).toHaveBeenCalledWith(globalPath, "utf-8");
       expect(config).toEqual(VALID_CONFIG);
     });
   });
@@ -140,14 +167,45 @@ describe("loadConfig", () => {
     });
   });
 
+  describe("writeConfig", () => {
+    it("writes project config when it exists", () => {
+      const projectPath = `${process.cwd()}/.vera/settings.json`;
+      mockExistsSync.mockImplementation((path) => path === projectPath);
+
+      writeConfig(VALID_CONFIG);
+
+      expect(mockWriteFileSync).toHaveBeenCalledWith(
+        projectPath,
+        JSON.stringify(VALID_CONFIG, null, 2) + "\n",
+        "utf-8",
+      );
+    });
+
+    it("creates global config when neither project nor global config exists", () => {
+      const globalDir = "/tmp/global-vera-home/.vera";
+      const globalPath = `${globalDir}/settings.json`;
+      mockExistsSync.mockReturnValue(false);
+
+      writeConfig(VALID_CONFIG);
+
+      expect(mockMkdirSync).toHaveBeenCalledWith(globalDir, { recursive: true });
+      expect(mockWriteFileSync).toHaveBeenCalledWith(
+        globalPath,
+        JSON.stringify(VALID_CONFIG, null, 2) + "\n",
+        "utf-8",
+      );
+    });
+  });
+
   // -----------------------------------------------------------------------
   // Valid JSON parsing
   // -----------------------------------------------------------------------
   describe("valid JSON parsing", () => {
     it("returns the parsed config object for a complete configuration", () => {
+      const usableTestKey = "not-sensitive";
       const fullCfg = {
         providers: {
-          anthropic: { adapter: "anthropic" as const, api_key: "sk-ant-xxx" },
+          anthropic: { adapter: "anthropic" as const, api_key: usableTestKey },
         },
         default_provider: "anthropic",
         default_model: "claude-sonnet-4-20250514",

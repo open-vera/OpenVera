@@ -3,6 +3,7 @@ import type { UiEvent } from "../events.js";
 
 export interface ActiveToolState {
   name: string;
+  args: Record<string, unknown>;
   liveOutput: string;
 }
 
@@ -11,6 +12,7 @@ export interface ActiveTurnState {
   text: string;
   thinkingText: string;
   tools: ToolUse[];
+  inputTokens: number;
   outputTokens: number;
   status: "idle" | "streaming" | "failed" | "completed";
   activeTool?: ActiveToolState;
@@ -21,6 +23,7 @@ export const emptyActiveTurn = (): ActiveTurnState => ({
   text: "",
   thinkingText: "",
   tools: [],
+  inputTokens: 0,
   outputTokens: 0,
   status: "idle",
 });
@@ -28,31 +31,31 @@ export const emptyActiveTurn = (): ActiveTurnState => ({
 export function reduceActiveTurn(state: ActiveTurnState, event: UiEvent): ActiveTurnState {
   switch (event.type) {
     case "assistant.started":
-      return { active: true, text: "", thinkingText: "", tools: [], outputTokens: 0, status: "streaming" };
+      return { active: true, text: "", thinkingText: "", tools: [], inputTokens: 0, outputTokens: 0, status: "streaming" };
 
     case "assistant.thinking.delta":
       return state.active
         ? { ...state, thinkingText: state.thinkingText + event.delta }
-        : { active: true, text: "", thinkingText: event.delta, tools: [], outputTokens: 0, status: "streaming" };
+        : { active: true, text: "", thinkingText: event.delta, tools: [], inputTokens: 0, outputTokens: 0, status: "streaming" };
 
     case "assistant.thinking.updated":
       return state.active
         ? { ...state, thinkingText: event.text }
-        : { active: true, text: "", thinkingText: event.text, tools: [], outputTokens: 0, status: "streaming" };
+        : { active: true, text: "", thinkingText: event.text, tools: [], inputTokens: 0, outputTokens: 0, status: "streaming" };
 
     case "assistant.delta":
       return state.active
         ? { ...state, text: state.text + event.delta, status: "streaming" }
-        : { active: true, text: event.delta, thinkingText: "", tools: [], outputTokens: 0, status: "streaming" };
+        : { active: true, text: event.delta, thinkingText: "", tools: [], inputTokens: 0, outputTokens: 0, status: "streaming" };
 
     case "assistant.updated":
       return state.active
         ? { ...state, text: event.text, status: "streaming" }
-        : { active: true, text: event.text, thinkingText: "", tools: [], outputTokens: 0, status: "streaming" };
+        : { active: true, text: event.text, thinkingText: "", tools: [], inputTokens: 0, outputTokens: 0, status: "streaming" };
 
     case "tool.started":
       return state.active
-        ? { ...state, text: "", activeTool: { name: event.name, liveOutput: "" } }
+        ? { ...state, text: "", activeTool: { name: event.name, args: event.args, liveOutput: "" } }
         : state;
 
     case "tool.output":
@@ -68,7 +71,7 @@ export function reduceActiveTurn(state: ActiveTurnState, event: UiEvent): Active
     case "tool.completed":
       return state.active
         ? { ...state, tools: [...state.tools, event.tool], activeTool: undefined }
-        : { active: true, text: "", thinkingText: "", tools: [event.tool], outputTokens: 0, status: "streaming", activeTool: undefined };
+        : { active: true, text: "", thinkingText: "", tools: [event.tool], inputTokens: 0, outputTokens: 0, status: "streaming", activeTool: undefined };
 
     case "assistant.completed":
       return { ...state, active: false, text: event.text, status: "completed" };
@@ -87,8 +90,11 @@ export function reduceActiveTurn(state: ActiveTurnState, event: UiEvent): Active
       return state;
 
     case "usage.updated": {
+      const inputDelta = event.inputTokensDelta ?? 0;
       const delta = event.outputTokensDelta ?? 0;
-      return delta ? { ...state, outputTokens: state.outputTokens + delta } : state;
+      return inputDelta || delta
+        ? { ...state, inputTokens: state.inputTokens + inputDelta, outputTokens: state.outputTokens + delta }
+        : state;
     }
   }
 }

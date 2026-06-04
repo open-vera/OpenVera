@@ -96,7 +96,6 @@ describe("routing controller", () => {
             l0: { provider: "mimo", model: "mimo-v2.5-pro" },
             l1: { provider: "mimo", model: "mimo-v2.5-pro" },
             l2: { provider: "mimo", model: "mimo-v2.5-pro" },
-            l3: { provider: "mimo", model: "mimo-v2.5-pro" },
           },
         },
         model: "mimo-v2.5-pro",

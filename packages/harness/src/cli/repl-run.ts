@@ -1,5 +1,4 @@
 import { resolve, join } from "node:path";
-import { homedir } from "node:os";
 import { execSync } from "node:child_process";
 import { startRepl } from "@open-vera/core/repl";
 import { SessionStore } from "@open-vera/core/session";
@@ -7,7 +6,7 @@ import { createToolRegistry } from "@open-vera/core/tools";
 import { PromptStore } from "@open-vera/core/prompt";
 import { AnthropicAdapter, OpenAIAdapter, GeminiAdapter } from "@open-vera/core/adapters";
 import type { LLMAdapter } from "@open-vera/core/adapters";
-import { loadConfig, isConfigEmpty, runSetupWizard } from "@open-vera/core/config";
+import { globalVeraDir, loadConfig, isConfigEmpty, projectResourcePath, runSetupWizard } from "@open-vera/core/config";
 import type { ProviderConfig } from "@open-vera/core/config";
 import { createSkillResolver, RegistryToolProvider } from "../skill/index.js";
 import { buildCliAdapter } from "./adapter.js";
@@ -35,7 +34,7 @@ function findGitRoot(): string | null {
 export async function runReplCommand(args: ReplRunArgs): Promise<void> {
   const cwd = resolve(args.dir ?? findGitRoot() ?? ".");
 
-  let config = loadConfig();
+  let config = loadConfig(undefined, cwd);
 
   // ── First-run setup wizard ─────────────────────────────────────────────
   // When config is empty (no API key) and stdin is a TTY, launch the
@@ -44,7 +43,7 @@ export async function runReplCommand(args: ReplRunArgs): Promise<void> {
   if (isConfigEmpty(config) && process.stdin.isTTY) {
     const selectedProvider = await runSetupWizard(cwd);
     if (selectedProvider) {
-      config = loadConfig(); // Reload the freshly-written config
+      config = loadConfig(undefined, cwd); // Reload the freshly-written config
     } else {
       process.exit(1);
     }
@@ -52,7 +51,8 @@ export async function runReplCommand(args: ReplRunArgs): Promise<void> {
 
   const { adapter, model: defaultModel } = buildCliAdapter(
     args.provider ?? config.default_provider,
-    args.apiKey
+    args.apiKey,
+    cwd,
   );
   const model = args.model ?? defaultModel;
 
@@ -61,9 +61,9 @@ export async function runReplCommand(args: ReplRunArgs): Promise<void> {
   const toolProvider = new RegistryToolProvider(toolRegistry, cwd, sessionStore.sessionId);
   const promptStore = new PromptStore();
 
-  const projectSkillsDir = join(cwd, ".vera", "skills");
-  const userSkillsDir = join(homedir(), ".vera", "skills");
-  const skillResolver = createSkillResolver(toolProvider, projectSkillsDir, userSkillsDir);
+  const userSkillsDir = join(globalVeraDir(), "skills");
+  const projectSkillsDir = projectResourcePath(cwd, "skills");
+  const skillResolver = createSkillResolver(toolProvider, userSkillsDir, projectSkillsDir);
 
   function buildAdapter(providerName: string): LLMAdapter {
     const pc: ProviderConfig = config.providers?.[providerName] ?? { adapter: "anthropic" };

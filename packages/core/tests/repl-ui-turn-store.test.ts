@@ -15,6 +15,7 @@ describe("reduceActiveTurn", () => {
       text: "hello",
       thinkingText: "",
       tools: [],
+      inputTokens: 0,
       outputTokens: 0,
       status: "streaming",
     });

@@ -94,6 +94,7 @@ export function useStreamingHelpers(props: StreamingHelpersProps) {
         cacheReadTotal: u.cache_read_input_tokens ?? 0,
         costUsd: updated.totalUsd,
       },
+      inputTokensDelta: u.input_tokens ?? 0,
       outputTokensDelta: u.output_tokens ?? 0,
     };
     if (onUiEvent) onUiEvent(event);

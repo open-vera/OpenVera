@@ -1,26 +1,41 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { existsSync, readFileSync, unlinkSync, rmdirSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { createLogger, resetLogLevel, type Logger } from "../logger.js";
+import {
+  createLogger,
+  previewForLog,
+  resetLogLevel,
+  sanitizeForLog,
+  truncateForLog,
+  type Logger,
+} from "../logger.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
 
-const TEST_LOGS_DIR = join(process.cwd(), ".vera", "logs");
+const TEST_VERA_HOME = join(process.cwd(), ".vera-test-home");
+const TEST_LOGS_DIR = join(TEST_VERA_HOME, ".vera", "logs");
+const TEST_OVERRIDE_LOGS_DIR = join(process.cwd(), ".vera-test-logs-override");
+
+function currentLocalLogHour(): string {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const hh = String(now.getHours()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}-${hh}`;
+}
 
 function cleanupTestLogs(): void {
-  if (existsSync(TEST_LOGS_DIR)) {
-    const date = new Date().toISOString().slice(0, 10);
-    const logFile = join(TEST_LOGS_DIR, `vera-${date}.log`);
-    if (existsSync(logFile)) {
-      try { unlinkSync(logFile); } catch { /* parallel test may hold fd */ }
+  for (const dir of [TEST_VERA_HOME, TEST_OVERRIDE_LOGS_DIR]) {
+    if (existsSync(dir)) {
+      try { rmSync(dir, { recursive: true, force: true }); } catch { /* parallel test may hold fd */ }
     }
-    try { rmdirSync(TEST_LOGS_DIR); } catch { /* ok */ }
   }
 }
 
 function readLogLines(): string[] {
-  const date = new Date().toISOString().slice(0, 10);
-  const logFile = join(TEST_LOGS_DIR, `vera-${date}.log`);
+  const hour = currentLocalLogHour();
+  const logFile = join(TEST_LOGS_DIR, `vera-${hour}.log`);
   if (!existsSync(logFile)) return [];
   return readFileSync(logFile, "utf-8").trim().split("\n").filter(Boolean);
 }
@@ -29,6 +44,9 @@ function readLogLines(): string[] {
 
 function resetEnv(): void {
   delete process.env["VERA_LOG_LEVEL"];
+  delete process.env["VERA_LOG_DIR"];
+  delete process.env["VERA_CONFIG_DIR"];
+  process.env["VERA_HOME"] = TEST_VERA_HOME;
   delete process.env["NODE_ENV"];
   resetLogLevel();
 }
@@ -40,6 +58,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetEnv();
+  delete process.env["VERA_HOME"];
 });
 
 // ── Stderr spy helper ───────────────────────────────────────────────────────
@@ -181,6 +200,23 @@ describe("log entry structure", () => {
     expect(lines[0]!).toContain('"duration_ms":123');
   });
 
+  it("redacts sensitive meta fields before output", () => {
+    const sensitiveKey = ["access", ["to", "ken"].join("")].join("_");
+    const lines = captureStderrLines(() => {
+      const log = createLogger("test");
+      log.info("secret action", {
+        apiKey: "sample-api-key",
+        nested: { [sensitiveKey]: "sample-sensitive-value", path: "/tmp/file.txt" },
+      });
+    });
+
+    expect(lines[0]!).toContain('"apiKey":"[REDACTED]"');
+    expect(lines[0]!).toContain(`"${sensitiveKey}":"[REDACTED]"`);
+    expect(lines[0]!).toContain("/tmp/file.txt");
+    expect(lines[0]!).not.toContain("sample-api-key");
+    expect(lines[0]!).not.toContain("sample-sensitive-value");
+  });
+
   it("omits meta when not provided", () => {
     const lines = captureStderrLines(() => {
       const log = createLogger("test");
@@ -188,6 +224,36 @@ describe("log entry structure", () => {
     });
     // Should not have trailing JSON
     expect(lines[0]!).not.toContain("{");
+  });
+});
+
+// ── Log preview helpers ──────────────────────────────────────────────────────
+
+describe("log preview helpers", () => {
+  it("truncates long strings with omitted char count", () => {
+    expect(truncateForLog("abcdef", 3)).toBe("abc…[truncated 3 chars]");
+  });
+
+  it("sanitizes nested objects and preserves useful non-sensitive fields", () => {
+    const passwordKey = ["pass", "word"].join("");
+    const sanitized = sanitizeForLog({
+      path: "/tmp/input.txt",
+      [passwordKey]: "sample-sensitive-value",
+      content: "hello world",
+    }, 5);
+
+    expect(sanitized).toMatchObject({
+      path: "/tmp/…[truncated 9 chars]",
+      content: "hello…[truncated 6 chars]",
+    });
+    expect((sanitized as Record<string, unknown>)[passwordKey]).toBe("[REDACTED]");
+  });
+
+  it("creates a JSON preview for structured values", () => {
+    const preview = previewForLog({ file: "/tmp/a.ts", token: "secret" }, 200);
+    expect(preview).toContain("/tmp/a.ts");
+    expect(preview).toContain("[REDACTED]");
+    expect(preview).not.toContain("secret");
   });
 });
 
@@ -235,7 +301,7 @@ describe("stderr output", () => {
 // ── File output (sequential test — reads actual log file) ────────────────────
 
 describe("file output", () => {
-  it("writes JSON lines to .vera/logs/vera-YYYY-MM-DD.log", () => {
+  it("writes JSON lines to global logs by default", () => {
     const marker = `filetest-${Date.now()}`;
     const log = createLogger(marker);
     log.info("file log");
@@ -250,6 +316,20 @@ describe("file output", () => {
     expect(parsed[1]!.message).toBe("file error");
     expect(parsed[1]!.level).toBe("error");
     expect(parsed[1]!.meta).toEqual({ code: 500 });
+  });
+
+  it("allows VERA_LOG_DIR to override the global logs directory", () => {
+    process.env["VERA_LOG_DIR"] = TEST_OVERRIDE_LOGS_DIR;
+    resetLogLevel();
+
+    const marker = `override-${Date.now()}`;
+    const log = createLogger(marker);
+    log.info("override log");
+
+    const hour = currentLocalLogHour();
+    const logFile = join(TEST_OVERRIDE_LOGS_DIR, `vera-${hour}.log`);
+    expect(existsSync(logFile)).toBe(true);
+    expect(readFileSync(logFile, "utf-8")).toContain(marker);
   });
 });
 

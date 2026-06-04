@@ -8,6 +8,7 @@ const BREATH_MS = 120;
 
 interface StatusBarProps {
   status: StreamStatus;
+  inputTokens: number;
   outputTokens: number;
   pendingCount: number;
   scrollOffset?: number;
@@ -16,6 +17,7 @@ interface StatusBarProps {
 
 export function StatusBar({
   status,
+  inputTokens,
   outputTokens,
   pendingCount,
   scrollOffset = 0,
@@ -69,7 +71,7 @@ export function StatusBar({
   const statusLabel =
     status === "thinking" ? "thinking" :
     status === "planning" ? "planning" :
-    `↓ ${outputTokens} tokens`;
+    `↑ ${inputTokens} · ↓ ${outputTokens} tokens`;
 
   const parts = [
     `${elapsedSec}s`,

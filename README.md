@@ -115,7 +115,7 @@ Everything a single LLM call needs. Stateless. No orchestration logic.
 | `agent/` | `streamAgent` / `runAgent` — multi-turn loop, tool dispatch, retry, compression |
 | `agent/subagent.ts` | `agent` tool — orchestrator/worker delegation, isolation modes, background jobs |
 | `context/` | Token estimation, window trimming, progressive/micro/reactive compression, recall |
-| `intent/` | `classifyIntent` / `routeTarget` — L0–L3 classification, domain detection |
+| `intent/` | `classifyIntent` / `routeTarget` — L0–L2 model routing, domain detection |
 | `tools/` | 7 built-in tools: `read_file` `write_file` `edit_file` `list_dir` `glob` `grep` `bash` |
 | `tools/registry.ts` | ToolRegistry — register, execute, lifecycle hooks |
 | `tools/security.ts` | Path boundary enforcement, tool whitelist, injection defense, read-only mode |
@@ -181,11 +181,116 @@ User input → [classify: ~100ms, haiku/mini] → routing decision → [target m
 | Level | Description | Model |
 |---|---|---|
 | L0 | Casual chat, simple Q&A | claude-haiku / gpt-4o-mini |
-| L1 | Single-step tasks | claude-haiku / gpt-4o-mini |
-| L2 | Multi-step tasks | claude-sonnet / gpt-4o |
-| L3 | Complex planning, deep reasoning | claude-opus / o3 |
+| L1 | Single-step tasks | claude-sonnet / gpt-4o |
+| L2 | Multi-step tasks, complex planning, deep reasoning | claude-opus / o3 |
 
-L3 tasks automatically activate Plan Mode. Target: L0/L1 routing accuracy > 95%, overall cost reduction > 60%.
+Complex tasks still activate Plan Mode, but model routing only needs `l0/l1/l2`. Target: L0/L1 routing accuracy > 95%, overall cost reduction > 60%.
+
+### Model Configuration
+
+Vera supports several configuration levels. Use either `default_model` or `routing`: without routing, `default_model` is the only model; with routing enabled, `routing.l1` is the normal/default model.
+
+**Case 1: one provider + one default model**
+
+This is the simplest setup. When there is only one provider, `default_provider` is not required.
+
+```json
+{
+  "providers": {
+    "compony": {
+      "adapter": "anthropic",
+      "api_key": "...",
+      "base_url": "https://gateway-claude-api.example.com"
+    }
+  },
+  "default_model": "deepseek-v4-flash"
+}
+```
+
+**Case 2: one provider + model list + default model**
+
+Use this when you want to list selectable models under the same provider, but do not want routing yet. Each array item is both the alias and the upstream model id.
+
+```json
+{
+  "providers": {
+    "compony": {
+      "adapter": "anthropic",
+      "api_key": "...",
+      "base_url": "https://gateway-claude-api.example.com"
+    }
+  },
+  "models": ["deepseek-v4-flash", "deepseek-v4-pro"],
+  "default_model": "deepseek-v4-flash"
+}
+```
+
+**Case 3: one provider + model list + routing**
+
+Use this when models under the same provider should switch by task complexity. With routing enabled, do not set `default_model`; `routing.l1` is the normal/default model.
+
+```json
+{
+  "providers": {
+    "compony": {
+      "adapter": "anthropic",
+      "api_key": "...",
+      "base_url": "https://gateway-claude-api.example.com"
+    }
+  },
+  "models": ["deepseek-v4-flash", "deepseek-v4-pro"],
+  "routing": {
+    "enabled": true,
+    "classifier": "deepseek-v4-flash",
+    "l0": "deepseek-v4-flash",
+    "l1": "deepseek-v4-flash",
+    "l2": "deepseek-v4-pro"
+  }
+}
+```
+
+**Case 4: multiple providers + model objects + default provider + routing**
+
+Use object-form `models` when you have multiple providers or model-level overrides. Each model can declare its own `provider`, and can override `adapter`, `api_key`, or `base_url`; omitted fields inherit from the provider. `adapter` overrides the protocol, while `api_key/base_url` override credentials and endpoint. `default_provider` is used for string model names in routing.
+
+```json
+{
+  "providers": {
+    "gateway": {
+      "adapter": "anthropic",
+      "api_key": "...",
+      "base_url": "https://gateway.example.com"
+    },
+    "openai": { "adapter": "openai", "api_key": "..." }
+  },
+  "default_provider": "gateway",
+  "models": {
+    "deepseek-v4-flash": { "provider": "gateway" },
+    "strong": { "provider": "gateway", "model": "deepseek-v4-pro" },
+    "openai-strong": { "provider": "openai", "model": "gpt-4.1" },
+    "gateway-openai-compatible": {
+      "provider": "gateway",
+      "model": "custom-model",
+      "adapter": "openai"
+    },
+    "custom-endpoint": {
+      "provider": "openai",
+      "model": "custom-model",
+      "api_key": "...",
+      "base_url": "https://openai-compatible.example.com/v1"
+    }
+  },
+  "routing": {
+    "enabled": true,
+    "classifier": "deepseek-v4-flash",
+    "l0": "deepseek-v4-flash",
+    "l1": "strong",
+    "l2": "openai-strong"
+  }
+}
+```
+
+See `.vera/settings.example.json` for the current template.
 
 ---
 
@@ -270,7 +375,7 @@ This is **not** "agent rewrites itself." This is a principled evolution pipeline
 
 ### P0 Completed Capabilities
 
-- ✅ Intent routing (L0–L3 classification, automatic model selection)
+- ✅ Intent routing (L0–L2 model routing, automatic model selection)
 - ✅ Tool runtime (7 built-in tools, SecurityPlugin, lifecycle hooks)
 - ✅ Tool output rendering (diff / code / bash / file-list / error views)
 - ✅ Infinite context (compression, micro-compact, reactive compact, recall)
@@ -310,10 +415,15 @@ npm i @open-vera/openvera@latest -g
 Then launch the REPL:
 
 ```bash
-vera
+openvera
 ```
 
-On first run, an interactive setup wizard will guide you through selecting an LLM provider and entering your API key.
+On first run, if `.vera/settings.json` is missing or empty, an interactive setup wizard will guide you through selecting an LLM provider and entering your API key. You can also run it explicitly:
+
+```bash
+openvera init
+openvera init --force   # re-run setup even when config already exists
+```
 
 ### Install from Source
 
@@ -331,9 +441,8 @@ cp .vera/settings.example.json .vera/settings.json
 # Add your API keys (file is gitignored — never committed)
 # Edit .vera/settings.json:
 # {
-#   "default_provider": "anthropic",
 #   "providers": { "anthropic": { "api_key": "***" } },
-#   "routing": { "enabled": true }
+#   "default_model": "claude-sonnet-4-6"
 # }
 
 # Launch REPL
@@ -349,59 +458,87 @@ pnpm ui      # frontend
 
 ### Key Configuration
 
-Configuration file: `.vera/settings.json` (auto-created by the setup wizard on first run).
+Configuration lookup order:
+
+1. Project config: `./.vera/settings.json`
+2. Global config: `~/.vera/settings.json`
+
+If both project and global config exist, Vera uses the project config. If only global config exists, Vera uses the global config. If neither exists, `openvera init` or the first-run setup wizard creates the global config. An explicit config path or `VERA_CONFIG_DIR` takes precedence over this lookup order.
+
+Vera paths fall into three groups:
+
+| Group | Paths | Rule |
+|---|---|---|
+| Config | `./.vera/settings.json`, `~/.vera/settings.json` | Project config wins, global config is the fallback |
+| Runtime data | `~/.vera/projects`, `~/.vera/logs`, `~/.vera/memory`, `~/.vera/changes` | Written globally by default, not into project `.vera/` |
+| Context resources | `~/.vera/VERA.md`, `~/.vera/rules`, `~/.vera/skills`, `~/.vera/agents`, plus project `.vera/*` | Load global first, then project; project entries with the same ID override global ones |
+
+Logs are written to `~/.vera/logs/vera-YYYY-MM-DD-HH.log` by default. Set `VERA_LOG_DIR` to use a custom log directory.
+
+Most users only need one provider and one default model:
 
 ```jsonc
 {
-  // LLM providers — add API keys for the providers you want to use
   "providers": {
-    "anthropic": {
-      "adapter": "anthropic",       // or "openai" / "gemini"
-      "api_key": "sk-ant-..."
-    },
-    "openai": {
-      "adapter": "openai",
-      "api_key": "sk-..."
-    },
-    "deepseek": {
-      "adapter": "openai",          // OpenAI-compatible
+    "compony": {
+      "adapter": "anthropic",
       "api_key": "...",
-      "base_url": "https://api.deepseek.com/v1"
+      "base_url": "https://gateway-claude-api.example.com"
     }
   },
+  "default_model": "deepseek-v4-flash"
+}
+```
 
-  // Default provider & model (used when routing is disabled)
-  "default_provider": "anthropic",
-  "default_model": "claude-sonnet-4-6",
+Use this decision table:
 
-  // Intent routing — automatically select model by task complexity
-  "routing": {
-    "enabled": true,
-    "classifier": { "provider": "anthropic", "model": "claude-haiku-4-5-20251001" },
-    "l0": { "provider": "anthropic", "model": "claude-haiku-4-5-20251001" },    // casual chat
-    "l1": { "provider": "anthropic", "model": "claude-sonnet-4-6" },            // single-step
-    "l2": { "provider": "anthropic", "model": "claude-sonnet-4-6" },            // multi-step
-    "l3": { "provider": "anthropic", "model": "claude-opus-4-6" }               // complex planning
-  },
+| Goal | Configure |
+|---|---|
+| Use one model | `providers` + `default_model`; add `default_provider` only when multiple providers are configured |
+| Auto-switch by task complexity | `routing.classifier/l0/l1/l2`; do not also set `default_model` |
+| Use different providers per level | `{ "provider": "...", "model": "..." }` inside `routing` |
+| Add short names or model-level protocol overrides | Optional top-level `models` aliases |
 
-  // Session — AI-generated title for each session
+| Field | Description |
+|---|---|
+| `providers` | Connection config. Each provider has `adapter`, `api_key`, and optional `base_url` |
+| `default_provider` | Provider used by default; only needed with multiple providers or ambiguous string model names |
+| `default_model` | Model used only when `routing` is not enabled. Can be a concrete model id or a `models` alias |
+| `routing` | Optional model routing. When enabled, `l1` is the normal/default model |
+| `models` | Optional model list. Use an array for simple single-provider model ids, or an alias object for cross-provider reuse / model-level protocol overrides |
+| `session` | Optional session metadata settings, such as AI-generated titles |
+
+`session.ai_title` automatically generates a short title for a session. It tries during the first turns only; if you set a title manually with `/title <name>`, the AI title will not override it. You can set only `"enabled": true` to use the active chat model, or specify a separate provider/model for title generation.
+
+```json
+{
   "session": {
     "ai_title": {
       "enabled": true,
-      "provider": "anthropic",
-      "model": "claude-haiku-4-5-20251001"
+      "provider": "compony",
+      "model": "deepseek-v4-flash"
     }
   }
 }
 ```
 
-| Field | Description |
-|---|---|
-| `providers` | LLM provider configs: anthropic / openai / gemini / deepseek / groq / azure |
-| `default_provider` | Which provider to use when not overridden |
-| `default_model` | Default model name (provider-specific) |
-| `routing` | Intent routing config — enable/disable, per-level model overrides |
-| `session` | Session metadata settings (AI title generation) |
+Set `"enabled": false` to disable automatic title generation.
+
+`session.compact` configures the model used for long-session auto-compression. It is enabled by default and uses the active chat model. To use a cheaper/faster model for compaction, specify a separate `provider/model`. If only `model` is set, Vera keeps the active provider/adapter; if `provider` is set, Vera builds a dedicated adapter from that provider.
+
+```json
+{
+  "session": {
+    "compact": {
+      "enabled": true,
+      "provider": "compony",
+      "model": "deepseek-v4-flash"
+    }
+  }
+}
+```
+
+Set `"enabled": false` to disable long-session auto-compression.
 
 Supported adapters: `anthropic` (Claude native), `openai` (OpenAI-compatible, including DeepSeek/Groq/Azure), `gemini`.
 
@@ -418,7 +555,7 @@ To use a custom endpoint (e.g. company proxy), add `"base_url": "https://your-pr
 | [docs/harness/design.md](./docs/harness/design.md) | Harness design: six principles, role separation, Challenger, Flow structure |
 | [docs/core/agent-design.md](./docs/core/agent-design.md) | Agent capability map: 8-layer model, infinite context, memory, dreaming |
 | [docs/core/subagent-design.md](./docs/core/subagent-design.md) | Subagent system: orchestrator/worker, isolation modes, scheduling patterns |
-| [docs/core/intent-routing.md](./docs/core/intent-routing.md) | Intent routing: L0–L3 classification, model selection, plan mode trigger |
+| [docs/core/intent-routing.md](./docs/core/intent-routing.md) | Intent routing: L0–L2 model routing, model selection, plan mode trigger |
 | [docs/core/infinite-context-implementation.md](./docs/core/infinite-context-implementation.md) | Infinite context: implementation status, compression layers |
 | [docs/core/plan-mode-implementation.md](./docs/core/plan-mode-implementation.md) | Plan Mode: execution chain, state machine, REPL/CLI integration |
 | [docs/eval/benchmark.md](./docs/eval/benchmark.md) | Benchmark harness: case format, eval methods, open datasets |

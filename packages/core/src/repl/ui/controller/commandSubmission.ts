@@ -1,4 +1,5 @@
 import type { AccumulatedCost } from "../../../session/index.js";
+import { normalizeModels } from "../../../config/model-tiers.js";
 import type { ReplContext } from "../../context.js";
 import { debugLog } from "../../debugLog.js";
 import type { ChatMessage, RoutingInfo, TokenUsage } from "../types.js";
@@ -95,6 +96,18 @@ export async function handleSlashCommandSubmission(
 
     const results = await Promise.allSettled(
       providerNames.map(async (name) => {
+        const configuredModels = Object.entries(normalizeModels(options.ctx.config))
+          .filter(([, model]) => model.provider === name);
+        if (configuredModels.length > 0) {
+          return {
+            name,
+            models: configuredModels.map(([alias, model]) => ({
+              id: alias,
+              display_name: !model.model || model.model === alias ? undefined : model.model,
+              context_window: undefined as number | undefined,
+            })),
+          };
+        }
         const adapter = options.ctx.buildAdapter(name);
         if (!adapter.listModels) {
           return { name, models: [] as { id: string; display_name?: string; context_window?: number }[] };

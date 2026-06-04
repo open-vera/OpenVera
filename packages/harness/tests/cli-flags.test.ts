@@ -36,6 +36,8 @@ describe("CLI Flags", () => {
       env: { ...process.env, NODE_OPTIONS: "--no-warnings" }
     }).toString();
     expect(output).toContain("Usage: openvera");
+    expect(output).toContain("init");
+    expect(output).toContain("--force");
     expect(output).toContain("-v, --version");
   });
 });

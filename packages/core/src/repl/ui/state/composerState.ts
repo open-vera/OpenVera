@@ -67,10 +67,11 @@ export function emptyComposerState(value = ""): ComposerState {
 
 export function syncComposerValue(state: ComposerState, value: string): ComposerState {
   if (state.value === value) return state;
+  const wasAtEnd = state.cursor === state.value.length;
   return normalizeComposerState({
     ...state,
     value,
-    cursor: value === "" ? 0 : Math.min(state.cursor, value.length),
+    cursor: value === "" ? 0 : wasAtEnd ? value.length : Math.min(state.cursor, value.length),
     historyIndex: value === "" ? -1 : state.historyIndex,
   }, state);
 }

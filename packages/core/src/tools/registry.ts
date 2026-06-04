@@ -12,7 +12,7 @@ import type {
 import { toolDefToSchema, errorResult } from "./types.js";
 import { executeWithTimeout } from "./executor.js";
 import { ToolStatsCollector } from "./tool-stats.js";
-import { createLogger } from "../utils/logger.js";
+import { createLogger, previewForLog, sanitizeForLog } from "../utils/logger.js";
 
 const log = createLogger("tool:registry");
 
@@ -126,11 +126,13 @@ export class ToolRegistry {
   ): Promise<ToolResult> {
     const toolDef = this.tools.get(name);
     if (!toolDef) {
+      log.warn("tool not found", { tool: name, args: sanitizeForLog(args), sessionId: ctx.sessionId });
       return errorResult("UNKNOWN", `Tool not found: ${name}`);
     }
 
     // T3: Dry-run — return simulated result without executing
     if (ctx.dryRun) {
+      log.debug("tool dry run", { tool: name, args: sanitizeForLog(args), sessionId: ctx.sessionId });
       return {
         ok: true,
         content: `[DRY RUN] Would execute: ${name}(${JSON.stringify(args)})`,
@@ -189,6 +191,14 @@ export class ToolRegistry {
     // Execute with timeout + stats
     const startMs = Date.now();
     let result: ToolResult;
+
+    log.debug("tool execute start", {
+      tool: name,
+      args: sanitizeForLog(currentArgs),
+      sessionId: ctx.sessionId,
+      dryRun: false,
+      timeoutMs: toolDef.options?.timeoutMs ?? 30_000,
+    });
 
     if (skipped && skipResult) {
       result = skipResult;
@@ -274,7 +284,18 @@ export class ToolRegistry {
     // Record stats (fire-and-forget)
     this.statsCollector.record(name, currentArgs, result, durationMs, ctx.sessionId);
 
-    log.debug("tool executed", { tool: name, ok: result.ok, duration_ms: durationMs });
+    log.debug("tool executed", {
+      tool: name,
+      ok: result.ok,
+      duration_ms: durationMs,
+      args: sanitizeForLog(currentArgs),
+      sessionId: ctx.sessionId,
+      resultLen: result.content.length,
+      resultPreview: previewForLog(result.content),
+      error: result.error ? sanitizeForLog(result.error) : undefined,
+      retryCount: result.retryCount,
+      dryRun: result.dryRun,
+    });
 
     return result;
   }

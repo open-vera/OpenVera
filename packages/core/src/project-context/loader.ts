@@ -15,6 +15,7 @@ import {
   resolve,
   sep,
 } from "node:path";
+import { globalVeraDir, projectResourcePath } from "../config/paths.js";
 
 export type VeraContextFileType = "user" | "project" | "local" | "rule";
 
@@ -375,14 +376,14 @@ export function loadProjectContext(options: ProjectContextOptions): ProjectConte
   const files: VeraContextFile[] = [];
 
   if (options.includeUser !== false) {
-    files.push(...readVeraFile(join(homedir(), ".vera", "VERA.md"), "user", processed));
-    files.push(...readRulesDir(join(homedir(), ".vera", "rules"), "user", processed));
+    files.push(...readVeraFile(join(globalVeraDir(), "VERA.md"), "user", processed));
+    files.push(...readRulesDir(join(globalVeraDir(), "rules"), "user", processed));
   }
 
   for (const dir of ancestorDirs(cwd)) {
     files.push(...readVeraFile(join(dir, "VERA.md"), "project", processed));
-    files.push(...readVeraFile(join(dir, ".vera", "VERA.md"), "project", processed));
-    files.push(...readRulesDir(join(dir, ".vera", "rules"), "rule", processed));
+    files.push(...readVeraFile(projectResourcePath(dir, "VERA.md"), "project", processed));
+    files.push(...readRulesDir(projectResourcePath(dir, "rules"), "rule", processed));
     files.push(...readVeraFile(join(dir, "VERA.local.md"), "local", processed));
   }
 
@@ -403,11 +404,11 @@ export function loadNestedProjectContext(options: NestedProjectContextOptions): 
 
   for (const dir of dirsFromCwdToTarget(cwd, options.targetPath)) {
     files.push(...readVeraFile(join(dir, "VERA.md"), "project", processed));
-    files.push(...readVeraFile(join(dir, ".vera", "VERA.md"), "project", processed));
+    files.push(...readVeraFile(projectResourcePath(dir, "VERA.md"), "project", processed));
     files.push(...readVeraFile(join(dir, "VERA.local.md"), "local", processed));
     files.push(
       ...readRulesDir(
-        join(dir, ".vera", "rules"),
+        projectResourcePath(dir, "rules"),
         "rule",
         processed,
         resolve(cwd, options.targetPath),

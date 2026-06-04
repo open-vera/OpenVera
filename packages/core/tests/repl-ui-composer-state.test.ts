@@ -13,9 +13,24 @@ import {
   moveWordForward,
   navigateComposerHistory,
   reduceComposerInput,
+  syncComposerValue,
 } from "../src/repl/ui/state/composerState.js";
 
 describe("composerState", () => {
+  it("syncs external composition text with cursor at end when previous cursor was at end", () => {
+    const synced = syncComposerValue(emptyComposerState(""), "中文");
+
+    expect(synced.value).toBe("中文");
+    expect(synced.cursor).toBe("中文".length);
+  });
+
+  it("preserves cursor position when syncing external text while editing in the middle", () => {
+    const state = { ...emptyComposerState("abcd"), cursor: 2 };
+    const synced = syncComposerValue(state, "abcde");
+
+    expect(synced.cursor).toBe(2);
+  });
+
   it("moves by grapheme instead of UTF-16 code unit", () => {
     const value = "a🙂中";
 

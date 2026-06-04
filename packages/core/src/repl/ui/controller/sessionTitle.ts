@@ -24,7 +24,7 @@ export interface MaybeGenerateAiTitleOptions {
   toolCalls: string[];
   activeAdapter: LLMAdapter;
   activeModel: string;
-  buildAdapter: (provider: string) => LLMAdapter;
+  buildAdapter: (provider: string, model?: string) => LLMAdapter;
   writeAiTitle: (title: string) => void;
   generateTitle?: (opts: GenerateSessionTitleOptions) => Promise<string | null>;
 }
@@ -68,7 +68,7 @@ export function maybeGenerateAiTitle(options: MaybeGenerateAiTitleOptions): AiTi
   const toolsSummary = toolCalls.length ? `Tools used: ${[...new Set(toolCalls)].slice(0, 8).join(", ")}` : undefined;
 
   void generateTitle({
-    adapter: config?.provider ? buildAdapter(config.provider) : activeAdapter,
+    adapter: config?.provider ? buildAdapter(config.provider, config.model) : activeAdapter,
     model: config?.model ?? activeModel,
     userPrompt,
     assistantText: assistantText.trim() || toolsSummary,

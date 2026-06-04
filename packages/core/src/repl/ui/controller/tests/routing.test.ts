@@ -25,7 +25,6 @@ function createContext(): ReplContext {
         l0: { provider: "anthropic", model: "claude-haiku-4-5" },
         l1: { provider: "anthropic", model: "claude-haiku-4-5" },
         l2: { provider: "anthropic", model: "claude-sonnet-4-6" },
-        l3: { provider: "anthropic", model: "claude-opus-4-6" },
       },
     },
     adapter,

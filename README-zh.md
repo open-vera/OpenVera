@@ -46,10 +46,15 @@ npm i @open-vera/openvera@latest -g
 启动 REPL：
 
 ```bash
-vera
+openvera
 ```
 
-首次运行时，交互式配置向导会引导你选择 LLM provider 并输入 API key。
+首次运行时，如果 `.vera/settings.json` 缺失或为空，交互式配置向导会引导你选择 LLM provider 并输入 API key。也可以主动运行初始化命令：
+
+```bash
+openvera init
+openvera init --force   # 已有配置时也重新运行 setup
+```
 
 ### 从源码安装
 
@@ -82,59 +87,89 @@ pnpm ui      # 前端
 
 ## 配置说明
 
-配置文件路径：`.vera/settings.json`（首次运行时由 setup wizard 自动创建）。
+配置文件路径按顺序查找：
+
+1. 当前项目：`./.vera/settings.json`
+2. 全局配置：`~/.vera/settings.json`
+
+如果当前项目和全局都存在，使用当前项目配置；如果当前项目不存在但全局存在，使用全局配置；如果两边都不存在，`openvera init` 或首次启动时的 setup wizard 会在全局位置创建配置。显式传入配置路径或设置 `VERA_CONFIG_DIR` 时，以显式配置为准。
+
+Vera 路径分三类：
+
+| 类别 | 路径 | 规则 |
+|---|---|---|
+| 配置 | `./.vera/settings.json`、`~/.vera/settings.json` | 当前项目优先，全局兜底 |
+| 运行时数据 | `~/.vera/projects`、`~/.vera/logs`、`~/.vera/memory`、`~/.vera/changes` | 默认写全局，不写入项目 `.vera/` |
+| 上下文资源 | `~/.vera/VERA.md`、`~/.vera/rules`、`~/.vera/skills`、`~/.vera/agents` 与项目 `.vera/*` | 先加载全局，再加载项目；同 ID 项目覆盖全局 |
+
+日志默认写 `~/.vera/logs/vera-YYYY-MM-DD-HH.log`；可用 `VERA_LOG_DIR` 显式指定日志目录。
+
+大多数情况下，只需要配置一个 provider 和一个默认模型：
 
 ```jsonc
 {
-  // LLM 提供商 —— 添加你需要的 API key
   "providers": {
-    "anthropic": {
-      "adapter": "anthropic",       // 或 "openai" / "gemini"
-      "api_key": "sk-ant-..."
-    },
-    "openai": {
-      "adapter": "openai",
-      "api_key": "sk-..."
-    },
-    "deepseek": {
-      "adapter": "openai",          // OpenAI 兼容协议
+    "compony": {
+      "adapter": "anthropic",
       "api_key": "...",
-      "base_url": "https://api.deepseek.com/v1"
+      "base_url": "https://gateway-claude-api.example.com"
     }
   },
+  "default_model": "deepseek-v4-flash"
+}
+```
 
-  // 默认 provider 和 model（routing 关闭时使用）
-  "default_provider": "anthropic",
-  "default_model": "claude-sonnet-4-6",
+先按下面的顺序理解配置：
 
-  // 意图路由 —— 按任务复杂度自动选择模型
-  "routing": {
-    "enabled": true,
-    "classifier": { "provider": "anthropic", "model": "claude-haiku-4-5-20251001" },
-    "l0": { "provider": "anthropic", "model": "claude-haiku-4-5-20251001" },    // 闲聊
-    "l1": { "provider": "anthropic", "model": "claude-sonnet-4-6" },            // 单步任务
-    "l2": { "provider": "anthropic", "model": "claude-sonnet-4-6" },            // 多步任务
-    "l3": { "provider": "anthropic", "model": "claude-opus-4-6" }               // 复杂规划
-  },
+| 你想做什么 | 需要配置什么 |
+|---|---|
+| 只用一个模型 | 配 `providers` + `default_model`；只有多个 provider 时才需要 `default_provider` |
+| 按任务复杂度自动换模型 | 用 `routing.classifier/l0/l1/l2`，不用再写 `default_model` |
+| 不同级别用不同 provider | `routing` 里写 `{ "provider": "...", "model": "..." }` |
+| 想给模型起短名字，或单个模型覆盖协议 | 再加可选的 `models` |
 
-  // 会话 —— AI 自动生成会话标题
+字段含义：
+
+| 字段 | 说明 |
+|---|---|
+| `providers` | 连接配置。每个 provider 包含 `adapter`、`api_key`、可选 `base_url` |
+| `default_provider` | 默认走哪个 provider；只有多个 provider 或字符串模型名无法推断时才需要 |
+| `default_model` | 未开启 `routing` 时使用的模型。可以是具体模型名，也可以是 `models` 里的 alias |
+| `routing` | 可选。按任务复杂度选择模型；开启后不需要 `default_model`，`l1` 是日常默认模型 |
+| `models` | 可选。可以是模型名数组，也可以是 alias 对象；用于列出可选模型、跨 provider 复用或模型级协议覆盖 |
+| `session` | 可选。会话元数据设置，例如 AI 标题生成 |
+
+`session.ai_title` 用来自动给会话生成标题。默认会在会话前几轮尝试一次；如果手动使用 `/title <name>` 设置了标题，AI 标题不会覆盖手动标题。可以只写 `"enabled": true` 使用当前对话模型，也可以单独指定生成标题用的 provider/model。
+
+```json
+{
   "session": {
     "ai_title": {
       "enabled": true,
-      "provider": "anthropic",
-      "model": "claude-haiku-4-5-20251001"
+      "provider": "compony",
+      "model": "deepseek-v4-flash"
     }
   }
 }
 ```
 
-| 字段 | 说明 |
-|---|---|
-| `providers` | LLM 提供商配置：anthropic / openai / gemini / deepseek / groq / azure |
-| `default_provider` | 未指定时使用的默认 provider |
-| `default_model` | 默认模型名称（与 provider 对应） |
-| `routing` | 意图路由配置 —— 开关、每级模型覆盖 |
-| `session` | 会话元数据设置（AI 标题生成） |
+如果不想自动生成标题，设置 `"enabled": false`。
+
+`session.compact` 用来配置长会话自动压缩使用的模型。默认开启，并使用当前对话模型；如果希望用更便宜/更快的模型做 compact，可以单独指定 `provider/model`。如果只指定 `model`，会沿用当前对话的 provider/adapter；如果指定 `provider`，会用该 provider 构建独立 adapter。
+
+```json
+{
+  "session": {
+    "compact": {
+      "enabled": true,
+      "provider": "compony",
+      "model": "deepseek-v4-flash"
+    }
+  }
+}
+```
+
+如果不想自动压缩长会话，设置 `"enabled": false`。
 
 支持的 adapter：`anthropic`（Claude 原生）、`openai`（OpenAI 兼容协议，包括 DeepSeek/Groq/Azure）、`gemini`。
 
@@ -181,7 +216,7 @@ vera/                          ← pnpm workspace monorepo
 | `adapters/` | 统一 `LLMAdapter` 接口 — Anthropic、OpenAI、Gemini、DeepSeek、Groq、Azure |
 | `agent/` | `streamAgent` / `runAgent` — 多轮循环、工具分发、重试、压缩 |
 | `context/` | Token 估算、窗口裁剪、渐进/微观/响应式压缩、召回 |
-| `intent/` | `classifyIntent` / `routeTarget` — L0-L3 分类、领域检测 |
+| `intent/` | `classifyIntent` / `routeTarget` — L0-L2 模型路由、领域检测 |
 | `tools/` | 内置工具：`read_file` `write_file` `edit_file` `list_dir` `glob` `grep` `bash` |
 | `session/` | JSONL session 存储、成本追踪、AI 生成标题 |
 | `repl/` | React + Ink 终端 UI — 会话面板、SessionPicker、DiffView、主题系统 |
@@ -211,11 +246,116 @@ vera/                          ← pnpm workspace monorepo
 | 级别 | 描述 | 模型 |
 |---|---|---|
 | L0 | 闲聊、简单问答 | claude-haiku / gpt-4o-mini |
-| L1 | 单步任务 | claude-haiku / gpt-4o-mini |
-| L2 | 多步任务 | claude-sonnet / gpt-4o |
-| L3 | 复杂规划、深度推理 | claude-opus / o3 |
+| L1 | 单步任务 | claude-sonnet / gpt-4o |
+| L2 | 多步任务、复杂规划、深度推理 | claude-opus / o3 |
 
-L3 任务自动激活 Plan Mode。目标：L0/L1 路由准确率 > 95%，整体成本降低 > 60%。
+复杂任务仍会自动激活 Plan Mode，但模型路由只需要 `l0/l1/l2`。目标：L0/L1 路由准确率 > 95%，整体成本降低 > 60%。
+
+### 模型配置示例
+
+按复杂度从上到下选一种即可，不需要把所有 case 都写进自己的配置。`default_model` 和 `routing` 二选一：不开 routing 时用 `default_model`；开 routing 时，`routing.l1` 就是日常默认模型。
+
+**Case 1：一个 provider + 一个默认模型**
+
+最简单写法。只有一个 provider 时，不需要写 `default_provider`。
+
+```json
+{
+  "providers": {
+    "compony": {
+      "adapter": "anthropic",
+      "api_key": "...",
+      "base_url": "https://gateway-claude-api.example.com"
+    }
+  },
+  "default_model": "deepseek-v4-flash"
+}
+```
+
+**Case 2：一个 provider + 模型列表 + 默认模型**
+
+想在同一个 provider 下提供可选模型，但暂时不开 routing，就加一个数组 `models`。数组项同时作为 alias 和真实上游模型名。
+
+```json
+{
+  "providers": {
+    "compony": {
+      "adapter": "anthropic",
+      "api_key": "...",
+      "base_url": "https://gateway-claude-api.example.com"
+    }
+  },
+  "models": ["deepseek-v4-flash", "deepseek-v4-pro"],
+  "default_model": "deepseek-v4-flash"
+}
+```
+
+**Case 3：一个 provider + 模型列表 + routing**
+
+同一个 provider 下按任务复杂度自动切模型。开了 routing 后不再写 `default_model`，日常默认模型就是 `routing.l1`。
+
+```json
+{
+  "providers": {
+    "compony": {
+      "adapter": "anthropic",
+      "api_key": "...",
+      "base_url": "https://gateway-claude-api.example.com"
+    }
+  },
+  "models": ["deepseek-v4-flash", "deepseek-v4-pro"],
+  "routing": {
+    "enabled": true,
+    "classifier": "deepseek-v4-flash",
+    "l0": "deepseek-v4-flash",
+    "l1": "deepseek-v4-flash",
+    "l2": "deepseek-v4-pro"
+  }
+}
+```
+
+**Case 4：多个 provider + 模型对象 + default_provider + routing**
+
+多个 provider 或模型级覆盖时，用对象写法。每个模型可以指定自己的 `provider`，也可以覆盖 `adapter`、`api_key`、`base_url`；没有写的字段继承 provider。`adapter` 用来覆盖协议，`api_key/base_url` 用来覆盖密钥和 endpoint。`default_provider` 用来给 routing 里的字符串模型名提供默认 provider。
+
+```json
+{
+  "providers": {
+    "gateway": {
+      "adapter": "anthropic",
+      "api_key": "...",
+      "base_url": "https://gateway.example.com"
+    },
+    "openai": { "adapter": "openai", "api_key": "..." }
+  },
+  "default_provider": "gateway",
+  "models": {
+    "deepseek-v4-flash": { "provider": "gateway" },
+    "strong": { "provider": "gateway", "model": "deepseek-v4-pro" },
+    "openai-strong": { "provider": "openai", "model": "gpt-4.1" },
+    "gateway-openai-compatible": {
+      "provider": "gateway",
+      "model": "custom-model",
+      "adapter": "openai"
+    },
+    "custom-model-alias": {
+      "provider": "openai",
+      "model": "custom-model",
+      "api_key": "...",
+      "base_url": "https://openai-compatible.example.com/v1"
+    }
+  },
+  "routing": {
+    "enabled": true,
+    "classifier": "deepseek-v4-flash",
+    "l0": "deepseek-v4-flash",
+    "l1": "strong",
+    "l2": "openai-strong"
+  }
+}
+```
+
+完整模板见 `.vera/settings.example.json`。
 
 ---
 

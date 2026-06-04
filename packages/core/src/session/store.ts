@@ -13,8 +13,8 @@ import {
   statSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { homedir } from "node:os";
 import { join, normalize } from "node:path";
+import { globalDataPath } from "../config/paths.js";
 import type { StopReason, Usage } from "../types/index.js";
 import type { Message } from "../types/message.js";
 import { calculateCost } from "./cost.js";
@@ -88,8 +88,7 @@ function canonicalizePath(p: string): string {
 }
 
 function projectsDir(): string {
-  const home = process.env.VERA_HOME || homedir();
-  return join(home, ".vera", "projects");
+  return globalDataPath("projects");
 }
 
 function sessionFilePath(sessionId: string, cwd: string): string {
@@ -354,7 +353,7 @@ export class SessionStore {
 
     let migrated = 0;
     if (options.autoMigrate !== false) {
-      const dir = options.sessionsDir ?? join(homedir(), ".vera", "projects");
+      const dir = options.sessionsDir ?? globalDataPath("projects");
       // Migrate from all project dirs
       try {
         const projectDirs = readdirSync(dir, { withFileTypes: true })

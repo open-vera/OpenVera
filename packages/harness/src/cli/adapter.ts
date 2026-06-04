@@ -23,9 +23,10 @@ function envVarFor(adapter: string): string {
 
 export function buildCliAdapter(
   providerArg?: string,
-  apiKeyArg?: string
+  apiKeyArg?: string,
+  cwd?: string,
 ): { adapter: LLMAdapter; model: string } {
-  const config = loadConfig();
+  const config = loadConfig(undefined, cwd);
   const providerName = providerArg ?? config.default_provider ?? "anthropic";
   const pc = config.providers?.[providerName] ?? { adapter: "anthropic" as const };
   const apiKey = apiKeyArg ?? pc.api_key ?? resolveEnvKey(pc.adapter, providerName);
@@ -40,7 +41,7 @@ export function buildCliAdapter(
           `  Use  /provider  in the REPL to switch, or edit .vera/settings.json\n` +
           `  and change "default_provider" to one of: ${configured.join(", ")}\n`
         : `\n  To configure, either:\n` +
-          `    1. Run  openvera  again (first-time setup wizard)\n` +
+          `    1. Run  openvera init\n` +
           `    2. Set  ${envVarFor(pc.adapter)}=<key>  environment variable\n` +
           `    3. Add  "api_key": "<key>"  to .vera/settings.json\n`;
     console.error(

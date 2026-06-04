@@ -5,6 +5,7 @@ import type { Usage } from "../../../types/index.js";
 import type { ReplContext } from "../../context.js";
 import type { RoutingInfo } from "../types.js";
 import type { RoutingConfig, RoutingTarget } from "../../../config/types.js";
+import { resolveClassifierTarget, resolveDefaultTarget, resolveRoutingConfig } from "../../../config/model-tiers.js";
 
 export interface ClassifierUsage {
   usage: Usage;
@@ -23,8 +24,8 @@ export interface TurnRoutingResult {
 }
 
 type ResolveModelFn = typeof resolveModel;
-type RouteKey = "l0" | "l1" | "l2" | "l3";
-const ROUTE_KEYS: RouteKey[] = ["l0", "l1", "l2", "l3"];
+type RouteKey = "l0" | "l1" | "l2";
+const ROUTE_KEYS: RouteKey[] = ["l0", "l1", "l2"];
 const CLASSIFIER_FAILURE_TTL_MS = 60_000;
 
 const classifierFailures = new Map<string, number>();
@@ -49,7 +50,8 @@ export function clearClassifierFailureCircuit(): void {
   classifierFailures.clear();
 }
 
-function sameTarget(a: RoutingTarget | undefined, b: RoutingTarget): boolean {
+function sameTarget(a: RoutingConfig[RouteKey] | undefined, b: RoutingTarget): boolean {
+  if (typeof a === "string") return false;
   return a?.provider === b.provider && a.model === b.model;
 }
 
@@ -75,8 +77,9 @@ export async function resolveTurnRouting({
   onClassifierUsage,
   resolveModelFn = resolveModel,
 }: ResolveTurnRoutingOptions): Promise<TurnRoutingResult> {
-  const defaultProvider = ctx.config.default_provider ?? "anthropic";
-  const routingCfg = ctx.config.routing;
+  const defaultTarget = resolveDefaultTarget(ctx.config);
+  const defaultProvider = defaultTarget.provider;
+  const routingCfg = resolveRoutingConfig(ctx.config);
   if (!routingCfg?.enabled) {
     return {
       adapter: ctx.adapter,
@@ -87,8 +90,8 @@ export async function resolveTurnRouting({
     };
   }
 
-  const defaultTarget = { provider: defaultProvider, model: ctx.model };
-  if (routesCollapseToDefault(routingCfg, defaultTarget)) {
+  const activeDefaultTarget = { provider: defaultProvider, model: ctx.model };
+  if (routesCollapseToDefault(routingCfg, activeDefaultTarget)) {
     return {
       adapter: ctx.adapter,
       model: ctx.model,
@@ -99,10 +102,10 @@ export async function resolveTurnRouting({
     };
   }
 
-  const classifierTarget = routingCfg.classifier;
-  const classifierAdapter = classifierTarget ? ctx.buildAdapter(classifierTarget.provider) : ctx.adapter;
-  const classifierModel = classifierTarget?.model ?? "claude-haiku-4-5";
-  const classifierProvider = classifierTarget?.provider ?? defaultProvider;
+  const classifierTarget = resolveClassifierTarget({ ...ctx.config, routing: routingCfg }, defaultTarget);
+  const classifierAdapter = ctx.buildAdapter(classifierTarget.provider, classifierTarget.model);
+  const classifierModel = classifierTarget.model;
+  const classifierProvider = classifierTarget.provider;
 
   if (isClassifierCircuitOpen(classifierProvider, classifierModel)) {
     return {
@@ -129,7 +132,7 @@ export async function resolveTurnRouting({
     );
     const provider = routed.provider ?? defaultProvider;
     return {
-      adapter: routed.provider ? ctx.buildAdapter(routed.provider) : ctx.adapter,
+      adapter: routed.provider ? ctx.buildAdapter(routed.provider, routed.model) : ctx.adapter,
       model: routed.model,
       provider,
       intent: routed.intent,

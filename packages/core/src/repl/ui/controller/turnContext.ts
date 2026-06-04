@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import type { LLMAdapter } from "../../../adapters/base.js";
+import type { SessionConfig } from "../../../config/types.js";
 import type { MemoryFile } from "../../../memory/index.js";
 
 export const MEMORY_FILE_CHAR_LIMIT = 8_000;
@@ -51,7 +53,16 @@ export function buildMemoryPreamble(memories: MemoryFile[]): string {
   return ["", "Relevant memory files selected for this turn:", blocks.join("\n\n")].join("\n");
 }
 
-export function buildDynamicContextOptions(modelContextLimit: number, model: string) {
+export function buildDynamicContextOptions(
+  modelContextLimit: number,
+  model: string,
+  compactConfig?: SessionConfig["compact"],
+  buildAdapter?: (provider: string, model?: string) => LLMAdapter,
+) {
+  const compressionAdapter = compactConfig?.provider && buildAdapter
+    ? buildAdapter(compactConfig.provider, compactConfig.model)
+    : undefined;
+
   return {
     contextOptions: {
       maxTokens: modelContextLimit,
@@ -59,11 +70,12 @@ export function buildDynamicContextOptions(modelContextLimit: number, model: str
       keepRecentTurns: 6,
     },
     compressionOptions: {
-      enabled: true,
+      enabled: compactConfig?.enabled !== false,
       triggerTokens: Math.floor(modelContextLimit * COMPRESSION_TRIGGER_UTILIZATION),
       keepRecentTurns: 6,
-      model,
+      model: compactConfig?.model ?? model,
     },
+    ...(compressionAdapter ? { compressionAdapter } : {}),
     microCompactOptions: {
       enabled: true,
       gapThresholdMinutes: 60,

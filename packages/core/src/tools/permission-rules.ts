@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { globalVeraDir, projectResourcePath } from "../config/paths.js";
 
 export interface PermissionRules {
   allowedTools?: string[];
@@ -44,8 +44,8 @@ function mergeArray(a?: string[], b?: string[]): string[] | undefined {
 
 export function loadPermissionRules(cwd: string): PermissionRules {
   return mergeRules(
-    readRulesFile(join(homedir(), ".vera", "permissions.json")),
-    readRulesFile(join(cwd, ".vera", "permissions.json")),
+    readRulesFile(join(globalVeraDir(), "permissions.json")),
+    readRulesFile(projectResourcePath(cwd, "permissions.json")),
   );
 }
 

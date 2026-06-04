@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseInputChunk, parseInputKey } from "../src/repl/ui/inputKeys.js";
+import { isTerminalControlInput, parseInputChunk, parseInputKey } from "../src/repl/ui/inputKeys.js";
 
 describe("inputKeys", () => {
   it("parses return, tab, escape, and backspace keys", () => {
@@ -30,5 +30,17 @@ describe("inputKeys", () => {
     expect(parseInputChunk("A")).toMatchObject({ input: "A", key: { shift: true } });
     expect(parseInputChunk("中文")).toMatchObject({ input: "中文" });
     expect(parseInputChunk("a\r\nb")).toMatchObject({ input: "a\nb" });
+  });
+
+  it("filters terminal focus and mouse reporting sequences", () => {
+    expect(isTerminalControlInput("[O[I[O")).toBe(true);
+    expect(isTerminalControlInput("\x1b[O\x1b[I")).toBe(true);
+    expect(isTerminalControlInput("\x1b[<0;10;5M")).toBe(true);
+    expect(isTerminalControlInput("\x1b[<0;10;5m")).toBe(true);
+    expect(isTerminalControlInput("\x1b[M !!")).toBe(true);
+
+    expect(parseInputChunk("[O[I[O")).toMatchObject({ input: "" });
+    expect(parseInputChunk("\x1b[<0;10;5M")).toMatchObject({ input: "" });
+    expect(isTerminalControlInput("中文")).toBe(false);
   });
 });

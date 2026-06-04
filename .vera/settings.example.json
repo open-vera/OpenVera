@@ -4,6 +4,11 @@
       "adapter": "anthropic",
       "api_key": "<your-anthropic-api-key>"
     },
+    "gateway": {
+      "adapter": "anthropic",
+      "api_key": "<your-gateway-api-key>",
+      "base_url": "https://gateway-claude-api.example.com"
+    },
     "openai": {
       "adapter": "openai",
       "api_key": "<your-openai-api-key>"
@@ -28,24 +33,55 @@
       "base_url": "https://YOUR_RESOURCE.openai.azure.com/openai/deployments/YOUR_DEPLOYMENT"
     }
   },
-  "default_provider": "anthropic",
-  "default_model": "claude-sonnet-4-6",
+  "default_provider": "gateway",
+  "models": {
+    "deepseek-v4-flash": {
+      "provider": "gateway"
+    },
+    "deepseek-v4-pro": {
+      "provider": "gateway"
+    },
+    "claude-haiku": {
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5"
+    },
+    "claude-sonnet": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6"
+    },
+    "openai-strong": {
+      "provider": "openai",
+      "model": "gpt-4.1"
+    },
+    "gateway-openai-compatible": {
+      "provider": "gateway",
+      "model": "custom-model",
+      "adapter": "openai"
+    },
+    "custom-endpoint": {
+      "provider": "openai",
+      "model": "custom-model",
+      "api_key": "<your-custom-model-api-key>",
+      "base_url": "https://openai-compatible.example.com/v1"
+    }
+  },
   "session": {
     "ai_title": {
       "enabled": true,
-      "provider": "anthropic",
-      "model": "claude-haiku-4-5-20251001"
+      "provider": "gateway",
+      "model": "deepseek-v4-flash"
+    },
+    "compact": {
+      "enabled": true,
+      "provider": "gateway",
+      "model": "deepseek-v4-flash"
     }
   },
   "routing": {
     "enabled": true,
-    "classifier": {
-      "provider": "anthropic",
-      "model": "claude-haiku-4-5-20251001"
-    },
-    "l0": { "provider": "anthropic", "model": "claude-haiku-4-5-20251001" },
-    "l1": { "provider": "anthropic", "model": "claude-sonnet-4-6" },
-    "l2": { "provider": "anthropic", "model": "claude-sonnet-4-6" },
-    "l3": { "provider": "anthropic", "model": "claude-opus-4-6" }
+    "classifier": "deepseek-v4-flash",
+    "l0": "deepseek-v4-flash",
+    "l1": "deepseek-v4-flash",
+    "l2": "deepseek-v4-pro"
   }
 }
