@@ -26,7 +26,10 @@
     "gateway:typecheck": "pnpm --filter @open-vera/gateway typecheck",
     "gateway:test": "pnpm --filter @open-vera/gateway test",
     "gateway-serve": "pnpm --filter @vera/gateway-ui-server run dev --",
-    "gateway-serve:dist": "pnpm --filter @vera/gateway-ui-server run start --"
+    "gateway-serve:dist": "pnpm --filter @vera/gateway-ui-server run start --",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -41,6 +44,7 @@
     "prettier": "^3.8.2",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.58.1",
+    "vitepress": "^1.6.3",
     "vitest": "^4.1.4"
   },
   "pnpm": {

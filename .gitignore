@@ -57,4 +57,5 @@ tmp/
 docs/agent-changes/
 
 # references
-# references/
+# references/docs/.vitepress/cache/
+docs/.vitepress/dist/

@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "apps/gateway-ui/web/**"
+      - "docs/**"
       - ".github/workflows/gh-pages.yml"
   workflow_dispatch:
 
@@ -37,14 +37,11 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm --filter @vera/gateway-ui-web build
-
-      # SPA fallback: serve index.html for unknown client-side routes
-      - run: cp apps/gateway-ui/web/dist/index.html apps/gateway-ui/web/dist/404.html
+      - run: pnpm docs:build
 
       - uses: actions/configure-pages@v4
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: apps/gateway-ui/web/dist
+          path: docs/.vitepress/dist
       - id: deployment
         uses: actions/deploy-pages@v4

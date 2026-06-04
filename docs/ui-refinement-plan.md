@@ -133,7 +133,7 @@
 - 用 CSS `position: absolute` + `opacity` 过渡动画
 
 ### 11.3 MemoryView 重要度星级显示 ✅
-- 当前：`🌟 {{ entry.importance }}` 只显示数字
+- 当前：`🌟 &#123;&#123; entry.importance &#125;&#125;` 只显示数字
 - 改为 N 颗星图标（filled/empty），importance 1-5 映射为 ⭐/☆
 
 **验证**: Dashboard 数据变化时环形图比例正确更新

@@ -115,7 +115,7 @@ Harness 的核心不是"多起几个 agent 一起跑"，而是**认知职责必�
 
 | 角色 | 职责 | 关键约束 |
 |---|---|---|
-| **Planner** | 读 `.vera/flows/` 上下文，生成结构化 ExecutionPlan，为每步定制 challenge prompt | flow/<name>/main.md 是建议不是命令；可增删步骤 |
+| **Planner** | 读 `.vera/flows/` 上下文，生成结构化 ExecutionPlan，为每步定制 challenge prompt | flow/`<name>`/main.md 是建议不是命令；可增删步骤 |
 | **Role Agent** | 按步骤 README.md 的准出标准执行，输出具体交付物 | 不拥有"完成"的判断权 |
 | **Challenger** | 系统内置对抗角色，对计划和每步产出独立打分，积累 lessons | 必须给出分值和 requiredFixes，拥有否决权 |
 | **Orchestrator** | 读取 ExecutionPlan，调度 agent 子进程，管理 context reset，执行门控 | 决定继续/返工/降级/转人工 |
@@ -131,7 +131,7 @@ Harness 的核心不是"多起几个 agent 一起跑"，而是**认知职责必�
 ```
 project/
 └── .vera/flows/
-    ├── flow/<name>/main.md                    # 流程意图描述（对 Planner 是建议，不是命令）
+    ├── flow/`<name>`/main.md                    # 流程意图描述（对 Planner 是建议，不是命令）
     ├── task/
     │   └── goal.md                # 任务目标
     ├── agents/
@@ -157,7 +157,7 @@ project/
             └── ...
 ```
 
-### flow/<name>/main.md 示例
+### flow/`<name>`/main.md 示例
 
 ```markdown
 ---
