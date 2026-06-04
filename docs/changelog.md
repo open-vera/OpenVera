@@ -5,6 +5,7 @@ After each commit, append a summary to this file. Detailed content goes into `do
 ## Format Rules
 
 - **date-hour**: use the commit time in `YYYY-MM-DD-HH` format
+| 2026-06-05 · 01:xx | v0.3.3: Anthropic prompt caching cache_control, logger default info, VitePress 文档站 | [→](./changelog/2026-06-05-01.md) |
 - **Summary**: one sentence, max 80 characters
 - **Detail file**: commit table, Roadmap sync, outstanding items
 

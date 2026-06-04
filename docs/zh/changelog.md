@@ -5,6 +5,7 @@
 ## 格式规则
 
 - **日期-小时**：使用提交时间的 `YYYY-MM-DD-HH` 格式
+| 2026-06-05 · 01:xx | v0.3.3: Anthropic prompt caching cache_control, logger default info, VitePress 文档站 | [→](./changelog/2026-06-05-01.md) |
 - **摘要**：一句话，最多 80 个字符
 - **详细文件**：commit 表格、路线图同步、遗留事项
 
