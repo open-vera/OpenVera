@@ -36,6 +36,7 @@ export default defineConfig({
   base: "/OpenVera/",
   ignoreDeadLinks: true,
   srcExclude: ["refrence/**"],
+  head: [["link", { rel: "icon", href: "/OpenVera/favicon.png" }]],
 
   markdown: {
     config: (md) => {
