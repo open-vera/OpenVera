@@ -141,8 +141,8 @@ apps/
 |---|---|---|---|
 | **P0** | Harness-driven execution runtime | Intent routing, 7 tools, infinite context, Plan Mode, Critique, Session, Subagent | ✅ Complete |
 | **P1** | Self-loop & self-correction | Checkpoint/Resume, Memory persistence, Subagent orchestrator/pool, Tool middleware | ✅ Complete |
-| **P2** | Self-evolution | Dreaming → Proposal → Human review → Benchmark-gated Rollout → Regression loop | 📋 Planned |
-| **P3** | Universal agent platform | Computer Use, MCP, multi-agent networks, adaptive strategies | 📋 Planned |
+| **P2** | Self-evolution | Dreaming, Proposal Pipeline, Skill evolution, Strategy store, Change tracking | 🏗️ In Progress |
+| **P3** | Universal agent platform | Computer Use, MCP, Multi-agent networks, RAG, Sandbox, Channel adapters | 🏗️ In Progress |
 
 [→ Full roadmap](/roadmap) · [→ P0 Improvement Plan](/P0-IMPROVEMENT-PLAN) · [→ P1 Implementation Plan](/P1-IMPLEMENTATION-PLAN)
 
@@ -155,5 +155,5 @@ apps/
 | LLM adapters | Anthropic, OpenAI, Gemini, DeepSeek, Groq, Azure |
 | Terminal UI | React + Ink |
 | Web UI | Vue 3 + Vite |
-| Test runner | Vitest (≥90% coverage) |
+| Test runner | Vitest (core modules ≥90%, overall ~80%) |
 | Static analysis | oxlint + eslint-plugin-sonarjs + jscpd |

@@ -141,8 +141,8 @@ apps/
 |---|---|---|---|
 | **P0** | Harness 驱动的执行运行时 | 意图路由、7 工具、无限上下文、Plan Mode、Critique、Session、Subagent | ✅ 完成 |
 | **P1** | 自循环 & 自修正 | Checkpoint/Resume、Memory 持久化、Subagent 编排器/池、Tool 中间件 | ✅ 完成 |
-| **P2** | 自进化 | Dreaming → Proposal → 人工审核 → 基准门控 Rollout → 回归闭环 | 📋 规划中 |
-| **P3** | 通用 agent 平台 | Computer Use、MCP、多 agent 网络、自适应策略 | 📋 规划中 |
+| **P2** | 自进化 | Dreaming、Proposal Pipeline、Skill 进化、Strategy 存储、变更追踪 | 🏗️ 进行中 |
+| **P3** | 通用 agent 平台 | Computer Use、MCP、多 Agent 网络、RAG、Sandbox、Channel 适配器 | 🏗️ 进行中 |
 
 [→ 完整路线图](/roadmap) · [→ P0 改进计划](/P0-IMPROVEMENT-PLAN) · [→ P1 实施计划](/P1-IMPLEMENTATION-PLAN)
 
@@ -155,5 +155,5 @@ apps/
 | LLM 适配器 | Anthropic、OpenAI、Gemini、DeepSeek、Groq、Azure |
 | 终端 UI | React + Ink |
 | Web UI | Vue 3 + Vite |
-| 测试 | Vitest（覆盖率 ≥ 90%） |
+| 测试 | Vitest（核心模块 ≥90%，全局约 80%） |
 | 静态分析 | oxlint + eslint-plugin-sonarjs + jscpd |
