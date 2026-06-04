@@ -12,6 +12,8 @@
 
 | 日期批次 | 摘要 | 详细 |
 |---|---|---|
+| 2026-06-05 · 00:xx | docs: VitePress 文档站点上线，中英双语，9篇新功能文档，侧边栏重构 | [→](./changelog/2026-06-05-00.md) |
+| 2026-06-04 · 23:xx | v0.3.1 发布：生产构建 NODE_ENV 注入、日志默认 info 级别、状态消息接入 Logger | [→](./changelog/2026-06-04-23.md) |
 | 2026-06-04 · 21:xx | v0.3.0 发布：Claude Code 迁移配置、资源同步与 dev 源码调试支持 | [→](./changelog/2026-06-04-21.md) |
 | 2026-05-28 · 19:xx | REPL live output + setup wizard + CubeSandbox + thinking/reasoning token 支持 | [→](./changelog/2026-05-28-19.md) |
 | 2026-05-27 · 23:xx | Phase 17 AD4+AD5：A/B Testing — 并行策略对比 + 统计显著性检验（25 tests） | [→](./changelog/2026-05-27-23c.md) |
