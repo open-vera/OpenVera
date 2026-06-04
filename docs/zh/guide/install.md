@@ -111,27 +111,27 @@ ai sync          # 同步所有已支持的外部工具配置
 
 ---
 
-### Lookup Order (`resolveConfigLocation`)
+### 查找顺序（`resolveConfigLocation`）
 
-Vera searches for `settings.json` in the following priority order:
+Vera 按以下优先级查找 `settings.json`：
 
-| Priority | Source | Path | Scope |
+| 优先级 | 来源 | 路径 | 作用域 |
 |---|---|---|---|
-| 1 (highest) | Explicit | Path passed via `--config <path>` | `explicit` |
-| 2 | Environment variable | `$VERA_CONFIG_DIR/settings.json` | `env` |
-| 3 | Project config | `<cwd>/.vera/settings.json` | `project` |
-| 4 (lowest) | Global config | `$VERA_HOME/.vera/settings.json` (default: `~/.vera/settings.json`) | `global` |
+| 1（最高）| 显式指定 | 通过 `--config <path>` 传入的路径 | `explicit` |
+| 2 | 环境变量 | `$VERA_CONFIG_DIR/settings.json` | `env` |
+| 3 | 项目配置 | `<cwd>/.vera/settings.json` | `project` |
+| 4（最低）| 全局配置 | `$VERA_HOME/.vera/settings.json`（默认：`~/.vera/settings.json`）| `global` |
 
-If no config file is found at any location, `loadConfig` returns an empty object `{}`, then triggers resource sync and Claude Code migration.
+如果所有位置均未找到配置文件，`loadConfig` 返回空对象 `{}`，然后触发资源同步和 Claude Code 配置迁移。
 
-### Environment Variables
+### 环境变量
 
-| Variable | Purpose | Default |
+| 变量 | 用途 | 默认值 |
 |---|---|---|
-| `VERA_HOME` | Parent directory of Vera's global directory | `$HOME` (`homedir()`) |
-| `VERA_CONFIG_DIR` | Specify config directory (takes priority over project and global) | none |
+| `VERA_HOME` | Vera 全局目录的父目录 | `$HOME`（`homedir()`）|
+| `VERA_CONFIG_DIR` | 指定配置目录（优先级高于项目配置和全局配置）| 无 |
 
-Path resolution rules (`paths.ts`):
+路径解析规则（`paths.ts`）：
 
 ```typescript
 veraHome()         → $VERA_HOME ?? ~
@@ -143,28 +143,28 @@ globalDataPath(name)→ $VERA_HOME/.vera/<name>
 projectResourcePath(cwd, name) → <cwd>/.vera/<name>
 ```
 
-### Path Categories
+### 路径分类
 
-Paths under Vera are divided into three categories:
+Vera 下的路径分为三类：
 
-| Category | Path | Content |
+| 分类 | 路径 | 内容 |
 |---|---|---|
-| **Config** | `$VERA_HOME/.vera/settings.json` | Global config (providers, models, routing) |
-| **Config** | `<cwd>/.vera/settings.json` | Project config (overrides global) |
-| **Runtime data** | `$VERA_HOME/.vera/sessions/` | Session persistence (SQLite / JSONL) |
-| **Runtime data** | `$VERA_HOME/.vera/memory/` | Memory storage (vector / full-text index) |
-| **Runtime data** | `<cwd>/.vera/worktrees/` | Git worktrees for experiment branches |
-| **Context resources** | `$VERA_HOME/.vera/rules/` | Context rule files (including symlinks from external sources) |
-| **Context resources** | `$VERA_HOME/.vera/skills/` | Skill files (including symlinks from external sources) |
-| **Context resources** | `$VERA_HOME/.vera/imports/` | Raw imported external resources (commands, rules, skills, memories, CLAUDE.md, etc.) |
+| **配置** | `$VERA_HOME/.vera/settings.json` | 全局配置（providers、models、routing）|
+| **配置** | `<cwd>/.vera/settings.json` | 项目配置（覆盖全局配置）|
+| **运行时数据** | `$VERA_HOME/.vera/sessions/` | 会话持久化（SQLite / JSONL）|
+| **运行时数据** | `$VERA_HOME/.vera/memory/` | 记忆存储（向量 / 全文索引）|
+| **运行时数据** | `<cwd>/.vera/worktrees/` | 实验分支的 Git worktree |
+| **上下文资源** | `$VERA_HOME/.vera/rules/` | 上下文规则文件（含外部源的符号链接）|
+| **上下文资源** | `$VERA_HOME/.vera/skills/` | 技能文件（含外部源的符号链接）|
+| **上下文资源** | `$VERA_HOME/.vera/imports/` | 原始导入的外部资源（commands、rules、skills、memories、CLAUDE.md 等）|
 
 ---
 
-## settings.json Schema Overview
+## settings.json 结构概览
 
-The complete configuration structure is defined by the `VeraConfig` interface in `types.ts`:
+完整的配置结构由 `types.ts` 中的 `VeraConfig` 接口定义：
 
-### providers (LLM Providers)
+### providers（LLM 提供商）
 
 ```json
 {
@@ -179,29 +179,29 @@ The complete configuration structure is defined by the `VeraConfig` interface in
 }
 ```
 
-Each provider config contains:
+每个 provider 配置包含：
 
-| Field | Type | Description |
+| 字段 | 类型 | 描述 |
 |---|---|---|
-| `adapter` | `"anthropic" \| "openai" \| "gemini"` | Adapter protocol to use |
-| `api_key` | `string` (optional) | API key, can also be provided via environment variable |
-| `base_url` | `string` (optional) | Custom API endpoint |
-| `headers` | `Record<string, string>` (optional) | Additional HTTP request headers |
+| `adapter` | `"anthropic" \| "openai" \| "gemini"` | 使用的适配器协议 |
+| `api_key` | `string`（可选）| API 密钥，也可通过环境变量提供 |
+| `base_url` | `string`（可选）| 自定义 API 端点 |
+| `headers` | `Record<string, string>`（可选）| 额外的 HTTP 请求头 |
 
-### models (Model Instances)
+### models（模型实例）
 
-Two declaration forms are supported:
+支持两种声明形式：
 
-**Array form (concise)**: inferred from the default provider:
+**数组形式（简洁）**：从默认 provider 推断：
 
 ```json
 {
   "models": ["claude-sonnet-4-6", "claude-opus-4-6"]
 }
-// Equivalent to { "claude-sonnet-4-6": { "provider": "<default_provider>" }, ... }
+// 等价于 { "claude-sonnet-4-6": { "provider": "<default_provider>" }, ... }
 ```
 
-**Object form (full)**: flexibly combine provider / model / adapter by alias:
+**对象形式（完整）**：按别名灵活组合 provider / model / adapter：
 
 ```json
 {
@@ -213,18 +213,18 @@ Two declaration forms are supported:
 }
 ```
 
-Each model config supports:
+每个 model 配置支持：
 
-| Field | Type | Description |
+| 字段 | 类型 | 描述 |
 |---|---|---|
-| `provider` | `string` | Inherit adapter / api_key / base_url from this provider |
-| `model` | `string` (optional) | Specific model ID sent to the provider; defaults to the alias itself |
-| `adapter` | `AdapterType` (optional) | Override the provider's default adapter protocol |
-| `api_key` | `string` (optional) | Override the provider's API key |
-| `base_url` | `string` (optional) | Override the provider's base_url |
-| `headers` | `Record<string, string>` (optional) | Override or supplement the provider's headers |
+| `provider` | `string` | 从此 provider 继承 adapter / api_key / base_url |
+| `model` | `string`（可选）| 发送给 provider 的具体模型 ID；默认使用别名本身 |
+| `adapter` | `AdapterType`（可选）| 覆盖 provider 的默认适配器协议 |
+| `api_key` | `string`（可选）| 覆盖 provider 的 API 密钥 |
+| `base_url` | `string`（可选）| 覆盖 provider 的 base_url |
+| `headers` | `Record<string, string>`（可选）| 覆盖或补充 provider 的请求头 |
 
-### default_provider and default_model
+### default_provider 和 default_model
 
 ```json
 {
@@ -233,10 +233,10 @@ Each model config supports:
 }
 ```
 
-- `default_provider`: Provider used when neither routing nor default_model resolves
-- `default_model`: Alias (points to an entry in models) or a concrete model ID (requires `default_provider` to exist)
+- `default_provider`：当 routing 和 default_model 均未解析时使用的 provider
+- `default_model`：别名（指向 models 中的条目）或具体的模型 ID（需要 `default_provider` 存在）
 
-### routing (Intent Routing)
+### routing（意图路由）
 
 ```json
 {
@@ -250,15 +250,15 @@ Each model config supports:
 }
 ```
 
-| Field | Description |
+| 字段 | 描述 |
 |---|---|
-| `enabled` | Whether intent routing is enabled |
-| `classifier` | Model used for intent classification (typically a lightweight model) |
-| `l0` | Model used for trivial tasks (e.g., hello, echo) |
-| `l1` | Model used for normal tasks (the default tier) |
-| `l2` | Model used for complex tasks (multi-step reasoning, large code generation) |
+| `enabled` | 是否启用意图路由 |
+| `classifier` | 用于意图分类的模型（通常为轻量模型）|
+| `l0` | 简单任务使用的模型（如打招呼、回显）|
+| `l1` | 常规任务使用的模型（默认级别）|
+| `l2` | 复杂任务使用的模型（多步推理、大规模代码生成）|
 
-Each tier value can be a model alias (string) or a `{ provider, model }` object.
+每个级别的值可以是模型别名（字符串）或 `{ provider, model }` 对象。
 
 ### session
 
@@ -271,8 +271,8 @@ Each tier value can be a model alias (string) or a `{ provider, model }` object.
 }
 ```
 
-- `ai_title`: Auto-generate session titles using AI (low-cost model)
-- `compact`: Enable context compression (auto-compress conversation history when token limits are exceeded)
+- `ai_title`：使用 AI 自动生成会话标题（低成本模型）
+- `compact`：启用上下文压缩（超出 token 限制时自动压缩对话历史）
 
 ### mcp_servers
 
@@ -290,95 +290,95 @@ Each tier value can be a model alias (string) or a `{ provider, model }` object.
 
 ---
 
-## Setup Wizard (`runSetupWizard`)
+## 安装向导（`runSetupWizard`）
 
-When `loadConfig` returns an empty config and no Claude Code config is available to migrate, Vera automatically launches the interactive setup wizard. The wizard has three steps:
+当 `loadConfig` 返回空配置且无可迁移的 Claude Code 配置时，Vera 会自动启动交互式安装向导。向导共三步：
 
-### Step 1 — Select Provider
+### 第一步 — 选择 Provider
 
-Lists all supported providers (enter the number or name):
+列出所有支持的 provider（输入编号或名称）：
 
 ```
-1 (default). Anthropic (Claude)
-2. OpenAI (GPT)
+1（默认）. Anthropic（Claude）
+2. OpenAI（GPT）
 3. Google Gemini
 4. DeepSeek
 5. Groq
 ```
 
-### Step 2 — Enter API Key
+### 第二步 — 输入 API Key
 
-- First checks environment variables (e.g., `ANTHROPIC_API_KEY`) and asks whether to use them directly
-- Otherwise enters secret input mode (terminal raw mode, input shown as `*`)
-- Supports Backspace editing, Enter to confirm, Ctrl+C to cancel
+- 首先检查环境变量（如 `ANTHROPIC_API_KEY`）并询问是否直接使用
+- 否则进入密文输入模式（终端 raw 模式，输入显示为 `*`）
+- 支持 Backspace 编辑、Enter 确认、Ctrl+C 取消
 
-### Step 3 — Select Default Model
+### 第三步 — 选择默认模型
 
-Lists available models for the chosen provider, with the default pre-selected.
+列出所选 provider 的可用模型，默认选项已预选。
 
-After completion, the wizard writes the config and shows the file path. Users can manually edit `.vera/settings.json` at any time to modify settings.
+完成后，向导写入配置并显示文件路径。用户可以随时手动编辑 `.vera/settings.json` 修改设置。
 
 ---
 
-## Resource Sync (External Resource Sync)
+## 资源同步（外部资源同步）
 
-On startup (when no config file is found and no Claude Code config is migratable), Vera automatically executes `syncExternalResources()`, which symlinks resources from other AI coding tools into Vera:
+启动时（未找到配置文件且无可迁移的 Claude Code 配置），Vera 自动执行 `syncExternalResources()`，将其他 AI 编码工具的资源以符号链接方式导入 Vera：
 
-| External Source | Default Path | Environment Variable Override |
+| 外部来源 | 默认路径 | 环境变量覆盖 |
 |---|---|---|
 | Claude Code | `~/.claude/` | `CLAUDE_CONFIG_DIR` |
 | Codex | `~/.codex/` | `CODEX_HOME` |
 | OpenClaw | `~/.openclaw/` | `OPENCLAW_HOME` |
 | Hermes | `~/.hermes/` | `HERMES_HOME` |
 
-Synced content:
+同步内容：
 
-| Category | Source | Target |
+| 类别 | 来源 | 目标 |
 |---|---|---|
-| **context (rules)** | `CLAUDE.md`, `AGENTS.md`, `SOUL.md`, `memory.md`, `rules/*.md` | `~/.vera/rules/<source>-<name>` |
-| **skill** | `skills/*/SKILL.md`, `skills/*.md` | `~/.vera/skills/<source>-<name>.md` |
-| **memory** | `memories/` or `memory/` directory | `~/.vera/memory/<source>` (directory symlink) |
-| **raw (imports)** | `commands/`, `rules/`, `skills/`, `memories/`, `CLAUDE.md`, `AGENTS.md`, `SOUL.md` | `~/.vera/imports/<source>/<name>` |
+| **context（规则）** | `CLAUDE.md`、`AGENTS.md`、`SOUL.md`、`memory.md`、`rules/*.md` | `~/.vera/rules/<source>-<name>` |
+| **skill（技能）** | `skills/*/SKILL.md`、`skills/*.md` | `~/.vera/skills/<source>-<name>.md` |
+| **memory（记忆）** | `memories/` 或 `memory/` 目录 | `~/.vera/memory/<source>`（目录符号链接）|
+| **raw（导入）** | `commands/`、`rules/`、`skills/`、`memories/`、`CLAUDE.md`、`AGENTS.md`、`SOUL.md` | `~/.vera/imports/<source>/<name>` |
 
-All resources are imported via **symbolic links**. On repeated runs, existing correct links are skipped (`skipped`), conflicts keep the existing link (`conflict`), and the `force: true` option can be used to overwrite.
+所有资源通过**符号链接**导入。重复运行时，已有的正确链接会被跳过（`skipped`），冲突时保留现有链接（`conflict`），可使用 `force: true` 选项强制覆盖。
 
 ---
 
-## Claude Code Configuration Migration
+## Claude Code 配置迁移
 
-When Vera cannot find `settings.json`, it automatically detects `~/.claude/settings.json` (or `$CLAUDE_CONFIG_DIR/settings.json`) and migrates it:
+当 Vera 找不到 `settings.json` 时，会自动检测 `~/.claude/settings.json`（或 `$CLAUDE_CONFIG_DIR/settings.json`）并进行迁移：
 
-**Migrated data:**
+**迁移的数据：**
 
-- API key: extracted from `env.ANTHROPIC_API_KEY`, `env.ANTHROPIC_AUTH_TOKEN`, `settings.anthropic.api_key`, etc.
-- Base URL: extracted from `env.ANTHROPIC_BASE_URL`, `settings.anthropic.base_url`, etc.
-- Custom headers: parsed from `env.ANTHROPIC_CUSTOM_HEADERS` in `Key: Value` format
+- API key：从 `env.ANTHROPIC_API_KEY`、`env.ANTHROPIC_AUTH_TOKEN`、`settings.anthropic.api_key` 等处提取
+- Base URL：从 `env.ANTHROPIC_BASE_URL`、`settings.anthropic.base_url` 等处提取
+- 自定义请求头：从 `env.ANTHROPIC_CUSTOM_HEADERS` 按 `Key: Value` 格式解析
 
-**Generated model aliases:**
+**生成的模型别名：**
 
-| Role | Alias | Upstream Model | Environment Variable Control |
+| 角色 | 别名 | 上游模型 | 环境变量控制 |
 |---|---|---|---|
 | haiku | `claude-haiku` | `claude-haiku-4-5-20251001` | `ANTHROPIC_DEFAULT_HAIKU_MODEL` |
 | sonnet | `claude-sonnet` | `claude-sonnet-4-6` | `ANTHROPIC_DEFAULT_SONNET_MODEL` |
 | opus | `claude-opus` | `claude-opus-4-6` | `ANTHROPIC_DEFAULT_OPUS_MODEL` |
 
-The migrated provider name is `"claude-code"` (distinct from the native `"anthropic"`) to avoid conflicts with any provider the user might manually configure later.
+迁移后的 provider 名称为 `"claude-code"`（区别于原生的 `"anthropic"`），避免与用户后续可能手动配置的 provider 冲突。
 
 ---
 
-## Supported Adapters and Providers
+## 支持的适配器与提供商
 
-Vera supports three adapter protocols:
+Vera 支持三种适配器协议：
 
-| Adapter | Protocol | Compatible Providers |
+| 适配器 | 协议 | 兼容的提供商 |
 |---|---|---|
-| `anthropic` | Anthropic Messages API | Anthropic (native) |
-| `openai` | OpenAI Chat Completions API | OpenAI, DeepSeek, Groq, and compatible APIs |
-| `gemini` | Google Gemini API | Google Gemini (native) |
+| `anthropic` | Anthropic Messages API | Anthropic（原生）|
+| `openai` | OpenAI Chat Completions API | OpenAI、DeepSeek、Groq 及兼容 API |
+| `gemini` | Google Gemini API | Google Gemini（原生）|
 
-Built-in provider presets in the setup wizard:
+安装向导中的内置 provider 预设：
 
-| Provider | Adapter | API Key Env Var | Default Model |
+| 提供商 | 适配器 | API Key 环境变量 | 默认模型 |
 |---|---|---|---|
 | Anthropic | `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-6` |
 | OpenAI | `openai` | `OPENAI_API_KEY` | `gpt-4.1` |
@@ -388,30 +388,30 @@ Built-in provider presets in the setup wizard:
 
 ---
 
-## Model Tier Resolution (model-tiers)
+## 模型级别解析（model-tiers）
 
-`model-tiers.ts` handles resolving actual target / classifier / L0-L2 models and providers from the config. Core functions:
+`model-tiers.ts` 负责从配置中解析实际的目标 / 分类器 / L0-L2 模型及 provider。核心函数：
 
-| Function | Purpose |
+| 函数 | 用途 |
 |---|---|
-| `resolveDefaultProviderName` | Resolve the default provider name |
-| `resolveDefaultTarget` | Resolve the default `{ provider, model }` target (prefers routing.l1, then default_model, falls back to `anthropic + claude-opus-4-6`) |
-| `resolveRoutingConfig` | Fill in missing tiers in routing config (using `FALLBACK_ROUTING` fallbacks) |
-| `resolveProviderModelConfig` | Generate a complete `ProviderConfig` for a target (merges provider-level and model-level api_key, base_url, headers) |
-| `normalizeModels` | Convert array-form `models` to object form |
+| `resolveDefaultProviderName` | 解析默认 provider 名称 |
+| `resolveDefaultTarget` | 解析默认的 `{ provider, model }` 目标（优先 routing.l1，其次 default_model，最后回退到 `anthropic + claude-opus-4-6`）|
+| `resolveRoutingConfig` | 填充 routing 配置中缺失的级别（使用 `FALLBACK_ROUTING` 回退值）|
+| `resolveProviderModelConfig` | 为目标生成完整的 `ProviderConfig`（合并 provider 级别和 model 级别的 api_key、base_url、headers）|
+| `normalizeModels` | 将数组形式的 `models` 转换为对象形式 |
 
 ---
 
-## Current Status
+## 当前状态
 
-- Config loading (four-layer priority): complete
-- Interactive setup wizard (three-step): complete
-- Provider presets (5 providers): complete
-- Claude Code auto-migration: complete
-- External resource sync (4 sources): complete
-- Model tier resolution (with fallbacks): complete
-- Features not yet implemented:
-  - Web UI config editor
-  - Config hot-reload (apply changes without restart)
-  - Config validator (schema validation + user-friendly error messages)
-  - Config profiles (switching between multiple config sets)
+- 配置加载（四层优先级）：已完成
+- 交互式安装向导（三步）：已完成
+- 提供商预设（5 个）：已完成
+- Claude Code 自动迁移：已完成
+- 外部资源同步（4 个来源）：已完成
+- 模型级别解析（含回退）：已完成
+- 尚未实现的功能：
+  - Web UI 配置编辑器
+  - 配置热重载（无需重启即应用更改）
+  - 配置校验器（schema 校验 + 友好的错误信息）
+  - 配置方案（多套配置之间切换）

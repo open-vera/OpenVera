@@ -365,3 +365,54 @@ const similar = manager.findSimilarSessions(targetId, candidates, 0.6);
 ```
 
 Search uses a trigram Jaccard similarity algorithm, lightweight with no external dependencies. Title matches are weighted 2x, exact keyword matches get 1x extra weight. Both Chinese and English stop words are filtered.
+
+---
+
+## Context Compression
+
+Vera automatically compresses long sessions to stay within context window limits. The system has three layers:
+
+### Progressive Compression
+
+LLM-driven summarization of old turns, injected as system context. Triggered when estimated tokens exceed the configured threshold.
+
+```jsonc
+// .vera/settings.json
+{
+  "session": {
+    "compact": {
+      "enabled": true,
+      "provider": "my-provider",
+      "model": "claude-haiku-4-5"
+    }
+  }
+}
+```
+
+| Setting | Default | Description |
+|---|---|---|
+| `enabled` | `true` | Enable progressive compression |
+| `provider` | (active chat provider) | Provider for compression model |
+| `model` | (active chat model) | Model for compression (use cheap/fast) |
+| `triggerTokens` | 100,000 | Token threshold to trigger compression |
+| `keepRecentTurns` | 6 | Recent turns kept uncompressed |
+
+The compressed summary preserves: decisions made, key findings, pending tasks, and topic transitions. The **first message (original task definition) is always preserved** — the agent never loses its goal.
+
+### Micro-Compaction
+
+Heuristic cleanup of stale tool results — **no LLM call needed**. Triggered by time gaps between turns.
+
+- **Default gap**: 60 minutes between tool results
+- **Keeps**: last 5 recent tool results
+- **Cost**: zero (purely heuristic)
+
+### Reactive Compact
+
+Triggered by `prompt-too-long` API errors. Performs aggressive compression and retries, with a circuit breaker (max 3 retries) to prevent infinite loops.
+
+### Idle Compression Timer
+
+After 314 seconds of idle time, Vera can preemptively compress context to keep the cache warm for the next user message.
+
+> Set `"enabled": false` in `session.compact` to disable automatic compression.

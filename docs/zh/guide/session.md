@@ -300,3 +300,54 @@ manager.mergeSessions("primary-id", ["duplicate-1", "duplicate-2"]);
 // → 主 Session 写入 "merged-from:xxx" tag
 // → 重复 Session 写入 "merged-into:yyy" tag
 ```
+
+---
+
+## 上下文压缩
+
+Vera 自动压缩长会话以保持在上下文窗口限制内。系统分三层：
+
+### 渐进压缩
+
+LLM 驱动的旧轮次摘要，作为系统上下文注入。当预估 token 超过配置阈值时触发。
+
+```jsonc
+// .vera/settings.json
+{
+  "session": {
+    "compact": {
+      "enabled": true,
+      "provider": "my-provider",
+      "model": "claude-haiku-4-5"
+    }
+  }
+}
+```
+
+| 设置 | 默认值 | 说明 |
+|---|---|---|
+| `enabled` | `true` | 启用渐进压缩 |
+| `provider` |（当前对话 provider）| 压缩所用的 provider |
+| `model` |（当前对话模型）| 压缩所用模型（建议使用便宜/快速的模型）|
+| `triggerTokens` | 100,000 | 触发压缩的 token 阈值 |
+| `keepRecentTurns` | 6 | 保持不压缩的最近轮次 |
+
+压缩摘要保留：已做出的决策、关键发现、待处理任务、主题切换点。**首条消息（原始任务定义）始终保留** —— agent 永远不会丢失目标。
+
+### 微压缩
+
+启发式清理过时的工具结果 —— **无需调用 LLM**。通过轮次之间的时间间隔触发。
+
+- **默认间隔**：60 分钟
+- **保留**：最近 5 条工具结果
+- **成本**：零（纯启发式）
+
+### 响应式压缩
+
+由 `prompt-too-long` API 错误触发。执行激进压缩并重试，带有熔断机制（最多 3 次重试），防止死循环。
+
+### 空闲压缩定时器
+
+空闲 314 秒后，Vera 可抢先压缩上下文，为下一条用户消息保持缓存热度。
+
+> 在 `session.compact` 中设置 `"enabled": false` 可禁用自动压缩。
