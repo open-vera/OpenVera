@@ -29,7 +29,9 @@ export class AnthropicAdapter implements LLMAdapter {
       const response = await this.client.messages.create({
         model: request.model,
         max_tokens: request.max_tokens ?? 8096,
-        system: request.system,
+        system: request.system
+          ? [{ type: "text" as const, text: request.system, cache_control: { type: "ephemeral" as const } } as any]
+          : undefined,
         messages: this.toAnthropicMessages(request.messages),
         tools: this.toAnthropicTools(request),
       }, { signal: request.signal });
@@ -124,28 +126,40 @@ export class AnthropicAdapter implements LLMAdapter {
   }
 
   private toAnthropicMessages(messages: Message[]): Anthropic.MessageParam[] {
-    return messages
-      .filter((m) => m.role !== "system")
-      .map((msg): Anthropic.MessageParam => {
-        if (msg.role === "tool") {
-          return {
-            role: "user",
-            content: [
-              {
-                type: "tool_result",
-                tool_use_id: msg.tool_call_id!,
-                content: typeof msg.content === "string" ? msg.content : "",
-              },
-            ],
-          };
-        }
-        if (typeof msg.content === "string") {
-          return {
-            role: msg.role as "user" | "assistant",
-            content: msg.content,
-          };
-        }
-        const content: Anthropic.ContentBlockParam[] = msg.content.flatMap(
+    const result: Anthropic.MessageParam[] = [];
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      if (msg.role === "system") continue;
+
+      // Enable Anthropic prompt caching on all messages except the last
+      // user message, which varies each turn. The API requires at least
+      // 2 non-cache_control content blocks at the end of the messages array
+      // (the last user + assistant pair), so we cache everything before that.
+      const isLast = i === messages.length - 1;
+      const isLastUser = msg.role === "user" && isLast;
+      const enableCache = !isLastUser;
+
+      if (msg.role === "tool") {
+        result.push({
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: msg.tool_call_id!,
+              content: typeof msg.content === "string" ? msg.content : "",
+              ...(enableCache ? { cache_control: { type: "ephemeral" as const } } as any : {}),
+            },
+          ],
+        });
+      } else if (typeof msg.content === "string") {
+        const block: any = { type: "text", text: msg.content };
+        if (enableCache) block.cache_control = { type: "ephemeral" };
+        result.push({
+          role: msg.role as "user" | "assistant",
+          content: [block],
+        });
+      } else {
+        const content: any[] = msg.content.flatMap(
           (part): Anthropic.ContentBlockParam[] => {
             if (part.type === "text")
               return [{ type: "text", text: part.text }];
@@ -162,8 +176,14 @@ export class AnthropicAdapter implements LLMAdapter {
             return [];
           }
         );
-        return { role: msg.role as "user" | "assistant", content };
-      });
+        // Add cache_control to the last content block of cacheable messages
+        if (enableCache && content.length > 0) {
+          content[content.length - 1].cache_control = { type: "ephemeral" };
+        }
+        result.push({ role: msg.role as "user" | "assistant", content });
+      }
+    }
+    return result;
   }
 
   private toAnthropicTools(

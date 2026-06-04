@@ -88,15 +88,14 @@ describe("createLogger", () => {
 });
 
 describe("log level filtering", () => {
-  it("defaults to debug when NODE_ENV is not production", () => {
+  it("defaults to info when NODE_ENV is not set", () => {
     const lines = captureStderrLines(() => {
       const log = createLogger("test");
       log.debug("debug message");
       log.info("info message");
     });
-    expect(lines.length).toBe(2);
-    expect(lines[0]!).toContain("DEBUG");
-    expect(lines[1]!).toContain("INFO");
+    expect(lines.length).toBe(1);
+    expect(lines[0]!).toContain("INFO");
   });
 
   it("defaults to info when NODE_ENV is production", () => {
@@ -164,7 +163,8 @@ describe("log level filtering", () => {
       log.debug("d");
       log.info("i");
     });
-    expect(lines.length).toBe(2);
+    expect(lines.length).toBe(1);
+    expect(lines[0]!).toContain("INFO");
   });
 });
 
@@ -258,7 +258,7 @@ describe("child logger", () => {
     const lines = captureStderrLines(() => {
       const parent = createLogger("a");
       const child = parent.child("b").child("c");
-      child.debug("deep");
+      child.info("deep");
     });
     expect(lines[0]!).toContain("[a:b:c]");
   });

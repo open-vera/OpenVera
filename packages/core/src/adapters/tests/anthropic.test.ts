@@ -694,9 +694,9 @@ describe("AnthropicAdapter", () => {
 
       const callArgs = mockCreate.mock.calls[0][0] as { messages: Array<Record<string, unknown>> };
       const toolMsg = callArgs.messages.find(
-        (m) => Array.isArray(m.content)
+        (m) => Array.isArray(m.content) && (m.content as Array<Record<string, unknown>>)[0]?.type === "tool_result"
       ) as { content: Array<Record<string, unknown>> };
-      expect(toolMsg.content[0]).toMatchObject({
+      expect(toolMsg!.content[0]).toMatchObject({
         type: "tool_result",
         tool_use_id: "t1",
         content: "result data",
