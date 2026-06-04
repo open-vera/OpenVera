@@ -1,38 +1,38 @@
-# Session 管理
+# Session Management
 
-Vera 的 Session 系统负责对话的完整持久化、恢复、分支和费用追踪。采用 JSONL 格式存储，支持 SQLite 后端扩展。
+Vera's Session system handles complete conversation persistence, recovery, branching, and cost tracking. It uses JSONL format for storage with support for SQLite backend extension.
 
-> 底层实现细节见 `docs/core/session.md`，本文档聚焦使用层面的指南。
+> For underlying implementation details, see `docs/core/session.md`. This document focuses on usage-level guidance.
 
 ---
 
-## Session 生命周期
+## Session Lifecycle
 
-一个完整的 Session 经历以下事件流：
+A complete session goes through the following event flow:
 
 ```
 session_start → user → [assistant → tool_call → tool_result]* → session_end
 ```
 
-### 写入 API
+### Write API
 
 ```typescript
 import { SessionStore } from "@open-vera/core";
 
 const store = new SessionStore({ cwd: "/path/to/project" });
-// sessionId 自动生成 (crypto.randomUUID())
-// 文件路径：~/.vera/projects/<encoded_cwd>/<uuid>.jsonl
+// sessionId is auto-generated (crypto.randomUUID())
+// File path: ~/.vera/projects/<encoded_cwd>/<uuid>.jsonl
 
-// 1. 启动 session
+// 1. Start session
 store.writeStart("claude-sonnet-4-6", "anthropic");
 
-// 2. 记录用户输入（返回 uuid）
-const userUuid = store.writeUser("帮我重构 UserService");
+// 2. Record user input (returns uuid)
+const userUuid = store.writeUser("Help me refactor UserService");
 
-// 3. 记录助手回复（返回 uuid）
+// 3. Record assistant reply (returns uuid)
 const assistantUuid = store.writeAssistant({
   parentUuid: userUuid,
-  content: "好的，我先分析现有代码...",
+  content: "OK, let me first analyze the existing code...",
   model: "claude-sonnet-4-6",
   provider: "anthropic",
   stopReason: "end_turn",
@@ -43,7 +43,7 @@ const assistantUuid = store.writeAssistant({
   status: "ok",
 });
 
-// 4. 记录工具调用（返回 uuid）
+// 4. Record tool call (returns uuid)
 const toolCallUuid = store.writeToolCall({
   parentUuid: userUuid,
   toolName: "read_file",
@@ -51,42 +51,42 @@ const toolCallUuid = store.writeToolCall({
   arguments: { file_path: "src/UserService.ts" },
 });
 
-// 5. 记录工具结果
+// 5. Record tool result
 store.writeToolResult({
   parentUuid: toolCallUuid,
   toolCallId: "toolu_xxx",
   content: "export class UserService { ... }",
 });
 
-// 6. 结束 session
+// 6. End session
 store.writeEnd(
   { input_tokens: 15000, output_tokens: 8000 },
   0.1234,  // totalCostUsd
   5,       // turnCount
-  "帮我重构 UserService"  // lastPrompt
+  "Help me refactor UserService"  // lastPrompt
 );
 ```
 
-### 元数据写入
+### Metadata Writes
 
 ```typescript
-// 自定义标题
-store.writeTitle("重构 UserService 数据访问层");
+// Custom title
+store.writeTitle("Refactor UserService data access layer");
 
-// AI 自动生成标题
-store.writeAiTitle("重构 UserService 查询逻辑");
+// AI auto-generated title
+store.writeAiTitle("Refactor UserService query logic");
 
-// 对话摘要
-store.writeSummary("完成了 UserService 的数据访问层重构，提了 3 个 PR。");
+// Conversation summary
+store.writeSummary("Completed refactoring the UserService data access layer, submitted 3 PRs.");
 
-// 标签（支持分类和合并标记）
+// Tags (support categorization and merge markers)
 store.writeTag("refactor");
 store.writeTag("merged-from:dup-id-xxx");
 
-// Git 分支
+// Git branch
 store.writeGitBranch("refactor/user-service");
 
-// PR 链接
+// PR link
 store.writePrLink({
   prUrl: "https://github.com/org/repo/pull/42",
   prRepository: "org/repo",
@@ -96,52 +96,52 @@ store.writePrLink({
 
 ---
 
-## JSONL 存储格式
+## JSONL Storage Format
 
-### 文件路径
+### File Path
 
 ```
 ~/.vera/projects/<sanitized_cwd>/<sessionId>.jsonl
 ```
 
-项目路径经过净化：非字母数字字符替换为 `-`，过长路径截断并追加哈希后缀。
+The project path is sanitized: non-alphanumeric characters are replaced with `-`; overly long paths are truncated with a hash suffix appended.
 
-### Entry 类型一览
+### Entry Type Overview
 
-| 类型 | 说明 | 关键字段 |
+| Type | Description | Key Fields |
 |---|---|---|
-| `session_start` | 启动标记 | `cwd`, `model`, `provider` |
-| `user` | 用户消息 | `uuid`, `content` |
-| `assistant` | AI 回复 | `uuid`, `parentUuid`, `content`, `model`, `usage`, `stopReason`, `turn`, `latencyMs`, `toolCalls`, `status` |
-| `tool_call` | 工具调用 | `uuid`, `parentUuid`, `toolName`, `toolCallId`, `arguments` |
-| `tool_result` | 工具结果 | `uuid`, `parentUuid`, `toolCallId`, `content` |
-| `session_end` | 结束标记 | `totalUsage`, `totalCostUsd`, `turnCount` |
-| `last-prompt` | 最后输入 | `lastPrompt` |
-| `custom-title` | 自定义标题 | `customTitle` |
-| `ai-title` | AI 标题 | `aiTitle` |
-| `summary` | 对话摘要 | `summary`, `leafUuid` |
-| `tag` | 标签 | `tag` |
-| `git-branch` | Git 分支 | `gitBranch` |
-| `pr-link` | PR 关联 | `prUrl`, `prRepository`, `prNumber` |
-| `branch` | 分支关系 | `parentSessionId`, `forkedFromUuid`, `title`, `status`, `worktreePath`, `worktreeBranch`, `baseCommit` |
+| `session_start` | Start marker | `cwd`, `model`, `provider` |
+| `user` | User message | `uuid`, `content` |
+| `assistant` | AI reply | `uuid`, `parentUuid`, `content`, `model`, `usage`, `stopReason`, `turn`, `latencyMs`, `toolCalls`, `status` |
+| `tool_call` | Tool call | `uuid`, `parentUuid`, `toolName`, `toolCallId`, `arguments` |
+| `tool_result` | Tool result | `uuid`, `parentUuid`, `toolCallId`, `content` |
+| `session_end` | End marker | `totalUsage`, `totalCostUsd`, `turnCount` |
+| `last-prompt` | Last input | `lastPrompt` |
+| `custom-title` | Custom title | `customTitle` |
+| `ai-title` | AI title | `aiTitle` |
+| `summary` | Conversation summary | `summary`, `leafUuid` |
+| `tag` | Tag | `tag` |
+| `git-branch` | Git branch | `gitBranch` |
+| `pr-link` | PR association | `prUrl`, `prRepository`, `prNumber` |
+| `branch` | Branch relationship | `parentSessionId`, `forkedFromUuid`, `title`, `status`, `worktreePath`, `worktreeBranch`, `baseCommit` |
 
-### 设计特性
+### Design Characteristics
 
-- **追加写入**：使用追加模式，进程崩溃不丢失已写入数据
-- **损坏恢复**：单行 JSON 解析失败跳过继续，保证部分损坏不影响其余数据
-- **渐进式摘要**：`readSessionSummary` 只读文件头尾各 64KB 即可生成完整摘要，无需全量解析大文件
+- **Append-only writes**: Uses append mode; process crashes do not lose already-written data
+- **Corruption recovery**: Single-line JSON parse failures are skipped; partial corruption does not affect the rest of the data
+- **Progressive summaries**: `readSessionSummary` only reads the first and last 64KB of the file to generate a complete summary, avoiding full parsing of large files
 
 ---
 
-## 查询与恢复
+## Query and Recovery
 
-### 列表
+### Listing
 
 ```typescript
-// 列出当前项目的所有 session
+// List all sessions for the current project
 const sessions = SessionStore.listSessions("/path/to/project");
 
-// 分页
+// Paginated
 const result = SessionStore.listSessionsPaged({
   cwd: "/path/to/project",
   all: false,
@@ -150,43 +150,43 @@ const result = SessionStore.listSessionsPaged({
   includeWorktrees: true,
 });
 console.log(result.sessions.length);
-console.log(result.nextOffset);       // 下一页起始偏移量
-console.log(result.totalCandidates);  // 总候选数
+console.log(result.nextOffset);       // Next page start offset
+console.log(result.totalCandidates);  // Total candidate count
 ```
 
-**SessionSummary 字段：**
+**SessionSummary fields:**
 
-| 字段 | 类型 | 说明 |
+| Field | Type | Description |
 |---|---|---|
-| `sessionId` | string | 唯一 ID |
-| `filePath` | string | JSONL 文件路径 |
-| `startedAt` / `lastActivityAt` | Date | 时间信息 |
-| `model` / `provider` | string | 模型/provider |
-| `turnCount` | number | 对话轮次 |
-| `messageCount` | number | 消息总数 |
-| `fileSize` | number | 文件字节数 |
-| `totalUsage` | Usage | 累计 token（input/output/cache_w/cache_r） |
-| `totalCostUsd` | number | 累计费用（USD） |
-| `title` / `summary` | string | 标题/摘要 |
-| `firstPrompt` / `lastUserInput` | string | 首/尾用户输入 |
-| `tag` | string | 标签 |
-| `gitBranch` | string | Git 分支 |
-| `pr` | object | PR 信息 |
-| `branch` | object | 分支信息 |
+| `sessionId` | string | Unique ID |
+| `filePath` | string | JSONL file path |
+| `startedAt` / `lastActivityAt` | Date | Time information |
+| `model` / `provider` | string | Model/provider |
+| `turnCount` | number | Conversation turns |
+| `messageCount` | number | Total message count |
+| `fileSize` | number | File size in bytes |
+| `totalUsage` | Usage | Cumulative tokens (input/output/cache_w/cache_r) |
+| `totalCostUsd` | number | Cumulative cost (USD) |
+| `title` / `summary` | string | Title/summary |
+| `firstPrompt` / `lastUserInput` | string | First/last user input |
+| `tag` | string | Tag |
+| `gitBranch` | string | Git branch |
+| `pr` | object | PR info |
+| `branch` | object | Branch info |
 
-### 恢复
+### Recovery
 
 ```typescript
 const loaded = SessionStore.loadSession("session-id-prefix");
-console.log(loaded.history);      // Message[] — 完整对话历史
-console.log(loaded.turnCount);    // 轮次数
-console.log(loaded.totalCostUsd); // 总费用
-console.log(loaded.cwd);          // 原工作目录
+console.log(loaded.history);      // Message[] — full conversation history
+console.log(loaded.turnCount);    // Turn count
+console.log(loaded.totalCostUsd); // Total cost
+console.log(loaded.cwd);          // Original working directory
 ```
 
-加载逻辑：逐行解析 JSONL，按 `user`/`assistant` entry 重建 `Message[]`，累加 usage 和 cost。优先信任 `session_end` 中的总额覆盖累加值。
+Loading logic: Parse JSONL line by line, reconstruct `Message[]` from `user`/`assistant` entries, accumulate usage and cost. The total in `session_end` is trusted over the accumulated value when available.
 
-### 转录预览
+### Transcript Preview
 
 ```typescript
 const preview = SessionStore.loadTranscriptPreview("session-id");
@@ -202,76 +202,76 @@ preview.messages.forEach((msg) => {
 
 ---
 
-## 分支系统
+## Branch System
 
-Session 分支允许从任意历史点 fork 出独立分支继续对话，各分支互不干扰。
+Session branches allow forking independent branches from any historical point to continue the conversation, with each branch fully isolated.
 
-### 分支状态
+### Branch States
 
-| 状态 | 说明 |
+| State | Description |
 |---|---|
-| `active` | 活跃分支 |
-| `adopted` | 已接管确认 |
-| `merged` | 已合并回父 session |
-| `discarded` | 已丢弃 |
+| `active` | Active branch |
+| `adopted` | Adopted and confirmed |
+| `merged` | Merged back into parent session |
+| `discarded` | Discarded |
 
-### 创建分支
+### Creating Branches
 
 ```typescript
-// 普通分支
+// Regular branch
 const forked = SessionStore.forkSession({
   fromSessionId: "parent-session-id",
   cwd: "/path/to/project",
-  title: "尝试方案B",
-  atUuid: "message-uuid", // 可选，从指定消息处 fork
+  title: "Try solution B",
+  atUuid: "message-uuid", // Optional, fork from a specific message
 });
 
-// 带 worktree 隔离的分支（/try）
+// Branch with worktree isolation (/try)
 const tryBranch = SessionStore.forkSession({
   fromSessionId: "parent-session-id",
   cwd: "/path/to/project",
-  title: "升级到 Next.js 14",
+  title: "Upgrade to Next.js 14",
   worktreePath: "/path/to/.vera/worktrees/try-upgrade-xxx",
   worktreeBranch: "try-upgrade-next14-xxx",
   baseCommit: "abc123def456",
 });
 ```
 
-Fork 核心逻辑：
-1. 读取父 session 的完整 JSONL
-2. 过滤出可重放的消息（排除 `session_end`、`summary`、`tag` 等元数据 entry）
-3. 复制到新文件，更新 `sessionId`
-4. 写入 `branch` entry（`status: "active"`，记录 `parentSessionId`、`forkedFromUuid`）
-5. 如有标题，追加 `(Branch)` 后缀
+Fork core logic:
+1. Read the parent session's complete JSONL
+2. Filter out replayable messages (excluding `session_end`, `summary`, `tag`, and other metadata entries)
+3. Copy to a new file, update `sessionId`
+4. Write `branch` entry (`status: "active"`, recording `parentSessionId`, `forkedFromUuid`)
+5. If titled, append `(Branch)` suffix
 
-### 分支操作
+### Branch Operations
 
 ```typescript
-// 列出分支
+// List branches
 const branches = SessionStore.listBranches("parent-session-id");
-// 过滤 parentSessionId 匹配且 status !== "discarded"
+// Filters by parentSessionId match and status !== "discarded"
 
-// 接管
+// Adopt
 SessionStore.adoptBranch("branch-session-id");
 
-// 标记已合并
+// Mark as merged
 SessionStore.markBranchMerged("branch-session-id");
 
-// 丢弃
+// Discard
 SessionStore.discardBranch("branch-session-id");
 ```
 
-丢弃是逻辑删除（标记 `discarded`），JSONL 文件不会物理删除。
+Discarding is a logical deletion (marked `discarded`); the JSONL file is not physically removed.
 
 ---
 
-## 费用追踪
+## Cost Tracking
 
-### 定价表
+### Pricing Table
 
-内置主流模型定价（USD/百万 token）：
+Built-in pricing for mainstream models (USD per million tokens):
 
-| 模型 | 输入 | 输出 | 缓存写 | 缓存读 |
+| Model | Input | Output | Cache Write | Cache Read |
 |---|---|---|---|---|
 | claude-opus-4-6 | $15.00 | $75.00 | $18.75 | $1.50 |
 | claude-sonnet-4-6 | $3.00 | $15.00 | $3.75 | $0.30 |
@@ -283,19 +283,19 @@ SessionStore.discardBranch("branch-session-id");
 | gemini-2.0-flash | $0.10 | $0.40 | - | - |
 | gemini-2.5-pro | $1.25 | $10.00 | - | - |
 
-### 模型名归一化
+### Model Name Normalization
 
-`normalizeModelKey` 去除日期后缀（`-\d{8}`）和 `-latest`/`-preview`/`-exp` 变体，保证 `claude-sonnet-4-6-20251001` 匹配到 `claude-sonnet-4-6` 定价。
+`normalizeModelKey` strips date suffixes (`-\d{8}`) and `-latest`/`-preview`/`-exp` variants, ensuring `claude-sonnet-4-6-20251001` matches `claude-sonnet-4-6` pricing.
 
-### 计算
+### Calculation
 
 ```typescript
 import { calculateCost, accumulateCost, emptyAccumulatedCost } from "@open-vera/core";
 
-// 单次调用费用
+// Single turn cost
 const turnCost = calculateCost(usage, "claude-sonnet-4-6");
 
-// 累计（immutable 返回新对象）
+// Accumulated (immutable, returns new object)
 let cost = emptyAccumulatedCost();
 cost = accumulateCost(cost, usage1, "claude-sonnet-4-6", "anthropic");
 cost = accumulateCost(cost, usage2, "gpt-4o", "openai");
@@ -304,64 +304,64 @@ console.log(cost.totalUsd);
 // AccumulatedCost { totalUsd, byModel: Record<string, ModelCostRecord>, totalUsage: Usage }
 ```
 
-费用在 `session_end` entry 持久化，恢复时直接读取无需重算。
+Cost is persisted in the `session_end` entry and read directly on recovery without recalculation.
 
 ---
 
-## AI 标题生成
+## AI Title Generation
 
 ```typescript
 import { generateSessionTitle } from "@open-vera/core";
 
 const title = await generateSessionTitle({
-  adapter,                          // LLMAdapter 实例
-  model: "claude-haiku-4-5",        // 用低成本模型
-  userPrompt: "帮我写一个 TypeScript 的快速排序实现",
-  assistantText: "以下是 TS 实现...",
+  adapter,                          // LLMAdapter instance
+  model: "claude-haiku-4-5",        // Use low-cost model
+  userPrompt: "Help me write a TypeScript quicksort implementation",
+  assistantText: "Here is the TS implementation...",
   signal: abortController.signal,
 });
-// → "快速排序 TypeScript 实现"
+// → "Quicksort TypeScript Implementation"
 ```
 
-生成策略：
-- `max_tokens=32`，`temperature=0`
-- System prompt 要求返回 3-8 词英文或简短中文
-- 自动截断过长输入（user/assistant 各 2000 字符）
-- 去引号、空白、超 80 字符自动截断
-- 返回 `null` 表示无法生成
+Generation strategy:
+- `max_tokens=32`, `temperature=0`
+- System prompt requests 3-8 word English or short Chinese output
+- Auto-truncates overly long input (user/assistant each capped at 2000 characters)
+- Strips quotes, whitespace; auto-truncates if exceeding 80 characters
+- Returns `null` if generation is not possible
 
 ---
 
-## 生命周期管理 (SessionManager)
+## Lifecycle Management (SessionManager)
 
-`SessionManager` 提供自动清理和搜索能力：
+`SessionManager` provides automatic cleanup and search capabilities:
 
 ```typescript
 const manager = new SessionManager({
   autoCompress: {
     enabled: true,
-    tokenThreshold: 100_000,  // 触发压缩的 token 阈值
-    keepRecentTurns: 6,       // 保留最近 N 轮不解压
+    tokenThreshold: 100_000,  // Token threshold to trigger compression
+    keepRecentTurns: 6,       // Keep the most recent N turns uncompressed
   },
-  ttlDays: 30,       // 30 天未活动自动清理
-  maxSessions: 1000, // 每项目最多保留数
+  ttlDays: 30,       // Auto-cleanup after 30 days of inactivity
+  maxSessions: 1000, // Max sessions retained per project
 });
 
-// 自动压缩
+// Auto-compress
 const { messages, compressed } = await manager.autoCompress(
   sessionId, messages, adapter, model
 );
 
-// 生命周期清理
+// Lifecycle cleanup
 const result = manager.cleanup({ cwd: "/path/to/project", dryRun: true });
 // → { removedCount, removedSessionIds, remainingCount }
 
-// 关键词搜索
+// Keyword search
 manager.buildIndex(summaries);
 const results = manager.searchByKeyword("quick sort");
 
-// 相似 session 检测
+// Similar session detection
 const similar = manager.findSimilarSessions(targetId, candidates, 0.6);
 ```
 
-搜索使用 trigram Jaccard 相似度算法，轻量无外部依赖。标题匹配 2x 权重，关键词精确匹配 1x 额外权重。中英文 stop words 均过滤。
+Search uses a trigram Jaccard similarity algorithm, lightweight with no external dependencies. Title matches are weighted 2x, exact keyword matches get 1x extra weight. Both Chinese and English stop words are filtered.

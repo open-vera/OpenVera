@@ -1,194 +1,198 @@
-# 评测与治理总览
+# Evaluation & Governance Overview
 
-> Vera 的质量保障体系涵盖 Benchmark 评测、测试覆盖率、静态代码分析、存储专项测试、Agent 工作审查五大子系统。本文档为总入口，介绍各子系统的定位与关系，并链接到详细文档。
+> Vera's quality assurance system covers five major subsystems: Benchmark Evaluation, Test Coverage, Static Code Analysis, Storage-specific Testing, and Agent Work Review. This document serves as the main entry point, introducing the positioning and relationships of each subsystem and linking to detailed documentation.
 
 ---
 
-## 体系全景
+## System Landscape
 
-Vera 的评测与治理体系围绕"代码质量可量化、Agent 行为可复现、改进方向可追踪"三个目标构建：
+Vera's evaluation and governance system is built around three goals: "code quality is quantifiable, agent behavior is reproducible, improvement directions are traceable":
 
 ```
 +---------------------------------------------------------------------+
-|                        评测与治理体系                                  |
+|                   Evaluation & Governance System                      |
 +-----------------+-----------------+----------------+-----------------+
-|  Benchmark      |  测试覆盖率       |  静态分析       |  Agent 工作审查  |
-|  评测            |                  |                 |                 |
-|  能力边界测量    |  代码级质量       |  结构健康度      |  AI 协作可追溯   |
-|  回归对比        |  变更门禁         |  复杂度控制      |  变更审计        |
+|  Benchmark      |  Test Coverage  |  Static        |  Agent Work     |
+|  Evaluation     |                 |  Analysis      |  Review         |
+|                 |                 |                |                 |
+|  Capability     |  Code-level     |  Structural    |  AI collab      |
+|  boundary       |  quality        |  health        |  traceability   |
+|  measurement    |  change gate    |  complexity    |  change audit   |
+|  regression     |                 |  control       |                 |
+|  comparison     |                 |                |                 |
 +-----------------+-----------------+----------------+-----------------+
-|                        存储与 UI 专项测试                               |
-|                 SQLite / 持久化 / API / 黑盒回归                        |
+|                    Storage & UI Specific Testing                      |
+|            SQLite / Persistence / API / Black-box Regression          |
 +---------------------------------------------------------------------+
 ```
 
-各子系统定位：
+Subsystem positioning:
 
-| 子系统 | 关注点 | 触发时机 | 详细文档 |
+| Subsystem | Focus | Trigger | Detailed Doc |
 |---|---|---|---|
-| Benchmark 评测 | Agent 能力边界、任务完成率、模型对比 | 模型切换、prompt 变更 | [benchmark.md](./benchmark.md) |
-| 测试覆盖率 | 代码行/分支/函数覆盖、未测路径 | 每次提交前（门禁） | [coverage.md](./coverage.md) |
-| 静态代码分析 | 文件长度、圈复杂度、认知复杂度、重复代码 | 按需 / 定期 | [static.md](./static.md) |
-| 存储专项测试 | SQLite、持久化、导出、UI/API 冒烟 | 存储相关变更 | 见第 4 节 |
-| Agent 工作审查 | Claude Code / Cursor 工作记录、变更审计 | 按需查询 | 见第 5 节 |
+| Benchmark Evaluation | Agent capability boundaries, task completion rate, model comparison | Model switch, prompt change | [benchmark.md](./benchmark.md) |
+| Test Coverage | Code line/branch/function coverage, untested paths | Before every commit (gate) | [coverage.md](./coverage.md) |
+| Static Code Analysis | File length, cyclomatic complexity, cognitive complexity, duplicate code | On demand / periodically | [static.md](./static.md) |
+| Storage-specific Testing | SQLite, persistence, export, UI/API smoke | Storage-related changes | See section 4 |
+| Agent Work Review | Claude Code / Cursor work records, change audit | On-demand query | See section 5 |
 
 ---
 
-## 1. Benchmark 评测
+## 1. Benchmark Evaluation
 
-Benchmark 不是"刷榜"，而是回答三个问题：这个 Agent 能可靠完成哪些任务类别？哪些会失败，为什么？模型/prompt 变更后能力提升还是退化？
+Benchmarking is not about "chasing scores" -- it answers three questions: which task categories can this agent reliably complete? Which ones fail and why? After a model/prompt change, did capabilities improve or regress?
 
-评测分三层：L1 原子任务（单步工具调用）、L2 多步任务（多工具串联）、L3 规划任务（自主规划步骤）。评测维度覆盖任务完成率、工具调用准确率、步骤效率、Token 效率和稳定性。
+Evaluation has three tiers: L1 atomic tasks (single-step tool calls), L2 multi-step tasks (multi-tool chaining), L3 planning tasks (autonomous step planning). Evaluation dimensions cover task completion rate, tool call accuracy, step efficiency, token efficiency, and stability.
 
-支持四种评测方法：`exact` 精确匹配、`contains` 关键词匹配、`tool_match` 工具调用校验（均已实现），以及 `llm_judge` 语义评分（待实现）。外部接入 GAIA、SWE-bench Verified、AgentBench 等基准套件作为参照。
+Four evaluation methods are supported: `exact` exact match, `contains` keyword match, `tool_match` tool call validation (all implemented), and `llm_judge` semantic scoring (to be implemented). External benchmark suites such as GAIA, SWE-bench Verified, and AgentBench serve as references.
 
-**详细文档**：[benchmark.md](./benchmark.md)
+**Detailed doc**: [benchmark.md](./benchmark.md)
 
 ---
 
-## 2. 测试覆盖率
+## 2. Test Coverage
 
-### 目标与门禁
+### Goals and Gates
 
-| 目标 | 阈值 | 强制 |
+| Goal | Threshold | Enforced |
 |---|---|---|
-| 全局 lines 覆盖率 | >= 90% | 提交前检查 |
-| Core 核心模块 | >= 80% | CI 门禁 |
-| 新增业务逻辑 | 必须有对应 unit test | 是 |
+| Global lines coverage | >= 90% | Pre-commit check |
+| Core module coverage | >= 80% | CI gate |
+| New business logic | Must have corresponding unit tests | Yes |
 
-核心模块：`tools/` `storage/` `adapters/` `config/` `memory/` `context/` `utils/`。纯类型定义和配置文件可跳过。
+Core modules: `tools/` `storage/` `adapters/` `config/` `memory/` `context/` `utils/`. Pure type definitions and config files can be skipped.
 
-### 技术栈
+### Tech Stack
 
-- **框架**：Vitest + v8 coverage，输出 text + lcov
-- **规模**：Core ~75 文件 ~1054 用例，Harness ~15 文件 ~268 用例
-- **状态**：核心模块覆盖率全部达标（98%+），全局聚合被 `worktree/`（~86%）和 `tools/index.ts`（~72%）拉低
+- **Framework**: Vitest + v8 coverage, output text + lcov
+- **Scale**: Core ~75 files ~1054 cases, Harness ~15 files ~268 cases
+- **Status**: Core module coverage all meets thresholds (98%+); global aggregate pulled down by `worktree/` (~86%) and `tools/index.ts` (~72%)
 
-**详细文档**：[coverage.md](./coverage.md)
+**Detailed doc**: [coverage.md](./coverage.md)
 
 ---
 
-## 3. 静态代码分析
+## 3. Static Code Analysis
 
-三个工具并行运行，总耗时约 4 秒：
+Three tools run in parallel, total time approximately 4 seconds:
 
 ```
 quality-scan
-├── oxlint（结构指标）           ~0.1s ─┐
-├── ESLint + sonarjs（认知复杂度） ~3s  ─┤─→ 合并报告
-└── jscpd（重复度）               ~4s ─┘
+├── oxlint (structural metrics)              ~0.1s ─┐
+├── ESLint + sonarjs (cognitive complexity)   ~3s  ─┤─→ merge reports
+└── jscpd (duplication)                       ~4s ─┘
 ```
 
-### 阈值总表
+### Threshold Summary
 
-| 指标 | 工具 | warn | error |
+| Metric | Tool | warn | error |
 |---|---|---|---|
-| 文件总行数 | oxlint | 300 | 600 |
-| 函数体行数 | oxlint | 50 | 100 |
-| 圈复杂度 | oxlint | 10 | 20 |
-| 嵌套深度 | oxlint | 4 | 6 |
-| 参数数量 | oxlint | 4 | 7 |
-| 认知复杂度 | sonarjs | 15 | — |
-| 重复 token | jscpd | 50 | — |
+| Total file lines | oxlint | 300 | 600 |
+| Function body lines | oxlint | 50 | 100 |
+| Cyclomatic complexity | oxlint | 10 | 20 |
+| Nesting depth | oxlint | 4 | 6 |
+| Parameter count | oxlint | 4 | 7 |
+| Cognitive complexity | sonarjs | 15 | — |
+| Duplicate tokens | jscpd | 50 | — |
 
-### 工具分工
+### Tool Responsibilities
 
-- **oxlint**（Rust）：多线程并行，快 50-100x，与主 ESLint 配置隔离
-- **sonarjs**（eslint-plugin-sonarjs）：纯 AST 解析，不开类型检查，快 10-20x。认知复杂度比圈复杂度更接近阅读难度
-- **jscpd**（JS Copy-Paste Detector）：token 级匹配，变量重命名不影响检测
+- **oxlint** (Rust): multi-threaded parallel, 50-100x faster, isolated from main ESLint config
+- **sonarjs** (eslint-plugin-sonarjs): pure AST parsing, no type checking, 10-20x faster. Cognitive complexity is closer to readability difficulty than cyclomatic complexity
+- **jscpd** (JS Copy-Paste Detector): token-level matching, variable renaming does not affect detection
 
-与日常 `pnpm lint` 的关系：日常 lint 关注正确性和风格（ESLint + 类型检查，阻断构建）；quality-scan 关注结构健康和重复度（仅报告，不阻断）。
+Relationship with daily `pnpm lint`: daily lint focuses on correctness and style (ESLint + type checking, blocks build); quality-scan focuses on structural health and duplication (report only, non-blocking).
 
-**详细文档**：[static.md](./static.md)
+**Detailed doc**: [static.md](./static.md)
 
 ---
 
-## 4. 存储与 UI 专项测试
+## 4. Storage & UI Specific Testing
 
-覆盖 Vera 持久化层的完整测试矩阵，按优先级分三层：
+A complete test matrix covering Vera's persistence layer, organized into three priority tiers:
 
-| 层级 | 内容 | 示例 |
+| Tier | Content | Examples |
 |---|---|---|
-| P0（立即） | DataExporter 单元测试、SQLite 迁移边界、Memory 搜索 | 损坏 JSONL 行处理、FTS 中文搜索 |
-| P1（扩展） | User Data TTL、存储组合查询、API 路由冒烟 | 命名空间隔离、分页排序 |
-| P2（加固） | 性能测试、WAL 模式、事务回滚 | 万级 session 列表、中断恢复 |
+| P0 (Immediate) | DataExporter unit tests, SQLite migration edge cases, Memory search | Corrupt JSONL line handling, FTS Chinese search |
+| P1 (Extended) | User Data TTL, storage composite queries, API route smoke | Namespace isolation, pagination sorting |
+| P2 (Hardening) | Performance tests, WAL mode, transaction rollback | 10K+ session list, crash recovery |
 
-测试对象覆盖：SQLite 存储（CRUD/查询/TTL/标签/FTS/事务）、Session 迁移（JSONL 往返/去重/验证）、Memory 持久化（重启恢复/条目淘汰/中文搜索）、数据导出（JSONL/CSV/JSON/CSV 转义）、User Data（命名空间隔离/覆盖语义）、UI/API 冒烟（Harness UI + Admin UI 路由/空状态/CORS）。
+Test targets cover: SQLite storage (CRUD/query/TTL/tags/FTS/transactions), Session migration (JSONL round-trip/dedup/validation), Memory persistence (restart recovery/entry eviction/Chinese search), Data export (JSONL/CSV/JSON/CSV escaping), User Data (namespace isolation/overwrite semantics), UI/API smoke (Harness UI + Admin UI routes/empty states/CORS).
 
-每个子系统都有端到端黑盒验证流程，通过公开 API 验证行为而非实现细节。
+Each subsystem has end-to-end black-box validation flows, verifying behavior through public APIs rather than implementation details.
 
 ---
 
-## 5. Agent 工作审查
+## 5. Agent Work Review
 
-Vera 开发过程中大量使用 AI 辅助（Claude Code + Cursor），为此建立了 AI 工作记录可追溯体系。
+Vera's development process heavily uses AI assistance (Claude Code + Cursor), and a traceability system for AI work records has been established accordingly.
 
-### 数据源
+### Data Sources
 
-| 来源 | 存储位置 |
+| Source | Storage Location |
 |---|---|
 | Claude Code | `~/.claude/projects/<slug>/*.jsonl` |
 | Cursor | `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` |
 | Git | `git log --since --until` |
 
-### 审查 Skill
+### Review Skills
 
-| Skill | 功能 | 示例 |
+| Skill | Function | Example |
 |---|---|---|
-| `claude-session-review` | Claude Code 工作记录 | `/claude-session-review --days 1` |
-| `cursor-session-review` | Cursor 工作记录 | `/cursor-session-review --days 1` |
-| `agent-changes-report` | 综合报告（两者 + git log） | `/agent-changes-report` |
+| `claude-session-review` | Claude Code work records | `/claude-session-review --days 1` |
+| `cursor-session-review` | Cursor work records | `/cursor-session-review --days 1` |
+| `agent-changes-report` | Combined report (both + git log) | `/agent-changes-report` |
 
-报告输出到 `docs/agent-changes/`，包含 session 汇总、prompt 列表、修改文件、关键操作描述。
+Reports are output to `docs/agent-changes/`, containing session summaries, prompt lists, modified files, and key operation descriptions.
 
 ---
 
-## 6. 治理流程
+## 6. Governance Process
 
-### 日常开发流程
+### Daily Development Flow
 
 ```
-写代码 → pnpm test → coverage >= 90% → scan.sh 无 error → git commit 规范格式
+Write code → pnpm test → coverage >= 90% → scan.sh no error → git commit (standard format)
                 ↓                                    ↓
-           任何失败                              error 级别发现
+           Any failure                         error-level finding
                 ↓                                    ↓
-           修复后重跑 ←────────────────────────────────┘
+           Fix and re-run ← ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
 ```
 
-### 质量门禁一览
+### Quality Gates at a Glance
 
-| 门禁 | 工具 | 阻断条件 |
+| Gate | Tool | Blocking Condition |
 |---|---|---|
-| 类型检查 | `pnpm typecheck` | 编译错误 |
-| 单元测试 | `pnpm test` | 任何失败 |
-| 覆盖率 | `pnpm run test:coverage` | lines < 90% |
-| 静态分析 | `bash .claude/skills/quality-scan/scan.sh` | error 级别发现 |
-| 提交规范 | Git hook | 格式不合规 |
-| 敏感文件 | `git status` 检查 | API Key 在 staged 中 |
+| Type checking | `pnpm typecheck` | Compilation error |
+| Unit tests | `pnpm test` | Any failure |
+| Coverage | `pnpm run test:coverage` | lines < 90% |
+| Static analysis | `bash .claude/skills/quality-scan/scan.sh` | error-level finding |
+| Commit standard | Git hook | Non-compliant format |
+| Sensitive files | `git status` check | API Key in staged |
 
-### 提交规范
+### Commit Standard
 
 ```
 feat(scope): description | fix(scope): description | refactor(scope): desc
 test(scope): description | docs(scope): description | chore(scope): description
 ```
 
-scope：`core` `harness` `tool` `agent` `memory` `rag` `sandbox` `channel`
+scope: `core` `harness` `tool` `agent` `memory` `rag` `sandbox` `channel`
 
-### CI 集成（规划中）
+### CI Integration (Planned)
 
-- [ ] PR 自动运行覆盖率 + 质量扫描，结果贴到 PR comment
-- [ ] 趋势追踪：多次扫描结果对比，观察质量变化曲线
+- [ ] Auto-run coverage + quality scan on PR, post results as PR comment
+- [ ] Trend tracking: compare multiple scan results, observe quality change curve
 
 ---
 
-## 相关文档
+## Related Documents
 
-| 文档 | 路径 |
+| Document | Path |
 |---|---|
-| Benchmark 评测体系 | [benchmark.md](./benchmark.md) |
-| 测试覆盖率报告 | [coverage.md](./coverage.md) |
-| 静态代码分析 | [static.md](./static.md) |
-| 项目架构 | [../architecture.md](../architecture.md) |
-| 项目路线图 | [../roadmap.md](../roadmap.md) |
-| 变更日志 | [../changelog.md](../changelog.md) |
+| Benchmark Evaluation System | [benchmark.md](./benchmark.md) |
+| Test Coverage Report | [coverage.md](./coverage.md) |
+| Static Code Analysis | [static.md](./static.md) |
+| Project Architecture | [../architecture.md](../architecture.md) |
+| Project Roadmap | [../roadmap.md](../roadmap.md) |
+| Changelog | [../changelog.md](../changelog.md) |

@@ -1,76 +1,76 @@
-# Skill 系统
+# Skill System
 
-Skill 是 Vera 的可插拔能力扩展机制——通过 Markdown 文件声明 agent 的行为指令、工具权限和触发条件，运行时按意图自动激活，无需修改核心代码。
+Skills are Vera's pluggable capability extension mechanism — Markdown files that declare agent behavioral instructions, tool permissions, and trigger conditions. They are automatically activated at runtime based on intent, without modifying core code.
 
 ---
 
-## 1. Skill 定义格式
+## 1. Skill Definition Format
 
-一个 skill 就是一个 `.md` 文件，由 **frontmatter（YAML 元数据）** 和 **body（Markdown 指令）** 组成。body 的内容直接注入 system prompt。
+A skill is a `.md` file consisting of **frontmatter (YAML metadata)** and **body (Markdown instructions)**. The body content is injected directly into the system prompt.
 
 ```
-.vera/skills/            ← 项目级 skill
-~/.vera/skills/          ← 用户级 skill（全局）
-packages/harness/skills/ ← 内置 skill
+.vera/skills/            ← Project-level skills
+~/.vera/skills/          ← User-level skills (global)
+packages/harness/skills/ ← Built-in skills
 ```
 
-### 1.1 Frontmatter 字段
+### 1.1 Frontmatter Fields
 
 ```yaml
 ---
-id: github                        # 唯一标识
-name: GitHub 操作                  # 展示名
-description: 管理 PR、issues      # 一句话描述
-triggers:                         # 触发条件
-  - always                        #   每次对话都加载
-  - domain: code                  #   intent.domain 匹配时
-  - domain: [code, analysis]      #   多 domain
-  - level: 2                      #   intent.level >= 2 时
-  - needs_tools: true             #   需要工具时
-  # 不写 triggers → 仅可通过 /skill <id> 显式激活
-tools:                            # 引用内置工具 id
+id: github                        # Unique identifier
+name: GitHub Operations            # Display name
+description: Manage PRs and issues # One-line description
+triggers:                         # Trigger conditions
+  - always                        #   Load on every conversation
+  - domain: code                  #   When intent.domain matches
+  - domain: [code, analysis]      #   Multiple domains
+  - level: 2                      #   When intent.level >= 2
+  - needs_tools: true             #   When tools are needed
+  # No triggers → only activatable via /skill <id>
+tools:                            # Reference built-in tool IDs
   - read_file
   - bash
-rules:                            # 约束规则（与 body 一起注入）
-  - 高风险操作必须获得用户确认
+rules:                            # Constraint rules (injected alongside body)
+  - High-risk operations must require user confirmation
 ---
 ```
 
-`triggers` 支持五种类型：`always`（无条件）、`domain`（领域匹配）、`level`（复杂度阈值）、`needs_tools`（需要工具）、`explicit`（仅显式激活）。
+`triggers` supports five types: `always` (unconditional), `domain` (domain match), `level` (complexity threshold), `needs_tools` (tools needed), `explicit` (explicit activation only).
 
-### 1.2 完整示例
+### 1.2 Full Example
 
 ```markdown
 ---
 id: coding-rules
-name: 编码约束
-description: 写代码时的基础规范
+name: Coding Constraints
+description: Basic conventions when writing code
 triggers:
   - domain: code
 tools:
   - read_file
   - bash
 rules:
-  - 修改前先 read 文件，确认上下文
-  - 函数不超过 40 行
+  - Read files before modifying to confirm context
+  - Functions should not exceed 40 lines
 ---
 
-## 编码规范
+## Coding Conventions
 
-- 优先复用已有函数，不重复造轮子
-- 不添加未被要求的错误处理和注释
-- 每个修改完成后运行测试确认无回归
+- Prefer reusing existing functions; don't reinvent the wheel
+- Do not add unrequested error handling and comments
+- Run tests after each change to confirm no regressions
 ```
 
 ---
 
-## 2. 意图驱动激活
+## 2. Intent-Driven Activation
 
-系统通过 **意图分类 → 触发匹配 → 按需组装** 决定激活哪些 skill。
+The system uses **intent classification -> trigger matching -> on-demand assembly** to decide which skills to activate.
 
 ### 2.1 IntentSignal
 
-上游意图分类器产出 `IntentSignal`，这是 SkillResolver 的唯一输入：
+The upstream intent classifier produces an `IntentSignal`, which is the sole input to SkillResolver:
 
 ```typescript
 type IntentDomain = "chat" | "code" | "search" | "writing" | "analysis" | "other";
@@ -79,66 +79,66 @@ interface IntentSignal {
   domain: IntentDomain;
   level: 0 | 1 | 2 | 3;
   needs_tools: boolean;
-  explicitIds?: string[];  // 来自 /skill <id> 命令
+  explicitIds?: string[];  // From /skill <id> command
 }
 ```
 
-### 2.2 SkillResolver 匹配
+### 2.2 SkillResolver Matching
 
-`SkillResolver.resolve(intent, baseSystem)` 遍历所有已注册 skill，逐条匹配 trigger。一个 skill 可以有多个 trigger，满足任一即激活。
+`SkillResolver.resolve(intent, baseSystem)` iterates over all registered skills and matches each against triggers. A skill can have multiple triggers; matching any one activates it.
 
-| trigger 类型 | 匹配条件 |
-|-------------|---------|
-| `always` | 始终匹配 |
-| `domain` | `intent.domain` 在 domains 列表中 |
+| trigger Type | Match Condition |
+|-------------|----------------|
+| `always` | Always matches |
+| `domain` | `intent.domain` is in the domains list |
 | `level` | `intent.level >= minLevel` |
 | `needs_tools` | `intent.needs_tools === true` |
-| `explicit` | `intent.explicitIds` 包含当前 skill.id |
+| `explicit` | `intent.explicitIds` contains the current skill.id |
 
-### 2.3 SkillBundle 组装
+### 2.3 SkillBundle Assembly
 
-匹配完成后，Resolver 组装 `SkillBundle` 直接传给 `streamAgent`：
+After matching, the Resolver assembles a `SkillBundle` passed directly to `streamAgent`:
 
 ```typescript
 interface SkillBundle {
-  system: string;                          // base system + 各 skill 的 systemFragment
-  tools: Tool[];                           // 合并的工具定义列表
-  executors: Map<string, ToolExecutor>;    // toolName → executor 映射
+  system: string;                          // base system + each skill's systemFragment
+  tools: Tool[];                           // Merged tool definitions
+  executors: Map<string, ToolExecutor>;    // toolName → executor mapping
 }
 ```
 
-- `systemFragment` 以 `## Skill: <name> (<id>)` 标题注入 system prompt
-- 工具按名字去重，后注册的 skill 不覆盖同名工具
-- 懒加载 skill 在此阶段通过 `skill.load()` 完成 hydration
+- `systemFragment` is injected into the system prompt with the `## Skill: <name> (<id>)` header
+- Tools are deduplicated by name; later-registered skills do not override tools with the same name
+- Lazy-loaded skills complete hydration at this stage via `skill.load()`
 
-### 2.4 渐进式披露
+### 2.4 Progressive Disclosure
 
-- `auto: true`（有非 explicit trigger）的 skill 自动激活，用户无感知
-- `auto: false`（仅有 explicit trigger）的 skill 只展示描述
-- 用户通过 `/skill <id>` 显式激活，当次对话生效
+- Skills with `auto: true` (have non-explicit triggers) are activated automatically, transparent to the user
+- Skills with `auto: false` (only explicit triggers) show only their description
+- Users explicitly activate via `/skill <id>`, effective for the current conversation
 
 ---
 
-## 3. 加载与热更新
+## 3. Loading and Hot Reload
 
-### 3.1 加载管线
+### 3.1 Loading Pipeline
 
 ```
-.md 文件
-  ↓ parseFrontmatter()    — 极简 YAML 解析器（无外部依赖）
-  ↓ parseTriggers()       — 解析 triggers 列表
-  ↓ resolveTools()        — 通过 BuiltinToolProvider 将 id 解析为 Tool + executor
-  ↓ buildSystemFragment() — rules + body 拼接
+.md file
+  ↓ parseFrontmatter()    — Minimal YAML parser (no external dependencies)
+  ↓ parseTriggers()       — Parse triggers list
+  ↓ resolveTools()        — Resolve IDs to Tool + executor via BuiltinToolProvider
+  ↓ buildSystemFragment() — Concatenate rules + body
   ↓
-Skill 对象 → 注册到 SkillResolver
+Skill object → Register with SkillResolver
 ```
 
-### 3.2 元数据优先 + 懒加载
+### 3.2 Metadata-First + Lazy Loading
 
-目录扫描时只解析 frontmatter，不加载 body，减少启动开销：
+Directory scanning only parses frontmatter, not the body, reducing startup overhead:
 
-- `loadSkillMetadataFile()` 返回 Skill 对象，`systemFragment` 为空，但携带 `load()` 闭包
-- 只有被匹配激活的 skill 才在 `hydrate()` 阶段调用 `load()` 获取完整内容
+- `loadSkillMetadataFile()` returns a Skill object with an empty `systemFragment` but carries a `load()` closure
+- Only matched and activated skills call `load()` during the `hydrate()` phase to get the full content
 
 ```typescript
 interface Skill {
@@ -147,48 +147,48 @@ interface Skill {
   description: string;
   triggers: SkillTrigger[];
   sourcePath?: string;
-  load?: () => Skill;           // 懒加载：返回完整 Skill
-  systemFragment?: string;      // 注入 system prompt 的文本
+  load?: () => Skill;           // Lazy load: returns full Skill
+  systemFragment?: string;      // Text injected into system prompt
   tools?: SkillTool[];          // { definition: Tool, executor: ToolExecutor }[]
 }
 ```
 
-### 3.3 热更新
+### 3.3 Hot Reload
 
-Skill 文件变化时，重新调用 `loadSkillDir()` 并 `registerAll()` 即可。Resolver 内部 `Map<string, Skill>` 被完全替换，下一次 `resolve()` 即生效，无需重启进程。
+When skill files change, re-call `loadSkillDir()` and `registerAll()`. The Resolver's internal `Map<string, Skill>` is fully replaced; the next `resolve()` call takes effect without restarting the process.
 
 ---
 
-## 4. 内置 Skill 与自定义 Skill
+## 4. Built-in Skills and Custom Skills
 
-### 4.1 来源分类
+### 4.1 Origin Classification
 
 ```typescript
 type SkillOrigin = "system" | "brand" | "user" | "marketplace";
 ```
 
-| 来源 | 位置 | 说明 |
-|------|------|------|
-| `system` | `packages/harness/skills/` | 框架内置，随 Vera 发布 |
-| `brand` | 组织级目录 | 团队共享的品牌规范 skill |
-| `user` | `.vera/skills/` / `~/.vera/skills/` | 用户自行编写 |
-| `marketplace` | 外部注册源 | 社区或第三方发布 |
+| Origin | Location | Description |
+|--------|----------|-------------|
+| `system` | `packages/harness/skills/` | Framework built-in, shipped with Vera |
+| `brand` | Organization-level directory | Team-shared brand convention skills |
+| `user` | `.vera/skills/` / `~/.vera/skills/` | User-authored |
+| `marketplace` | External registry | Community or third-party published |
 
-### 4.2 进化权限控制
+### 4.2 Evolution Permission Control
 
-`SkillFilter` 按来源控制自动进化权限：
+`SkillFilter` controls automatic evolution permissions by origin:
 
 ```typescript
 interface FilterOptions {
-  evolvableOrigins?: SkillOrigin[];  // 默认 ["user", "marketplace"]
+  evolvableOrigins?: SkillOrigin[];  // Default: ["user", "marketplace"]
 }
 ```
 
-默认只允许 `user` 和 `marketplace` skill 自动进化。`system` 和 `brand` skill 受保护，防止框架核心能力被意外修改。
+By default, only `user` and `marketplace` skills can evolve automatically. `system` and `brand` skills are protected, preventing framework core capabilities from being accidentally modified.
 
-### 4.3 内置工具引用
+### 4.3 Built-in Tool References
 
-内置工具 id 由 harness 维护，skill 作者通过 `tools` 字段直接引用：
+Built-in tool IDs are maintained by harness; skill authors reference them directly via the `tools` field:
 
 ```typescript
 interface BuiltinToolProvider {
@@ -196,111 +196,111 @@ interface BuiltinToolProvider {
 }
 ```
 
-loader 在编译时调用 `toolProvider.resolve(id)`，将字符串 id 解析为可执行的 `SkillTool`。
+The loader calls `toolProvider.resolve(id)` at compile time, resolving string IDs into executable `SkillTool` instances.
 
 ---
 
-## 5. Skill 编写指南
+## 5. Skill Authoring Guide
 
-### 5.1 声明，不是实现
+### 5.1 Declare, Don't Implement
 
-Skill 作者写的是 **声明文件**，负责定义"什么时候激活、给 agent 什么指令、暴露哪些工具"；Harness 负责编译和运行时执行。
+Skill authors write **declaration files** responsible for defining "when to activate, what instructions to give the agent, which tools to expose"; Harness handles compilation and runtime execution.
 
-| 作者关心 | 作者不关心 |
-|---------|-----------|
-| 这个 skill 什么时候激活 | MCP 协议怎么连接 |
-| 给 agent 什么指令 | tool executor 怎么实现 |
-| 暴露哪些工具（引用 id） | system prompt 怎么拼接 |
-| rules 是什么 | intent 分类怎么做 |
+| Author Cares About | Author Doesn't Care About |
+|-------------------|--------------------------|
+| When this skill activates | How MCP protocol connects |
+| What instructions to give the agent | How tool executors are implemented |
+| Which tools to expose (reference IDs) | How system prompts are assembled |
+| What rules exist | How intent classification works |
 
-### 5.2 文件组织
+### 5.2 File Organization
 
-一个 skill 一个 `.md` 文件。按功能领域分组到不同目录，按来源分级（项目/用户/内置）。
+One skill per `.md` file. Group by functional domain into different directories, tiered by origin (project / user / built-in).
 
-### 5.3 编写原则
+### 5.3 Authoring Principles
 
-- **id 用 kebab-case**：`github-pr`、`coding-rules`
-- **description 一句话说清楚**：用于能力列表展示，影响渐进式披露体验
-- **triggers 精准匹配**：避免滥用 `always`，防止无关 skill 污染 system prompt
-- **body 写清楚边界**：不要只写 happy path，也要写什么不能做
-- **迭代优化**：利用 SkillReflector 的执行后反思持续改进
+- **Use kebab-case for IDs**: `github-pr`, `coding-rules`
+- **One-line description that's clear**: Used for capability list display, affects progressive disclosure experience
+- **Precise trigger matching**: Avoid overusing `always` to prevent irrelevant skills from polluting the system prompt
+- **Write clear boundaries in body**: Don't just cover happy paths; also specify what cannot be done
+- **Iterate and improve**: Use SkillReflector's post-execution reflection for continuous improvement
 
 ---
 
-## 6. 版本管理
+## 6. Version Management
 
-### 6.1 语义化版本
+### 6.1 Semantic Versioning
 
-Skill 采用 semver，通过 `VersionManager` 追踪：
+Skills use semver, tracked via `VersionManager`:
 
 ```typescript
 interface SkillVersion {
-  version: string;           // 当前版本
-  history: VersionEntry[];   // 变更历史
+  version: string;           // Current version
+  history: VersionEntry[];   // Change history
 }
 
 interface VersionEntry {
   version: string;
-  changes: string[];         // 变更描述
+  changes: string[];         // Change descriptions
   timestamp: string;
   source: "reflection" | "manual" | "auto-create";
 }
 ```
 
-版本升级规则：
-- **major**：破坏性变更（移除步骤、改变输出格式）
-- **minor**：向后兼容的功能增强（新增覆盖场景）
-- **patch**：修复性变更（措辞优化、边界情况修复）
+Version bump rules:
+- **major**: Breaking changes (removing steps, changing output format)
+- **minor**: Backward-compatible feature enhancements (adding coverage scenarios)
+- **patch**: Fixes (wording improvements, edge case fixes)
 
-### 6.2 SkillReflector — 驱动版本升级
+### 6.2 SkillReflector — Driving Version Bumps
 
-`SkillReflector` 在 skill 执行后调用 LLM 分析质量，产出 `SkillReflection`：
+`SkillReflector` calls an LLM after skill execution to analyze quality and produce a `SkillReflection`:
 
-**四维度评估：**
-- **Clarity**（清晰度）：指令是否无歧义
-- **Coverage**（覆盖面）：边界和错误场景是否覆盖
-- **Correctness**（正确性）：步骤是否产生预期结果
-- **Efficiency**（效率）：是否有冗余步骤
+**Four-dimension assessment:**
+- **Clarity**: Are instructions unambiguous
+- **Coverage**: Are edge and error scenarios covered
+- **Correctness**: Do steps produce expected results
+- **Efficiency**: Are there redundant steps
 
-**输出：**
+**Output:**
 ```typescript
 interface SkillReflection {
   skillName: string;
   qualityScore: number;    // 0-1
   issues: ReflectionIssue[];
-  needsUpdate: boolean;    // qualityScore < 0.8 时自动为 true
+  needsUpdate: boolean;    // Automatically true when qualityScore < 0.8
   bumpType?: "major" | "minor" | "patch";
 }
 ```
 
-bumpType 推断逻辑：有 high 级 issue → major，有 medium → minor，仅 low → patch。
+bumpType inference logic: has high severity issue -> major, has medium -> minor, only low -> patch.
 
 ### 6.3 SkillAutoCreator
 
-从 agent 执行历史中自动提取可复用 skill 模板。执行轮次 >= `minRounds`（默认 3）且置信度 >= `minConfidence`（默认 0.6）时产出 `SkillTemplate`。
+Automatically extracts reusable skill templates from agent execution history. Produces a `SkillTemplate` when execution rounds >= `minRounds` (default 3) and confidence >= `minConfidence` (default 0.6).
 
 ---
 
-## 7. 相关文档
+## 7. Related Documentation
 
-| 文档 | 内容 |
-|------|------|
-| [skill-evo.md](./skill-evo.md) | Skill 进化详解（SkillReflector、SkillOptAdapter 训练框架） |
-| [tool-runtime.md](./tool-runtime.md) | 工具运行时模型、生命周期 |
-| [runtime.md](./runtime.md) | Agent 运行时整体架构 |
+| Document | Content |
+|----------|---------|
+| [skill-evo.md](./skill-evo.md) | Skill evolution details (SkillReflector, SkillOptAdapter training framework) |
+| [tool-runtime.md](./tool-runtime.md) | Tool runtime model, lifecycle |
+| [runtime.md](./runtime.md) | Agent runtime overall architecture |
 
 ---
 
-## 8. 当前状态
+## 8. Current Status
 
-| 能力 | 状态 |
-|------|------|
-| Markdown 格式定义 + frontmatter 解析 | 已实现 |
-| IntentSignal 驱动激活 + SkillResolver | 已实现 |
-| 元数据优先 + 懒加载 | 已实现 |
-| 热更新（目录重扫） | 已实现 |
-| 内置工具引用（BuiltinToolProvider） | 已实现 |
-| 进化权限控制（SkillFilter） | 类型已定义 |
-| SkillReflector 四维度反思 | 已实现 |
-| SkillAutoCreator 模板提取 | 类型已定义 |
-| VersionManager 语义化版本 | 类型已定义 |
+| Capability | Status |
+|------------|--------|
+| Markdown format definition + frontmatter parsing | Implemented |
+| IntentSignal-driven activation + SkillResolver | Implemented |
+| Metadata-first + lazy loading | Implemented |
+| Hot reload (directory rescan) | Implemented |
+| Built-in tool references (BuiltinToolProvider) | Implemented |
+| Evolution permission control (SkillFilter) | Types defined |
+| SkillReflector four-dimension reflection | Implemented |
+| SkillAutoCreator template extraction | Types defined |
+| VersionManager semantic versioning | Types defined |

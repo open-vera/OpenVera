@@ -1,107 +1,107 @@
-# 自定义 Agent 定义
+# Custom Agent Definitions
 
-Agent 定义是 Vera 子代理系统的配置核心。通过 Markdown frontmatter 格式，用户可以声明自定义 Agent 的角色、工具权限和执行策略。
+Agent definitions form the configuration core of Vera's sub-agent system. Using the Markdown frontmatter format, users can declare custom agent roles, tool permissions, and execution strategies.
 
 ---
 
-## 概念
+## Concepts
 
-### 什么是 Agent 定义
+### What is an Agent Definition
 
-Agent 定义描述一个子 agent 的身份、能力边界和执行策略。当主 agent 通过 `agent` 工具调起子 agent 时，根据 `subagent_type` 参数匹配对应的定义，从而：
+An agent definition describes a sub-agent's identity, capability boundary, and execution strategy. When the main agent invokes a sub-agent via the `agent` tool, it matches the corresponding definition by the `subagent_type` parameter, enabling:
 
-- 使用自定义系统提示词（system prompt）
-- 限制可用工具范围
-- 设置权限模式（只读/完整）
-- 控制最大执行轮次
+- Use of a custom system prompt
+- Restriction of available tool scope
+- Setting permission modes (read-only / full)
+- Controlling maximum execution turns
 
-### 定义来源
+### Definition Sources
 
-Agent 定义有三个来源，按优先级从低到高：
+Agent definitions have three sources, ordered by priority from low to high:
 
-| 优先级 | 来源 | 目录 |
+| Priority | Source | Directory |
 |---|---|---|
-| 1（最低） | 内置定义 | `BUILTIN_AGENT_DEFINITIONS` 常量 |
-| 2 | 用户级定义 | `~/.vera/agents/*.md` |
-| 3（最高） | 项目级定义 | `.vera/agents/*.md` |
+| 1 (lowest) | Built-in definitions | `BUILTIN_AGENT_DEFINITIONS` constant |
+| 2 | User-level definitions | `~/.vera/agents/*.md` |
+| 3 (highest) | Project-level definitions | `.vera/agents/*.md` |
 
-同名 agent（按 `agentType` 标准化后）后加载的覆盖先加载的，项目级定义可以覆盖用户级和内置定义。
+For agents with the same name (after `agentType` normalization), later-loaded definitions override earlier ones. Project-level definitions can override user-level and built-in definitions.
 
 ---
 
-## Agent 定义格式
+## Agent Definition Format
 
-### 文件结构
+### File Structure
 
-每个 Agent 以 `.md` 文件定义，文件名决定默认的 `agentType`：
+Each agent is defined as a `.md` file, with the filename determining the default `agentType`:
 
 ```
 .vera/agents/code-reviewer.md
 ```
 
-文件使用 YAML frontmatter 声明元信息，正文为系统提示词：
+The file uses YAML frontmatter for metadata declarations and the body as the system prompt:
 
 ```markdown
 ---
 name: code-reviewer
-description: 专注于代码审查和安全检查的子代理
+description: Sub-agent focused on code review and security inspection
 tools: [read_file, list_dir, grep, glob]
 disallowedTools: [write_file, edit_file]
 permissionMode: readonly
 maxTurns: 40
 ---
 
-你是一个资深代码审查员。你的职责：
+You are a senior code reviewer. Your responsibilities:
 
-1. 仔细阅读提供的代码
-2. 检查以下方面：
-   - 安全漏洞（SQL 注入、XSS、CSRF）
-   - 性能问题（不必要的循环、内存泄漏）
-   - 代码风格（命名、职责单一）
-   - 架构合理性（模块耦合度、接口设计）
-3. 给出结构化的审查报告，包含严重程度评级
+1. Carefully read the provided code
+2. Check the following aspects:
+   - Security vulnerabilities (SQL injection, XSS, CSRF)
+   - Performance issues (unnecessary loops, memory leaks)
+   - Code style (naming, single responsibility)
+   - Architectural soundness (module coupling, interface design)
+3. Produce a structured review report with severity ratings
 
-输出格式：以 Markdown 表格列出所有发现，每项标注等级（Critical/High/Medium/Low）。
+Output format: List all findings in a Markdown table, each annotated with level (Critical/High/Medium/Low).
 ```
 
-### Frontmatter 字段
+### Frontmatter Fields
 
-| 字段 | 类型 | 必需 | 说明 |
+| Field | Type | Required | Description |
 |---|---|---|---|
-| `name` / `agentType` / `agent_type` | string | 否 | Agent 类型标识。默认取文件名（不含扩展名） |
-| `description` / `whenToUse` | string | 否 | 简短描述，显示在工具 schema 中 |
-| `tools` | string 或 string[] | 否 | 可用工具列表。`"*"` 表示全部工具，默认 `"*"` |
-| `disallowedTools` / `disallowed_tools` | string[] | 否 | 禁止的工具列表 |
-| `permissionMode` / `permission_mode` | `"readonly"` 或 `"default"` | 否 | 权限模式，默认 `"default"` |
-| `maxTurns` / `max_turns` | number | 否 | 最大执行轮次， 必须 > 0 |
-| 正文 | Markdown | 是 | 完整的系统提示词 |
+| `name` / `agentType` / `agent_type` | string | No | Agent type identifier. Defaults to filename (without extension) |
+| `description` / `whenToUse` | string | No | Short description, displayed in the tool schema |
+| `tools` | string or string[] | No | Available tool list. `"*"` means all tools, default `"*"` |
+| `disallowedTools` / `disallowed_tools` | string[] | No | Disallowed tool list |
+| `permissionMode` / `permission_mode` | `"readonly"` or `"default"` | No | Permission mode, default `"default"` |
+| `maxTurns` / `max_turns` | number | No | Maximum execution turns, must be > 0 |
+| body | Markdown | Yes | Full system prompt |
 
-### 字段解析细节
+### Field Parsing Details
 
-**agentType 标准化：**
-- 统一转小写
-- `_` 替换为 `-`
-- `"general"` 等同于 `"general-purpose"`
+**agentType normalization:**
+- Lowercased
+- `_` replaced with `-`
+- `"general"` is equivalent to `"general-purpose"`
 
-**tools 字段：**
-- 可以是字符串 `"*"`（全部工具）
-- 可以是数组 `["read_file", "list_dir", "grep"]`
-- 也可以是 YAML 内联格式 `[read_file, list_dir, grep]`
+**tools field:**
+- Can be a string `"*"` (all tools)
+- Can be an array `["read_file", "list_dir", "grep"]`
+- Also supports YAML inline format `[read_file, list_dir, grep]`
 
-**permissionMode：**
-- `"readonly"`：自动与只读工具（`read_file`, `list_dir`, `glob`, `grep`）取交集，即即使声明 `tools: "*"`，也只开放只读工具
-- `"default"`：不做额外限制，完全按 `tools`/`disallowedTools` 配置
+**permissionMode:**
+- `"readonly"`: Automatically intersects with read-only tools (`read_file`, `list_dir`, `glob`, `grep`), meaning even if `tools: "*"` is declared, only read-only tools are exposed
+- `"default"`: No additional restrictions, fully follows the `tools`/`disallowedTools` configuration
 
-**maxTurns：**
-- 未指定时无限轮次（直到 `end_turn`）
-- 指定时限制子 agent 的 `streamAgent` 循环次数
-- `runSubagentTool` 参数 `maxTurns` 可覆盖此值（取较小值）
+**maxTurns:**
+- When unset, unlimited turns (until `end_turn`)
+- When set, limits the sub-agent's `streamAgent` loop count
+- The `runSubagentTool` parameter `maxTurns` can override this value (taking the smaller value)
 
 ---
 
-## 内置 Agent
+## Built-in Agents
 
-Vera 默认提供三个内置 Agent 定义：
+Vera provides three built-in agent definitions by default:
 
 ### general-purpose
 
@@ -116,7 +116,7 @@ Vera 默认提供三个内置 Agent 定义：
 }
 ```
 
-通用子代理，拥有全部工具权限，适用于大部分多步任务。
+A general-purpose sub-agent with full tool permissions, suitable for most multi-step tasks.
 
 ### explore
 
@@ -131,7 +131,7 @@ Vera 默认提供三个内置 Agent 定义：
 }
 ```
 
-只读探索子代理，专用于代码分析和信息收集，不修改文件。
+A read-only exploration sub-agent, dedicated to code analysis and information gathering, does not modify files.
 
 ### plan
 
@@ -146,13 +146,13 @@ Vera 默认提供三个内置 Agent 定义：
 }
 ```
 
-只读规划子代理，专用于设计方案和实施计划，轮次限制更紧。
+A read-only planning sub-agent, dedicated to designing solutions and implementation plans, with tighter turn limits.
 
 ---
 
-## 工具 Schema
+## Tool Schema
 
-主 agent 通过 `agent` 工具调用子 agent。工具 schema 的关键参数：
+The main agent invokes sub-agents via the `agent` tool. Key parameters of the tool schema:
 
 ```typescript
 const subagentToolSchema: Tool = {
@@ -175,73 +175,73 @@ const subagentToolSchema: Tool = {
 };
 ```
 
-**参数说明：**
+**Parameter descriptions:**
 
-| 参数 | 类型 | 说明 |
+| Parameter | Type | Description |
 |---|---|---|
-| `prompt` | string（必填） | 子 agent 要执行的任务描述 |
-| `description` | string | 简短描述（3-5 词） |
-| `subagent_type` | string | Agent 类型，匹配定义中的 `agentType` |
-| `context` | string | 额外上下文或约束信息 |
-| `allowedTools` | string[] | 额外工具限制（与定义的 tools 取交集） |
-| `maxTurns` | number | 最大执行轮次覆盖 |
-| `isolation` | enum | 执行隔离模式 |
-| `run_mode` | enum | 同步(`sync`)或后台(`background`) |
-| `resume_session_id` | string | 恢复之前的子 agent session |
+| `prompt` | string (required) | Task description for the sub-agent to execute |
+| `description` | string | Short description (3-5 words) |
+| `subagent_type` | string | Agent type, matching the `agentType` in the definition |
+| `context` | string | Additional context or constraint information |
+| `allowedTools` | string[] | Additional tool restrictions (intersected with the definition's tools) |
+| `maxTurns` | number | Override for maximum execution turns |
+| `isolation` | enum | Execution isolation mode |
+| `run_mode` | enum | Synchronous (`sync`) or background (`background`) |
+| `resume_session_id` | string | Resume a previous sub-agent session |
 
-**枚举值动态生成：** `subagent_type` 的 `enum` 根据当前加载的所有定义动态构建，包括用户和项目自定义的 agent。
+**Dynamic enum generation:** The `enum` for `subagent_type` is dynamically built from all currently loaded definitions, including user and project custom agents.
 
 ---
 
-## 执行隔离
+## Execution Isolation
 
-### isolation 模式
+### isolation Modes
 
-| 模式 | 说明 | 适用场景 |
+| Mode | Description | Use Case |
 |---|---|---|
-| `"none"` | 无隔离，使用当前工作目录 | 只读探索、信息收集 |
-| `"try"` | 创建独立 git worktree 执行 | 代码修改、实验性开发 |
-| `"remote"` | 通过外部远程执行器执行 | 远程服务器、CI 环境 |
+| `"none"` | No isolation, uses current working directory | Read-only exploration, information gathering |
+| `"try"` | Creates an isolated git worktree for execution | Code modification, experimental development |
+| `"remote"` | Executes via an external remote executor | Remote servers, CI environments |
 
-### try 模式
+### try Mode
 
-`isolation: "try"` 创建独立的 git worktree，worktree 分支名格式：`subagent-<agentType>-<description_slug>-<8-char-uuid>`
+`isolation: "try"` creates an independent git worktree, with worktree branch name format: `subagent-<agentType>-<description_slug>-<8-char-uuid>`
 
 ```typescript
-// 主 agent 调用
+// Main agent call
 {
   subagent_type: "coder",
-  prompt: "实现 UserService 的单元测试",
+  prompt: "Implement unit tests for UserService",
   isolation: "try",
 }
 ```
 
-worktree 路径和分支信息记录在子 session 的 `branch` entry 中。
+The worktree path and branch info are recorded in the sub-session's `branch` entry.
 
-### remote 模式
+### remote Mode
 
-`isolation: "remote"` 通过 `VERA_SUBAGENT_REMOTE_RUNNER` 环境变量指定的外部可执行文件执行。可执行文件通过 stdin 接收 JSON payload，通过 stdout 返回 JSON 结果。
+`isolation: "remote"` executes via an external executable specified by the `VERA_SUBAGENT_REMOTE_RUNNER` environment variable. The executable receives a JSON payload via stdin and returns a JSON result via stdout.
 
 ```bash
 export VERA_SUBAGENT_REMOTE_RUNNER="/usr/local/bin/vera-remote-runner"
 export VERA_SUBAGENT_REMOTE_RUNNER_ARGS='["--workers=4"]'
 ```
 
-若环境变量未设置，remote 模式回退到本地执行。
+If the environment variable is not set, remote mode falls back to local execution.
 
 ---
 
-## 加载方式
+## Loading
 
-### 编程接口
+### Programmatic Interface
 
 ```typescript
 import { loadAgentDefinitions, buildSubagentToolSchema } from "@open-vera/core";
 
-// 加载所有定义（内置 + 用户 + 项目）
+// Load all definitions (built-in + user + project)
 const definitions = loadAgentDefinitions({
   cwd: "/path/to/project",
-  includeUser: true,  // 是否包含 ~/.vera/agents/ 下的定义
+  includeUser: true,  // Whether to include definitions under ~/.vera/agents/
 });
 
 console.log(definitions.length);
@@ -252,24 +252,24 @@ console.log(definitions.length);
 //   { agentType: "code-reviewer", ..., source: "project" },
 // ]
 
-// 构建带自定义 enum 的工具 schema
+// Build tool schema with custom enum
 const toolSchema = buildSubagentToolSchema(definitions);
 ```
 
-### 文件扫描
+### File Scanning
 
-`loadAgentDefinitions` 扫描以下目录的 `.md` 文件：
+`loadAgentDefinitions` scans `.md` files in the following directories:
 
-1. `~/.vera/agents/*.md`（用户级，`source: "user"`）
-2. `<cwd>/.vera/agents/*.md`（项目级，`source: "project"`）
+1. `~/.vera/agents/*.md` (user-level, `source: "user"`)
+2. `<cwd>/.vera/agents/*.md` (project-level, `source: "project"`)
 
-每个 `.md` 文件按 frontmatter 解析，取正文作为 `systemPrompt`，文件名作为默认 `agentType`。同名 agent 后发现的覆盖先发现的。
+Each `.md` file is parsed by frontmatter, with the body taken as `systemPrompt` and the filename as the default `agentType`. For agents with the same name, later-discovered ones override earlier ones.
 
 ---
 
-## 子 Agent 系统提示词后缀
+## Sub-agent System Prompt Suffix
 
-所有子 Agent 的系统提示词末尾自动追加 `SUBAGENT_SYSTEM_SUFFIX`：
+All sub-agents automatically get `SUBAGENT_SYSTEM_SUFFIX` appended to the end of their system prompt:
 
 ```
 You are a Vera subagent running inside a parent agent turn.
@@ -282,55 +282,55 @@ Do not ask the user questions unless the task is impossible without more input.
 
 ---
 
-## 完整示例
+## Complete Examples
 
-### 安全审查 Agent
+### Security Audit Agent
 
-`.vera/agents/security-auditor.md`：
+`.vera/agents/security-auditor.md`:
 
 ```markdown
 ---
 name: security-auditor
-description: 安全审计专用，扫描代码漏洞和依赖风险
+description: Dedicated security auditor, scans code vulnerabilities and dependency risks
 tools: [read_file, list_dir, grep, glob, web_search]
 disallowedTools: [write_file, edit_file, bash]
 permissionMode: readonly
 maxTurns: 60
 ---
 
-你是一个 Web 安全审计专家。审查代码时关注：
+You are a web security audit expert. When reviewing code, focus on:
 
-1. **注入漏洞**：SQL 注入、命令注入、XSS
-2. **认证与授权**：不安全的会话管理、权限绕过
-3. **敏感信息**：硬编码的密钥、密码、token
-4. **依赖风险**：已知漏洞的第三方库
-5. **CSRF 防御**：是否正确使用 token
+1. **Injection vulnerabilities**: SQL injection, command injection, XSS
+2. **Authentication and authorization**: Insecure session management, privilege bypass
+3. **Sensitive information**: Hardcoded keys, passwords, tokens
+4. **Dependency risks**: Third-party libraries with known vulnerabilities
+5. **CSRF defense**: Whether tokens are used correctly
 
-对每个发现给出：
-- 严重等级（Critical/High/Medium/Low）
-- 文件路径和行号
-- 攻击场景描述
-- 修复建议（附代码示例）
+For each finding, provide:
+- Severity level (Critical/High/Medium/Low)
+- File path and line number
+- Attack scenario description
+- Fix recommendation (with code example)
 ```
 
-### 测试生成 Agent
+### Test Generation Agent
 
-`.vera/agents/test-writer.md`：
+`.vera/agents/test-writer.md`:
 
 ```markdown
 ---
 name: test-writer
-description: 自动生成单元测试和集成测试
+description: Auto-generate unit tests and integration tests
 tools: [read_file, write_file, list_dir, grep, glob]
 permissionMode: default
 maxTurns: 100
 ---
 
-你是一个测试工程师。对于给定的源代码文件：
+You are a test engineer. For the given source code file:
 
-1. 分析代码结构和主要逻辑分支
-2. 为每个公开函数生成单元测试（使用 Vitest）
-3. 覆盖正常路径、边界条件和错误路径
-4. 使用 mock 隔离外部依赖
-5. 测试文件放在源文件的 tests/ 同级目录下
+1. Analyze the code structure and main logic branches
+2. Generate unit tests for each public function (using Vitest)
+3. Cover happy paths, boundary conditions, and error paths
+4. Use mocks to isolate external dependencies
+5. Place test files in the tests/ sibling directory of the source file
 ```

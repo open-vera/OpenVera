@@ -1,129 +1,129 @@
-# 多智能体协作系统（Local Harness 编排方案）
+# Multi-Agent Collaboration System (Local Harness Orchestration Plan)
 
-> 定位：本地多智能体运行时（Agent Runtime）的技术方案文档，负责 Agent 进程管理、消息传输、状态同步。
-> 与上层 harness 编排方案为上下层关系，本文档聚焦运行时底座。
+> Positioning: Technical design document for the local multi-agent runtime (Agent Runtime), responsible for Agent process management, message transport, and state synchronization.
+> This document and the upper-layer harness orchestration plan form a layered relationship; this document focuses on the runtime base.
 
 ---
 
-## 一、目标
+## 1. Goals
 
-构建一个本地可控的多智能体协作系统，在 harness 约束下，实现：
+Build a locally controllable multi-agent collaboration system, under harness constraints, achieving:
 
-- 多角色协作（正方 / 反方 / 决策）
-- 共享上下文 + 局部隔离
-- 强制结构化输出
-- 可配置流程编排
-- 可控终止机制
-- 防止共识偏移（Groupthink）
-- 可观测、可复现、可扩展
+- Multi-role collaboration (Proposer / Critic / Judge)
+- Shared context + partial isolation
+- Enforced structured output
+- Configurable flow orchestration
+- Controllable termination mechanisms
+- Prevention of consensus drift (Groupthink)
+- Observable, reproducible, extensible
 
-### 技术选型决策
+### Technology Selection Decisions
 
-| 决策 | 选择 | 理由 |
+| Decision | Choice | Rationale |
 |------|------|------|
-| Agent 间通信 | 自定义协议（非 Google A2A） | 本地子进程不需要 HTTP；需精细控制进程生命周期；需成本感知能力 |
-| 传输方式 | subprocess stdin/stdout | 最简方案；CLI 工具天然支持；无网络开销 |
-| 消息帧格式 | NDJSON（Newline-Delimited JSON） | 人类可读；调试方便；流式兼容 |
-| 编排模型 | FSM（有限状态机）+ 配置驱动 | 可预测、可调试、可可视化 |
-| 目标 Agent | Claude Code / Codex / Gemini CLI / OpenCode | 覆盖主流本地 AI 编码工具 |
+| Inter-Agent Communication | Custom protocol (not Google A2A) | Local subprocesses do not need HTTP; need fine-grained process lifecycle control; need cost-awareness |
+| Transport Method | subprocess stdin/stdout | Simplest approach; CLI tools natively support it; no network overhead |
+| Message Framing Format | NDJSON (Newline-Delimited JSON) | Human-readable; easy to debug; streaming-compatible |
+| Orchestration Model | FSM (Finite State Machine) + config-driven | Predictable, debuggable, visualizable |
+| Target Agents | Claude Code / Codex / Gemini CLI / OpenCode | Covers mainstream local AI coding tools |
 
 ---
 
-## 二、系统总体架构
+## 2. System Architecture
 
-### 分层架构
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  Layer 4: Flow Layer                                    │
-│  FSM 编排 · 流程配置 · 终止判定 · 角色调度              │
-├─────────────────────────────────────────────────────────┤
-│  Layer 3: Protocol Layer                                │
-│  消息格式 · 消息类型 · JSON Schema 校验                  │
-├─────────────────────────────────────────────────────────┤
-│  Layer 2: Transport Layer                               │
-│  NDJSON over stdin/stdout · 心跳 · 帧分割               │
-├─────────────────────────────────────────────────────────┤
-│  Layer 1: Adapter Layer                                 │
-│  Claude Code · Codex · Gemini CLI · OpenCode 进程管理    │
-└─────────────────────────────────────────────────────────┘
-```
-
-### 组件关系
+### Layered Architecture
 
 ```
-            ┌──────────────────┐
-            │   Orchestrator   │
-            │  (FSM 调度器)     │
-            └────────┬─────────┘
-                     │ dispatch / collect
-    ┌────────────────┼────────────────┐
-    │                │                │
-    ▼                ▼                ▼
-┌────────┐    ┌──────────┐    ┌────────┐
-│Proposer│    │  Critic  │    │ Judge  │
-│(提方案) │    │ (质疑)    │    │(决策)  │
-└───┬────┘    └────┬─────┘    └───┬────┘
-    │              │              │
-    └──────────────┼──────────────┘
-                   ▼
-           ┌──────────────┐
-           │  Blackboard  │
-           │ (共享状态)     │
-           └──────┬───────┘
-                  ▼
-           ┌──────────────┐
-           │Memory System │
-           └──────────────┘
++-----------------------------------------------------------+
+|  Layer 4: Flow Layer                                       |
+|  FSM orchestration . Flow config . Termination . Role scheduling |
++-----------------------------------------------------------+
+|  Layer 3: Protocol Layer                                    |
+|  Message format . Message types . JSON Schema validation    |
++-----------------------------------------------------------+
+|  Layer 2: Transport Layer                                   |
+|  NDJSON over stdin/stdout . Heartbeat . Frame splitting     |
++-----------------------------------------------------------+
+|  Layer 1: Adapter Layer                                     |
+|  Claude Code . Codex . Gemini CLI . OpenCode process mgmt    |
++-----------------------------------------------------------+
 ```
 
-### 与上层 harness 的接口边界
+### Component Relationships
 
-本文档（运行时层）负责：进程管理、消息传输、Blackboard 读写、L1-L3 错误处理、资源限制。
+```
+            +------------------+
+            |   Orchestrator   |
+            |  (FSM Scheduler) |
+            +--------+---------+
+                     | dispatch / collect
+    +----------------+----------------+
+    |                |                |
+    v                v                v
++--------+    +----------+    +--------+
+|Proposer|    |  Critic  |    | Judge  |
+|(propose)|   | (review) |    |(decide)|
++---+----+    +----+-----+    +---+----+
+    |              |              |
+    +--------------+--------------+
+                   v
+           +--------------+
+           |  Blackboard  |
+           | (shared state)|
+           +------+-------+
+                  v
+           +--------------+
+           |Memory System |
+           +--------------+
+```
 
-上层 harness 负责：任务分解、`failure_policy`、`context.handoff`、`gate`（质量门禁）、L4 逻辑错误处理。
+### Interface Boundaries with Upper-Layer Harness
 
-两层通过 Orchestrator 的 API 对接：harness 下发 FlowConfig + TaskContext，运行时执行并返回 SessionResult。
+This document (runtime layer) is responsible for: process management, message transport, Blackboard read/write, L1-L3 error handling, resource limits.
+
+The upper-layer harness is responsible for: task decomposition, `failure_policy`, `context.handoff`, `gate` (quality gate), L4 logic error handling.
+
+The two layers interface through the Orchestrator's API: the harness delivers FlowConfig + TaskContext, the runtime executes and returns SessionResult.
 
 ---
 
-## 三、Agent 接入层（Adapter Layer）
+## 3. Agent Adapter Layer
 
-### 3.1 Adapter 抽象接口
+### 3.1 Adapter Abstract Interface
 
 ```typescript
 interface IAgentAdapter {
-  /** 启动 agent 子进程 */
+  /** Launch agent subprocess */
   spawn(config: AgentAdapterConfig): Promise<AgentProcess>;
 
-  /** 运行模式：single-shot (短连接) | long-running (长连接/MCP) */
+  /** Run mode: single-shot (short-lived) | long-running (persistent/MCP) */
   mode: "single-shot" | "long-running";
 
-  /** 向 agent stdin 写入消息 */
+  /** Write message to agent stdin */
   send(process: AgentProcess, message: AgentMessage): Promise<void>;
 
-  /** 从 agent stdout 读取消息流 */
+  /** Read message stream from agent stdout */
   receive(process: AgentProcess): AsyncIterable<AgentMessage>;
 
-  /** 终止 agent 进程 */
+  /** Terminate agent process */
   terminate(process: AgentProcess, graceful?: boolean): Promise<void>;
 }
 ```
 
-### 3.2 性能优化：持久化会话 (Persistent Session)
+### 3.2 Performance Optimization: Persistent Session
 
-为了解决 `single-shot` 模式下进程启动慢和上下文重复发送的问题，系统优先支持 **MCP (Model Context Protocol)**：
+To solve slow process startup and repeated context transmission in `single-shot` mode, the system prioritizes **MCP (Model Context Protocol)**:
 
-1. **进程复用**：在同一 Session 内，Orchestrator 维持 Agent 进程不退出，通过 stdio 进行多轮对话。
-2. **上下文增量更新**：仅向 Agent 发送自上一轮以来的 Blackboard 增量变化（Delta），降低 Token 消耗。
-3. **预热机制**：FSM 进入 `INIT` 时，并行预热 `proposer` 和 `critic` 对应的进程。
+1. **Process Reuse**: Within the same Session, the Orchestrator keeps the Agent process alive, conducting multiple rounds of dialogue via stdio.
+2. **Incremental Context Updates**: Only send Blackboard delta changes since the previous round to the Agent, reducing Token consumption.
+3. **Warm-up Mechanism**: When the FSM enters `INIT`, pre-warm `proposer` and `critic` processes in parallel.
 
-#### 3.2.1 长连接多轮消息帧
+#### 3.2.1 Long-Running Multi-Round Message Framing
 
-长连接模式下，同一进程会接收多轮任务。通过 `round_context` 消息区分"新轮次"与"补充信息"：
+In long-running mode, the same process receives multiple rounds of tasks. Use the `round_context` message to distinguish "new round" from "supplementary information":
 
 ```json
-// 新轮次开始（区别于 session_init，不需要重新握手）
+// New round start (distinct from session_init, no re-handshake needed)
 {
   "type": "round_start",
   "session_id": "sess_abc123",
@@ -134,15 +134,15 @@ interface IAgentAdapter {
 }
 ```
 
-| 字段 | 说明 |
+| Field | Description |
 |------|------|
-| `round` | 轮次号，递增，Agent 据此感知"这是新任务" |
-| `delta` | Blackboard 增量（见 3.2.2），仅含上一轮以来的变化 |
-| `full_context` | `true` 时携带完整 Blackboard 快照（用于进程恢复后的状态同步） |
+| `round` | Round number, incrementing; Agent uses this to recognize "this is a new task" |
+| `delta` | Blackboard delta (see 3.2.2), contains only changes since the previous round |
+| `full_context` | When `true`, carries a full Blackboard snapshot (used for state sync after process recovery) |
 
-#### 3.2.2 Blackboard Delta 消息格式
+#### 3.2.2 Blackboard Delta Message Format
 
-增量更新的 Delta 描述自上一版本以来 Blackboard 的变化：
+The delta for incremental updates describes Blackboard changes since the previous version:
 
 ```json
 {
@@ -171,92 +171,92 @@ interface IAgentAdapter {
 }
 ```
 
-| op | 适用场景 | 说明 |
+| op | Applicable Scenario | Description |
 |----|----------|------|
-| `append` | 向数组字段追加 | proposals / critiques / revisions |
-| `set` | 替换字段值 | final_decision |
-| `update` | 更新嵌套路径 | meta 内的子字段 |
+| `append` | Append to array field | proposals / critiques / revisions |
+| `set` | Replace field value | final_decision |
+| `update` | Update nested path | Sub-fields within meta |
 
-**Fallback 规则**：如果 Agent 因长时间 idle 被重新激活，或 Delta 链断裂（`from_version` 不匹配），Orchestrator 发送 `full_context: true` 的完整快照而非 Delta。
+**Fallback Rules**: If an Agent is reactivated after a long idle period, or if the Delta chain is broken (`from_version` mismatch), the Orchestrator sends a full snapshot with `full_context: true` instead of a Delta.
 
 ---
 
-## 四、传输协议（Transport Protocol）
+## 4. Transport Protocol
 
-### 4.1 传输层设计与鲁棒性
+### 4.1 Transport Layer Design and Robustness
 
-| 属性 | 说明 |
+| Property | Description |
 |------|------|
-| 传输方式 | subprocess stdin/stdout |
-| 噪音过滤 | **启发式 JSON 提取器**（见 4.1.1） |
-| 强制 Headless | 在 System Prompt 中注入指令，要求 Agent 仅输出单行 NDJSON。 |
-| 编码 | 统一 UTF-8 |
+| Transport method | subprocess stdin/stdout |
+| Noise filtering | **Heuristic JSON Extractor** (see 4.1.1) |
+| Enforced Headless | Inject instructions into System Prompt requiring Agent to output only single-line NDJSON. |
+| Encoding | UTF-8 uniformly |
 
-#### 4.1.1 启发式 JSON 提取器（Heuristic JSON Extractor）
+#### 4.1.1 Heuristic JSON Extractor
 
-Agent CLI 工具的 stdout 通常夹杂非结构化噪音（ANSI 颜色码、版本更新提示、进度条、调试日志等）。提取器负责从中可靠地恢复出结构化 JSON。
+Agent CLI tool stdout is typically mixed with unstructured noise (ANSI color codes, version update notices, progress bars, debug logs, etc.). The extractor is responsible for reliably recovering structured JSON from this.
 
-**处理管线（Pipeline）**：
+**Processing Pipeline**:
 
 ```
 Raw stdout
-  → Step 1: ANSI 转义序列剥离（正则 /\x1B\[[0-9;]*[a-zA-Z]/g）
-  → Step 2: 按行分割（\n）
-  → Step 3: 逐行尝试 JSON.parse()
-  → Step 4: 若整行解析成功 → 输出
-  → Step 5: 若整行解析失败 → 括号匹配提取
-  → Step 6: 若仍失败 → 记录到 trace log，跳过
+  -> Step 1: Strip ANSI escape sequences (regex /x1B\[[0-9;]*[a-zA-Z]/g)
+  -> Step 2: Split by newline (\n)
+  -> Step 3: Try JSON.parse() on each line
+  -> Step 4: If full-line parse succeeds -> output
+  -> Step 5: If full-line parse fails -> bracket-matching extraction
+  -> Step 6: If still fails -> log to trace, skip
 ```
 
-**括号匹配提取（Step 5）规则**：
+**Bracket-Matching Extraction (Step 5) Rules**:
 
-| 场景 | 处理方式 |
+| Scenario | Handling |
 |------|----------|
-| 行内包含完整 JSON 对象 | 从第一个 `{` 开始，使用括号计数器（`depth++` on `{`，`depth--` on `}`），`depth == 0` 时截断，提取子串并 `JSON.parse()` |
-| 行内有多个独立 JSON 对象 | 提取第一个完整对象，剩余部分递归处理 |
-| JSON 字符串内的 `{}` | 括号匹配时跟踪引号状态（`"` toggle），字符串内的 `{}` 不计入深度 |
-| 转义引号 `\"` | 识别转义序列，不误触 toggle |
-| 跨行 JSON（如 Agent 输出了多行格式化 JSON） | 累积缓冲区，逐行追加直到括号平衡或超过 1MB 上限 |
+| Line contains a complete JSON object | Start from first `{`, use bracket counter (`depth++` on `{`, `depth--` on `}`), cut when `depth == 0`, extract substring and `JSON.parse()` |
+| Line has multiple independent JSON objects | Extract first complete object, recursively process remainder |
+| `{}` inside JSON strings | Track quote state during bracket matching (`"` toggle), `{}` inside strings not counted in depth |
+| Escaped quotes `\"` | Recognize escape sequences, do not trigger toggle |
+| Cross-line JSON (e.g. Agent output multi-line formatted JSON) | Accumulate buffer, append lines until brackets balanced or 1MB limit exceeded |
 
-**ANSI 剥离顺序**：必须在 JSON 解析之前执行。ANSI 码可能出现在 JSON 值的中间（如 `{"solution": "\x1B[32mfix\x1B[0m"}`），先剥离可避免解析错误。
+**ANSI Stripping Order**: Must be performed before JSON parsing. ANSI codes can appear in the middle of JSON values (e.g. `{"solution": "\x1B[32mfix\x1B[0m"}`), stripping first avoids parse errors.
 
-**失败 Fallback**：
+**Failure Fallback**:
 
-| 失败情况 | 处理 |
+| Failure Case | Handling |
 |----------|------|
-| 单行无法提取有效 JSON | 记入 trace log（`status: "noise"`），继续等待下一行 |
-| 连续 N 行（默认 50）无有效 JSON | 触发 L2 error，向 Agent 追加修正指令要求输出纯 JSON |
-| 超过 timeout 仍无有效输出 | 触发 L1 timeout 处理 |
+| Single line cannot extract valid JSON | Log to trace log (`status: "noise"`), continue waiting for next line |
+| N consecutive lines (default 50) with no valid JSON | Trigger L2 error, append correction instruction to Agent requiring pure JSON output |
+| Exceed timeout with still no valid output | Trigger L1 timeout handling |
 
-### 4.2 消息帧格式（Framing）
+### 4.2 Message Framing Format
 
-采用 **NDJSON**（Newline-Delimited JSON）：每条消息为单行合法 JSON，以 `\n` 结尾。
+**NDJSON** (Newline-Delimited JSON): Each message is a single valid JSON line, terminated by `\n`.
 
 ```
 {"id":"msg_001","type":"proposal","role":"proposer","content":{"solution":"..."},"confidence":0.8}\n
 {"id":"msg_002","type":"critique","role":"critic","content":{"issues":["..."]},"confidence":0.7}\n
 ```
 
-#### 边界条件
+#### Boundary Conditions
 
-| 约束 | 值 | 说明 |
+| Constraint | Value | Description |
 |------|----|------|
-| 单条消息上限 | 1MB | 超出则拒绝该消息，返回 L2 error 并要求 Agent 精简输出 |
-| 换行处理 | JSON 序列化保证无裸换行 | `\n` 在字符串内编码为 `\\n` |
-| 空行 | 忽略 | 允许心跳探测发空行 |
-| 非 JSON 行 | 记录到 trace log，跳过 | 容忍 agent 的非结构化输出 |
+| Max single message size | 1MB | Reject message if exceeded, return L2 error and require Agent to simplify output |
+| Newline handling | JSON serialization guarantees no bare newlines | `\n` inside strings encoded as `\\n` |
+| Empty lines | Ignore | Allows heartbeat probe empty lines |
+| Non-JSON lines | Log to trace, skip | Tolerates agent's unstructured output |
 
-#### 备选方案：Length-Prefix
+#### Alternative: Length-Prefix
 
 ```
 [4 bytes: payload length, big-endian uint32][payload bytes]
 ```
 
-取舍：更可靠（可处理二进制），但调试不友好、CLI 工具不天然支持。**MVP 阶段不采用**。
+Trade-off: More reliable (can handle binary), but harder to debug and not natively supported by CLI tools. **Not adopted for MVP phase**.
 
-### 4.3 握手协议（Handshake）
+### 4.3 Handshake Protocol
 
-对于长连接模式（MCP Server stdio），Agent 启动后第一条消息必须为 `capability_declaration`：
+For long-running mode (MCP Server stdio), the first message after Agent startup must be a `capability_declaration`:
 
 ```json
 {
@@ -270,7 +270,7 @@ Raw stdout
 }
 ```
 
-Orchestrator 验证后回复 `session_init`：
+After validation, Orchestrator replies with `session_init`:
 
 ```json
 {
@@ -286,37 +286,37 @@ Orchestrator 验证后回复 `session_init`：
 }
 ```
 
-- 握手超时：10 秒
-- 握手失败：走 L3 错误处理（参见第十二章）
+- Handshake timeout: 10 seconds
+- Handshake failure: follows L3 error handling (see Chapter 12)
 
-对于 single-shot 模式，无需握手。Orchestrator 将 session context + prompt 拼接后作为参数传入。
+For single-shot mode, handshake is not needed. Orchestrator concatenates session context + prompt and passes them as arguments.
 
-### 4.4 心跳与存活检测
+### 4.4 Heartbeat and Liveness Detection
 
-仅适用于长连接模式：
+Only applicable for long-running mode:
 
-| 参数 | 值 |
+| Parameter | Value |
 |------|----|
-| 心跳间隔 | 30 秒 |
-| 心跳超时 | 10 秒 |
-| 最大连续失败 | 3 次 |
-| 检测方式 | `ping` / `pong` + `process.exitCode` 双重检测 |
+| Heartbeat interval | 30 seconds |
+| Heartbeat timeout | 10 seconds |
+| Max consecutive failures | 3 |
+| Detection method | `ping` / `pong` + `process.exitCode` dual detection |
 
 ```json
-// Orchestrator → Agent
+// Orchestrator -> Agent
 {"type": "ping", "timestamp": "2026-04-03T10:00:00Z"}
 
-// Agent → Orchestrator
+// Agent -> Orchestrator
 {"type": "pong", "timestamp": "2026-04-03T10:00:01Z"}
 ```
 
-对于 single-shot 模式，通过进程退出码 + timeout 检测存活。
+For single-shot mode, liveness is detected via process exit code + timeout.
 
 ---
 
-## 五、Agent 注册与能力声明（Agent Registry）
+## 5. Agent Registration and Capability Declaration (Agent Registry)
 
-### 5.1 Agent Card 数据结构
+### 5.1 Agent Card Data Structure
 
 ```json
 {
@@ -344,7 +344,7 @@ Orchestrator 验证后回复 `session_init`：
 }
 ```
 
-### 5.2 本地注册表（agents.yaml）
+### 5.2 Local Registry (agents.yaml)
 
 ```yaml
 agents:
@@ -357,7 +357,7 @@ agents:
       cost_profile:
         input_cost_per_1k_tokens: 0.003
         output_cost_per_1k_tokens: 0.015
-    adapter: claude-code  # 引用 adapters 配置
+    adapter: claude-code  # references adapters config
 
   codex:
     card:
@@ -393,23 +393,23 @@ agents:
     adapter: opencode
 ```
 
-### 5.3 Agent 选择策略
+### 5.3 Agent Selection Strategy
 
-角色到 Agent 的映射规则（按优先级）：
+Role-to-Agent mapping rules (by priority):
 
-1. **显式配置** — FlowConfig 中直接指定 `agent: claude-code`
-2. **能力匹配** — 根据 `supported_roles` + `capabilities` 自动匹配
-3. **成本优化** — 同等能力下选择 `cost_profile` 更低的 Agent
-4. **降级策略** — 首选不可用时切换备选
+1. **Explicit Configuration** -- Directly specify `agent: claude-code` in FlowConfig
+2. **Capability Matching** -- Auto-match based on `supported_roles` + `capabilities`
+3. **Cost Optimization** -- Choose Agent with lower `cost_profile` when capabilities are equal
+4. **Fallback Strategy** -- Switch to fallback when primary is unavailable
 
 ```yaml
-# 在 flow 配置中的映射示例
+# Mapping example in flow config
 role_mapping:
   proposer:
     primary: claude-code
     fallback: [codex, gemini-cli]
   critic:
-    primary: gemini-cli       # 异构模型，防止同源偏见
+    primary: gemini-cli       # Heterogeneous model, prevents same-source bias
     fallback: [codex, opencode]
   judge:
     primary: claude-code
@@ -418,9 +418,9 @@ role_mapping:
 
 ---
 
-## 六、核心协议（Agent Protocol）
+## 6. Core Protocol (Agent Protocol)
 
-### 6.1 消息格式
+### 6.1 Message Format
 
 ```json
 {
@@ -447,99 +447,99 @@ role_mapping:
 }
 ```
 
-### 6.2 字段说明
+### 6.2 Field Descriptions
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 |------|------|------|------|
-| `protocol_version` | string | 是 | 协议版本，当前 `"1.0"` |
-| `id` | string | 是 | 消息唯一标识，格式 `msg_xxx` |
-| `session_id` | string | 是 | 会话标识，格式 `sess_xxx` |
-| `round` | number | 是 | 当前轮次，从 1 开始 |
-| `timestamp` | string | 是 | ISO 8601 时间戳 |
-| `role` | enum | 是 | `proposer` / `critic` / `judge` |
-| `type` | enum | 是 | 消息类型（见 6.3） |
-| `parent_id` | string? | 否 | 回复目标消息 ID，支持评论式线程结构 |
-| `content` | object | 是 | 消息体，schema 由 type 决定 |
-| `confidence` | number | 是 | 0.0-1.0，用于收敛判断 |
-| `terminate` | boolean | 是 | 建议结束当前流程 |
-| `metadata` | object | 否 | 可扩展元数据（token 用量、延迟等） |
+| `protocol_version` | string | Yes | Protocol version, currently `"1.0"` |
+| `id` | string | Yes | Unique message identifier, format `msg_xxx` |
+| `session_id` | string | Yes | Session identifier, format `sess_xxx` |
+| `round` | number | Yes | Current round, starting from 1 |
+| `timestamp` | string | Yes | ISO 8601 timestamp |
+| `role` | enum | Yes | `proposer` / `critic` / `judge` |
+| `type` | enum | Yes | Message type (see 6.3) |
+| `parent_id` | string? | No | Reply target message ID, supports comment-style threading |
+| `content` | object | Yes | Message body, schema determined by type |
+| `confidence` | number | Yes | 0.0-1.0, used for convergence judgment |
+| `terminate` | boolean | Yes | Suggest ending current flow |
+| `metadata` | object | No | Extensible metadata (token usage, latency, etc.) |
 
-### 6.3 消息类型完整枚举
+### 6.3 Complete Message Type Enumeration
 
-#### 系统消息（Orchestrator 发出）
+#### System Messages (Sent by Orchestrator)
 
-| type | 方向 | 说明 |
+| type | Direction | Description |
 |------|------|------|
-| `session_init` | Orch → Agent | 会话初始化，携带任务和上下文 |
-| `ping` | Orch → Agent | 心跳探测 |
-| `terminate_request` | Orch → Agent | 请求终止 |
-| `error` | 双向 | 错误通知 |
-| `approval_request` | Orch → CLI | 请求人工审批（参见 9.2.6） |
-| `approval_response` | CLI → Orch | 审批结果（accept/reject/edit/skip） |
-| `round_start` | Orch → Agent | 长连接模式下新轮次开始（参见 3.2.1） |
-| `blackboard_delta` | Orch → Agent | Blackboard 增量更新（参见 3.2.2） |
+| `session_init` | Orch -> Agent | Session initialization, carries task and context |
+| `ping` | Orch -> Agent | Heartbeat probe |
+| `terminate_request` | Orch -> Agent | Request termination |
+| `error` | Bidirectional | Error notification |
+| `approval_request` | Orch -> CLI | Request human approval (see 9.2.6) |
+| `approval_response` | CLI -> Orch | Approval result (accept/reject/edit/skip) |
+| `round_start` | Orch -> Agent | New round start in long-running mode (see 3.2.1) |
+| `blackboard_delta` | Orch -> Agent | Blackboard incremental update (see 3.2.2) |
 
-#### 握手消息（长连接模式）
+#### Handshake Messages (Long-Running Mode)
 
-| type | 方向 | 说明 |
+| type | Direction | Description |
 |------|------|------|
-| `capability_declaration` | Agent → Orch | Agent 能力声明 |
-| `capability_ack` | Orch → Agent | 能力确认 |
+| `capability_declaration` | Agent -> Orch | Agent capability declaration |
+| `capability_ack` | Orch -> Agent | Capability acknowledgment |
 
-#### 业务消息（Agent 发出）
+#### Business Messages (Sent by Agent)
 
-| type | content schema | 说明 |
+| type | content schema | Description |
 |------|----------------|------|
-| `proposal` | `{ solution: string, reasoning: string, alternatives?: string[] }` | 提出方案 |
-| `critique` | `{ issues: Issue[], severity: "low"\|"medium"\|"high"\|"critical", summary: string }` | 质疑/评审 |
-| `revision` | `{ changes: string, addressed_issues: string[], reasoning: string }` | 修订方案 |
-| `decision` | `{ chosen: string, rationale: string, score: number, dissent?: string }` | 最终决策 |
+| `proposal` | `{ solution: string, reasoning: string, alternatives?: string[] }` | Submit proposal |
+| `critique` | `{ issues: Issue[], severity: "low"\|"medium"\|"high"\|"critical", summary: string }` | Critique / review |
+| `revision` | `{ changes: string, addressed_issues: string[], reasoning: string }` | Revise proposal |
+| `decision` | `{ chosen: string, rationale: string, score: number, dissent?: string }` | Final decision |
 
-#### 响应消息
+#### Response Messages
 
-| type | 方向 | 说明 |
+| type | Direction | Description |
 |------|------|------|
-| `pong` | Agent → Orch | 心跳响应 |
-| `terminate_ack` | Agent → Orch | 终止确认 |
+| `pong` | Agent -> Orch | Heartbeat response |
+| `terminate_ack` | Agent -> Orch | Termination acknowledgment |
 
-### 6.4 消息校验
+### 6.4 Message Validation
 
-Orchestrator 收到每条消息后立即校验：
+Orchestrator validates each received message immediately:
 
-1. **格式校验** — 合法 JSON、必填字段存在
-2. **类型校验** — `type` + `role` 组合合法（如 critic 不能发 `proposal`）
-3. **Schema 校验** — `content` 符合对应 type 的 schema
-4. **权限校验** — 该 agent 有权发此类消息
+1. **Format validation** -- Valid JSON, required fields present
+2. **Type validation** -- `type` + `role` combination is legal (e.g. critic cannot send `proposal`)
+3. **Schema validation** -- `content` matches the corresponding type's schema
+4. **Permission validation** -- The agent is authorized to send this type of message
 
-校验失败处理：记录到 trace log，走 L2 错误处理（参见第十二章）。
+Validation failure handling: log to trace, follow L2 error handling (see Chapter 12).
 
 ---
 
-## 七、角色设计（Role-based Agents）
+## 7. Role Design (Role-based Agents)
 
-### 7.1 核心角色
+### 7.1 Core Roles
 
-| 角色 | 职责 | 可发消息类型 |
+| Role | Responsibility | Allowed Message Types |
 |------|------|-------------|
-| `proposer` | 提出方案、回应质疑、修订方案 | `proposal` / `revision` |
-| `critic` | 找问题、评估风险、提出反对意见（必须存在） | `critique` |
-| `judge` | 综合评估、做最终决策 | `decision` |
+| `proposer` | Submit proposals, respond to critiques, revise proposals | `proposal` / `revision` |
+| `critic` | Find issues, assess risks, raise objections (must exist) | `critique` |
+| `judge` | Comprehensive evaluation, make final decision | `decision` |
 
-### 7.2 角色与 Agent 的 N:M 映射
+### 7.2 N:M Role-to-Agent Mapping
 
-- 一个 Agent 可扮演多个角色（如 Claude Code 同时可做 proposer 和 judge）
-- 一个角色可由多个 Agent 竞争执行（如两个 critic 并行评审）
-- 同一 session 中，同一 Agent 不应同时担任 proposer 和 critic（防止自我评审）
+- One Agent can play multiple roles (e.g. Claude Code can be both proposer and judge)
+- One role can be executed competitively by multiple Agents (e.g. two critics reviewing in parallel)
+- In the same session, the same Agent should not simultaneously serve as proposer and critic (prevents self-review)
 
-### 7.3 角色切换规则
+### 7.3 Role Switching Rules
 
-角色在 `session_init` 时分配，session 内不可变。需要不同角色时启动新的 Agent 进程。
+Roles are assigned during `session_init` and are immutable within a session. When a different role is needed, start a new Agent process.
 
 ---
 
-## 八、Blackboard（共享状态）
+## 8. Blackboard (Shared State)
 
-### 8.1 数据结构
+### 8.1 Data Structure
 
 ```json
 {
@@ -563,166 +563,166 @@ Orchestrator 收到每条消息后立即校验：
 }
 ```
 
-### 8.2 写入约束
+### 8.2 Write Constraints
 
-| Agent | 可写字段 | 不可写字段 |
+| Agent | Writable Fields | Non-Writable Fields |
 |-------|---------|-----------|
 | proposer | `proposals` / `revisions` | `critiques` / `final_decision` |
 | critic | `critiques` | `proposals` / `revisions` / `final_decision` |
 | judge | `final_decision` | `proposals` / `critiques` / `revisions` |
 
-禁止跨字段写入，Orchestrator 在写入前强制校验。
+Cross-field writes are forbidden; Orchestrator enforces this before writing.
 
-### 8.3 读取约束（支持 Context Isolation）
+### 8.3 Read Constraints (Context Isolation)
 
-| Agent | 可读字段 | 不可读字段 |
+| Agent | Readable Fields | Non-Readable Fields |
 |-------|---------|-----------|
-| proposer | 全部 | 无 |
-| critic | `task` / `proposals`（仅结果） | proposer 的 `reasoning` 字段 |
-| judge | 全部 | 无 |
+| proposer | All | None |
+| critic | `task` / `proposals` (results only) | proposer's `reasoning` field |
+| judge | All | None |
 
-critic 只能看到 proposal 的结果，看不到推理过程，防止被 proposer 的论证带偏。
+The critic can only see the proposal results, not the reasoning process, to prevent being influenced by the proposer's arguments.
 
-### 8.4 状态同步与写控制
+### 8.4 State Synchronization and Write Control
 
-| 策略 | 说明 |
+| Strategy | Description |
 |------|------|
-| 并发模型 | **令牌机制 (Token-based Write) + 乐观锁版本校验**：同一时刻仅允许一个 Agent 写入 Blackboard 对应字段（由 FSM 状态机调度保证互斥）；写入时携带 `expected_version` 做版本校验，防止并行步骤（fan-out）中的竞态条件。 |
-| 实时广播 | 当 Blackboard 发生更新，Orchestrator 实时同步快照给所有长连接（MCP）Agent。 |
+| Concurrency model | **Token-based Write + optimistic locking version check**: Only one Agent can write to the Blackboard's corresponding field at a time (mutual exclusion guaranteed by FSM scheduling); writes carry `expected_version` for version checking, preventing race conditions in parallel steps (fan-out). |
+| Real-time broadcast | When Blackboard is updated, Orchestrator syncs snapshot in real time to all long-running (MCP) Agents. |
 
-### 8.5 评分机制
+### 8.5 Scoring Mechanism
 
-- critique 消息携带 `severity`（low / medium / high / critical）
-- judge decision 携带 `score`（0.0-1.0）
-- Blackboard `meta.confidence` 由 Orchestrator 根据最新 score 更新
+- critique messages carry `severity` (low / medium / high / critical)
+- judge decision carries `score` (0.0-1.0)
+- Blackboard `meta.confidence` is updated by Orchestrator based on latest score
 
 ---
 
-## 九、流程编排（Flow Orchestration）
+## 9. Flow Orchestration
 
-### 9.1 FSM 状态机
+### 9.1 FSM State Machine
 
-#### 状态定义
+#### State Definitions
 
-| 状态 | 说明 |
+| State | Description |
 |------|------|
-| `INIT` | 加载配置、预热 Agent 进程 |
-| `PROPOSE` | Proposer 生成方案 |
-| `CRITIQUE` | Critic 评审方案 |
-| `REFINE` | Proposer 根据 Critique 修订 |
-| `DECIDE` | Judge 做最终决策 |
-| `AWAITING_APPROVAL` | 暂停流程，等待人工审批 |
-| `END` | 流程结束，生成 SessionResult |
+| `INIT` | Load config, pre-warm Agent processes |
+| `PROPOSE` | Proposer generates proposal |
+| `CRITIQUE` | Critic reviews proposal |
+| `REFINE` | Proposer revises based on Critique |
+| `DECIDE` | Judge makes final decision |
+| `AWAITING_APPROVAL` | Pause flow, wait for human approval |
+| `END` | Flow ends, generate SessionResult |
 
-#### 状态转移规则
+#### State Transition Rules
 
 ```
-INIT → PROPOSE → CRITIQUE → REFINE (if severity >= threshold)
-                          → DECIDE (if severity < threshold)
-REFINE → CRITIQUE (loop) / DECIDE
-DECIDE → END (if confidence >= threshold)
-       → PROPOSE (new round, if confidence < threshold)
+INIT -> PROPOSE -> CRITIQUE -> REFINE (if severity >= threshold)
+                             -> DECIDE (if severity < threshold)
+REFINE -> CRITIQUE (loop) / DECIDE
+DECIDE -> END (if confidence >= threshold)
+        -> PROPOSE (new round, if confidence < threshold)
 
-任意可审批状态 → AWAITING_APPROVAL → 原状态的下一跳 (Accept)
-                                   → 原状态 (Edit, 带修正内容重跑)
-                                   → ROLLBACK → 原状态 (Reject, 回滚后重跑)
+Any approvable state -> AWAITING_APPROVAL -> next state (Accept)
+                                           -> same state (Edit, rerun with corrections)
+                                           -> ROLLBACK -> same state (Reject, rollback and rerun)
 ```
 
-### 9.2 Human-in-the-Loop（人工介入）
+### 9.2 Human-in-the-Loop
 
-#### 9.2.1 触发机制
+#### 9.2.1 Trigger Mechanism
 
-在流程步骤中引入 `require_approval` 配置，支持三种触发模式：
+Introduce `require_approval` configuration in flow steps, supporting three trigger modes:
 
-| 模式 | 配置值 | 说明 |
+| Mode | Config Value | Description |
 |------|--------|------|
-| 关闭 | `false`（默认） | 全自动执行 |
-| 步骤后审批 | `true` | Agent 输出结果后、写入 Blackboard 前暂停 |
-| 文件变更审批 | `"on_file_change"` | 仅当 Agent 修改了本地文件系统时触发 |
+| Off | `false` (default) | Fully automatic execution |
+| Post-step approval | `true` | Pause after Agent outputs result, before writing to Blackboard |
+| File change approval | `"on_file_change"` | Trigger only when Agent modifies local file system |
 
 ```yaml
 steps:
   - state: PROPOSE
     agent: proposer
     timeout_ms: 60000
-    require_approval: true          # 每次 proposal 都需审批
+    require_approval: true          # Every proposal requires approval
 
   - state: DECIDE
     agent: judge
     timeout_ms: 60000
-    require_approval: "on_file_change"  # 仅文件变更时审批
+    require_approval: "on_file_change"  # Only on file changes
 ```
 
-#### 9.2.2 审批交互流程
+#### 9.2.2 Approval Interaction Flow
 
-当进入 `AWAITING_APPROVAL` 状态时，Orchestrator 通过 CLI 展示审批界面：
+When entering `AWAITING_APPROVAL` state, Orchestrator displays the approval UI via CLI:
 
 ```
-╔══════════════════════════════════════════════════╗
-║  🔍 Approval Required — PROPOSE (Round 2)       ║
-╠══════════════════════════════════════════════════╣
-║  Agent: claude-code (proposer)                   ║
-║  Confidence: 0.82                                ║
-║                                                  ║
-║  Summary: Refactored auth middleware to use JWT   ║
-║                                                  ║
-║  Files Changed:                                  ║
-║    M src/auth/middleware.ts  (+42, -18)           ║
-║    A src/auth/jwt-validator.ts  (+67)             ║
-║                                                  ║
-║  [D]iff  [A]ccept  [R]eject  [E]dit  [S]kip     ║
-╚══════════════════════════════════════════════════╝
++======================================================+
+|  Approval Required -- PROPOSE (Round 2)              |
++======================================================+
+|  Agent: claude-code (proposer)                       |
+|  Confidence: 0.82                                    |
+|                                                      |
+|  Summary: Refactored auth middleware to use JWT       |
+|                                                      |
+|  Files Changed:                                      |
+|    M src/auth/middleware.ts  (+42, -18)               |
+|    A src/auth/jwt-validator.ts  (+67)                 |
+|                                                      |
+|  [D]iff  [A]ccept  [R]eject  [E]dit  [S]kip         |
++======================================================+
 ```
 
-#### 9.2.3 用户操作与后续流程
+#### 9.2.3 User Actions and Subsequent Flow
 
-| 操作 | 快捷键 | 行为 | FSM 转移 |
+| Action | Shortcut | Behavior | FSM Transition |
 |------|--------|------|----------|
-| **Diff** | `D` | 展示完整 diff（文件变更时）或 Agent 输出详情 | 停留在 `AWAITING_APPROVAL` |
-| **Accept** | `A` | 接受结果，写入 Blackboard，继续 | → 下一状态 |
-| **Reject** | `R` | 拒绝结果，回滚文件变更（git checkpoint），向 Agent 发送 rejection 理由重跑 | → 回滚 → 重跑当前步骤 |
-| **Edit** | `E` | 打开 `$EDITOR` 让用户手动修改 Agent 输出 JSON 或文件，修改后作为最终结果写入 Blackboard | → 下一状态 |
-| **Skip** | `S` | 跳过当前步骤，不写入 Blackboard | → 下一状态 |
+| **Diff** | `D` | Show full diff (when files changed) or Agent output details | Stay in `AWAITING_APPROVAL` |
+| **Accept** | `A` | Accept result, write to Blackboard, continue | -> Next state |
+| **Reject** | `R` | Reject result, rollback file changes (git checkpoint), send rejection reason to Agent for rerun | -> Rollback -> Rerun current step |
+| **Edit** | `E` | Open `$EDITOR` for user to manually modify Agent output JSON or files, use modified result for Blackboard write | -> Next state |
+| **Skip** | `S` | Skip current step, do not write to Blackboard | -> Next state |
 
-#### 9.2.4 审批超时
+#### 9.2.4 Approval Timeout
 
-| 参数 | 默认值 | 说明 |
+| Parameter | Default | Description |
 |------|--------|------|
-| `approval_timeout_ms` | `300000`（5 分钟） | 等待用户响应的最大时长 |
-| `approval_timeout_action` | `pause` | 超时后的默认行为 |
+| `approval_timeout_ms` | `300000` (5 minutes) | Maximum wait time for user response |
+| `approval_timeout_action` | `pause` | Default behavior on timeout |
 
-超时行为选项：
+Timeout behavior options:
 
-| 行为 | 说明 |
+| Behavior | Description |
 |------|------|
-| `pause` | 持续等待，仅打印提醒（默认） |
-| `accept` | 自动接受（适用于低风险步骤） |
-| `abort` | 终止整个 session |
+| `pause` | Keep waiting, only print reminder (default) |
+| `accept` | Auto-accept (suitable for low-risk steps) |
+| `abort` | Terminate the entire session |
 
 ```yaml
 steps:
   - state: PROPOSE
     agent: proposer
     require_approval: true
-    approval_timeout_ms: 600000       # 10 分钟
-    approval_timeout_action: pause    # 超时后继续等待
+    approval_timeout_ms: 600000       # 10 minutes
+    approval_timeout_action: pause    # Keep waiting after timeout
 ```
 
-#### 9.2.5 Reject 重试限制
+#### 9.2.5 Reject Retry Limit
 
-| 参数 | 默认值 | 说明 |
+| Parameter | Default | Description |
 |------|--------|------|
-| `max_rejections` | `3` | 同一步骤最大连续 reject 次数 |
-| `on_max_rejections` | `abort` | 达到上限后的行为（`abort` / `skip`） |
+| `max_rejections` | `3` | Max consecutive rejections for the same step |
+| `on_max_rejections` | `abort` | Action when limit reached (`abort` / `skip`) |
 
-用户连续 reject 超过上限时，Orchestrator 终止当前步骤，避免无限循环。
+When user consecutively rejects beyond the limit, Orchestrator terminates the current step to avoid infinite loops.
 
-#### 9.2.6 审批协议消息
+#### 9.2.6 Approval Protocol Messages
 
-新增两种系统消息用于记录审批过程：
+Two new system messages for recording the approval process:
 
 ```json
-// Orchestrator → CLI（请求审批）
+// Orchestrator -> CLI (request approval)
 {
   "type": "approval_request",
   "session_id": "sess_abc123",
@@ -736,7 +736,7 @@ steps:
   "timestamp": "2026-04-03T10:05:00Z"
 }
 
-// CLI → Orchestrator（审批结果）
+// CLI -> Orchestrator (approval result)
 {
   "type": "approval_response",
   "session_id": "sess_abc123",
@@ -748,9 +748,9 @@ steps:
 }
 ```
 
-`action` 枚举：`accept` | `reject` | `edit` | `skip`
+`action` enum: `accept` | `reject` | `edit` | `skip`
 
-当 `action == "reject"` 时，`reason` 必填，会注入到下一轮 Agent prompt 中：
+When `action == "reject"`, `reason` is required and will be injected into the next round's Agent prompt:
 
 ```
 The user rejected your previous output for the following reason:
@@ -758,9 +758,9 @@ The user rejected your previous output for the following reason:
 Please revise your approach and try again.
 ```
 
-当 `action == "edit"` 时，`edited_content` 携带用户修改后的内容。
+When `action == "edit"`, `edited_content` carries the user's modified content.
 
-### 9.3 基础 YAML 配置
+### 9.3 Basic YAML Configuration
 
 ```yaml
 flow:
@@ -789,11 +789,11 @@ flow:
     - state: END
 ```
 
-### 9.4 并发执行
+### 9.4 Concurrent Execution
 
 #### Fan-out / Fan-in
 
-多个 agent 并行执行同一步骤，结果汇总后进入下一状态：
+Multiple agents execute the same step in parallel, results are aggregated before entering the next state:
 
 ```yaml
 steps:
@@ -806,41 +806,41 @@ steps:
     timeout_ms: 90000
 ```
 
-| fan_in 策略 | 说明 |
+| fan_in Strategy | Description |
 |-------------|------|
-| `merge` | 合并所有 critique 到 Blackboard |
-| `vote` | 多数意见决定（适用于 decision） |
-| `first` | 采用最先返回的结果 |
+| `merge` | Merge all critiques into Blackboard |
+| `vote` | Majority opinion decides (applicable for decision) |
+| `first` | Use the first returned result |
 
-#### 条件分支
+#### Conditional Branching
 
 ```yaml
 steps:
   - state: REFINE
     agent: proposer
     condition: "critic_max_severity >= high"
-    # 条件不满足时跳过，直接进入下一 state
+    # Skip when condition not met, go directly to next state
 ```
 
-#### 循环
+#### Loops
 
 ```yaml
 steps:
   - state: CRITIQUE
     agent: critic
-    repeat: 3                     # 最多重复 3 次
-    break_condition: "new_issues == 0"  # 无新问题时提前退出
+    repeat: 3                     # Max 3 repeats
+    break_condition: "new_issues == 0"  # Exit early when no new issues
 ```
 
-### 9.5 完整 FlowConfig 字段
+### 9.5 Complete FlowConfig Fields
 
 ```yaml
 flow:
-  name: string           # 流程名称
-  description: string    # 流程描述
-  max_rounds: number     # 硬终止：最大轮次
+  name: string           # Flow name
+  description: string    # Flow description
+  max_rounds: number     # Hard limit: max rounds
 
-  role_mapping:          # 角色 → Agent 映射
+  role_mapping:          # Role -> Agent mapping
     proposer:
       primary: string
       fallback: [string]
@@ -851,12 +851,12 @@ flow:
       primary: string
       fallback: [string]
 
-  termination:           # 终止条件（参见第十一章）
+  termination:           # Termination conditions (see Chapter 11)
     max_rounds: number
     convergence_epsilon: number
     min_confidence: number
 
-  steps:                 # 步骤列表
+  steps:                 # Step list
     - state: string
       agent: string | [string]
       parallel: boolean
@@ -868,52 +868,52 @@ flow:
       on_error: retry | skip | abort
       on_timeout: retry | skip | abort
       require_approval: boolean | "on_file_change"   # Human-in-the-Loop
-      approval_timeout_ms: number                     # 审批超时（默认 300000）
-      approval_timeout_action: pause | accept | abort # 超时行为（默认 pause）
-      max_rejections: number                          # 最大连续 reject 次数（默认 3）
-      inquiry:                                         # 追问模式（仅 CRITIQUE 步骤）
+      approval_timeout_ms: number                     # Approval timeout (default 300000)
+      approval_timeout_action: pause | accept | abort # Timeout behavior (default pause)
+      max_rejections: number                          # Max consecutive rejections (default 3)
+      inquiry:                                        # Inquiry mode (CRITIQUE step only)
         enabled: boolean
-        threshold: number                              # critic confidence 阈值（默认 0.5）
-        max_rounds: number                             # 最多追问次数（默认 1）
-        release_fields: [string]                       # 释放的隔离字段
+        threshold: number                             # critic confidence threshold (default 0.5)
+        max_rounds: number                            # Max inquiry rounds (default 1)
+        release_fields: [string]                      # Isolated fields to release
 ```
 
-### 9.6 条件表达式语言（Condition Expression）
+### 9.6 Condition Expression Language
 
-`condition` 和 `break_condition` 字段使用一种简单的表达式 DSL，在 Orchestrator 内部求值。
+The `condition` and `break_condition` fields use a simple expression DSL evaluated inside the Orchestrator.
 
-#### 可用变量
+#### Available Variables
 
-所有变量从当前 Blackboard 状态派生：
+All variables are derived from the current Blackboard state:
 
-| 变量名 | 类型 | 来源 | 说明 |
+| Variable | Type | Source | Description |
 |--------|------|------|------|
-| `round` | number | `blackboard.meta.round` | 当前轮次 |
-| `confidence` | number | `blackboard.meta.confidence` | 当前置信度 |
-| `critic_max_severity` | enum | 最新一轮 critiques 中的最高 severity | 可比较：`low < medium < high < critical` |
-| `critic_issue_count` | number | 最新一轮 critiques 中的 issue 总数 | — |
-| `new_issues` | number | 相比上一轮新增的 issue 数量 | 用于收敛判断 |
-| `score` | number | 最新 decision 的 score | — |
-| `score_delta` | number | `|score_t - score_(t-1)|` | 分数变化绝对值 |
-| `proposals_count` | number | `blackboard.proposals.length` | — |
-| `revisions_count` | number | `blackboard.revisions.length` | — |
+| `round` | number | `blackboard.meta.round` | Current round |
+| `confidence` | number | `blackboard.meta.confidence` | Current confidence |
+| `critic_max_severity` | enum | Highest severity in latest round critiques | Comparable: `low < medium < high < critical` |
+| `critic_issue_count` | number | Total issues in latest round critiques | -- |
+| `new_issues` | number | New issue count compared to previous round | For convergence judgment |
+| `score` | number | Latest decision score | -- |
+| `score_delta` | number | `|score_t - score_(t-1)|` | Absolute score change |
+| `proposals_count` | number | `blackboard.proposals.length` | -- |
+| `revisions_count` | number | `blackboard.revisions.length` | -- |
 
-#### 支持的操作符
+#### Supported Operators
 
-| 操作符 | 示例 | 说明 |
+| Operator | Example | Description |
 |--------|------|------|
-| `==`, `!=` | `new_issues == 0` | 相等/不等 |
-| `>`, `>=`, `<`, `<=` | `confidence >= 0.85` | 数值比较 |
-| `&&`, `\|\|` | `new_issues == 0 \|\| confidence > 0.90` | 逻辑与/或 |
-| `!` | `!terminate` | 逻辑非 |
+| `==`, `!=` | `new_issues == 0` | Equals / not equals |
+| `>`, `>=`, `<`, `<=` | `confidence >= 0.85` | Numeric comparison |
+| `&&`, `\|\|` | `new_issues == 0 \|\| confidence > 0.90` | Logical AND / OR |
+| `!` | `!terminate` | Logical NOT |
 
-Severity 枚举的比较按顺序：`low(1) < medium(2) < high(3) < critical(4)`。
+Severity enum comparison order: `low(1) < medium(2) < high(3) < critical(4)`.
 
-#### 实现方式
+#### Implementation
 
-MVP 阶段使用安全的表达式解析器（如 [expr-eval](https://github.com/silentmatt/expr-eval)），**禁止使用 `eval()`**。不支持函数调用、属性访问或任意 JavaScript。
+MVP phase uses a safe expression parser (such as [expr-eval](https://github.com/silentmatt/expr-eval)), **`eval()` usage is forbidden**. Function calls, property access, or arbitrary JavaScript are not supported.
 
-### 9.7 HITL 时序图
+### 9.7 HITL Sequence Diagram
 
 ```mermaid
 sequenceDiagram
@@ -925,13 +925,13 @@ sequenceDiagram
     O->>A: session_init + task context
     A->>O: proposal {solution, confidence: 0.82}
 
-    Note over O: require_approval: true → 进入 AWAITING_APPROVAL
+    Note over O: require_approval: true -> Enter AWAITING_APPROVAL
     O->>U: approval_request (summary + diff)
 
     alt Accept
         U->>O: approval_response {action: "accept"}
         O->>B: write proposals[]
-        Note over O: → CRITIQUE
+        Note over O: -> CRITIQUE
     else Reject
         U->>O: approval_response {action: "reject", reason: "Missing error handling"}
         O->>O: git reset (rollback file changes)
@@ -940,40 +940,40 @@ sequenceDiagram
     else Edit
         U->>O: approval_response {action: "edit", edited_content: {...}}
         O->>B: write edited proposals[]
-        Note over O: → CRITIQUE
+        Note over O: -> CRITIQUE
     else Skip
         U->>O: approval_response {action: "skip"}
-        Note over O: → CRITIQUE (no proposal written)
+        Note over O: -> CRITIQUE (no proposal written)
     end
 ```
 
 ---
 
-## 十、Adapter 配置（adapters.yaml）
+## 10. Adapter Configuration (adapters.yaml)
 
-定义各 Agent CLI 工具的启动命令、参数和运行环境。
+Defines startup commands, arguments, and runtime environment for each Agent CLI tool.
 
 ### Schema
 
 ```yaml
 adapters:
   <adapter_name>:
-    command: string              # 可执行文件路径或命令名
-    args: [string]               # 启动参数模板
+    command: string              # Executable file path or command name
+    args: [string]               # Startup argument template
     mode: single-shot | long-running
-    env:                         # 环境变量（支持 ${VAR} 引用系统环境变量）
+    env:                         # Environment variables (supports ${VAR} referencing system env vars)
       KEY: value
-    workdir: string              # 工作目录（默认 ${PROJECT_ROOT}）
-    timeout_ms: number           # 单次调用超时
-    max_retries: number          # 重试次数
-    health_check_interval_ms: number  # 心跳间隔（仅 long-running）
-    system_prompt_override: string    # 覆盖默认 system prompt（可选）
+    workdir: string              # Working directory (default ${PROJECT_ROOT})
+    timeout_ms: number           # Single call timeout
+    max_retries: number          # Retry count
+    health_check_interval_ms: number  # Heartbeat interval (long-running only)
+    system_prompt_override: string    # Override default system prompt (optional)
     resource_limits:
       max_memory_mb: number
       max_cpu_percent: number
 ```
 
-### 默认配置
+### Default Configuration
 
 ```yaml
 # configs/adapters.yaml
@@ -1019,151 +1019,154 @@ adapters:
     max_retries: 2
 ```
 
-### 变量替换
+### Variable Substitution
 
-`args` 和 `env` 中支持 `${VAR}` 语法，按以下优先级解析：
+`args` and `env` support `${VAR}` syntax, resolved in the following priority order:
 
-1. FlowConfig 中的 `runtime_vars`（运行时传入）
-2. 系统环境变量（`process.env`）
-3. 未匹配则报错（启动前校验）
+1. `runtime_vars` in FlowConfig (passed at runtime)
+2. System environment variables (`process.env`)
+3. Error if unmatched (validated before startup)
 
 ---
 
-## 十一、终止机制（Termination）
+## 11. Termination Mechanism
 
-### 硬终止（必须配置）
+### Hard Termination (Required)
 
-- `max_rounds` — 超过最大轮次强制结束，防止无限消耗 token
+- `max_rounds` -- Force end when max rounds exceeded, prevents unlimited token consumption
 
-### 软终止（任一满足即终止）
+### Soft Termination (Ends when any condition is met)
 
-| 条件 | 公式 / 规则 | 说明 |
+| Condition | Formula / Rule | Description |
 |------|-------------|------|
-| 分数收敛 | `\|score_t - score_(t-1)\| < epsilon` | 默认 epsilon = 0.05 |
-| 无新增问题 | `new_issues == 0` | critic 未发现新问题 |
-| Judge 高置信度 | `judge.confidence > threshold` | 默认 threshold = 0.85 |
-| Agent 主动终止 | `terminate == true` | 任何 agent 建议终止 |
+| Score convergence | `|score_t - score_(t-1)| < epsilon` | Default epsilon = 0.05 |
+| No new issues | `new_issues == 0` | Critic found no new issues |
+| Judge high confidence | `judge.confidence > threshold` | Default threshold = 0.85 |
+| Agent active termination | `terminate == true` | Any agent suggests termination |
 
-### 终止配置示例
+### Termination Configuration Example
 
 ```yaml
 termination:
-  max_rounds: 5                # 硬终止
-  convergence_epsilon: 0.05    # 分数收敛阈值
-  min_confidence: 0.85         # Judge 最低置信度
-  allow_agent_terminate: true  # 允许 agent 主动建议终止
-  min_rounds: 2                # 最少执行轮次（防止过早终止）
+  max_rounds: 5                # Hard termination
+  convergence_epsilon: 0.05    # Score convergence threshold
+  min_confidence: 0.85         # Judge minimum confidence
+  allow_agent_terminate: true  # Allow agent to actively suggest termination
+  min_rounds: 2                # Minimum execution rounds (prevents premature termination)
 ```
 
 ---
 
-## 十二、错误处理与状态回滚（Error Handling & Rollback）
+## 12. Error Handling & Rollback
 
-### 12.1 文件系统一致性：Git Checkpoint
+### 12.1 File System Consistency: Git Checkpoint
 
-为了防止 Agent 的错误修改污染项目环境，Orchestrator 在每个 `PROPOSE` 步骤前执行快照：
+To prevent Agent errors from polluting the project environment, Orchestrator takes a snapshot before each `PROPOSE` step:
 
-1. **创建快照**：自动运行 `git stash push --include-untracked` 或在临时分支创建 Checkpoint。
-2. **自动回滚**：当发生以下情况时，执行 `git reset --hard` 回滚：
-    * `Judge` 判定方案严重不合规。
-    * 发生致命逻辑错误（L3/L4）。
-    * 用户在审批环节选择了 `Reject`。
+1. **Create snapshot**: Automatically run `git stash push --include-untracked` or create a checkpoint on a temporary branch.
+2. **Auto rollback**: Execute `git reset --hard` when:
+    * `Judge` determines the proposal is seriously non-compliant.
+    * A fatal logic error (L3/L4) occurs.
+    * The user selects `Reject` during approval.
 
-### 12.2 错误分类
+### 12.2 Error Classification
 
-| 级别 | 类型 | 示例 | 处理方式 | 责任层 |
+| Level | Type | Example | Handling | Responsible Layer |
 |------|------|------|----------|--------|
-| L1 | 临时错误 | API 限流、网络超时 | 自动重试（指数退避） | 运行时 |
-| L2 | 输出错误 | JSON 格式错误、schema 不匹配 | 提示修正 + 重试 | 运行时 |
-| L3 | 进程错误 | Agent 崩溃、OOM、进程挂起 | 重启进程 + 重试 | 运行时 |
-| L4 | 逻辑错误 | 持续低质量输出、幻觉 | 更换 Agent / 人工介入 | 上层 harness |
+| L1 | Transient error | API rate limit, network timeout | Auto retry (exponential backoff) | Runtime |
+| L2 | Output error | JSON format error, schema mismatch | Prompt correction + retry | Runtime |
+| L3 | Process error | Agent crash, OOM, process hang | Restart process + retry | Runtime |
+| L4 | Logic error | Persistent low-quality output, hallucination | Replace Agent / human intervention | Upper harness |
 
-### 12.3 重试策略
+### 12.3 Retry Strategy
 
 ```
 delay = min(base_delay * 2^attempt, max_delay) + random_jitter
 ```
 
-| 参数 | L1 | L2 | L3 |
+| Parameter | L1 | L2 | L3 |
 |------|-----|-----|-----|
 | `base_delay` | 1s | 2s | 5s |
 | `max_delay` | 30s | 30s | 60s |
 | `max_retries` | 5 | 3 | 2 |
 | `jitter` | 0-1s | 0-2s | 0-5s |
 
-L2 重试时，在 prompt 中追加修正指令：
+On L2 retry, append correction instruction to prompt:
 
 ```
 Your previous output was not valid JSON. Please respond with valid JSON only.
 Previous error: [error details]
 ```
 
-### 12.4 降级与备选
+### 12.4 Degradation and Fallback
 
 ```
-首选 Agent 失败 → 重试 N 次
-    ↓ 仍然失败
-切换 fallback Agent（按 role_mapping.fallback 顺序）
-    ↓ 所有 fallback 失败
-降级模式：多 agent 降级为单 agent 执行
-    ↓ 单 agent 也失败
-Escalate：暂停流程，通知用户介入
+Primary Agent fails -> Retry N times
+    | still fails
+    v
+Switch to fallback Agent (in role_mapping.fallback order)
+    | all fallbacks fail
+    v
+Degradation mode: downgrade from multi-agent to single-agent execution
+    | single agent also fails
+    v
+Escalate: Pause flow, notify user for intervention
 ```
 
 ### 12.5 Circuit Breaker
 
 ```
-CLOSED ──连续 N 次失败──→ OPEN ──冷却期结束──→ HALF_OPEN
-   ↑                        │                      │
-   │                        │ 拒绝所有请求           │
-   │                        │                      ▼
-   └────── 探测成功 ─────────┘                探测一次请求
-                                             成功 → CLOSED
-                                             失败 → OPEN
+CLOSED --N consecutive failures--> OPEN --cooldown period ends--> HALF_OPEN
+   ^                                    |                              |
+   |                                    | reject all requests          |
+   |                                    v                              |
+   +---------- probe success ----------+                    Probe one request
+                                                         Success -> CLOSED
+                                                         Failure -> OPEN
 ```
 
-| 参数 | 默认值 |
+| Parameter | Default |
 |------|--------|
-| 触发阈值（连续失败） | 3 次 |
-| 冷却期 | 60 秒 |
-| 探测请求数 | 1 |
+| Trigger threshold (consecutive failures) | 3 |
+| Cooldown period | 60 seconds |
+| Probe request count | 1 |
 
 ---
 
-## 十三、防止 Groupthink（共识偏移）
+## 13. Preventing Groupthink (Consensus Drift)
 
-### Layer 1：上下文隔离与自适应可见性
+### Layer 1: Context Isolation and Adaptive Visibility
 
-- **默认隔离**：critic 默认不看 proposer 的推理过程（`reasoning` 字段被过滤），只看方案结果。
-- **追问模式 (Inquiry)**：若 critic 置信度低于阈值，Orchestrator 自动触发追问步骤，释放 `reasoning` 给 critic 辅助分析。
+- **Default isolation**: The critic by default does not see the proposer's reasoning process (the `reasoning` field is filtered), only sees proposal results.
+- **Inquiry mode**: If critic confidence is below threshold, Orchestrator automatically triggers an inquiry step, releasing `reasoning` to the critic for auxiliary analysis.
 
-#### 追问模式（Inquiry Mode）详细设计
+#### Inquiry Mode Detailed Design
 
-**触发条件**：
+**Trigger conditions**:
 
-| 参数 | 默认值 | 说明 |
+| Parameter | Default | Description |
 |------|--------|------|
-| `inquiry_threshold` | `0.5` | critic confidence 低于此值时触发追问 |
-| `max_inquiry_rounds` | `1` | 同一 CRITIQUE 步骤最多追问次数 |
+| `inquiry_threshold` | `0.5` | Trigger inquiry when critic confidence is below this value |
+| `max_inquiry_rounds` | `1` | Max inquiry rounds for the same CRITIQUE step |
 
-**触发流程**：
-
-```
-CRITIQUE 步骤完成
-  → Orchestrator 检查 critique.confidence
-  → 若 confidence < inquiry_threshold：
-      1. 将 proposer 的 reasoning 字段释放给 critic
-      2. 向 critic 发送追问指令（含 reasoning + 原始 critique）
-      3. critic 产出补充 critique（可能更新 severity / 新增 issues）
-      4. 合并到 Blackboard（与原 critique 合并，取最高 severity）
-  → 若 confidence >= inquiry_threshold：
-      → 正常进入下一状态
-```
-
-**追问指令 Prompt**：
+**Trigger flow**:
 
 ```
-Your initial review had low confidence ({confidence}). 
+CRITIQUE step completes
+  -> Orchestrator checks critique.confidence
+  -> If confidence < inquiry_threshold:
+      1. Release proposer's reasoning field to critic
+      2. Send inquiry instruction to critic (with reasoning + original critique)
+      3. Critic produces supplementary critique (may update severity / add new issues)
+      4. Merge into Blackboard (merge with original critique, take highest severity)
+  -> If confidence >= inquiry_threshold:
+      -> Normal transition to next state
+```
+
+**Inquiry Instruction Prompt**:
+
+```
+Your initial review had low confidence ({confidence}).
 Here is the proposer's reasoning for additional context:
 
 {proposer_reasoning}
@@ -1172,25 +1175,25 @@ Please re-evaluate your critique with this additional information.
 You may update severity, add new issues, or confirm your original assessment.
 ```
 
-**FSM 配置方式**：
+**FSM Configuration**:
 
-追问模式作为 CRITIQUE 步骤的内置行为，通过 flow config 控制：
+Inquiry mode is a built-in behavior of the CRITIQUE step, controlled via flow config:
 
 ```yaml
 steps:
   - state: CRITIQUE
     agent: critic
     timeout_ms: 60000
-    inquiry:                        # 追问模式配置（可选）
-      enabled: true                 # 默认 false
-      threshold: 0.5                # critic confidence 阈值
-      max_rounds: 1                 # 最多追问次数
-      release_fields: ["reasoning"] # 释放哪些被隔离的字段
+    inquiry:                        # Inquiry mode config (optional)
+      enabled: true                 # Default false
+      threshold: 0.5                # critic confidence threshold
+      max_rounds: 1                 # Max inquiry rounds
+      release_fields: ["reasoning"] # Which isolated fields to release
 ```
 
-不需要单独的 FSM 状态——追问是 CRITIQUE 状态内的子循环，由 Orchestrator 内部管理。
+No separate FSM state is needed -- inquiry is a sub-loop within the CRITIQUE state, managed internally by the Orchestrator.
 
-**TypeScript 类型**：
+**TypeScript type**:
 
 ```typescript
 interface InquiryConfig {
@@ -1201,12 +1204,12 @@ interface InquiryConfig {
 }
 ```
 
-`FlowStep` 中新增可选字段 `inquiry?: InquiryConfig`。
+`FlowStep` gains an optional field `inquiry?: InquiryConfig`.
 
-### Layer 2：扰动机制
+### Layer 2: Perturbation Mechanisms
 
-- 温度随机（temperature jitter）— 每次调用随机 +-0.1
-- prompt 注入反偏见指令：
+- Temperature jitter -- each call randomly +/- 0.1
+- Prompt-injected anti-bias instructions:
 
 ```
 You MUST identify at least one potential issue.
@@ -1214,37 +1217,37 @@ Do NOT agree with the proposal simply because it sounds reasonable.
 Consider edge cases, failure modes, and alternative approaches.
 ```
 
-### Layer 3：模型异构
+### Layer 3: Model Heterogeneity
 
-- proposer 和 critic 必须使用不同模型/provider
-- 避免同源幻觉（如 Claude 提方案，Gemini 做 critic）
-- 通过 `role_mapping` 配置强制执行
+- Proposer and critic must use different models/providers
+- Avoid same-source hallucination (e.g. Claude proposes, Gemini critiques)
+- Enforced via `role_mapping` configuration
 
 ---
 
-## 十四、记忆系统（Memory System）
+## 14. Memory System
 
-### 与 Blackboard 的关系
+### Relationship with Blackboard
 
-- **Blackboard** = 单 session 内的实时共享状态，session 结束后归档
-- **Memory** = 跨 session 的持久化知识，供未来 session 检索
+- **Blackboard** = Real-time shared state within a single session, archived after session ends
+- **Memory** = Cross-session persistent knowledge, retrievable by future sessions
 
-### 分层设计
+### Layered Design
 
-#### 1. 短期记忆（Session Memory）
+#### 1. Short-Term Memory (Session Memory)
 
-- 当前 session 的完整消息历史
-- 存储：SQLite（单文件，无外部依赖）
-- 生命周期：session 结束后归档为 trace log
+- Complete message history of current session
+- Storage: SQLite (single file, no external dependencies)
+- Lifecycle: Archived as trace log after session ends
 
-#### 2. 中期记忆（Working Memory）
+#### 2. Medium-Term Memory (Working Memory)
 
-- 最近 N 次 session 的任务总结
-- 存储：向量数据库（本地嵌入）
-- 检索：语义相似度匹配
-- 保留策略：最近 100 个 session，超出按 FIFO 淘汰
+- Task summaries of last N sessions
+- Storage: Vector database (local embedding)
+- Retrieval: Semantic similarity matching
+- Retention policy: Latest 100 sessions, FIFO eviction beyond that
 
-#### 3. 长期记忆（Knowledge Memory）
+#### 3. Long-Term Memory (Knowledge Memory)
 
 ```json
 {
@@ -1256,51 +1259,51 @@ Consider edge cases, failure modes, and alternative approaches.
 }
 ```
 
-### 记忆提取策略
+### Memory Extraction Strategy
 
-| 触发条件 | 存入层 | 说明 |
+| Trigger Condition | Stored To | Description |
 |----------|--------|------|
-| Session 结束 | Session → Working | 自动总结并存入 |
-| 高质量结果（score > 0.85） | Working → Knowledge | 提取为可复用 pattern |
-| 高频问题（usage_count > 5） | Knowledge 中提升权重 | 增加检索优先级 |
-| 明确 pattern | 直接写入 Knowledge | 由 judge 标记 |
+| Session ends | Session -> Working | Auto-summarize and store |
+| High-quality result (score > 0.85) | Working -> Knowledge | Extract as reusable pattern |
+| High-frequency issue (usage_count > 5) | Boost weight in Knowledge | Increase retrieval priority |
+| Explicit pattern | Write directly to Knowledge | Marked by judge |
 
 ---
 
-## 十五、自进化系统（Self-Evolution）
+## 15. Self-Evolution System
 
-### 15.1 设计目标
+### 15.1 Design Goals
 
-系统能够从历史 session 中自动吸取失败经验、优化 Prompt、调整流程参数、改进 Agent 选择策略，实现**无需人工干预的持续进化**。
+The system can automatically learn from historical session failures, optimize Prompts, adjust flow parameters, and improve Agent selection strategy, achieving **continuous evolution without manual intervention**.
 
-### 15.2 进化闭环
+### 15.2 Evolution Loop
 
 ```
-Session 执行
-  → Trace Log + Blackboard 归档
-  → 进化引擎分析（失败模式 / 性能瓶颈 / 成本异常）
-  → 生成进化动作（Prompt 调整 / 参数调优 / 策略更新）
-  → 写入进化存储（Evolution Store）
-  → 新 Session 启动时加载进化上下文
-  → 验证进化效果（对比基线）
-  → 成功则保留，失败则回滚
+Session execution
+  -> Trace Log + Blackboard archive
+  -> Evolution engine analysis (failure patterns / performance bottlenecks / cost anomalies)
+  -> Generate evolution actions (Prompt adjustments / parameter tuning / strategy updates)
+  -> Write to Evolution Store
+  -> Load evolution context on new Session startup
+  -> Validate evolution effects (compare against baseline)
+  -> Keep if successful, rollback if failed
 ```
 
-### 15.3 Prompt 自动进化（Prompt Evolution）
+### 15.3 Prompt Auto-Evolution (Prompt Evolution)
 
-#### 15.3.1 失败模式驱动的 Prompt 调整
+#### 15.3.1 Failure-Pattern-Driven Prompt Adjustment
 
-当 Agent 在特定类型的任务上反复失败时，系统自动在 System Prompt 中追加针对性指令。
+When an Agent repeatedly fails on specific types of tasks, the system automatically appends targeted instructions to the System Prompt.
 
-**触发条件：**
+**Trigger Conditions:**
 
-| 条件 | 阈值 | 说明 |
+| Condition | Threshold | Description |
 |------|------|------|
-| 同类失败次数 | ≥ 3 次 | 相同 task_type 下相同错误类型 |
-| 失败集中度 | 7 天内 | 避免偶发失败触发 |
-| 最低置信度 | < 0.5 | Judge 评分持续偏低 |
+| Same-type failure count | >= 3 | Same error type within same task_type |
+| Failure concentration | Within 7 days | Avoid triggering on sporadic failures |
+| Minimum confidence | < 0.5 | Judge score continuously low |
 
-**进化机制：**
+**Evolution Mechanism:**
 
 ```json
 {
@@ -1329,7 +1332,7 @@ Session 执行
 }
 ```
 
-**Prompt 注入位置：**
+**Prompt Injection Position:**
 
 ```
 {original_system_prompt}
@@ -1340,71 +1343,71 @@ Session 执行
 {evolved_instructions}
 ```
 
-#### 15.3.2 Prompt 版本管理与回滚
+#### 15.3.2 Prompt Version Management and Rollback
 
-| 操作 | 说明 |
+| Operation | Description |
 |------|------|
-| 创建新版本 | 每次进化生成新 prompt 版本（v1 → v2 → ...） |
-| A/B 验证 | 新 prompt 在前 5 个 session 中与基线对比 |
-| 自动回滚 | 若新 prompt 表现更差，自动回退到上一版本 |
-| 手动覆盖 | 用户可通过 CLI 查看/编辑/禁用进化规则 |
+| Create new version | Each evolution generates a new prompt version (v1 -> v2 -> ...) |
+| A/B validation | New prompt compared against baseline in first 5 sessions |
+| Auto rollback | Automatically revert to previous version if new prompt performs worse |
+| Manual override | User can view/edit/disable evolution rules via CLI |
 
-**回滚触发条件：**
+**Rollback Trigger Conditions:**
 
-| 条件 | 说明 |
+| Condition | Description |
 |------|------|
-| score 下降 > 10% | 新 prompt 的 Judge 评分显著低于基线 |
-| 成本上升 > 20% | token 消耗异常增加 |
-| 新错误类型出现 | 引入了之前不存在的失败模式 |
+| Score drop > 10% | New prompt's Judge score significantly lower than baseline |
+| Cost increase > 20% | Abnormal token consumption increase |
+| New error types appear | Failure patterns introduced that did not previously exist |
 
-### 15.4 FlowConfig 自动调优（Parameter Optimization）
+### 15.4 FlowConfig Auto-Tuning (Parameter Optimization)
 
-#### 15.4.1 可调参数
+#### 15.4.1 Tunable Parameters
 
-| 参数 | 调优方向 | 依据 |
+| Parameter | Tuning Direction | Basis |
 |------|----------|------|
-| `max_rounds` | 增大/减小 | 历史 session 的平均收敛轮次 |
-| `convergence_epsilon` | 增大/减小 | Judge 评分波动幅度 |
-| `min_confidence` | 增大/减小 | 最终决策的通过率 vs 质量 |
-| `timeout_ms` | 增大/减小 | Agent 响应延迟的 P95 |
-| `inquiry.threshold` | 增大/减小 | 追问模式的有效性 |
-| `fan_in` 策略 | 切换 | 并行评审的合并效果 |
+| `max_rounds` | Increase / decrease | Average convergence rounds in historical sessions |
+| `convergence_epsilon` | Increase / decrease | Judge score fluctuation range |
+| `min_confidence` | Increase / decrease | Final decision pass rate vs quality |
+| `timeout_ms` | Increase / decrease | Agent response latency P95 |
+| `inquiry.threshold` | Increase / decrease | Inquiry mode effectiveness |
+| `fan_in` strategy | Switch | Merge effectiveness in parallel reviews |
 
-#### 15.4.2 调优算法
+#### 15.4.2 Tuning Algorithm
 
-采用**贝叶斯优化 + 多臂老虎机**的轻量实现：
+Lightweight implementation using **Bayesian Optimization + Multi-Armed Bandit**:
 
 ```
-1. 初始化参数搜索空间（每个参数的 min/max）
-2. 每次 session 结束后记录 (params, outcome)
-3. 每 N 个 session 执行一次调优：
-   a. 计算每个参数组合的期望收益
-   b. 选择期望收益最高的参数组合
-   c. 应用新参数，继续观察
-4. 收益函数：
+1. Initialize parameter search space (min/max for each parameter)
+2. After each session, record (params, outcome)
+3. Every N sessions, run one tuning cycle:
+   a. Calculate expected reward for each parameter combination
+   b. Select the combination with highest expected reward
+   c. Apply new parameters, continue observing
+4. Reward function:
    score = w1 * quality + w2 * efficiency + w3 * cost_efficiency
-   其中：
-     quality = Judge 评分
-     efficiency = 1 / (轮次 * 平均延迟)
-     cost_efficiency = 1 / 总成本
+   where:
+     quality = Judge score
+     efficiency = 1 / (rounds * avg_latency)
+     cost_efficiency = 1 / total_cost
 ```
 
-**默认权重：** `w1=0.5, w2=0.3, w3=0.2`，可通过配置调整。
+**Default weights:** `w1=0.5, w2=0.3, w3=0.2`, adjustable via config.
 
-#### 15.4.3 调优配置
+#### 15.4.3 Tuning Configuration
 
 ```yaml
 auto_tuning:
   enabled: true
-  evaluation_window: 10        # 每 10 个 session 调优一次
-  min_sessions_before_tuning: 5  # 至少 5 个 session 后才开始调优
-  max_param_change_percent: 30   # 单次调优最大变化幅度（防止剧烈波动）
-  
+  evaluation_window: 10        # Tune once every 10 sessions
+  min_sessions_before_tuning: 5  # At least 5 sessions before tuning starts
+  max_param_change_percent: 30   # Max single-tuning change range (prevents drastic fluctuations)
+
   weights:
     quality: 0.5
     efficiency: 0.3
     cost_efficiency: 0.2
-  
+
   parameter_bounds:
     max_rounds: { min: 2, max: 10 }
     convergence_epsilon: { min: 0.01, max: 0.15 }
@@ -1412,11 +1415,11 @@ auto_tuning:
     timeout_ms: { min: 30000, max: 300000 }
 ```
 
-### 15.5 Agent 选择策略学习（Agent Selection Learning）
+### 15.5 Agent Selection Learning (Agent Selection Learning)
 
-#### 15.5.1 性能画像
+#### 15.5.1 Performance Profiles
 
-系统为每个 Agent 在每个任务类型上维护性能画像：
+The system maintains performance profiles for each Agent on each task type:
 
 ```json
 {
@@ -1448,41 +1451,41 @@ auto_tuning:
 }
 ```
 
-#### 15.5.2 智能角色映射
+#### 15.5.2 Intelligent Role Mapping
 
-在 `role_mapping` 未显式配置时，系统根据性能画像自动选择最优 Agent：
+When `role_mapping` is not explicitly configured, the system auto-selects the optimal Agent based on performance profiles:
 
 ```
-给定任务类型 T 和角色 R：
-  1. 筛选支持角色 R 的所有 Agent
-  2. 查询每个 Agent 在任务类型 T 上的性能画像
-  3. 计算综合得分：
+Given task type T and role R:
+  1. Filter all Agents supporting role R
+  2. Query each Agent's performance profile for task type T
+  3. Calculate composite score:
      score = avg_score * 0.4 + (1 - failure_rate) * 0.3 + cost_efficiency * 0.2 + (1/latency_normalized) * 0.1
-  4. 选择得分最高的 Agent 作为 primary
-  5. 得分次高的作为 fallback
+  4. Select highest-scoring Agent as primary
+  5. Second-highest as fallback
 ```
 
-#### 15.5.3 冷启动策略
+#### 15.5.3 Cold Start Strategy
 
-新 Agent 或新任务类型无历史数据时：
+When no historical data exists for a new Agent or new task type:
 
-| 阶段 | 策略 | 说明 |
+| Phase | Strategy | Description |
 |------|------|------|
-| 冷启动 | 轮询分配 | 每个 Agent 分配 2-3 个 session 收集数据 |
-| 数据积累 | ε-greedy | 90% 选择当前最优，10% 探索其他 Agent |
-| 成熟期 | 完全基于画像 | 数据量 > 10 后切换到画像驱动 |
+| Cold start | Round-robin allocation | Allocate 2-3 sessions to each Agent for data collection |
+| Data accumulation | epsilon-greedy | 90% select current best, 10% explore other Agents |
+| Mature | Fully profile-driven | Switch to profile-driven after data > 10 |
 
-### 15.6 失败模式知识库（Failure Pattern Knowledge Base）
+### 15.6 Failure Pattern Knowledge Base
 
-#### 15.6.1 失败模式分类
+#### 15.6.1 Failure Pattern Classification
 
-| 级别 | 类型 | 分类维度 | 示例 |
+| Level | Type | Classification Dimension | Example |
 |------|------|----------|------|
-| L2 | 输出错误 | 格式错误 / Schema 不匹配 / 字段缺失 | "Agent 输出包含 markdown 代码块包裹" |
-| L3 | 进程错误 | 超时 / OOM / 崩溃 / 退出码异常 | "大文件处理时进程被 OOM kill" |
-| L4 | 逻辑错误 | 幻觉 / 低质量 / 偏见 / 遗漏 | "critic 未发现 SQL 注入漏洞" |
+| L2 | Output error | Format error / Schema mismatch / Missing field | "Agent output wrapped in markdown code fence" |
+| L3 | Process error | Timeout / OOM / Crash / Abnormal exit code | "Process killed by OOM when handling large files" |
+| L4 | Logic error | Hallucination / Low quality / Bias / Omission | "Critic missed SQL injection vulnerability" |
 
-#### 15.6.2 失败模式数据结构
+#### 15.6.2 Failure Pattern Data Structure
 
 ```json
 {
@@ -1513,58 +1516,58 @@ auto_tuning:
 }
 ```
 
-#### 15.6.3 预防性注入
+#### 15.6.3 Preventive Injection
 
-新 Session 启动时，系统根据任务类型从失败模式知识库中检索相关模式，并注入预防指令：
+On new Session startup, the system retrieves relevant patterns from the failure pattern knowledge base based on task type and injects preventive instructions:
 
 ```
-检索条件：
-  1. task_type 匹配
-  2. status == "active"（未解决或已验证有效）
+Retrieval conditions:
+  1. task_type matches
+  2. status == "active" (unresolved or verified effective)
   3. recurrence_count >= 1
 
-注入格式：
+Injection format:
 --- Known Issues to Watch For ---
 Based on {N} previous sessions of this type:
-1. {failure_description} → Prevention: {prevention_instruction}
+1. {failure_description} -> Prevention: {prevention_instruction}
 2. ...
 ```
 
-#### 15.6.4 失败模式生命周期
+#### 15.6.4 Failure Pattern Lifecycle
 
 ```
-首次发现 → 记录到知识库 → 分类标记 → 应用修复
-  → 验证期（5 个 session）
-    → 未再出现 → 标记为 "resolved"
-    → 再次出现 → recurrence_count++，升级修复策略
-    → 超过 5 次 → 标记为 "persistent"，触发人工审查
+First discovered -> Record to knowledge base -> Classify and tag -> Apply fix
+  -> Verification period (5 sessions)
+    -> Not reoccurred -> Mark as "resolved"
+    -> Reoccurred -> recurrence_count++, escalate fix strategy
+    -> Exceeded 5 times -> Mark as "persistent", trigger human review
 ```
 
-### 15.7 进化存储（Evolution Store）
+### 15.7 Evolution Store
 
-#### 15.7.1 存储结构
+#### 15.7.1 Storage Structure
 
 ```
 evolution/
-├── prompts/                          # Prompt 进化
-│   ├── {role}_v1.json               # 原始版本
-│   ├── {role}_v2.json               # 进化版本 1
-│   └── {role}_v3.json               # 进化版本 2
-├── params/                           # 参数调优历史
-│   ├── tuning_log.ndjson            # 每次调优记录
-│   └── current_params.json          # 当前最优参数
-├── agent_profiles/                   # Agent 性能画像
+├── prompts/                          # Prompt evolution
+│   ├── {role}_v1.json               # Original version
+│   ├── {role}_v2.json               # Evolution version 1
+│   └── {role}_v3.json               # Evolution version 2
+├── params/                           # Parameter tuning history
+│   ├── tuning_log.ndjson            # Each tuning record
+│   └── current_params.json          # Current optimal parameters
+├── agent_profiles/                   # Agent performance profiles
 │   ├── claude-code.json
 │   ├── gemini-cli.json
 │   └── codex.json
-├── failure_patterns/                 # 失败模式知识库
-│   ├── active/                       # 活跃模式
-│   ├── resolved/                     # 已解决模式
-│   └── persistent/                   # 持续问题（需人工介入）
-└── evolution_log.ndjson              # 完整进化日志（审计用）
+├── failure_patterns/                 # Failure pattern knowledge base
+│   ├── active/                       # Active patterns
+│   ├── resolved/                     # Resolved patterns
+│   └── persistent/                   # Persistent issues (requires human intervention)
+└── evolution_log.ndjson              # Complete evolution log (for auditing)
 ```
 
-#### 15.7.2 进化日志格式
+#### 15.7.2 Evolution Log Format
 
 ```json
 {
@@ -1583,114 +1586,114 @@ evolution/
 }
 ```
 
-### 15.8 进化效果验证
+### 15.8 Evolution Effect Validation
 
-#### 15.8.1 验证指标
+#### 15.8.1 Validation Metrics
 
-| 指标 | 计算方式 | 目标 |
+| Metric | Calculation | Goal |
 |------|----------|------|
-| 质量提升 | Judge 评分的移动平均 | 持续上升或稳定 |
-| 效率提升 | 平均轮次 × 平均延迟 | 持续下降 |
-| 成本效率 | 单位质量的 token 成本 | 持续下降 |
-| 失败率 | L2/L3/L4 错误占比 | 持续下降 |
-| 进化成功率 | 被保留的进化动作占比 | > 70% |
+| Quality improvement | Moving average of Judge score | Continuously rising or stable |
+| Efficiency improvement | Average rounds * average latency | Continuously decreasing |
+| Cost efficiency | Token cost per unit quality | Continuously decreasing |
+| Failure rate | L2/L3/L4 error proportion | Continuously decreasing |
+| Evolution success rate | Proportion of retained evolution actions | > 70% |
 
-#### 15.8.2 退化检测
+#### 15.8.2 Degradation Detection
 
-| 条件 | 动作 |
+| Condition | Action |
 |------|------|
-| 连续 3 个 session 质量下降 > 10% | 暂停进化，回滚到最近稳定版本 |
-| 失败率突然上升 > 20% | 触发告警，标记最近一次进化为可疑 |
-| 成本上升 > 30% 且质量未提升 | 回滚参数调优，增加 cost_efficiency 权重 |
+| Quality drops > 10% for 3 consecutive sessions | Pause evolution, rollback to most recent stable version |
+| Failure rate suddenly rises > 20% | Trigger alert, mark most recent evolution as suspicious |
+| Cost rises > 30% without quality improvement | Rollback parameter tuning, increase cost_efficiency weight |
 
-### 15.9 人工治理（Human Governance）
+### 15.9 Human Governance
 
-进化系统并非完全自主，保留人工治理通道：
+The evolution system is not fully autonomous; human governance channels are preserved:
 
-| 操作 | 方式 | 说明 |
+| Operation | Method | Description |
 |------|------|------|
-| 查看进化历史 | `vera evolution list` | 列出所有进化动作及状态 |
-| 审查进化规则 | `vera evolution show {id}` | 查看某次进化的详细信息 |
-| 禁用进化规则 | `vera evolution disable {id}` | 暂停某条进化规则 |
-| 手动添加规则 | `vera evolution add` | 人工写入进化规则 |
-| 重置进化状态 | `vera evolution reset` | 回滚到初始配置 |
-| 导出进化报告 | `vera evolution report` | 生成进化效果分析报告 |
+| View evolution history | `vera evolution list` | List all evolution actions and status |
+| Review evolution rules | `vera evolution show {id}` | View detailed information for a specific evolution |
+| Disable evolution rules | `vera evolution disable {id}` | Pause a specific evolution rule |
+| Manually add rules | `vera evolution add` | Manually write evolution rules |
+| Reset evolution state | `vera evolution reset` | Rollback to initial configuration |
+| Export evolution report | `vera evolution report` | Generate evolution effect analysis report |
 
-### 15.10 与记忆系统的关系
+### 15.10 Relationship with Memory System
 
-| 系统 | 职责 | 关系 |
+| System | Responsibility | Relationship |
 |------|------|------|
-| 记忆系统 | 存储和检索历史知识 | 提供原始数据（session 总结、pattern） |
-| 进化系统 | 分析数据并生成进化动作 | 消费记忆数据，产出可执行的优化 |
-| 失败模式库 | 结构化记录失败经验 | 进化系统的核心输入源 |
-| Agent 画像 | 量化 Agent 表现 | 进化系统的决策依据 |
+| Memory System | Store and retrieve historical knowledge | Provides raw data (session summaries, patterns) |
+| Evolution System | Analyze data and generate evolution actions | Consumes memory data, produces executable optimizations |
+| Failure Pattern KB | Structurally record failure experience | Core input source for evolution system |
+| Agent Profiles | Quantify Agent performance | Decision basis for evolution system |
 
 ```
-Session 结束
-  → 记忆系统：总结 → 存储
-  → 进化引擎：
-      读取记忆数据
-      分析失败模式
-      更新 Agent 画像
-      评估参数效果
-      生成进化动作
-      验证并应用
-  → 新 Session：加载进化上下文 → 执行
+Session ends
+  -> Memory System: Summarize -> Store
+  -> Evolution Engine:
+      Read memory data
+      Analyze failure patterns
+      Update Agent profiles
+      Evaluate parameter effects
+      Generate evolution actions
+      Validate and apply
+  -> New Session: Load evolution context -> Execute
 ```
 
 ---
 
-## 十六、安全与权限（Security & Permission）
+## 16. Security & Permissions
 
-### 16.1 Blackboard 访问控制
+### 16.1 Blackboard Access Control
 
-参见第 8.2 节（写入约束）和第 8.3 节（读取约束）。Orchestrator 在每次读写操作前强制校验。
+See Section 8.2 (Write Constraints) and Section 8.3 (Read Constraints). Orchestrator enforces checks before every read/write operation.
 
-### 16.2 文件系统访问控制
+### 16.2 File System Access Control
 
-| Agent | 工作目录 | 可读路径 | 可写路径 |
+| Agent | Working Directory | Readable Paths | Writable Paths |
 |-------|---------|---------|---------|
-| proposer | `${PROJECT_ROOT}` | 项目全目录 | 项目源码目录 |
-| critic | `${PROJECT_ROOT}` (readonly) | 项目全目录 | 无（只读） |
-| judge | `${PROJECT_ROOT}` (readonly) | 项目全目录 | 无（只读） |
+| proposer | `${PROJECT_ROOT}` | Entire project directory | Project source directory |
+| critic | `${PROJECT_ROOT}` (readonly) | Entire project directory | None (read-only) |
+| judge | `${PROJECT_ROOT}` (readonly) | Entire project directory | None (read-only) |
 
-利用 Agent 内置 sandbox 能力：
-- Claude Code：`--allowedTools` 限制工具集
-- Codex：sandbox 模式（网络隔离 + 目录隔离）
-- 其他 Agent：通过 OS 级权限控制（只读挂载 workdir）
+Leverage Agent built-in sandbox capabilities:
+- Claude Code: `--allowedTools` restrict tool set
+- Codex: sandbox mode (network isolation + directory isolation)
+- Other Agents: OS-level permission control (read-only mount workdir)
 
-### 16.3 密钥与凭证管理
+### 16.3 Key and Credential Management
 
-| 规则 | 说明 |
+| Rule | Description |
 |------|------|
-| API Key 通过环境变量注入 | 不写入配置文件、不出现在日志中 |
-| Agent 进程环境变量互相隔离 | 每个 Agent 只能看到自己的 Key |
-| Blackboard 禁止存储敏感信息 | Orchestrator 拦截并脱敏 |
-| Trace Log 自动脱敏 | 正则匹配 API Key 格式并替换为 `***` |
+| API Keys injected via environment variables | Not written to config files, not appearing in logs |
+| Agent process environment variables isolated from each other | Each Agent only sees its own Key |
+| Blackboard forbids storing sensitive information | Orchestrator intercepts and redacts |
+| Trace Log auto-redaction | Regex match API Key format and replace with `***` |
 
-### 16.4 资源限制
+### 16.4 Resource Limits
 
 ```yaml
 resource_limits:
   per_agent:
-    max_token_per_call: 50000       # 单次调用 token 上限
-    max_memory_mb: 2048             # 进程内存上限
-    max_cpu_percent: 80             # CPU 占用上限
+    max_token_per_call: 50000       # Token cap per single call
+    max_memory_mb: 2048             # Process memory cap
+    max_cpu_percent: 80             # CPU usage cap
 
   per_session:
-    max_total_tokens: 500000        # 整个 session 的 token 上限
-    max_total_cost_usd: 5.00        # 整个 session 的成本上限
-    max_duration_minutes: 30        # 整个 session 的时间上限
+    max_total_tokens: 500000        # Token cap for entire session
+    max_total_cost_usd: 5.00        # Cost cap for entire session
+    max_duration_minutes: 30        # Time cap for entire session
 
   per_day:
-    max_total_cost_usd: 50.00      # 每日成本上限
+    max_total_cost_usd: 50.00      # Daily cost cap
 ```
 
-超限处理：触发软终止，Orchestrator 要求 Judge 基于当前状态做最终决策。
+Exceeded limit handling: Trigger soft termination; Orchestrator requires Judge to make a final decision based on current state.
 
 ---
 
-## 十七、可观测性（Observability）
+## 17. Observability
 
 ### 17.1 Trace Log
 
@@ -1713,40 +1716,40 @@ resource_limits:
 }
 ```
 
-### 17.2 Replay 能力
+### 17.2 Replay Capability
 
-- 每个 session 的完整消息序列存储为 NDJSON 文件
-- 支持完整流程复现（相同输入 + 相同配置 → 可对比输出差异）
-- 存储路径：`sessions/{session_id}/trace.ndjson`
+- Each session's complete message sequence is stored as an NDJSON file
+- Full flow reproduction supported (same input + same config -> comparable output differences)
+- Storage path: `sessions/{session_id}/trace.ndjson`
 
-### 17.3 可视化
+### 17.3 Visualization
 
 ```
-[INIT] → [PROPOSE: claude-code, 3.5s, $0.02]
-       → [CRITIQUE: gemini-cli, 2.1s, $0.01]
-       → [CRITIQUE: codex, 4.2s, $0.02]
-       → [REFINE: claude-code, 3.8s, $0.02]
-       → [DECIDE: claude-code, 2.0s, $0.01]
-       → [END: total 15.6s, $0.08, 3 issues found, score 0.92]
+[INIT] -> [PROPOSE: claude-code, 3.5s, $0.02]
+       -> [CRITIQUE: gemini-cli, 2.1s, $0.01]
+       -> [CRITIQUE: codex, 4.2s, $0.02]
+       -> [REFINE: claude-code, 3.8s, $0.02]
+       -> [DECIDE: claude-code, 2.0s, $0.01]
+       -> [END: total 15.6s, $0.08, 3 issues found, score 0.92]
 ```
 
-### 17.4 成本追踪
+### 17.4 Cost Tracking
 
-| 维度 | 统计项 |
+| Dimension | Statistics |
 |------|--------|
-| 每条消息 | input_tokens, output_tokens, cost_usd |
-| 每个 Agent | 累计 token / 成本 / 调用次数 |
-| 每个角色 | 累计 token / 成本 |
-| 每个 Session | 总 token / 总成本 / 平均每轮成本 |
-| 每日 | 总成本 / 总 session 数 |
+| Per message | input_tokens, output_tokens, cost_usd |
+| Per Agent | Cumulative tokens / cost / call count |
+| Per role | Cumulative tokens / cost |
+| Per Session | Total tokens / total cost / average cost per round |
+| Per day | Total cost / total sessions |
 
-超成本预警：接近 `resource_limits.per_session.max_total_cost_usd` 的 80% 时写入 warn 日志。
+Cost exceedance warning: Write warn log when approaching 80% of `resource_limits.per_session.max_total_cost_usd`.
 
 ---
 
-## 十八、Agent System Prompt 模板
+## 18. Agent System Prompt Templates
 
-Orchestrator 在调用 Agent 时，根据角色注入对应的 System Prompt。以下为各角色的核心指令模板。
+When Orchestrator invokes an Agent, it injects the corresponding System Prompt based on the role. Below are the core instruction templates for each role.
 
 ### Proposer Prompt
 
@@ -1757,7 +1760,7 @@ Your task: {task.description}
 
 Constraints:
 - You MUST respond with a single-line JSON object matching this schema: {output_schema}
-- Do NOT output anything other than the JSON object — no explanations, no markdown, no code fences.
+- Do NOT output anything other than the JSON object -- no explanations, no markdown, no code fences.
 - Include your reasoning in the "reasoning" field.
 - Set "confidence" between 0.0 and 1.0 to reflect how confident you are in your solution.
 - If you believe the task is fully resolved, set "terminate": true.
@@ -1804,7 +1807,7 @@ Rules:
 - Do NOT output anything other than the JSON object.
 ```
 
-### Rejection Retry Prompt（追加到原 prompt 后）
+### Rejection Retry Prompt (appended to original prompt)
 
 ```
 The user rejected your previous output for the following reason:
@@ -1815,52 +1818,52 @@ Please revise your approach and try again. Address the user's concern directly.
 
 ---
 
-## 十九、CLI 用户交互设计
+## 19. CLI User Interaction Design
 
-### 启动 Session
+### Starting a Session
 
 ```bash
-# 使用指定 flow 配置启动
+# Start with specified flow config
 vera run --flow configs/flows/code-review.yaml --task "Review auth module"
 
-# 使用最简配置
+# Start with minimal config
 vera run --flow minimal --task "Fix login bug"
 
-# 传入运行时变量
+# Pass runtime variables
 vera run --flow code-review.yaml --task "..." --var MODEL=claude-sonnet-4-20250514
 ```
 
-### 运行时交互
+### Runtime Interaction
 
-| 快捷键 | 说明 |
+| Shortcut | Description |
 |--------|------|
-| `Ctrl+C` | 优雅终止：触发所有 Agent 的 `terminate_request`，等待 `terminate_ack`，保存 trace |
-| `Ctrl+C` ×2 | 强制终止：立即杀所有子进程，保存已有 trace |
-| `p` | 暂停：暂停调度，等待中的 Agent 继续执行直到返回 |
-| `r` | 恢复：恢复调度 |
-| `s` | 状态：打印当前 FSM 状态、轮次、成本 |
+| `Ctrl+C` | Graceful termination: Trigger `terminate_request` to all Agents, wait for `terminate_ack`, save trace |
+| `Ctrl+C` x2 | Force termination: Immediately kill all child processes, save existing trace |
+| `p` | Pause: Pause scheduling, in-progress Agents continue until return |
+| `r` | Resume: Resume scheduling |
+| `s` | Status: Print current FSM state, round, cost |
 
-### Session 优雅终止流程
+### Session Graceful Termination Flow
 
 ```
-用户 Ctrl+C
-  → Orchestrator 设置 terminating = true
-  → 向所有活跃 Agent 发送 terminate_request
-  → 等待 terminate_ack（超时 10s）
-  → 超时未响应的 Agent：SIGTERM → 等待 5s → SIGKILL
-  → 回滚未提交的文件变更（git checkpoint restore）
-  → 保存当前 Blackboard 快照 + Trace Log
-  → 输出 Session Summary（轮次、成本、终止原因）
-  → 退出
+User presses Ctrl+C
+  -> Orchestrator sets terminating = true
+  -> Send terminate_request to all active Agents
+  -> Wait for terminate_ack (timeout 10s)
+  -> Agents not responding within timeout: SIGTERM -> wait 5s -> SIGKILL
+  -> Rollback uncommitted file changes (git checkpoint restore)
+  -> Save current Blackboard snapshot + Trace Log
+  -> Output Session Summary (rounds, cost, termination reason)
+  -> Exit
 ```
 
 ---
 
-## 二十、协议版本管理
+## 20. Protocol Versioning
 
-### 消息级版本
+### Message-Level Versioning
 
-每条消息携带 `protocol_version` 字段：
+Each message carries a `protocol_version` field:
 
 ```json
 {
@@ -1871,38 +1874,38 @@ vera run --flow code-review.yaml --task "..." --var MODEL=claude-sonnet-4-202505
 }
 ```
 
-### 兼容性规则
+### Compatibility Rules
 
-| 版本变化 | 处理方式 |
+| Version Change | Handling |
 |----------|----------|
-| 相同主版本（如 1.0 → 1.1） | 向后兼容，忽略未知字段 |
-| 不同主版本（如 1.x → 2.x） | 握手阶段拒绝，要求升级 |
+| Same major version (e.g. 1.0 -> 1.1) | Backward compatible, ignore unknown fields |
+| Different major version (e.g. 1.x -> 2.x) | Reject during handshake, require upgrade |
 
-### Blackboard 快照持久化
+### Blackboard Snapshot Persistence
 
-为防止进程崩溃导致 session 数据丢失，Blackboard 在每次写入后异步持久化：
+To prevent session data loss due to process crashes, Blackboard is asynchronously persisted after each write:
 
 ```
-sessions/{session_id}/blackboard.json     # 最新快照
-sessions/{session_id}/blackboard.wal.ndjson  # 写入日志（WAL）
+sessions/{session_id}/blackboard.json     # Latest snapshot
+sessions/{session_id}/blackboard.wal.ndjson  # Write-ahead log (WAL)
 ```
 
-崩溃恢复：从最新 `blackboard.json` + `blackboard.wal.ndjson` 中未持久化的条目重建状态。
+Crash recovery: Rebuild state from the latest `blackboard.json` + un-persisted entries in `blackboard.wal.ndjson`.
 
 ---
 
-## 二十一、TypeScript 类型定义
+## 21. TypeScript Type Definitions
 
 ### protocol.ts
 
 ```typescript
-/** 消息角色 */
+/** Message role */
 type AgentRole = "proposer" | "critic" | "judge";
 
-/** 业务消息类型 */
+/** Business message type */
 type BusinessMessageType = "proposal" | "critique" | "revision" | "decision";
 
-/** 系统消息类型 */
+/** System message type */
 type SystemMessageType =
   | "session_init"
   | "ping"
@@ -1917,10 +1920,10 @@ type SystemMessageType =
   | "round_start"
   | "blackboard_delta";
 
-/** Issue 严重程度 */
+/** Issue severity */
 type IssueSeverity = "low" | "medium" | "high" | "critical";
 
-/** Critique 中的单条问题 */
+/** Single issue in a critique */
 interface Issue {
   id: string;
   description: string;
@@ -1929,7 +1932,7 @@ interface Issue {
   suggestion?: string;
 }
 
-/** 各业务消息的 content schema */
+/** Content schema for each business message */
 interface ProposalContent {
   solution: string;
   reasoning: string;
@@ -1955,7 +1958,7 @@ interface DecisionContent {
   dissent?: string;
 }
 
-/** 文件变更描述 */
+/** File change description */
 interface FileChange {
   path: string;
   action: "added" | "modified" | "deleted";
@@ -1963,7 +1966,7 @@ interface FileChange {
   deletions?: number;
 }
 
-/** 审批请求 */
+/** Approval request */
 interface ApprovalRequest {
   type: "approval_request";
   session_id: string;
@@ -1975,7 +1978,7 @@ interface ApprovalRequest {
   timestamp: string;
 }
 
-/** 审批响应 */
+/** Approval response */
 interface ApprovalResponse {
   type: "approval_response";
   session_id: string;
@@ -1986,13 +1989,13 @@ interface ApprovalResponse {
   timestamp: string;
 }
 
-/** Token 用量 */
+/** Token usage */
 interface TokenUsage {
   input: number;
   output: number;
 }
 
-/** 消息元数据 */
+/** Message metadata */
 interface MessageMetadata {
   agent_name: string;
   model: string;
@@ -2000,7 +2003,7 @@ interface MessageMetadata {
   latency_ms?: number;
 }
 
-/** 业务消息（Agent → Orchestrator） */
+/** Business message (Agent -> Orchestrator) */
 interface BusinessMessage {
   protocol_version: string;
   id: string;
@@ -2016,7 +2019,7 @@ interface BusinessMessage {
   metadata?: MessageMetadata;
 }
 
-/** 系统消息 */
+/** System message */
 interface SystemMessage {
   type: SystemMessageType;
   session_id?: string;
@@ -2024,14 +2027,14 @@ interface SystemMessage {
   payload?: Record<string, unknown>;
 }
 
-/** 统一消息类型 */
+/** Unified message type */
 type AgentMessage = BusinessMessage | SystemMessage;
 ```
 
 ### agent.ts
 
 ```typescript
-/** Agent 能力声明（Agent Card） */
+/** Agent capability declaration (Agent Card) */
 interface AgentCard {
   name: string;
   version: string;
@@ -2056,10 +2059,10 @@ interface AgentCard {
   };
 }
 
-/** Adapter 运行模式 */
+/** Adapter run mode */
 type AdapterMode = "single-shot" | "long-running";
 
-/** Adapter 配置 */
+/** Adapter configuration */
 interface AgentAdapterConfig {
   name: string;
   command: string;
@@ -2076,7 +2079,7 @@ interface AgentAdapterConfig {
   };
 }
 
-/** Agent 进程状态 */
+/** Agent process state */
 type AgentProcessState =
   | "init"
   | "starting"
@@ -2087,7 +2090,7 @@ type AgentProcessState =
   | "recovering"
   | "terminated";
 
-/** Agent 进程句柄 */
+/** Agent process handle */
 interface AgentProcess {
   id: string;
   adapter_name: string;
@@ -2098,7 +2101,7 @@ interface AgentProcess {
   last_activity_at: string;
 }
 
-/** 健康检查状态 */
+/** Health check status */
 interface HealthStatus {
   alive: boolean;
   state: AgentProcessState;
@@ -2110,14 +2113,14 @@ interface HealthStatus {
 ### blackboard.ts
 
 ```typescript
-/** Blackboard 任务描述 */
+/** Blackboard task description */
 interface BlackboardTask {
   description: string;
   context: Record<string, unknown>;
   constraints: Record<string, unknown>;
 }
 
-/** Blackboard 元数据 */
+/** Blackboard metadata */
 interface BlackboardMeta {
   session_id: string;
   round: number;
@@ -2127,7 +2130,7 @@ interface BlackboardMeta {
   version: number;
 }
 
-/** Blackboard 完整状态 */
+/** Blackboard complete state */
 interface BlackboardState {
   task: BlackboardTask;
   proposals: BusinessMessage[];
@@ -2137,17 +2140,17 @@ interface BlackboardState {
   meta: BlackboardMeta;
 }
 
-/** Blackboard 可写字段 */
+/** Blackboard writable fields */
 type BlackboardWritableField = "proposals" | "critiques" | "revisions" | "final_decision";
 
-/** 写入约束映射 */
+/** Write constraint mapping */
 const WRITE_PERMISSIONS: Record<AgentRole, BlackboardWritableField[]> = {
   proposer: ["proposals", "revisions"],
   critic: ["critiques"],
   judge: ["final_decision"],
 };
 
-/** Blackboard 写入请求 */
+/** Blackboard write request */
 interface BlackboardWriteRequest {
   field: BlackboardWritableField;
   expected_version: number;
@@ -2155,7 +2158,7 @@ interface BlackboardWriteRequest {
   writer_role: AgentRole;
 }
 
-/** Blackboard 写入结果 */
+/** Blackboard write result */
 type BlackboardWriteResult =
   | { success: true; new_version: number }
   | { success: false; error: "permission_denied" | "version_conflict" | "validation_error"; message: string };
@@ -2164,22 +2167,22 @@ type BlackboardWriteResult =
 ### flow.ts
 
 ```typescript
-/** FSM 状态名 */
+/** FSM state name */
 type FSMStateName = "INIT" | "PROPOSE" | "CRITIQUE" | "REFINE" | "DECIDE" | "AWAITING_APPROVAL" | "END" | string;
 
-/** Fan-in 策略 */
+/** Fan-in strategy */
 type FanInStrategy = "merge" | "vote" | "first";
 
-/** 错误处理策略 */
+/** Error handling strategy */
 type ErrorStrategy = "retry" | "skip" | "abort";
 
-/** 审批触发模式 */
+/** Approval trigger mode */
 type ApprovalMode = boolean | "on_file_change";
 
-/** 审批超时行为 */
+/** Approval timeout action */
 type ApprovalTimeoutAction = "pause" | "accept" | "abort";
 
-/** 流程步骤定义 */
+/** Flow step definition */
 interface FlowStep {
   state: FSMStateName;
   agent?: string;
@@ -2199,13 +2202,13 @@ interface FlowStep {
   inquiry?: InquiryConfig;
 }
 
-/** 角色映射 */
+/** Role mapping */
 interface RoleMapping {
   primary: string;
   fallback: string[];
 }
 
-/** 终止条件配置 */
+/** Termination config */
 interface TerminationConfig {
   max_rounds: number;
   convergence_epsilon?: number;
@@ -2214,7 +2217,7 @@ interface TerminationConfig {
   min_rounds?: number;
 }
 
-/** 完整流程配置 */
+/** Complete flow configuration */
 interface FlowConfig {
   name: string;
   description?: string;
@@ -2228,10 +2231,10 @@ interface FlowConfig {
 ### session.ts
 
 ```typescript
-/** Session 状态 */
+/** Session status */
 type SessionStatus = "pending" | "running" | "completed" | "failed" | "aborted";
 
-/** Session 配置 */
+/** Session configuration */
 interface SessionConfig {
   flow: FlowConfig;
   adapters: Record<string, AgentAdapterConfig>;
@@ -2242,7 +2245,7 @@ interface SessionConfig {
   };
 }
 
-/** Trace 条目 */
+/** Trace entry */
 interface TraceEntry {
   session_id: string;
   step: number;
@@ -2261,7 +2264,7 @@ interface TraceEntry {
   timestamp: string;
 }
 
-/** Session 结果 */
+/** Session result */
 interface SessionResult {
   session_id: string;
   status: SessionStatus;
@@ -2279,85 +2282,85 @@ interface SessionResult {
 
 ---
 
-## 二十二、项目目录结构
+## 22. Project Directory Structure
 
 ```
 multi-agent-mvp/
 ├── docs/
-│   ├── mvp.prd.md                    # 本文档
-│   ├── decisions/                     # ADR（架构决策记录）
+│   ├── mvp.prd.md                    # This document
+│   ├── decisions/                     # ADR (Architecture Decision Records)
 │   │   └── 001-custom-protocol.md
-│   └── examples/                      # 可运行示例
+│   └── examples/                      # Runnable examples
 │       ├── code-review.yaml
 │       ├── architecture-decision.yaml
 │       └── bug-diagnosis.yaml
 ├── src/
-│   ├── types/                         # TypeScript 类型定义
+│   ├── types/                         # TypeScript type definitions
 │   │   ├── protocol.ts
 │   │   ├── agent.ts
 │   │   ├── blackboard.ts
 │   │   ├── flow.ts
 │   │   ├── session.ts
 │   │   └── index.ts
-│   ├── adapters/                      # Agent 适配器
-│   │   ├── base.ts                    # IAgentAdapter 接口
+│   ├── adapters/                      # Agent adapters
+│   │   ├── base.ts                    # IAgentAdapter interface
 │   │   ├── claude-code.ts
 │   │   ├── codex.ts
 │   │   ├── gemini-cli.ts
 │   │   └── opencode.ts
-│   ├── transport/                     # 传输层
-│   │   ├── ndjson-stream.ts           # NDJSON 编解码
-│   │   ├── subprocess.ts             # 子进程管理
-│   │   └── heartbeat.ts              # 心跳检测
-│   ├── orchestrator/                  # 编排引擎
-│   │   ├── fsm.ts                    # 状态机
-│   │   ├── scheduler.ts             # 步骤调度
-│   │   └── orchestrator.ts          # 主编排器
+│   ├── transport/                     # Transport layer
+│   │   ├── ndjson-stream.ts           # NDJSON encoding/decoding
+│   │   ├── subprocess.ts             # Subprocess management
+│   │   └── heartbeat.ts              # Heartbeat detection
+│   ├── orchestrator/                  # Orchestration engine
+│   │   ├── fsm.ts                    # State machine
+│   │   ├── scheduler.ts             # Step scheduler
+│   │   └── orchestrator.ts          # Main orchestrator
 │   ├── blackboard/
-│   │   ├── blackboard.ts            # Blackboard 实现
-│   │   ├── lock.ts                  # 并发锁
-│   │   └── validator.ts             # Schema 校验
+│   │   ├── blackboard.ts            # Blackboard implementation
+│   │   ├── lock.ts                  # Concurrency lock
+│   │   └── validator.ts             # Schema validation
 │   ├── error/
-│   │   ├── retry.ts                 # 重试策略
-│   │   ├── circuit-breaker.ts       # 断路器
-│   │   └── fallback.ts              # 降级策略
+│   │   ├── retry.ts                 # Retry strategy
+│   │   ├── circuit-breaker.ts       # Circuit breaker
+│   │   └── fallback.ts              # Fallback strategy
 │   ├── registry/
-│   │   └── registry.ts              # Agent 注册表
+│   │   └── registry.ts              # Agent registry
 │   ├── security/
-│   │   ├── permission.ts            # 权限校验
-│   │   └── sanitizer.ts             # 日志脱敏
+│   │   ├── permission.ts            # Permission validation
+│   │   └── sanitizer.ts             # Log sanitization
 │   ├── memory/
-│   │   ├── session-memory.ts        # 短期记忆
-│   │   ├── working-memory.ts        # 中期记忆
-│   │   └── knowledge-memory.ts      # 长期记忆
+│   │   ├── session-memory.ts        # Short-term memory
+│   │   ├── working-memory.ts        # Medium-term memory
+│   │   └── knowledge-memory.ts      # Long-term memory
 │   ├── observability/
 │   │   ├── tracer.ts                # Trace Log
-│   │   ├── cost-tracker.ts          # 成本追踪
-│   │   └── replay.ts               # Replay 引擎
-│   └── index.ts                     # 入口
+│   │   ├── cost-tracker.ts          # Cost tracking
+│   │   └── replay.ts               # Replay engine
+│   └── index.ts                     # Entry point
 ├── configs/
-│   ├── agents.yaml                   # Agent 注册表
-│   ├── adapters.yaml                # Adapter 配置
+│   ├── agents.yaml                   # Agent registry
+│   ├── adapters.yaml                # Adapter config
 │   └── flows/
 │       ├── code-review.yaml
 │       ├── architecture-decision.yaml
 │       └── bug-diagnosis.yaml
-├── sessions/                         # Session 数据（运行时生成）
+├── sessions/                         # Session data (runtime generated)
 │   └── {session_id}/
 │       ├── trace.ndjson
 │       ├── blackboard.json
-│       ├── blackboard.wal.ndjson     # Blackboard WAL（崩溃恢复用）
+│       ├── blackboard.wal.ndjson     # Blackboard WAL (for crash recovery)
 │       └── result.json
 ├── package.json
 ├── tsconfig.json
-└── AGENTS.md                         # Agent 可读入口文档
+└── AGENTS.md                         # Agent-readable entry document
 ```
 
 ---
 
-## 二十三、时序图
+## 23. Sequence Diagrams
 
-### 22.1 Agent 启动与注册（长连接模式）
+### 23.1 Agent Startup and Registration (Long-Running Mode)
 
 ```mermaid
 sequenceDiagram
@@ -2365,14 +2368,14 @@ sequenceDiagram
     participant A as Agent Process
 
     O->>A: spawn(command, args, env)
-    Note over A: 进程启动
+    Note over A: Process startup
     A->>O: capability_declaration (Agent Card)
-    O->>O: 校验能力 + 注册
+    O->>O: Validate capability + register
     O->>A: session_init (task, role, blackboard)
-    Note over A: 进入 READY 状态
+    Note over A: Enter READY state
 ```
 
-### 22.2 完整协作周期（Happy Path）
+### 23.2 Complete Collaboration Cycle (Happy Path)
 
 ```mermaid
 sequenceDiagram
@@ -2382,13 +2385,13 @@ sequenceDiagram
     participant J as Judge (Claude Code)
     participant B as Blackboard
 
-    Note over O: FSM: INIT → PROPOSE
+    Note over O: FSM: INIT -> PROPOSE
     O->>P: session_init + task context
     P->>O: proposal {solution, confidence: 0.75}
     O->>B: write proposals[] (version CAS)
     B-->>O: write success (v1)
 
-    Note over O: FSM: PROPOSE → CRITIQUE
+    Note over O: FSM: PROPOSE -> CRITIQUE
     O->>B: read proposals (filtered: no reasoning)
     B-->>O: proposals snapshot
     O->>C: session_init + proposals snapshot
@@ -2396,7 +2399,7 @@ sequenceDiagram
     O->>B: write critiques[]
     B-->>O: write success (v2)
 
-    Note over O: FSM: CRITIQUE → REFINE (severity >= high)
+    Note over O: FSM: CRITIQUE -> REFINE (severity >= high)
     O->>B: read critiques
     B-->>O: critiques snapshot
     O->>P: critiques + original task
@@ -2404,18 +2407,18 @@ sequenceDiagram
     O->>B: write revisions[]
     B-->>O: write success (v3)
 
-    Note over O: FSM: REFINE → DECIDE
+    Note over O: FSM: REFINE -> DECIDE
     O->>B: read all (full access for judge)
     B-->>O: full blackboard snapshot
     O->>J: full context
     J->>O: decision {chosen, score: 0.92, confidence: 0.90}
     O->>B: write final_decision
 
-    Note over O: FSM: DECIDE → END (confidence > 0.85)
-    O->>O: 生成 SessionResult
+    Note over O: FSM: DECIDE -> END (confidence > 0.85)
+    O->>O: Generate SessionResult
 ```
 
-### 22.3 错误恢复
+### 23.3 Error Recovery
 
 ```mermaid
 sequenceDiagram
@@ -2426,22 +2429,22 @@ sequenceDiagram
     O->>A: send task
     A--xO: timeout (no response in 120s)
 
-    Note over O: L1: 重试 #1
+    Note over O: L1: Retry #1
     O->>A: retry same task
     A->>O: malformed JSON
 
-    Note over O: L2: 追加修正指令 + 重试
+    Note over O: L2: Append correction instruction + retry
     O->>A: retry with correction prompt
     A--xO: process crash (exit code 1)
 
-    Note over O: L3: 进程崩溃，重启失败，切换 fallback
+    Note over O: L3: Process crash, restart failed, switch to fallback
     O->>A: terminate
     O->>F: spawn + session_init (same context)
     F->>O: proposal {solution, confidence: 0.80}
-    Note over O: 恢复正常流程
+    Note over O: Resume normal flow
 ```
 
-### 22.4 并行执行（Fan-out / Fan-in）
+### 23.4 Parallel Execution (Fan-out / Fan-in)
 
 ```mermaid
 sequenceDiagram
@@ -2460,25 +2463,25 @@ sequenceDiagram
     C2->>O: critique {issues: [b, c], severity: medium}
 
     Note over O: Fan-in (strategy: merge)
-    O->>O: 合并去重 issues: [a, b, c]
+    O->>O: Merge & deduplicate issues: [a, b, c]
     O->>O: max_severity = high
     O->>B: write critiques[] (merged)
     B-->>O: write success
 
-    Note over O: 继续下一状态
+    Note over O: Continue to next state
 ```
 
 ---
 
-## 二十四、完整配置示例
+## 24. Complete Configuration Examples
 
-### 场景一：Code Review 辩论
+### Scenario 1: Code Review Debate
 
 ```yaml
 # configs/flows/code-review.yaml
 flow:
   name: "code-review-debate"
-  description: "多 Agent 代码审查，proposer 提交方案，两个 critic 并行审查，judge 做最终判定"
+  description: "Multi-agent code review: proposer submits solution, two critics review in parallel, judge makes final decision"
   max_rounds: 4
 
   role_mapping:
@@ -2504,7 +2507,7 @@ flow:
       timeout_ms: 60000
       on_error: retry
       on_timeout: retry
-      require_approval: "on_file_change"   # 文件变更时需人工审批
+      require_approval: "on_file_change"   # Human approval on file changes
 
     - state: CRITIQUE
       parallel: true
@@ -2513,7 +2516,7 @@ flow:
         - codex
       fan_in: merge
       timeout_ms: 90000
-      on_error: skip        # 一个 critic 失败不阻塞
+      on_error: skip        # One critic failing does not block
       on_timeout: skip
 
     - state: REFINE
@@ -2526,18 +2529,18 @@ flow:
       agent: judge
       timeout_ms: 60000
       on_error: retry
-      require_approval: true               # 最终决策需人工确认
+      require_approval: true               # Final decision requires human confirmation
 
     - state: END
 ```
 
-### 场景二：架构决策（竞争方案）
+### Scenario 2: Architecture Decision (Competing Proposals)
 
 ```yaml
 # configs/flows/architecture-decision.yaml
 flow:
   name: "architecture-decision"
-  description: "两个 proposer 分别提方案，critic 分别评审，judge 对比决策"
+  description: "Two proposers submit competing proposals, critic reviews each, judge compares and decides"
   max_rounds: 3
 
   role_mapping:
@@ -2556,7 +2559,7 @@ flow:
     min_confidence: 0.80
 
   steps:
-    # 两个 proposer 并行提方案
+    # Two proposers submit in parallel
     - state: PROPOSE
       parallel: true
       agents:
@@ -2565,14 +2568,14 @@ flow:
       fan_in: merge
       timeout_ms: 90000
 
-    # 统一评审
+    # Unified review
     - state: CRITIQUE
       agent: codex
       repeat: 2
       break_condition: "new_issues == 0"
       timeout_ms: 60000
 
-    # judge 对比两个方案 + critique 结果
+    # Judge compares two proposals + critique results
     - state: DECIDE
       agent: judge
       timeout_ms: 60000
@@ -2580,13 +2583,13 @@ flow:
     - state: END
 ```
 
-### 场景三：Bug 诊断（收敛式）
+### Scenario 3: Bug Diagnosis (Convergent)
 
 ```yaml
 # configs/flows/bug-diagnosis.yaml
 flow:
   name: "bug-diagnosis"
-  description: "proposer 提出诊断假设，critic 反驳，多轮收敛到高置信度"
+  description: "Proposer suggests diagnostic hypotheses, critic refutes, multiple rounds converge to high confidence"
   max_rounds: 6
 
   role_mapping:
@@ -2621,7 +2624,7 @@ flow:
       condition: "critic_max_severity >= medium"
       timeout_ms: 60000
 
-    # 循环 CRITIQUE → REFINE 直到收敛
+    # Loop CRITIQUE -> REFINE until convergence
     - state: CRITIQUE
       agent: critic
       repeat: 3
@@ -2637,52 +2640,52 @@ flow:
 
 ---
 
-## 二十五、MVP 设计
+## 25. MVP Scope
 
-### 25.1 MVP 范围（v0.1）
+### 25.1 MVP Scope (v0.1)
 
-#### Must-Have（P0）
+#### Must-Have (P0)
 
-- [x] Agent Protocol 消息格式 + TypeScript 类型定义
-- [x] 至少 2 个 Agent Adapter（Claude Code + 一个其他 Agent）
-- [x] NDJSON Transport（single-shot 模式）
-- [x] 基础 FSM Orchestrator（线性流程）
-- [x] Blackboard（内存实现，带写入约束）
-- [x] 最大轮次终止
-- [x] YAML FlowConfig 加载
+- [x] Agent Protocol message format + TypeScript type definitions
+- [x] At least 2 Agent Adapters (Claude Code + one other Agent)
+- [x] NDJSON Transport (single-shot mode)
+- [x] Basic FSM Orchestrator (linear flow)
+- [x] Blackboard (in-memory implementation, with write constraints)
+- [x] Max rounds termination
+- [x] YAML FlowConfig loading
 
-#### Nice-to-Have（P1）
+#### Nice-to-Have (P1)
 
-- [ ] Human-in-the-Loop（`require_approval` 审批流程）
-- [ ] 第 3-4 个 Agent Adapter
-- [ ] 心跳检测（长连接模式）
-- [ ] 错误重试（L1-L2）
-- [ ] 并行步骤（fan-out / fan-in）
-- [ ] Trace Log + 成本追踪
+- [ ] Human-in-the-Loop (`require_approval` approval flow)
+- [ ] 3rd and 4th Agent Adapters
+- [ ] Heartbeat detection (long-running mode)
+- [ ] Error retry (L1-L2)
+- [ ] Parallel steps (fan-out / fan-in)
+- [ ] Trace Log + Cost tracking
 
-#### Future（P2）
+#### Future (P2)
 
 - [ ] Circuit Breaker
-- [ ] Agent 降级与替换
-- [ ] 记忆系统
-- [ ] Replay 引擎
-- [ ] 安全权限模型
-- [ ] 向量数据库记忆检索
-- [ ] 自进化系统（Prompt 进化 / 参数调优 / Agent 画像）
-- [ ] 失败模式知识库
+- [ ] Agent degradation and replacement
+- [ ] Memory system
+- [ ] Replay engine
+- [ ] Security permission model
+- [ ] Vector database memory retrieval
+- [ ] Self-evolution system (Prompt evolution / Parameter tuning / Agent profiling)
+- [ ] Failure pattern knowledge base
 
-### 25.2 MVP 实现优先级
+### 25.2 MVP Implementation Priority
 
-| 周 | 目标 | 交付物 |
+| Week | Goal | Deliverables |
 |-----|------|--------|
-| Week 1 | 类型 + 传输 + 基础编排 | types/, transport/ndjson-stream.ts, adapters/claude-code.ts + 一个其他 adapter, orchestrator/fsm.ts, blackboard/blackboard.ts |
-| Week 2 | 错误处理 + 完整适配 | error/retry.ts, heartbeat.ts, 剩余 adapters, validator.ts |
-| Week 3 | 并发 + 可观测 + 安全 | scheduler.ts (parallel), tracer.ts, cost-tracker.ts, permission.ts |
+| Week 1 | Types + Transport + Basic orchestration | types/, transport/ndjson-stream.ts, adapters/claude-code.ts + one other adapter, orchestrator/fsm.ts, blackboard/blackboard.ts |
+| Week 2 | Error handling + Complete adapters | error/retry.ts, heartbeat.ts, remaining adapters, validator.ts |
+| Week 3 | Concurrency + Observability + Security | scheduler.ts (parallel), tracer.ts, cost-tracker.ts, permission.ts |
 
-### 25.3 MVP 最小可运行配置
+### 25.3 MVP Minimal Runnable Configuration
 
 ```yaml
-# 最简配置：单 proposer + 单 critic + judge
+# Minimal config: single proposer + single critic + judge
 flow:
   name: "minimal"
   max_rounds: 3
@@ -2708,93 +2711,93 @@ flow:
 
 ---
 
-## 二十六、演进路径
+## 26. Evolution Roadmap
 
-### v1（当前目标）
+### v1 (Current Target)
 
-- [x] Agent Protocol + TypeScript 类型定义
-- [x] FSM 调度器
-- [x] Blackboard（内存 + 写入约束）
-- [x] 2+ Agent Adapter（subprocess single-shot）
+- [x] Agent Protocol + TypeScript type definitions
+- [x] FSM Scheduler
+- [x] Blackboard (in-memory + write constraints)
+- [x] 2+ Agent Adapters (subprocess single-shot)
 - [x] NDJSON Transport
-- [x] 基础终止机制
+- [x] Basic termination mechanism
 - [x] Trace Log
-- [ ] 基础错误重试
+- [ ] Basic error retry
 
 ### v2
 
-- [ ] Human-in-the-Loop 完整实现（审批流程 + CLI 交互）
-- [ ] 插件化 Agent（动态加载 Adapter）
-- [ ] 长连接模式（MCP Server stdio）
-- [ ] 工具调用代理（browser / API / file system）
-- [ ] 权限控制完整实现
-- [ ] 记忆系统（Session + Working Memory）
-- [ ] Circuit Breaker + 降级
-- [ ] 并行执行（fan-out / fan-in）
-- [ ] Replay 引擎
-- [ ] Blackboard WAL 持久化 + 崩溃恢复
+- [ ] Human-in-the-Loop full implementation (approval flow + CLI interaction)
+- [ ] Pluggable Agents (dynamic Adapter loading)
+- [ ] Long-running mode (MCP Server stdio)
+- [ ] Tool call proxy (browser / API / file system)
+- [ ] Full permission control implementation
+- [ ] Memory system (Session + Working Memory)
+- [ ] Circuit Breaker + degradation
+- [ ] Parallel execution (fan-out / fan-in)
+- [ ] Replay engine
+- [ ] Blackboard WAL persistence + crash recovery
 
 ### v3
 
-- [ ] 多任务并发（多 session 并行）
-- [ ] Agent Runtime（独立服务化）
-- [ ] Knowledge Memory（向量检索）
-- [ ] AI OS 内核化（与 harness 深度集成）
-- [ ] Web UI（可视化编排 + 实时监控）
-- [ ] 跨机器调度（可选引入 HTTP/A2A）
+- [ ] Multi-task concurrency (multiple sessions in parallel)
+- [ ] Agent Runtime (standalone service)
+- [ ] Knowledge Memory (vector retrieval)
+- [ ] AI OS kernelization (deep integration with harness)
+- [ ] Web UI (visual orchestration + real-time monitoring)
+- [ ] Cross-machine scheduling (optional HTTP/A2A)
 
-### v4（自进化）
+### v4 (Self-Evolution)
 
-- [ ] 失败模式知识库（Failure Pattern KB）
-- [ ] Prompt 自动进化引擎
-- [ ] FlowConfig 参数自动调优（贝叶斯优化）
-- [ ] Agent 性能画像与智能选择
-- [ ] 进化效果验证 + 退化检测
-- [ ] CLI 进化治理命令（list / show / disable / reset）
+- [ ] Failure pattern knowledge base (Failure Pattern KB)
+- [ ] Prompt auto-evolution engine
+- [ ] FlowConfig parameter auto-tuning (Bayesian optimization)
+- [ ] Agent performance profiling and intelligent selection
+- [ ] Evolution effect validation + degradation detection
+- [ ] CLI evolution governance commands (list / show / disable / reset)
 
 ---
 
-## 二十七、关键风险
+## 27. Key Risks
 
-| # | 风险 | 影响 | 缓解措施 |
+| # | Risk | Impact | Mitigation |
 |---|------|------|----------|
-| 1 | 无协议 → 系统不可控 | Agent 输出不可预测，无法自动化处理 | 强制 JSON Schema 校验 + L2 错误处理 |
-| 2 | 无结构 → 无法自动化处理 | Blackboard 数据不一致 | 写入约束 + 乐观锁 |
-| 3 | 无终止 → 无限消耗 token | 成本失控 | 硬终止 max_rounds + 成本上限 |
-| 4 | 无观测 → 无法 debug | 问题难以排查 | Trace Log + Replay |
-| 5 | CLI 接口不稳定 | Agent CLI 工具版本更新破坏 Adapter | Adapter 抽象隔离 + 版本锁定 + 适配测试 |
-| 6 | 输出格式差异大 | 不同 Agent 的 JSON 结构化能力参差不齐 | 强制 prompt 约束 + 输出校验 + 重试修正 |
-| 7 | 成本失控 | 多 Agent 并行 + 多轮重试导致 token 消耗爆炸 | 资源限制 + 成本追踪 + 预警机制 |
-| 8 | 人工审批阻塞 | 用户长时间不响应导致 session 挂起 | 审批超时 + 可配置超时行为（pause/accept/abort） |
-| 9 | Reject 死循环 | 用户反复 reject 但 Agent 无法改进 | `max_rejections` 限制 + 超限自动终止 |
-| 10 | 崩溃丢失状态 | 进程崩溃导致 Blackboard 和 Trace 数据丢失 | Blackboard WAL 持久化 + Trace 实时写入 |
+| 1 | No protocol -> System uncontrollable | Agent output unpredictable, cannot automate processing | Enforce JSON Schema validation + L2 error handling |
+| 2 | No structure -> Cannot automate | Blackboard data inconsistency | Write constraints + optimistic locking |
+| 3 | No termination -> Unlimited token consumption | Cost spiraling | Hard termination max_rounds + cost cap |
+| 4 | No observability -> Cannot debug | Issues hard to diagnose | Trace Log + Replay |
+| 5 | Unstable CLI interfaces | Agent CLI tool version updates break Adapters | Adapter abstraction isolation + version pinning + adaptation tests |
+| 6 | Large output format differences | Different Agents have varying JSON structuring capabilities | Enforce prompt constraints + output validation + retry correction |
+| 7 | Cost spiraling | Multi-agent parallel + multi-round retry leads to token consumption explosion | Resource limits + cost tracking + early warning |
+| 8 | Human approval blocking | User not responding for long periods causes session hang | Approval timeout + configurable timeout behavior (pause/accept/abort) |
+| 9 | Rejection infinite loop | User repeatedly rejects but Agent cannot improve | `max_rejections` limit + auto-terminate on exceeded limit |
+| 10 | Crash loses state | Process crash causes Blackboard and Trace data loss | Blackboard WAL persistence + Trace real-time writing |
 
 ---
 
-## 二十八、总结
+## 28. Summary
 
-该系统本质为：
+This system is essentially:
 
-> 一个"可编排、多角色、结构化输出"的本地多智能体运行时（Agent Runtime），
-> 通过 subprocess + NDJSON 自定义协议驱动 Claude Code / Codex / Gemini CLI / OpenCode 协作。
+> An "orchestrable, multi-role, structured-output" local multi-agent runtime (Agent Runtime),
+> driving Claude Code / Codex / Gemini CLI / OpenCode collaboration through subprocess + NDJSON custom protocol.
 
-核心成功要素：
+Core success factors:
 
-| 要素 | 对应章节 |
+| Factor | Corresponding Chapter |
 |------|---------|
-| 接入层（Adapter Layer） | 第三章 |
-| 传输协议（Transport Protocol） | 第四章 |
-| 能力注册（Agent Registry） | 第五章 |
-| 协议化（Agent Protocol） | 第六章 |
-| 状态机 + Human-in-the-Loop（FSM + HITL） | 第九章 |
-| Adapter 配置（adapters.yaml） | 第十章 |
-| 黑板（Blackboard） | 第八章 |
-| 错误处理（Error Handling） | 第十二章 |
-| 防止 Groupthink（共识偏移） | 第十三章 |
-| 记忆系统（Memory） | 第十四章 |
-| 自进化系统（Self-Evolution） | 第十五章 |
-| 安全权限（Security） | 第十六章 |
-| 可观测性（Observability） | 第十七章 |
-| System Prompt 模板 | 第十八章 |
-| CLI 用户交互 | 第十九章 |
-| 协议版本管理 | 第二十章 |
+| Adapter Layer | Chapter 3 |
+| Transport Protocol | Chapter 4 |
+| Agent Registry | Chapter 5 |
+| Agent Protocol | Chapter 6 |
+| FSM + Human-in-the-Loop (HITL) | Chapter 9 |
+| Adapter Configuration (adapters.yaml) | Chapter 10 |
+| Blackboard | Chapter 8 |
+| Error Handling | Chapter 12 |
+| Preventing Groupthink | Chapter 13 |
+| Memory System | Chapter 14 |
+| Self-Evolution System | Chapter 15 |
+| Security & Permissions | Chapter 16 |
+| Observability | Chapter 17 |
+| System Prompt Templates | Chapter 18 |
+| CLI User Interaction | Chapter 19 |
+| Protocol Versioning | Chapter 20 |

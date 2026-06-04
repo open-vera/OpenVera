@@ -1,51 +1,51 @@
-# 项目上下文
+# Project Context
 
-Vera 在启动 agent 时，从文件系统加载项目上下文（Project Context），将其拼接为系统提示词（system prompt）的一部分注入 LLM。上下文由多层级的 `VERA.md`、`CLAUDE.md` 和 `.vera/rules/` 规则文件组成，支持路径作用域、优先级排序、文件引用展开和 Git 状态注入。
+When Vera starts an agent, it loads project context from the filesystem and assembles it as part of the system prompt injected into the LLM. Context is composed of multi-level `VERA.md`, `CLAUDE.md`, and `.vera/rules/` rule files, supporting path scoping, priority ordering, file reference expansion, and git status injection.
 
 ---
 
-## 架构总览
+## Architecture Overview
 
 ```
-加载流程
-  用户目录
-    ├── ~/.vera/VERA.md              ← 用户级上下文
-    └── ~/.vera/rules/*.md           ← 用户级规则
+Loading flow
+  User directory
+    ├── ~/.vera/VERA.md              ← User-level context
+    └── ~/.vera/rules/*.md           ← User-level rules
           │
-  项目层级（从 cwd 向上遍历到根）
-    ├── <dir>/VERA.md                 ← 项目级上下文
-    ├── <dir>/.vera/VERA.md           ← 项目资源上下文
-    ├── <dir>/.vera/rules/*.md        ← 项目规则
-    └── <dir>/VERA.local.md           ← 本地私有上下文（已 gitignore）
+  Project hierarchy (traversed upward from cwd to root)
+    ├── <dir>/VERA.md                 ← Project-level context
+    ├── <dir>/.vera/VERA.md           ← Project resource context
+    ├── <dir>/.vera/rules/*.md        ← Project rules
+    └── <dir>/VERA.local.md           ← Local private context (gitignored)
           │
-  Git 状态快照
+  Git status snapshot
     └── branch + status + recent commits
           │
-  合并 → 排序 → 格式化 → VeraContextFile[]
+  Merge → Sort → Format → VeraContextFile[]
           │
-  注入 LLM system prompt
+  Inject into LLM system prompt
 ```
 
-核心代码在 `packages/core/src/project-context/loader.ts` 中。
+Core code is in `packages/core/src/project-context/loader.ts`.
 
 ---
 
-## 上下文文件类型
+## Context File Types
 
-| 类型 | 值 | 说明 |
+| Type | Value | Description |
 |---|---|---|
-| `user` | `"user"` | 用户私有指令（`~/.vera/` 下），所有项目共享 |
-| `project` | `"project"` | 项目指令（项目目录下的 `VERA.md`、`CLAUDE.md`） |
-| `local` | `"local"` | 本地私有指令（`VERA.local.md`，不入版本控制） |
-| `rule` | `"rule"` | 路径作用域规则（`.vera/rules/*.md`） |
+| `user` | `"user"` | User private instructions (under `~/.vera/`), shared across all projects |
+| `project` | `"project"` | Project instructions (`VERA.md`, `CLAUDE.md` under project directories) |
+| `local` | `"local"` | Local private instructions (`VERA.local.md`, not version-controlled) |
+| `rule` | `"rule"` | Path-scoped rules (`.vera/rules/*.md`) |
 
 ---
 
-## 上下文文件格式
+## Context File Format
 
 ### VERA.md / CLAUDE.md
 
-标准 Markdown 文件，支持 YAML frontmatter：
+Standard Markdown files, supporting YAML frontmatter:
 
 ```markdown
 ---
@@ -53,43 +53,43 @@ paths: src/**/*.ts, lib/**/*.ts
 priority: -10
 ---
 
-# Vera — 项目约束
+# Vera — Project Constraints
 
-## 敏感文件保护
+## Sensitive File Protection
 
-以下文件/目录包含本地密钥或临时数据，**任何情况下都不得提交**：
+The following files/directories contain local keys or temporary data and **must never be committed**:
 ...
 ```
 
-### YAML Frontmatter 字段
+### YAML Frontmatter Fields
 
-| 字段 | 类型 | 说明 |
+| Field | Type | Description |
 |---|---|---|
-| `paths` | string | 逗号/空格分隔的 glob 路径。限定此文件在哪些文件修改时生效 |
-| `priority` | number | 整数排序优先级。越小越靠前（排序时升序），默认 0 |
+| `paths` | string | Comma/space-separated glob paths. Limits when this file takes effect (based on which files are modified) |
+| `priority` | number | Integer sorting priority. Lower values appear first (ascending sort), default 0 |
 
-- `paths` 为空或不包含 `paths` 字段时，上下文无条件生效（适用于全局项目规则）
-- `priority` 用于控制多文件拼接顺序，优先级值小的排在提示词前面
+- When `paths` is empty or absent, the context takes effect unconditionally (suitable for global project rules)
+- `priority` controls the concatenation order of multiple files; files with lower priority values appear earlier in the prompt
 
-### 文件引用展开
+### File Reference Expansion
 
-Markdown 正文中支持 `@path/to/file` 语法引用其他文件，引用的文件内容会自动递归展开插入（最多嵌套 5 层）：
+The Markdown body supports `@path/to/file` syntax to reference other files. Referenced file content is automatically expanded recursively (max 5 nesting levels):
 
 ```markdown
-请参考以下文件：
+Please refer to the following files:
 @docs/api-design.md
 @~/shared-conventions.md
 ```
 
-- `@relative/path` 相对于当前文件的目录解析
-- `@/absolute/path` 解析为绝对路径
-- `@~/path` 从用户 home 目录展开
-- 被引用文件的 frontmatter 同样会被解析
-- 只展开文本文件（支持 60+ 常见扩展名）
+- `@relative/path` resolves relative to the current file's directory
+- `@/absolute/path` resolves as an absolute path
+- `@~/path` expands from the user's home directory
+- Referenced file frontmatter is also parsed
+- Only text files are expanded (supports 60+ common extensions)
 
 ---
 
-## 加载顺序
+## Loading Order
 
 ### loadProjectContext
 
@@ -98,38 +98,38 @@ import { loadProjectContext } from "@open-vera/core";
 
 const ctx = loadProjectContext({
   cwd: "/path/to/project",
-  includeUser: true,        // 是否包含用户级上下文，默认 true
-  includeGitStatus: true,   // 是否注入 Git 状态，默认 true
+  includeUser: true,        // Whether to include user-level context, default true
+  includeGitStatus: true,   // Whether to inject git status, default true
 });
 
-console.log(ctx.files.length); // 上下文文件数
-console.log(ctx.gitStatus);    // Git 状态快照文本
-console.log(ctx.system);       // 格式化后的完整系统提示词
-console.log(ctx.signature);    // 内容签名（用于检测上下文变化）
+console.log(ctx.files.length); // Number of context files
+console.log(ctx.gitStatus);    // Git status snapshot text
+console.log(ctx.system);       // Formatted full system prompt
+console.log(ctx.signature);    // Content signature (for detecting context changes)
 ```
 
-**加载顺序（自上而下）：**
+**Loading order (top to bottom):**
 
-1. 用户级上下文
-   - `~/.vera/VERA.md`（type: `user`）
-   - `~/.vera/rules/*.md`（type: `user`）
+1. User-level context
+   - `~/.vera/VERA.md` (type: `user`)
+   - `~/.vera/rules/*.md` (type: `user`)
 
-2. 项目级上下文（从 cwd 向上遍历到根目录，每层执行以下步骤）
-   - `<dir>/VERA.md`（type: `project`）
-   - `<dir>/.vera/VERA.md`（type: `project`）
-   - `<dir>/.vera/rules/*.md`（type: `rule`）
-   - `<dir>/VERA.local.md`（type: `local`）
+2. Project-level context (traversed upward from cwd to root, performing the following at each level)
+   - `<dir>/VERA.md` (type: `project`)
+   - `<dir>/.vera/VERA.md` (type: `project`)
+   - `<dir>/.vera/rules/*.md` (type: `rule`)
+   - `<dir>/VERA.local.md` (type: `local`)
 
-3. Git 状态快照（默认开启）
-   - 当前分支名
-   - `git status --short`（截断到 2000 字符）
+3. Git status snapshot (enabled by default)
+   - Current branch name
+   - `git status --short` (truncated to 2000 characters)
    - `git log --oneline -n 5`
 
-所有文件加载后按 `priority` 升序排序（同 priority 按路径字母序），最终格式化为一条完整的系统提示词。
+All files are sorted by `priority` ascending (same priority by path alphabetically), then formatted into a single complete system prompt.
 
 ### loadNestedProjectContext
 
-用于子目录或子 agent 执行时的局部上下文加载，只加载从 cwd 到 targetPath 路径上的上下文文件：
+Used for loading local context during sub-directory or sub-agent execution, only loading context files along the path from cwd to targetPath:
 
 ```typescript
 import { loadNestedProjectContext } from "@open-vera/core";
@@ -137,155 +137,155 @@ import { loadNestedProjectContext } from "@open-vera/core";
 const nestedCtx = loadNestedProjectContext({
   cwd: "/path/to/project",
   targetPath: "packages/core/src/session/",
-  loadedPaths: new Set(), // 已加载的文件路径（避免重复）
+  loadedPaths: new Set(), // Already loaded file paths (to avoid duplicates)
 });
 ```
 
-与 `loadProjectContext` 的区别：
-- 不加载用户级上下文（不读 `~/.vera/`）
-- 不注入 Git 状态
-- 只遍历 `cwd → targetPath` 的目录链，不向上到文件系统根
-- 对 rules 文件应用 glob 匹配过滤（仅含匹配 `targetPath` 的规则）
+Differences from `loadProjectContext`:
+- Does not load user-level context (does not read `~/.vera/`)
+- Does not inject git status
+- Only traverses the `cwd -> targetPath` directory chain, not upward to filesystem root
+- Applies glob matching filter to rules files (only includes rules matching `targetPath`)
 
 ---
 
-## 路径作用域规则
+## Path-Scoped Rules
 
-### 工作原理
+### How They Work
 
-`<dir>/.vera/rules/` 目录下的 Markdown 文件可以有 `paths` frontmatter 字段限定生效范围：
+Markdown files under `<dir>/.vera/rules/` can have a `paths` frontmatter field to limit their scope:
 
 ```markdown
 ---
 paths: packages/core/src/**/*.ts, packages/core/src/**/*.tsx
 ---
 
-# Core 包开发规范
+# Core Package Development Conventions
 
-- 使用 strict TypeScript
-- 所有接口定义在 types.ts 中
+- Use strict TypeScript
+- All interfaces defined in types.ts
 ```
 
-此文件仅在 agent 操作 `packages/core/src/` 下的 `.ts`/`.tsx` 文件时才会加载到上下文中。操作其他目录的文件时，此规则不注入。
+This file is only loaded into context when the agent operates on `.ts`/`.tsx` files under `packages/core/src/`. When operating on files in other directories, this rule is not injected.
 
-### Glob 转换规则
+### Glob Conversion Rules
 
-| 模式 | 正则 | 匹配 |
+| Pattern | Regex | Matches |
 |---|---|---|
-| `*.ts` | `[^/]*\.ts$` | 当前目录下的 .ts 文件 |
-| `src/**/*.ts` | `(?:.*/)?[^/]*\.ts$` | src 下任意层级的 .ts 文件 |
-| `config?.json` | `config[^/]\.json$` | config.json, configs.json 等 |
-| `lib/[a-z]*.js` | `lib/[a-z][^/]*\.js$` | lib 下小写字母开头的 .js 文件 |
+| `*.ts` | `[^/]*\.ts$` | .ts files in the current directory |
+| `src/**/*.ts` | `(?:.*/)?[^/]*\.ts$` | .ts files at any depth under src |
+| `config?.json` | `config[^/]\.json$` | config.json, configs.json, etc. |
+| `lib/[a-z]*.js` | `lib/[a-z][^/]*\.js$` | .js files starting with lowercase letters under lib |
 
-### 嵌套目录规则
+### Nested Directory Rules
 
-在 `loadNestedProjectContext` 中，沿路径链的每个目录都加载其规则，但只有 glob 匹配 `targetPath` 的规则才会生效。
+In `loadNestedProjectContext`, each directory along the path chain loads its rules, but only rules whose glob matches `targetPath` take effect.
 
-例如，targetPath 为 `packages/core/src/session/store.ts`，路径链为：
+For example, with targetPath `packages/core/src/session/store.ts`, the path chain is:
 ```
-/root → /root/packages → /root/packages/core → /root/packages/core/src
+/root -> /root/packages -> /root/packages/core -> /root/packages/core/src
 ```
 
-每层的 rules 目录都会被扫描，但 `packages/harness/**` 的规则不会注入，因为它不匹配 targetPath。
+The rules directory at each level is scanned, but a rule scoped to `packages/harness/**` would not be injected since it doesn't match the targetPath.
 
 ---
 
-## 格式化输出
+## Formatting Output
 
-`formatVeraContext` 将上下文文件列表拼接为一段完整文本：
+`formatVeraContext` concatenates the list of context files into a single text block:
 
 ```
 Contents of /path/to/VERA.md (project instructions):
 
-<文件内容>
+<file content>
 
 Contents of /path/to/CLAUDE.md (project instructions):
 
-<文件内容>
+<file content>
 
 Contents of /path/to/.vera/rules/api-rules.md (project rule)
 Applies to: packages/api/**/*.ts
 
-<文件内容>
+<file content>
 
 Vera project and user instructions are shown below. Follow them when working in this repository.
 ```
 
-格式包含：
-- 每个文件的 `path`、`type` 标签
-- 有 `globs` 的显示 "Applies to: ..."
-- 有 `priority` 的显示 "Priority: ..."
-- 开头有引导语提示 LLM 遵守这些指令
-- Git 状态包裹在 `<vera-git-status>` XML 标签中
+The format includes:
+- Each file's `path`, `type` label
+- `globs` shown with "Applies to: ..." when present
+- `priority` shown with "Priority: ..." when present
+- A leading instruction telling the LLM to follow these instructions
+- Git status wrapped in a `<vera-git-status>` XML tag
 
-### 内容截断
+### Content Truncation
 
-单个文件超过 40,000 字符时自动截断并追加 `[truncated]` 标记。截断在整字符边界，不破坏 UTF-8 编码。
-
----
-
-## 缓存机制
-
-文件读取有基于 `mtimeMs` 的内存缓存（`fileCache`），避免短时间内重复读取同一文件。包括 `@include` 展开后的子文件在内都会得到缓存。
+Individual files exceeding 40,000 characters are automatically truncated with a `[truncated]` marker appended. Truncation occurs at whole-character boundaries, preserving UTF-8 encoding.
 
 ---
 
-## 签名机制
+## Caching Mechanism
 
-`signatureFor` 生成内容签名字符串，由各文件的 `path:type:priority:contentLength` 和 gitStatus 拼接而成。签名用于检测上下文变化，触发缓存失效等场景。
+File reads have an in-memory cache based on `mtimeMs` (`fileCache`), avoiding repeated reads of the same file within a short time. This includes sub-files expanded via `@include`.
 
 ---
 
-## 配置示例
+## Signature Mechanism
 
-### 全局用户上下文
+`signatureFor` generates a content signature string composed of each file's `path:type:priority:contentLength` and the gitStatus. The signature is used to detect context changes and trigger cache invalidation.
 
-`~/.vera/VERA.md`：
+---
+
+## Configuration Examples
+
+### Global User Context
+
+`~/.vera/VERA.md`:
 
 ```markdown
-# 我的编码风格偏好
+# My Coding Style Preferences
 
-- 优先使用 async/await，避免 raw Promise
-- 函数不超过 50 行
-- 所有公共 API 必须有 JSDoc 注释
+- Prefer async/await over raw Promises
+- Functions should not exceed 50 lines
+- All public APIs must have JSDoc comments
 ```
 
-### 全局规则
+### Global Rules
 
-`~/.vera/rules/security.md`：
+`~/.vera/rules/security.md`:
 
 ```markdown
 ---
 priority: -100
 ---
 
-# 安全规则
+# Security Rules
 
-所有项目都必须遵循：
-- 不在代码中硬编码 API Key
-- 敏感配置使用环境变量
-- 所有用户输入必须转义
+All projects must follow:
+- Do not hardcode API Keys in code
+- Use environment variables for sensitive configuration
+- All user input must be escaped
 ```
 
-### 项目级上下文
+### Project-Level Context
 
-`/project/VERA.md`：
+`/project/VERA.md`:
 
 ```markdown
 ---
 priority: 0
 ---
 
-# MyProject — 项目约束
+# MyProject — Project Constraints
 
 - TypeScript strict mode
 - pnpm monorepo
-- 覆盖率 ≥ 90%
+- Coverage >= 90%
 ```
 
-### 路径作用域规则
+### Path-Scoped Rules
 
-`/project/.vera/rules/frontend.md`：
+`/project/.vera/rules/frontend.md`:
 
 ```markdown
 ---
@@ -293,30 +293,30 @@ paths: webapp/**/*.tsx, webapp/**/*.ts
 priority: 10
 ---
 
-# 前端开发规范
+# Frontend Development Conventions
 
-- 使用 React 18 + hooks
-- 组件命名用 PascalCase
-- 样式使用 CSS Modules
+- Use React 18 + hooks
+- Component naming in PascalCase
+- Styles use CSS Modules
 ```
 
-### 本地私密上下文
+### Local Private Context
 
-`/project/VERA.local.md`：
+`/project/VERA.local.md`:
 
 ```markdown
-# 本地开发笔记
+# Local Development Notes
 
-- 测试数据库连接：postgres://localhost:5432/testdb
-- 调试时设置 DEBUG=* 查看详细日志
+- Test database connection: postgres://localhost:5432/testdb
+- Set DEBUG=* for detailed logs when debugging
 ```
 
-此文件已 gitignore，不会提交到仓库。
+This file is gitignored and will not be committed to the repository.
 
 ---
 
-## 与 Agent 执行的关系
+## Relationship with Agent Execution
 
-1. **主 Agent**：每次启动时，`loadProjectContext(cwd)` 加载完整上下文注入 system prompt
-2. **子 Agent**：执行时 `loadNestedProjectContext(cwd, targetPath)` 加载局部上下文，只包含目标路径相关的规则
-3. **上下文签名**：通过 `signature` 检测上下文变化，决定是否需要重新生成执行计划
+1. **Main Agent**: On each startup, `loadProjectContext(cwd)` loads full context and injects it into the system prompt
+2. **Sub-agents**: During execution, `loadNestedProjectContext(cwd, targetPath)` loads local context containing only rules relevant to the target path
+3. **Context signature**: Detects context changes via `signature` to decide whether the execution plan needs regeneration

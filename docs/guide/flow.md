@@ -1,57 +1,57 @@
-# Flow 配置与使用
+# Flow Configuration and Usage
 
-> Flow 是 Vera Harness 的多阶段任务编排框架。通过声明式 Markdown 定义阶段、Agent 分工和依赖关系，由状态机驱动的运行时自动执行、评估、重试和恢复。
+> Flow is Vera Harness's multi-stage task orchestration framework. It defines stages, agent assignments, and dependencies through declarative Markdown, with a state-machine-driven runtime that automatically executes, evaluates, retries, and recovers.
 
 ---
 
-## 概述
+## Overview
 
-Flow 将复杂任务拆解为有序的阶段流水线（Pipeline），每个阶段由指定 Agent 执行，阶段间通过 DAG 控制并行度。运行时内置 Plan Mode 生成执行计划，Critique 循环评估结果，Checkpoint 机制保障断点续跑。
+Flow decomposes complex tasks into ordered stage pipelines, where each stage is executed by a designated agent and stages are scheduled in parallel via a DAG. The runtime features built-in Plan Mode for generating execution plans, Critique cycles for evaluating results, and a Checkpoint mechanism for resuming from interruptions.
 
-| 能力 | 说明 |
+| Capability | Description |
 |---|---|
-| 声明式定义 | Markdown frontmatter + 结构化正文，无需写代码 |
-| 多 Agent 协作 | 不同阶段可指派不同 Agent（独立 model / skills / rules / mcp） |
-| DAG 调度 | 通过 `dependsOn` 声明依赖，无依赖的阶段自动并行 |
-| 自动评估 | 每阶段执行后进入 Critiquing 状态，LLM 评估是否通过 |
-| 重试与重规划 | 未通过可 retry，严重偏离触发 replan |
-| Checkpoint 持久化 | 阶段边界自动保存 JSONL Checkpoint，中断后可恢复 |
+| Declarative definition | Markdown frontmatter + structured body, no code required |
+| Multi-agent collaboration | Different stages can assign different agents (with independent model / skills / rules / mcp) |
+| DAG scheduling | Dependencies declared via `dependsOn`; independent stages run in parallel automatically |
+| Automatic evaluation | Each stage enters the Critiquing state after execution for LLM-based pass/fail assessment |
+| Retry and replan | Retry on failure; trigger replan on significant deviation |
+| Checkpoint persistence | JSONL checkpoints auto-saved at stage boundaries; resumable after interruption |
 
 ---
 
-## 目录结构
+## Directory Structure
 
-所有 Flow 定义存放在项目的 `.vera/flows/` 下：
+All Flow definitions are stored under the project's `.vera/flows/`:
 
 ```
 .vera/flows/
-├── flow/                          # Flow 定义（可以有多个）
+├── flow/                          # Flow definitions (can have multiple)
 │   └── <name>/
-│       └── main.md                # Flow 入口定义（必须）
-├── stages/                        # 可复用阶段模板（可选）
-│   └── <name>/
-│       └── main.md
-├── agents/                        # Agent 角色定义（可选）
+│       └── main.md                # Flow entry definition (required)
+├── stages/                        # Reusable stage templates (optional)
 │   └── <name>/
 │       └── main.md
-└── iterations/                    # 执行产物输出（自动生成）
-    └── <flow-name>/<flow-id>/     # 每次运行唯一 ID
+├── agents/                        # Agent role definitions (optional)
+│   └── <name>/
+│       └── main.md
+└── iterations/                    # Execution artifacts (auto-generated)
+    └── <flow-name>/<flow-id>/     # Unique ID per run
 ```
 
-- **flow/** — 每个 Flow 一个子目录。只有存在至少一个含 `main.md` 的子目录，CLI 才识别为有效的 Flow 项目。
-- **stages/** — 可复用阶段模板。Flow 中通过 `stage` 字段引用此处的目录名，运行时加载 `stages/<name>/main.md` 中的指令正文。
-- **agents/** — 可复用 Agent 角色。每个 Agent 可指定独立 model、adapter、skills、rules、mcp 和 systemPrompt。
-- **iterations/** — 自动生成的产物目录，含 timeline、plan JSON、step results、critique 结果等。
+- **flow/** — One subdirectory per Flow. The CLI recognizes a valid Flow project only if at least one subdirectory containing `main.md` exists.
+- **stages/** — Reusable stage templates. Flows reference the directory name here via the `stage` field; the runtime loads the instruction body from `stages/<name>/main.md`.
+- **agents/** — Reusable agent roles. Each agent can specify an independent model, adapter, skills, rules, mcp, and systemPrompt.
+- **iterations/** — Auto-generated artifacts directory containing timeline, plan JSON, step results, critique results, etc.
 
 ---
 
-## Flow 定义格式 (main.md)
+## Flow Definition Format (main.md)
 
-### 完整结构
+### Full Structure
 
 ```markdown
 ---
-name: 代码审查流水线
+name: Code Review Pipeline
 max_retries: 3
 max_parallel: 2
 workspace: ../..
@@ -59,7 +59,7 @@ workspace: ../..
 
 # Goal
 
-审查当前分支相对于 main 的代码变更，检查安全性、性能和代码风格。
+Review code changes on the current branch relative to main, checking security, performance, and code style.
 
 ## Stages
 
@@ -74,20 +74,20 @@ workspace: ../..
   dependsOn: [security-scan]
 ```
 
-### Frontmatter 字段
+### Frontmatter Fields
 
-| 字段 | 类型 | 必填 | 默认值 | 说明 |
+| Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `name` | string | 否 | 目录名 | Flow 显示名称 |
-| `max_retries` | number | 否 | `3` | 阶段失败时的最大重试次数 |
-| `max_parallel` | number | 否 | `3` | 同时并行执行的阶段数上限 |
-| `workspace` | string | 否 | `../..` | 工作目录相对于 `.vera/flows/` 的路径 |
+| `name` | string | No | Directory name | Flow display name |
+| `max_retries` | number | No | `3` | Max retries on stage failure |
+| `max_parallel` | number | No | `3` | Max concurrent stage executions |
+| `workspace` | string | No | `../..` | Working directory relative to `.vera/flows/` |
 
-### # Goal / 目标
+### # Goal
 
-一级标题 `# Goal` 或 `# 目标` 段落声明核心目标。运行时提取第一行非空文本作为 `ExecutionPlan.goal`。
+The `# Goal` heading section declares the core objective. The runtime extracts the first non-empty line of text as `ExecutionPlan.goal`.
 
-解析代码（`parser.ts`）：
+Parsing code (`parser.ts`):
 ```typescript
 function extractGoal(body: string): string {
   const match = body.match(/(?:^|\n)#\s+(?:Goal|目标)\s*\n([\s\S]*?)(?=\n#|$)/);
@@ -98,53 +98,53 @@ function extractGoal(body: string): string {
 
 ### ## Stages
 
-YAML 风格列表，每项定义一个阶段：
+A YAML-style list where each item defines a stage:
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 |---|---|---|---|
-| `id` | string | 是 | 阶段唯一标识，用于依赖引用和日志追踪 |
-| `stage` | string | 否 | 引用的阶段模板名（`stages/` 目录下子目录名），省略时等于 `id` |
-| `agents` | string[] | 否 | 该阶段绑定的 Agent 列表。优先级高于阶段模板中定义的 `agents` |
-| `depends_on` / `dependsOn` | string[] | 否 | 依赖的前置阶段 ID 列表 |
+| `id` | string | Yes | Unique stage identifier, used for dependency references and log tracking |
+| `stage` | string | No | Referenced stage template name (subdirectory name under `stages/`); defaults to `id` if omitted |
+| `agents` | string[] | No | Agent list bound to this stage. Overrides agents defined in the stage template |
+| `depends_on` / `dependsOn` | string[] | No | List of prerequisite stage IDs |
 
-依赖关系形成 DAG，运行时在 `dispatchStep()` 中检测循环依赖并抛错。无依赖的阶段可并行，`max_parallel` 控制并发上限。
+Dependencies form a DAG. The runtime detects circular dependencies in `dispatchStep()` and throws an error. Independent stages can run in parallel, with `max_parallel` controlling concurrency.
 
 ---
 
-## 阶段模板 (stages/<name>/main.md)
+## Stage Templates (stages/<name>/main.md)
 
 ```markdown
 ---
-name: 代码分析
+name: Code Analysis
 agents: [analyzer]
 ---
 
-请对代码进行以下检查：
-1. 安全漏洞（SQL 注入、XSS、CSRF）
-2. 敏感信息泄露（API Key 硬编码）
-3. 依赖风险（已知漏洞版本）
+Please perform the following checks on the code:
+1. Security vulnerabilities (SQL injection, XSS, CSRF)
+2. Sensitive information exposure (hardcoded API Keys)
+3. Dependency risks (known vulnerable versions)
 
 ## Exit Criteria
 
-所有检查项必须通过。如有 high/critical 发现，本阶段视为未通过。
+All checks must pass. If any high/critical findings are present, this stage is considered failed.
 ```
 
-| Frontmatter 字段 | 类型 | 说明 |
+| Frontmatter Field | Type | Description |
 |---|---|---|
-| `name` | string | 阶段显示名称 |
-| `agents` | string[] | 默认 Agent 列表（Flow 中 Stage 级别的 `agents` 会覆盖） |
+| `name` | string | Stage display name |
+| `agents` | string[] | Default agent list (overridden by Flow-level Stage `agents`) |
 
 ### Exit Criteria
 
-`## Exit Criteria` 或 `## 准出标准` 段落定义阶段通过条件。运行时将其注入步骤提示词（`stepPromptByStepId`），LLM 在 Critique 阶段据此评估。未定义则使用默认启发式评估。
+The `## Exit Criteria` section defines stage pass conditions. The runtime injects this into the step prompt (`stepPromptByStepId`); the LLM evaluates against it during the Critique phase. If undefined, default heuristic evaluation is used.
 
 ---
 
-## Agent 定义 (agents/<name>/main.md)
+## Agent Definitions (agents/<name>/main.md)
 
 ```markdown
 ---
-name: 安全检查员
+name: Security Inspector
 model: claude-sonnet-4-20250514
 adapter: anthropic
 skills: [quality-scan, security-review]
@@ -152,68 +152,68 @@ rules: [coding-standards]
 mcp: [km-mcp-server]
 ---
 
-你是一位资深安全工程师，专注于 Web 应用安全审查。
+You are a senior security engineer specializing in web application security review.
 
-职责：
-1. 检查代码变更中的安全漏洞
-2. 评估第三方依赖的安全性
-3. 输出结构化审查报告
+Responsibilities:
+1. Check code changes for security vulnerabilities
+2. Assess third-party dependency security
+3. Output a structured review report
 ```
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | 否 | Agent 显示名称 |
-| `model` | string | 否 | 指定模型，不指定则使用 CLI 全局 `--model` |
-| `adapter` | string | 否 | LLM 适配器，不指定则使用 CLI 全局 `--provider` |
-| `skills` | string[] | 否 | 可见 skill 列表，限制可用工具范围 |
-| `rules` | string[] | 否 | 可见规则文件列表 |
-| `mcp` | string[] | 否 | 可访问的 MCP 服务器列表 |
-| 正文 | - | 是 | 完整系统提示词（systemPrompt） |
+| `name` | string | No | Agent display name |
+| `model` | string | No | Specified model; falls back to CLI global `--model` if unset |
+| `adapter` | string | No | LLM adapter; falls back to CLI global `--provider` if unset |
+| `skills` | string[] | No | Visible skill list, constraining available tool scope |
+| `rules` | string[] | No | Visible rule file list |
+| `mcp` | string[] | No | Accessible MCP server list |
+| body | - | Yes | Full system prompt (systemPrompt) |
 
-skills/rules/mcp 定义了 Agent 的可见性边界。未配置时继承全局默认 SkillBundle（所有资源均可用）。运行时在加载阶段打印每个 Agent 配置：
+skills/rules/mcp define the agent's visibility boundary. When unconfigured, the global default SkillBundle is inherited (all resources available). The runtime prints each agent's configuration during loading:
 
 ```
   Loading 3 agent roles from .vera/flows/agents/...
-  ✓ analyzer: 安全检查员 (model: claude-sonnet-4-20250514)
-  ✓ coder: 代码实现者
-  ✓ reviewer: 代码审查员
+  ✓ analyzer: Security Inspector (model: claude-sonnet-4-20250514)
+  ✓ coder: Code Implementer
+  ✓ reviewer: Code Reviewer
 ```
 
 ---
 
-## CLI 命令
+## CLI Commands
 
 ### openvera run
 
 ```bash
-openvera run                  # 只有 1 个 Flow 时自动选择
-openvera run code-review      # 指定 Flow 名称
+openvera run                  # Auto-select when only 1 Flow exists
+openvera run code-review      # Specify Flow name
 openvera run --dir /path/to/project --model claude-sonnet-4-20250514
 openvera run --max-steps 20 --skip-plan-critique
 ```
 
-| 参数 | 说明 |
+| Parameter | Description |
 |---|---|
-| `--dir` | 项目根目录（默认当前目录） |
-| `--flow` | Flow 名称（默认自动检测唯一的 Flow） |
-| `--model` | 覆盖全局模型 |
-| `--provider` | 覆盖全局 LLM 提供商 |
-| `--api-key` | API Key（也可通过 settings.json 配置） |
-| `--artifacts-dir` | 产物输出目录 |
-| `--max-steps` | 最大执行步数上限 |
-| `--skip-plan-critique` | 跳过执行前的 Plan Critique 评估 |
+| `--dir` | Project root directory (defaults to current directory) |
+| `--flow` | Flow name (auto-detects the unique Flow by default) |
+| `--model` | Override global model |
+| `--provider` | Override global LLM provider |
+| `--api-key` | API Key (can also be configured via settings.json) |
+| `--artifacts-dir` | Artifact output directory |
+| `--max-steps` | Max execution step limit |
+| `--skip-plan-critique` | Skip pre-execution Plan Critique evaluation |
 
-多个 Flow 时未指定名称会报错：
+When multiple Flows exist and no name is specified, an error is shown:
 ```
 Multiple flows found: code-review, deploy. Specify one with openvera run <name>.
 ```
 
-### 输出示例
+### Example Output
 
 ```
   Vera Harness — Flow Runner
   Flow:      code-review
-  Plan:      3 steps — 审查当前分支代码变更
+  Plan:      3 steps — Review code changes on current branch
   Model:     claude-sonnet-4-20250514
 
   Critiquing plan...
@@ -234,27 +234,27 @@ Multiple flows found: code-review, deploy. Specify one with openvera run <name>.
 
 ---
 
-## 状态机
+## State Machine
 
-Flow 执行流转于 11 个状态，转换由 `flow-state.ts` 的 `VALID_TRANSITIONS` 表严格约束。
+Flow execution transitions through 11 states, with transitions strictly governed by the `VALID_TRANSITIONS` table in `flow-state.ts`.
 
-### 完整状态转换表
+### Full State Transition Table
 
-| 当前状态 | 含义 | 可跳转到 |
+| Current State | Meaning | Can Transition To |
 |---|---|---|
-| `intaking` | 入口：接收输入，解析目标 | `planning`, `completed` |
-| `planning` | 规划中：生成 ExecutionPlan | `dispatching`, `failed` |
-| `dispatching` | 调度中：选择下一个待执行步骤 | `executing`, `completed`, `waiting_approval`, `failed` |
-| `executing` | 执行中：Agent 执行步骤 | `waiting_tool`, `waiting_approval`, `critiquing`, `failed` |
-| `waiting_tool` | 等待工具：工具调用进行中 | `executing`, `failed` |
-| `waiting_approval` | 等待审批：高风险操作需确认 | `executing`, `dispatching`, `failed`, `paused` |
-| `critiquing` | 评估中：LLM 评估步骤结果 | `dispatching`, `replanning`, `waiting_approval`, `completed` |
-| `replanning` | 重规划：偏离目标，重新生成 | `dispatching`, `failed` |
-| `paused` | 已暂停：人工介入中 | `dispatching`, `executing`, `failed` |
-| `completed` | **终态**：全部成功 | - |
-| `failed` | **终态**：失败或不可修复 | - |
+| `intaking` | Entry: receiving input, parsing goal | `planning`, `completed` |
+| `planning` | Planning: generating ExecutionPlan | `dispatching`, `failed` |
+| `dispatching` | Dispatching: selecting next pending step | `executing`, `completed`, `waiting_approval`, `failed` |
+| `executing` | Executing: agent running a step | `waiting_tool`, `waiting_approval`, `critiquing`, `failed` |
+| `waiting_tool` | Waiting for tool: tool call in progress | `executing`, `failed` |
+| `waiting_approval` | Waiting for approval: high-risk operation needs confirmation | `executing`, `dispatching`, `failed`, `paused` |
+| `critiquing` | Evaluating: LLM assessing step results | `dispatching`, `replanning`, `waiting_approval`, `completed` |
+| `replanning` | Replanning: deviated from goal, regenerating | `dispatching`, `failed` |
+| `paused` | Paused: manual intervention in progress | `dispatching`, `executing`, `failed` |
+| `completed` | **Terminal**: all successful | - |
+| `failed` | **Terminal**: failed or unrecoverable | - |
 
-### 正常执行路径
+### Normal Execution Path
 
 ```
 intaking -> planning -> dispatching -> executing <-> waiting_tool
@@ -262,159 +262,159 @@ intaking -> planning -> dispatching -> executing <-> waiting_tool
                                          critiquing -> dispatching -> ... -> completed
 ```
 
-### Critique 分支
+### Critique Branches
 
 ```
 critiquing -> replanning -> dispatching -> ...
-critiquing -> waiting_approval -> (人工审批) -> dispatching
+critiquing -> waiting_approval -> (manual approval) -> dispatching
 ```
 
-### 状态查询 API
+### State Query API
 
 ```typescript
 import {
   canTransition,        // (from, to) => boolean
-  assertTransition,     // (from, to) => void，非法跳转抛异常
-  transitionFlow,       // (flow, to) => TaskFlow，不可变更新
-  transitionFlowPath,   // (flow, path[]) => TaskFlow，链式跳转
+  assertTransition,     // (from, to) => void, throws on illegal transition
+  transitionFlow,       // (flow, to) => TaskFlow, immutable update
+  transitionFlowPath,   // (flow, path[]) => TaskFlow, chained transitions
   isTerminal,           // (state) => boolean
   isFlowDone,           // (flow) => boolean
-  isFlowPausable,       // (flow) => boolean — executing 或 dispatching
-  isFlowWaiting,        // (flow) => boolean — waiting_approval 或 paused
+  isFlowPausable,       // (flow) => boolean — executing or dispatching
+  isFlowWaiting,        // (flow) => boolean — waiting_approval or paused
 } from "@open-vera/harness";
 ```
 
 ---
 
-## Plan Mode 集成
+## Plan Mode Integration
 
-Flow 执行建立在 Plan Mode 之上。`openvera run` 的内部流程：
+Flow execution is built on top of Plan Mode. The internal process of `openvera run`:
 
-### 1. 解析 -> 2. 生成计划
+### 1. Parse -> 2. Generate Plan
 
-`loadFlowDefinition()` 加载 Flow 文件，`flowDefinitionToPlan()`（`cli/plan.ts`）将 `FlowDefinition` 转换为 `ExecutionPlan`：
-- 每个 Stage 成为 `PlanStep`（`type: "delegate"`）
-- `stage` 引用解析为阶段模板的 `body`，注入步骤指令
-- `dependsOn` 直接映射为步骤依赖关系
-- Agent 指派优先级：Stage 级别 `agents` > 阶段模板 `agents` > 默认 Agent
+`loadFlowDefinition()` loads the Flow file, and `flowDefinitionToPlan()` (`cli/plan.ts`) converts `FlowDefinition` to `ExecutionPlan`:
+- Each Stage becomes a `PlanStep` (`type: "delegate"`)
+- `stage` references are resolved to the stage template `body`, injected as step instructions
+- `dependsOn` is directly mapped to step dependencies
+- Agent assignment priority: Stage-level `agents` > stage template `agents` > default agent
 
 ### 3. Plan Critique
 
-除非指定 `--skip-plan-critique`，运行时先对计划进行 LLM 评估。`confidence` 低于 0.5 直接终止：
+Unless `--skip-plan-critique` is specified, the runtime first evaluates the plan via LLM. If `confidence` is below 0.5, execution is aborted:
 
 ```
 Critiquing plan...
-✗ Plan critique: score=0.42 — 阶段划分不合理...
+✗ Plan critique: score=0.42 — Stage decomposition is unreasonable...
 Plan score too low, aborting. Fix .../main.md and retry.
 ```
 
-### 4. 动态重规划
+### 4. Dynamic Replanning
 
-Critique 评估未通过时触发 replan：`critiquing` 状态调用 `replanWithCritique()` 重新生成计划。CLI 输出中显示变化摘要：
+When Critique evaluation fails, replan is triggered: the `critiquing` state calls `replanWithCritique()` to regenerate the plan. The CLI output shows a change summary:
 
 ```
 ↻ replan  modified=[step-a]  added=[step-d]  removed=[]
 ```
 
-### 5. 免 Flow 文件的快捷入口
+### 5. Quick Entry Without Flow Files
 
 ```typescript
 const handle = await runtime.planAndStart(
-  "审查 src/ 目录下最近 3 次 commit 的安全性",
+  "Review the security of the last 3 commits in src/",
   "quick-review-001"
 );
-// planAndStart 内部调 planFromPrompt() 自动生成 ExecutionPlan
-// 然后继续走正常的 runFlowLoop
+// planAndStart internally calls planFromPrompt() to auto-generate ExecutionPlan
+// then continues with the normal runFlowLoop
 ```
 
 ---
 
-## Checkpoint 与恢复
+## Checkpoints and Recovery
 
-### 存储格式
+### Storage Format
 
-Checkpoint 持久化目录：`<checkpointsDir>/<flowId>.checkpoints.jsonl`。每行是一个 `FlowCheckpoint` JSON：
+Checkpoint persistence directory: `<checkpointsDir>/<flowId>.checkpoints.jsonl`. Each line is a `FlowCheckpoint` JSON:
 
-| 字段 | 说明 |
+| Field | Description |
 |---|---|
-| `checkpointId` | 唯一 ID，格式 `cp-<timestamp36>-<random4>` |
-| `flowId` | 所属 Flow ID |
-| `state` | 当前 HarnessState |
-| `plan` | 完整 ExecutionPlan（含每步 status） |
-| `activeStepId` | 当前活跃步骤 |
-| `loopCount` | dispatching 循环次数 |
-| `budget` | Token / USD 消耗累计 |
-| `artifacts` | 已产生产物列表 |
+| `checkpointId` | Unique ID, format `cp-<timestamp36>-<random4>` |
+| `flowId` | Owning Flow ID |
+| `state` | Current HarnessState |
+| `plan` | Full ExecutionPlan (including per-step status) |
+| `activeStepId` | Currently active step |
+| `loopCount` | Dispatching loop count |
+| `budget` | Cumulative token / USD consumption |
+| `artifacts` | List of produced artifacts |
 
-### 自动保存时机
+### Automatic Save Triggers
 
-在 `runFlowLoop()` 中以下时机自动触发（需配置 `checkpointsDir`）：
+The following points in `runFlowLoop()` trigger automatic saves (requires configured `checkpointsDir`):
 
-1. 每次 dispatching 循环开始前
-2. 步骤执行并 Critique 完成后
-3. replan 完成后
-4. Flow `completed` 或 `failed` 时（终态 Checkpoint）
+1. Before each dispatching cycle begins
+2. After step execution and Critique completion
+3. After replan completion
+4. When Flow reaches `completed` or `failed` (terminal checkpoint)
 
-采用 append-only 写入，崩溃安全。超出阈值时自动 compact（去重、清理损坏行、按 `compactToKeep` 裁剪）。
+Uses append-only writes, crash-safe. Automatically compacts when exceeding thresholds (dedup, clean corrupt lines, trim by `compactToKeep`).
 
-### 断点恢复
+### Checkpoint Resume
 
 ```typescript
 const handle = await runtime.resumeFromCheckpoint("my-flow-id");
-// 重建 TaskFlow，恢复 plan/budget/loopCount
-// skipCompleted 默认 true，自动跳到下一个 pending 步骤
-// failed 状态重置为 dispatching
-// maxLoops 自动 +3 留出重试空间
+// Rebuilds TaskFlow, restores plan/budget/loopCount
+// skipCompleted defaults to true, auto-skips to next pending step
+// failed state is reset to dispatching
+// maxLoops auto-incremented by 3 to leave retry room
 if (handle) {
   await runtime.runFlowLoop(handle, loopOptions);
 }
 
-// 指定恢复参数
+// Specifying resume parameters
 const handle = await runtime.resumeFromCheckpoint("my-flow-id", {
   fromStepId: "test-verify",
   skipCompleted: false,
 });
 ```
 
-### Fork（分支执行）
+### Fork (Branch Execution)
 
 ```typescript
 const forked = await runtime.forkFromCheckpoint("source-flow-id", {
   newFlowId: "fix-safety-issues-001",
-  newGoal: "只修复 security-scan 发现的高危问题",
-  resetSteps: ["code-review", "test-verify"],  // 重置为 pending
+  newGoal: "Only fix high-severity issues found by security-scan",
+  resetSteps: ["code-review", "test-verify"],  // Reset to pending
 });
-// Fork 特点：新 flowId、独立 Checkpoint 文件、budget 归零、loopCount 重新计数
+// Fork characteristics: new flowId, independent Checkpoint file, budget reset, loopCount restarted
 if (forked) {
   await runtime.runFlowLoop(forked, loopOptions);
 }
 ```
 
-### Checkpoint 管理 API
+### Checkpoint Management API
 
 ```typescript
 const store = runtime.getCheckpointStore();
 if (store) {
-  store.listFlows();              // 列出所有有 Checkpoint 的 Flow
-  store.list("my-flow-id");       // 列出某 Flow 的所有 Checkpoint 索引
-  store.count("my-flow-id");      // 数量
-  store.loadLatest("my-flow-id"); // 读取最新 Checkpoint
-  store.compact("my-flow-id");    // 去重 + 裁剪
-  store.clear("my-flow-id");      // 清除所有 Checkpoint
+  store.listFlows();              // List all Flows with checkpoints
+  store.list("my-flow-id");       // List all checkpoint indices for a Flow
+  store.count("my-flow-id");      // Count
+  store.loadLatest("my-flow-id"); // Read latest checkpoint
+  store.compact("my-flow-id");    // Dedup + trim
+  store.clear("my-flow-id");      // Clear all checkpoints
 }
 ```
 
 ---
 
-## 常见问题
+## FAQ
 
-**多个 Flow 必须指定名称。** 当 `flow/` 下有多个子目录时，`openvera run` 不传名称会报错列出所有可用 Flow。
+**Multiple Flows require specifying a name.** When `flow/` contains multiple subdirectories, `openvera run` without a name will error listing all available Flows.
 
-**Stage agents 覆盖规则。** Flow 文件 Stage 级别的 `agents` 覆盖阶段模板的 `agents`，允许同一模板在不同 Flow 中由不同 Agent 执行。
+**Stage agents override rule.** Flow file Stage-level `agents` override the stage template's `agents`, allowing the same template to be executed by different agents in different Flows.
 
-**循环依赖检测。** 运行时在 `dispatchStep()` 中检测。如果 A 依赖 B、B 依赖 A，抛出 `"Circular dependency detected in plan steps: A → B → A"`。
+**Circular dependency detection.** Detected at runtime in `dispatchStep()`. If A depends on B and B depends on A, throws `"Circular dependency detected in plan steps: A → B → A"`.
 
-**Checkpoint 必须显式启用。** 默认不启用。需要在 `RuntimeOptions` 中传入 `checkpointsDir`：
+**Checkpoints must be explicitly enabled.** Disabled by default. Requires passing `checkpointsDir` in `RuntimeOptions`:
 ```typescript
 const runtime = new HarnessRuntime(adapter, model, {
   artifactsRootDir: "...",
@@ -422,19 +422,19 @@ const runtime = new HarnessRuntime(adapter, model, {
 });
 ```
 
-**Flow 目录不存在。** CLI 报错：`Error: No .vera/flows/ directory found. Create .vera/flows/flow/<name>/main.md to define a flow.`
+**Flow directory does not exist.** CLI errors: `Error: No .vera/flows/ directory found. Create .vera/flows/flow/<name>/main.md to define a flow.`
 
 ---
 
-## 相关源码
+## Related Source Code
 
-| 文件 | 职责 |
+| File | Responsibility |
 |---|---|
-| `packages/harness/src/flow-config/types.ts` | FlowDefinition / FlowStageRef / StageDefinition / FlowAgentDefinition 类型 |
-| `packages/harness/src/flow-config/parser.ts` | Markdown 解析：frontmatter、Stage 引用、stages/ agents/ 目录加载 |
-| `packages/harness/src/runtime/flow-state.ts` | 11 状态状态机：VALID_TRANSITIONS 表、跳转断言、状态查询 |
-| `packages/harness/src/runtime/flow.ts` | TaskFlow 创建、Checkpoint 构建、状态更新、产物附加 |
-| `packages/harness/src/runtime/runtime.ts` | HarnessRuntime：调度循环、Critique/Replan、Checkpoint 保存/恢复/Fork |
-| `packages/harness/src/runtime/checkpoint-store.ts` | JSONL CheckpointStore：append 写、loadLatest、compact、去重 |
-| `packages/harness/src/cli/flow-run.ts` | `openvera run` CLI 命令：加载 flow、事件回调、结果输出 |
-| `packages/harness/src/cli/plan.ts` | `flowDefinitionToPlan()`：FlowDefinition -> ExecutionPlan |
+| `packages/harness/src/flow-config/types.ts` | FlowDefinition / FlowStageRef / StageDefinition / FlowAgentDefinition types |
+| `packages/harness/src/flow-config/parser.ts` | Markdown parsing: frontmatter, Stage references, stages/ agents/ directory loading |
+| `packages/harness/src/runtime/flow-state.ts` | 11-state state machine: VALID_TRANSITIONS table, transition assertions, state queries |
+| `packages/harness/src/runtime/flow.ts` | TaskFlow creation, Checkpoint construction, state updates, artifact attachment |
+| `packages/harness/src/runtime/runtime.ts` | HarnessRuntime: dispatch loop, Critique/Replan, Checkpoint save/resume/Fork |
+| `packages/harness/src/runtime/checkpoint-store.ts` | JSONL CheckpointStore: append writes, loadLatest, compact, dedup |
+| `packages/harness/src/cli/flow-run.ts` | `openvera run` CLI command: load flow, event callbacks, result output |
+| `packages/harness/src/cli/plan.ts` | `flowDefinitionToPlan()`: FlowDefinition -> ExecutionPlan |

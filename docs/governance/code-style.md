@@ -1,46 +1,46 @@
-# 代码治理规范
+# Code Governance Standards
 
-> Vera monorepo 强制性代码规范。违反标注"强制"的条目将导致 PR 被拒绝。
+> Mandatory code standards for the Vera monorepo. Violating any entry marked "mandatory" will result in PR rejection.
 
-## 1. 模块划分（强制）
+## 1. Module Organization (Mandatory)
 
-Vera 采用两层 pnpm workspace monorepo 结构：
+Vera uses a two-tier pnpm workspace monorepo structure:
 
-| 包 | 职责 | 依赖方向 |
+| Package | Responsibility | Dependency Direction |
 |---|---|---|
-| `packages/core` | 单次 LLM 调用闭环，**无状态**。不感知 Harness、Session、Flow。 | 不依赖内部包 |
-| `packages/harness` | 多步 workflow 编排，**有状态**。ExecutionPlan -> Flow State -> Critique -> Replan。 | `harness -> core` |
+| `packages/core` | Single LLM call loop, **stateless**. Unaware of Harness, Session, Flow. | No internal dependencies |
+| `packages/harness` | Multi-step workflow orchestration, **stateful**. ExecutionPlan -> Flow State -> Critique -> Replan. | `harness -> core` |
 
-**硬性约束**：`harness -> core`，Core 永不 import Harness。`tsconfig` 已配置检测，违反编译报错。
+**Hard constraint**: `harness -> core`, Core must never import Harness. `tsconfig` is configured to detect this; violations cause compilation errors.
 
-模块内部组织：
-1. **接口先行**：先定义 `types.ts`，再写实现。
-2. **barrel export**：每个目录必须有 `index.ts`，只导出公共 API。
-3. **单一职责**：一个文件只做一件事，超过 300 行考虑拆分。
-4. **测试就近**：测试文件放 `tests/` 子目录。
+Internal module organization:
+1. **Interface first**: define `types.ts` first, then write implementation.
+2. **Barrel export**: every directory must have an `index.ts` exporting only public API.
+3. **Single responsibility**: one file does one thing. Consider splitting beyond 300 lines.
+4. **Tests nearby**: test files go in the `tests/` subdirectory.
 
-## 2. 命名规范（强制）
+## 2. Naming Conventions (Mandatory)
 
-| 类别 | 风格 | 示例 |
+| Category | Style | Example |
 |---|---|---|
-| 文件名 | `kebab-case.ts` | `self-loop.ts`、`vector-store.ts` |
-| 类型 / 接口 | `PascalCase` | `SelfLoopRunner`、`VectorStore` |
-| 函数 / 变量 | `camelCase` | `runSelfLoop`、`embeddingAdapter` |
-| 常量 | `UPPER_SNAKE_CASE` | `MAX_CYCLES`、`DEFAULT_TIMEOUT` |
-| 枚举成员 | `PascalCase` | `FlowStatus.Running` |
-| 泛型参数 | 单字母大写 | `T`（通用）、`K`（键）、`V`（值） |
+| File name | `kebab-case.ts` | `self-loop.ts`, `vector-store.ts` |
+| Type / Interface | `PascalCase` | `SelfLoopRunner`, `VectorStore` |
+| Function / Variable | `camelCase` | `runSelfLoop`, `embeddingAdapter` |
+| Constant | `UPPER_SNAKE_CASE` | `MAX_CYCLES`, `DEFAULT_TIMEOUT` |
+| Enum member | `PascalCase` | `FlowStatus.Running` |
+| Generic parameter | Single uppercase letter | `T` (generic), `K` (key), `V` (value) |
 
-## 3. TypeScript 严格规则（强制）
+## 3. TypeScript Strict Rules (Mandatory)
 
-- `tsconfig.json` 必须 `"strict": true`
-- **禁止 `any`**：一律使用 `unknown` + 类型守卫替代
-- **ESM 模块**（`"module": "nodenext"`）：导入路径必须带 `.js` 后缀
+- `tsconfig.json` must have `"strict": true`
+- **No `any`**: always use `unknown` + type guard as replacement
+- **ESM modules** (`"module": "nodenext"`): import paths must include `.js` extension
 
 ```typescript
-// 错误
+// Wrong
 function parse(data: any): any { ... }
 
-// 正确
+// Correct
 function parse(data: unknown): ParsedResult {
   if (typeof data !== 'object' || data === null) {
     throw new ValidationError('expected object');
@@ -49,39 +49,39 @@ function parse(data: unknown): ParsedResult {
 }
 ```
 
-## 4. 错误处理（强制）
+## 4. Error Handling (Mandatory)
 
-**禁止 `throw new Error(string)`**，必须使用 `packages/core/src/errors.ts` 中定义的类型化错误类：
+**No `throw new Error(string)`**. Must use typed error classes defined in `packages/core/src/errors.ts`:
 
 ```typescript
-// 错误
+// Wrong
 throw new Error('invalid state');
 
-// 正确
+// Correct
 import { ValidationError, StateError } from '../errors.js';
 throw new ValidationError('FlowState requires at least one step');
 ```
 
-## 5. 异步编程（强制）
+## 5. Async Programming (Mandatory)
 
-优先 `async/await`，禁止 raw Promise 链（`.then().catch()`）：
+Prefer `async/await`. No raw Promise chains (`.then().catch()`):
 
 ```typescript
-// 错误
+// Wrong
 function load(): Promise<Data> { return fetch().then(parse).catch(handle); }
 
-// 正确
+// Correct
 async function load(): Promise<Data> {
   try { return parse(await fetch()); }
   catch (err) { return handle(err); }
 }
 ```
 
-独立操作用 `Promise.all` 并发，有依赖的保持顺序 `await`。
+Use `Promise.all` for independent concurrent operations; keep sequential `await` for dependent ones.
 
-## 6. 导入顺序（强制）
+## 6. Import Order (Mandatory)
 
-按 external -> internal -> relative 排列，组间空一行：
+Order as external -> internal -> relative, with blank lines between groups:
 
 ```typescript
 import { readFile } from 'node:fs/promises';
@@ -93,127 +93,127 @@ import { harnessConfig } from '../config.js';
 import type { SessionStore } from './types.js';
 ```
 
-## 7. 注释规范
+## 7. Comment Standards
 
-- **只写 WHY，不写 WHAT**。代码本身说明做什么，注释解释为什么。
-- 公共 API 使用 JSDoc 标注参数和返回值。
-- 临时方案用 `// TODO(username): description`。
+- **Only write WHY, not WHAT**. Code itself explains what it does; comments explain why.
+- Public API uses JSDoc to annotate parameters and return values.
+- Temporary workarounds use `// TODO(username): description`.
 
-## 8. 提交格式（强制）
+## 8. Commit Format (Mandatory)
 
-格式：**`<type>(<scope>): <description>`**
+Format: **`<type>(<scope>): <description>`**
 
-| type | 含义 | scope | 含义 |
+| type | Meaning | scope | Meaning |
 |---|---|---|---|
-| `feat` | 新功能 | `core` / `harness` | 核心包 |
-| `fix` | 修复 | `tool` / `agent` | 工具/代理 |
-| `refactor` | 重构 | `memory` / `rag` | 记忆/检索 |
-| `test` | 测试 | `sandbox` / `channel` | 沙箱/通道 |
-| `docs` | 文档 | — | — |
-| `chore` | 杂项 | — | — |
+| `feat` | New feature | `core` / `harness` | Core packages |
+| `fix` | Bug fix | `tool` / `agent` | Tools/agents |
+| `refactor` | Refactoring | `memory` / `rag` | Memory/retrieval |
+| `test` | Tests | `sandbox` / `channel` | Sandbox/channel |
+| `docs` | Documentation | — | — |
+| `chore` | Miscellaneous | — | — |
 
-约束：
-- description 英文、小写开头、不加句号
-- 单次提交聚焦一个模块，diff <= 500 行（文档/测试除外）
-- 提交前检查 `git status`，禁止 `git add -A` 无脑全加
+Constraints:
+- description in English, lowercase start, no ending period
+- Single commit focuses on one module, diff <= 500 lines (except docs/tests)
+- Check `git status` before committing; no `git add -A` without careful review
 
-示例：`feat(memory): add auto-extraction from agent execution`
+Example: `feat(memory): add auto-extraction from agent execution`
 
-## 9. 测试规范（强制）
+## 9. Test Standards (Mandatory)
 
-**无测试 = 未完成，不允许 commit。**
+**No tests = not done. Commits are not allowed.**
 
-| 要求 | 说明 |
+| Requirement | Description |
 |---|---|
-| 框架 | Vitest，使用 `describe` / `it` / `expect` |
-| 文件命名 | `<module-name>.test.ts`，放 `tests/` 子目录 |
-| 整体覆盖率 | >= 70% |
-| 核心模块覆盖率 | >= 80%（`tools/` `storage/` `adapters/` `config/` `memory/` `context/` `utils/`） |
-| Core 包 lines 覆盖率 | **>= 90%** |
-| Mock 策略 | 仅 mock 外部 API（LLM adapter、网络），不 mock 内部模块 |
-| E2E 测试 | 放在 `packages/harness/tests/e2e-*.ts` |
+| Framework | Vitest, using `describe` / `it` / `expect` |
+| File naming | `<module-name>.test.ts`, placed in `tests/` subdirectory |
+| Overall coverage | >= 70% |
+| Core module coverage | >= 80% (`tools/` `storage/` `adapters/` `config/` `memory/` `context/` `utils/`) |
+| Core package lines coverage | **>= 90%** |
+| Mock strategy | Only mock external APIs (LLM adapter, network), do not mock internal modules |
+| E2E tests | Placed in `packages/harness/tests/e2e-*.ts` |
 
-验证命令：
+Verification command:
 
 ```bash
 pnpm --filter @open-vera/core run test:coverage
 ```
 
-## 10. PR 检查清单
+## 10. PR Checklist
 
-### 代码质量
-- [ ] 无 `any`（必要时用 `unknown` + 类型守卫）
-- [ ] 错误处理使用类型化错误类
-- [ ] 异步用 `async/await`，无 raw Promise 链
-- [ ] 导入路径有 `.js` 后缀，顺序 external -> internal -> relative
+### Code Quality
+- [ ] No `any` (use `unknown` + type guard when needed)
+- [ ] Error handling uses typed error classes
+- [ ] Async uses `async/await`, no raw Promise chains
+- [ ] Import paths have `.js` extension, order external -> internal -> relative
 
-### 测试与构建
-- [ ] `pnpm --filter @open-vera/core run test:coverage` 覆盖率 >= 90%
-- [ ] 新增业务逻辑有对应 unit test
-- [ ] `pnpm typecheck` && `pnpm test` && Core build 全部通过
+### Test & Build
+- [ ] `pnpm --filter @open-vera/core run test:coverage` coverage >= 90%
+- [ ] New business logic has corresponding unit tests
+- [ ] `pnpm typecheck` && `pnpm test` && Core build all pass
 
-### 质量扫描
-- [ ] `bash .claude/skills/quality-scan/scan.sh` 无 error
+### Quality Scan
+- [ ] `bash .claude/skills/quality-scan/scan.sh` has no errors
 
-### 文档同步
-- [ ] roadmap 完成条目标记 `✅`，新遗留项追加到对应分区
-- [ ] `docs/changelog.md` 追加摘要，`docs/changelog/<YYYY-MM-DD-HH>.md` 写详细记录
+### Doc Sync
+- [ ] Roadmap completed items marked `✅`, new leftover items appended to corresponding sections
+- [ ] `docs/changelog.md` summary appended, `docs/changelog/<YYYY-MM-DD-HH>.md` detailed record written
 
-### 安全检查
-- [ ] `git status` 无敏感文件在 staged 中
-- [ ] 无 API Key 残留、无冲突标记（`<<<<<<<` / `=======` / `>>>>>>>`）
+### Security Check
+- [ ] `git status` shows no sensitive files in staged
+- [ ] No API Key residue, no conflict markers (`<<<<<<<` / `=======` / `>>>>>>>`)
 
-## 11. 敏感文件保护（强制）
+## 11. Sensitive File Protection (Mandatory)
 
-以下**任何情况下都不得提交**：
+The following **must never be committed under any circumstances**:
 
-| 路径 | 原因 |
+| Path | Reason |
 |---|---|
 | `.vera/settings.json` | LLM API Key |
-| `.qwen/` | Qwen 本地配置 |
-| `.claude/settings.local.json` | Claude Code 本地设置 |
-| `.claude/worktrees/` | 临时 worktree |
-| `.gemini/` | Gemini 本地配置 |
-| `*.orig` | 合并/备份临时文件 |
+| `.qwen/` | Qwen local config |
+| `.claude/settings.local.json` | Claude Code local settings |
+| `.claude/worktrees/` | Temporary worktrees |
+| `.gemini/` | Gemini local config |
+| `*.orig` | Merge/backup temp files |
 
-操作守则：
-1. 禁止 `git add .` / `git add -A`，按文件选择性添加
-2. 敏感文件有修改时用 `git restore` 丢弃
-3. 写 `.vera/settings.json` 用 `settings.example.json` 的占位符
-4. **永远不要**在 CLAUDE.md、README、注释、commit message 中粘贴 API Key
+Operating rules:
+1. No `git add .` / `git add -A`; add files selectively
+2. If sensitive files have modifications, use `git restore` to discard
+3. When writing `.vera/settings.json`, use placeholders from `settings.example.json`
+4. **Never** paste API Keys in CLAUDE.md, README, code comments, or commit messages
 
-## 12. 静态分析工具
+## 12. Static Analysis Tools
 
-| 工具 | 用途 | 通过标准 |
+| Tool | Purpose | Pass Criteria |
 |---|---|---|
-| **oxlint** | TS/JS 语法与风格检查 | 0 error |
-| **sonarjs** | 代码质量与安全（认知复杂度、漏洞模式） | 0 error |
-| **jscpd** | 重复代码检测 | 重复率 > 10% 需评估 |
-| **TypeScript Compiler** | 类型检查 | 0 error |
+| **oxlint** | TS/JS syntax and style checking | 0 error |
+| **sonarjs** | Code quality and security (cognitive complexity, vulnerability patterns) | 0 error |
+| **jscpd** | Duplicate code detection | Duplication rate > 10% needs evaluation |
+| **TypeScript Compiler** | Type checking | 0 error |
 
-运行命令：
+Run commands:
 
 ```bash
-bash .claude/skills/quality-scan/scan.sh   # 完整扫描
-pnpm typecheck                              # 仅类型检查
+bash .claude/skills/quality-scan/scan.sh   # full scan
+pnpm typecheck                              # type check only
 ```
 
-质量门禁：
-- **oxlint / sonarjs error**：必须修复，阻塞提交
-- **warning**：建议修复，不阻塞，但不应持续增长
-- **jscpd 高重复率**：评估是否可抽取公共逻辑
+Quality gates:
+- **oxlint / sonarjs error**: must fix, blocks commit
+- **warning**: recommended to fix, non-blocking, but should not keep growing
+- **jscpd high duplication rate**: evaluate whether common logic can be extracted
 
-## 13. 架构约束（强制）
+## 13. Architecture Constraints (Mandatory)
 
-1. **依赖方向**：`harness -> core`，反向禁止
-2. **外部依赖**：新增需在 PR 中说明理由，优先复用已有
-3. **存储层抽象**：持久化通过接口（`VectorStore`、`SessionStore`、`MemoryStore`），不硬编码实现
-4. **Sandbox 隔离**：外部代码执行必须通过 Sandbox 抽象层，严禁 `child_process.exec` 直接执行用户代码
-5. **Channel 抽象**：消息平台通过 `ChannelAdapter` 接口接入，不直接调用平台 SDK
+1. **Dependency direction**: `harness -> core`, reverse is forbidden
+2. **External dependencies**: new additions require justification in PR; prefer reusing existing ones
+3. **Storage layer abstraction**: persistence through interfaces (`VectorStore`, `SessionStore`, `MemoryStore`), no hardcoded implementations
+4. **Sandbox isolation**: external code execution must go through the Sandbox abstraction layer; `child_process.exec` directly on user code is strictly forbidden
+5. **Channel abstraction**: message platforms connected through the `ChannelAdapter` interface, no direct platform SDK calls
 
 ---
 
-## 附录：快速自检脚本
+## Appendix: Quick Self-Check Script
 
 ```bash
 #!/bin/bash

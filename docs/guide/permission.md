@@ -1,206 +1,206 @@
-# 权限系统 (Permission System)
+# Permission System
 
-Vera 的权限系统通过 `SecurityPlugin` 实现，在每次工具调用前执行多层安全检查，形成纵深防御体系。
+Vera's permission system is implemented through `SecurityPlugin`, which performs multi-layer security checks before each tool invocation, forming a defense-in-depth architecture.
 
 ---
 
-## 架构
+## Architecture
 
 ```
-Agent 请求工具调用
+Agent requests tool invocation
        │
        ▼
 ┌──────────────────────────────────────┐
 │   SecurityPlugin.onBeforeToolCall    │
 │                                      │
-│  L0: 黑名单（deniedTools）—— 最高优先级 │
-│  L1: 白名单（allowedTools）            │
-│  L2: Bash 命令安全检查                 │
-│  L3: 只读模式                         │
-│  L4: 预算上限                         │
-│  L5: 路径边界                         │
-│  L6: 域名白名单                        │
-│  L7: Prompt Injection 检测            │
+│  L0: Denylist (deniedTools) — highest priority │
+│  L1: Allowlist (allowedTools)         │
+│  L2: Bash command safety check        │
+│  L3: Read-only mode                   │
+│  L4: Budget cap                       │
+│  L5: Path boundary                    │
+│  L6: Domain allowlist                 │
+│  L7: Prompt Injection detection       │
 │                                      │
-│  全部通过 → null（放行）               │
-│  拒绝     → ToolResult（含错误码）     │
-│  需确认   → needsConfirm（等待用户）    │
+│  All pass → null (allow)             │
+│  Denied    → ToolResult (with error code) │
+│  Confirm   → needsConfirm (waiting for user) │
 └──────────────────────────────────────┘
 ```
 
-核心模块：
-- `packages/core/src/tools/security.ts` — SecurityPlugin 实现
-- `packages/core/src/tools/permission-rules.ts` — 规则文件加载与合并
-- `packages/core/src/tools/utils/path.ts` — 路径边界判断
+Core modules:
+- `packages/core/src/tools/security.ts` — SecurityPlugin implementation
+- `packages/core/src/tools/permission-rules.ts` — Rule file loading and merging
+- `packages/core/src/tools/utils/path.ts` — Path boundary checks
 
 ---
 
-## SecurityPlugin 接口
+## SecurityPlugin Interface
 
 ```typescript
 class SecurityPlugin implements ToolLifecycleHook {
   constructor(config: SecurityConfig = {});
 
-  // 核心拦截方法。返回 null=放行，返回 ToolResult=拒绝/需确认
+  // Core interception method. Returns null=allow, returns ToolResult=deny/needs confirm
   async onBeforeToolCall(
     name: string,
     args: Record<string, unknown>,
     ctx: ToolContext
   ): Promise<ToolResult | null>;
 
-  // 运行时动态授权目录（用户确认后调用）
+  // Runtime dynamic authorization of directories (called after user confirmation)
   allowPath(dir: string): void;
 
-  // 更新已消费金额（由计费模块持续调用）
+  // Update consumed cost (continuously called by the billing module)
   updateBudgetUsed(usdUsed: number): void;
 }
 ```
 
-### SecurityConfig 配置字段
+### SecurityConfig Fields
 
-| 字段 | 类型 | 说明 |
+| Field | Type | Description |
 |---|---|---|
-| `allowedTools` | `string[]` | 工具白名单。空数组或未配置 = 全部允许 |
-| `deniedTools` | `string[]` | 工具黑名单。优先级高于白名单 |
-| `allowedBashCommands` | `string[]` | Bash 命令白名单规则（glob-like 模式） |
-| `deniedBashCommands` | `string[]` | Bash 命令黑名单规则（glob-like 模式） |
-| `workdir` | `string` | 文件操作的基准路径。默认取 `ctx.cwd` |
-| `allowedDomains` | `string[]` | 网络工具（web_search, fetch_url）的域名白名单 |
-| `readonlyMode` | `boolean` | 禁止所有写操作 |
-| `budgetUsd` | `number` | 费用上限（USD） |
-| `usdUsed` | `number` | 已使用费用（外部实时更新） |
+| `allowedTools` | `string[]` | Tool allowlist. Empty array or unset = allow all |
+| `deniedTools` | `string[]` | Tool denylist. Higher priority than allowlist |
+| `allowedBashCommands` | `string[]` | Bash command allowlist rules (glob-like patterns) |
+| `deniedBashCommands` | `string[]` | Bash command denylist rules (glob-like patterns) |
+| `workdir` | `string` | Base path for file operations. Defaults to `ctx.cwd` |
+| `allowedDomains` | `string[]` | Domain allowlist for network tools (web_search, fetch_url) |
+| `readonlyMode` | `boolean` | Deny all write operations |
+| `budgetUsd` | `number` | Cost cap (USD) |
+| `usdUsed` | `number` | Cost already used (updated externally in real time) |
 
 ---
 
-## 各层详解
+## Layer Details
 
-### L0: 黑名单（最高优先级）
+### L0: Denylist (Highest Priority)
 
-工具名在 `deniedTools` 中直接拒绝，不受白名单影响。返回 `PERMISSION_DENIED` 错误。
+If the tool name is in `deniedTools`, it is directly rejected regardless of the allowlist. Returns a `PERMISSION_DENIED` error.
 
 ```json
 { "deniedTools": ["bash", "sandbox_exec"] }
 ```
 
-### L1: 白名单
+### L1: Allowlist
 
-配置了 `allowedTools` 且数组非空时，仅列表中的工具允许执行。未配置或空数组 = 全部允许。
+When `allowedTools` is configured and non-empty, only tools in the list are allowed. Unset or empty = allow all.
 
 ```json
 { "allowedTools": ["read_file", "write_file", "edit_file", "list_dir", "grep"] }
 ```
 
-注意：L0 已拒绝的工具不会被白名单"复活"。
+Note: Tools already denied by L0 cannot be "revived" by the allowlist.
 
-### L2: Bash 命令安全检查
+### L2: Bash Command Safety Check
 
-分三层检查：
+Three-tier check:
 
-**(a) 黑名单匹配** — 命令匹配 `deniedBashCommands` glob 模式，直接拒绝。
+**(a) Denylist match** — If the command matches a `deniedBashCommands` glob pattern, reject immediately.
 
-**(b) 白名单匹配** — 命令匹配 `allowedBashCommands` glob 模式，跳过危险检测直接放行。
+**(b) Allowlist match** — If the command matches an `allowedBashCommands` glob pattern, skip danger detection and allow directly.
 
-**(c) 危险模式检测** — 以下 6 类硬编码正则匹配到，且未取得白名单豁免 → 返回 `needsConfirm`：
+**(c) Dangerous pattern detection** — If the command matches one of the following 6 hardcoded regex patterns without an allowlist exemption, return `needsConfirm`:
 
-| 模式 | 正则 | 示例 |
+| Pattern | Regex | Example |
 |---|---|---|
-| 递归强制删除 | `rm\s+(-[^\s]*[rf]\|-[^\s]*[fr])` | `rm -rf node_modules` |
-| 提权操作 | `sudo` | `sudo systemctl restart` |
-| 世界可写 | `chmod\s+(-R\s+)?777` | `chmod -R 777 /var/www` |
-| 格式化文件系统 | `mkfs` | `mkfs.ext4 /dev/sdb` |
-| 磁盘覆写 | `dd\s+.*\bof=` | `dd if=/dev/zero of=/dev/sda` |
-| 破坏性 git 操作 | `git\s+(reset\s+--hard\|clean\s+-[^\s]*f\|push\s+--force)` | `git push --force origin main` |
+| Recursive force delete | `rm\s+(-[^\s]*[rf]\|-[^\s]*[fr])` | `rm -rf node_modules` |
+| Privilege escalation | `sudo` | `sudo systemctl restart` |
+| World-writable | `chmod\s+(-R\s+)?777` | `chmod -R 777 /var/www` |
+| Format filesystem | `mkfs` | `mkfs.ext4 /dev/sdb` |
+| Disk overwrite | `dd\s+.*\bof=` | `dd if=/dev/zero of=/dev/sda` |
+| Destructive git operations | `git\s+(reset\s+--hard\|clean\s+-[^\s]*f\|push\s+--force)` | `git push --force origin main` |
 
-用户确认后 REPL 层附加 `__confirmedRisk: true` 标记重试即可。
+After user confirmation, the REPL layer retries with the `__confirmedRisk: true` flag attached.
 
-### L3: 只读模式
+### L3: Read-only Mode
 
-`readonlyMode: true` 时，禁止以下写入工具：`write_file`、`edit_file`、`bash`。
+When `readonlyMode: true`, the following write tools are denied: `write_file`, `edit_file`, `bash`.
 
 ```json
 { "readonlyMode": true }
 ```
 
-### L4: 预算上限
+### L4: Budget Cap
 
-`usdUsed >= budgetUsd`（且两者均已配置）时，拒绝所有工具调用。返回 `BUDGET_EXCEEDED` 错误码。
+When `usdUsed >= budgetUsd` (and both are configured), all tool invocations are rejected. Returns `BUDGET_EXCEEDED` error code.
 
 ```json
 { "budgetUsd": 5.0 }
 ```
 
 ```typescript
-// 计费模块持续更新
+// Billing module continuously updates
 security.updateBudgetUsed(currentTotalCost);
 ```
 
-### L5: 路径边界
+### L5: Path Boundary
 
-文件操作工具（`read_file`、`write_file`、`edit_file`、`list_dir`）检查目标路径是否在允许范围：
+File operation tools (`read_file`, `write_file`, `edit_file`, `list_dir`) check whether the target path is within the allowed range:
 
 ```
-允许范围 = workdir ∪ ctx.allowedPaths ∪ securityPlugin.allowedPaths
+Allowed range = workdir ∪ ctx.allowedPaths ∪ securityPlugin.allowedPaths
 ```
 
-1. **workdir 检查**：以配置的 `workdir`（或默认 `ctx.cwd`）为基准，检查路径是否在其子目录内
-2. **动态白名单检查**：检查路径是否落在 `allowPath()` 授权过的目录内
-3. **越界处理**：若两处都不在范围内，返回 `PATH_OUTSIDE_CWD` 错误并携带 `needsConfirm` 请求用户授权
+1. **workdir check**: Uses the configured `workdir` (or default `ctx.cwd`) as the base; checks whether the path is within its subtree
+2. **Dynamic allowlist check**: Checks whether the path falls within directories authorized via `allowPath()`
+3. **Out-of-bounds handling**: If the path is not within either range, returns `PATH_OUTSIDE_CWD` error with `needsConfirm` to request user authorization
 
-越界时用户确认后调用 `security.allowPath(dir)`，该目录加入会话白名单。
+On out-of-bounds confirmation, `security.allowPath(dir)` is called, adding the directory to the session allowlist.
 
-路径解析使用 `path.resolve(ctx.cwd, pathArg)`，确保相对路径正确转换。`isInsideCwd` 函数将两个路径 normalize 后检查是否以前缀开始。
+Path resolution uses `path.resolve(ctx.cwd, pathArg)` to ensure relative paths are correctly converted. The `isInsideCwd` function normalizes both paths and checks for prefix matching.
 
-### L6: 域名白名单
+### L6: Domain Allowlist
 
-对 `web_search`、`fetch_url` 等网络工具，检查目标域名是否在 `allowedDomains` 内。
+For network tools like `web_search` and `fetch_url`, checks whether the target domain is in `allowedDomains`.
 
-- 匹配规则：精确匹配（`domain === allowedDomain`）或子域名匹配（`domain.endsWith("." + allowedDomain)`）
-- 非完整 URL 的输入（如搜索查询词）自动豁免
-- URL 解析失败也自动放行
+- Matching rules: exact match (`domain === allowedDomain`) or subdomain match (`domain.endsWith("." + allowedDomain)`)
+- Non-full-URL input (e.g., search query strings) is automatically exempted
+- URL parse failures are also automatically allowed
 
 ```json
 { "allowedDomains": ["github.com", "api.anthropic.com", "docs.rs"] }
 ```
 
-### L7: Prompt Injection 检测
+### L7: Prompt Injection Detection
 
-对字符串类型参数扫描 6 组内置注入模式，匹配任一即拒绝，返回 `PERMISSION_DENIED` 错误：
+Scans string-type parameters against 6 built-in injection patterns; matching any results in rejection with a `PERMISSION_DENIED` error:
 
-| 模式 | 攻击类型 |
+| Pattern | Attack Type |
 |---|---|
-| `ignore previous instructions` | 指令覆盖 |
-| `disregard (all\|your) (previous\|prior\|earlier)` | 历史擦除 |
-| `you are now` | 角色劫持 |
-| `new system prompt` | 提示词替换 |
-| `SYSTEM: ` | 伪系统前缀 |
-| `INSTRUCTION: ` | 伪指令前缀 |
+| `ignore previous instructions` | Instruction override |
+| `disregard (all\|your) (previous\|prior\|earlier)` | History erasure |
+| `you are now` | Role hijacking |
+| `new system prompt` | Prompt replacement |
+| `SYSTEM: ` | Pseudo system prefix |
+| `INSTRUCTION: ` | Pseudo instruction prefix |
 
-这是基于正则的启发式检测，非完整安全方案。可能产生误报（如代码文档中含有匹配文本）。将此层放在最后，优先使用结构化的前六层做防御。
+This is regex-based heuristic detection, not a complete security solution. It may produce false positives (e.g., code documentation containing matching text). This layer is placed last; prefer the structured first six layers for defense.
 
 ---
 
-## 权限规则文件
+## Permission Rule Files
 
-### 加载与合并
+### Loading and Merging
 
-从两个位置加载 JSON 规则，取并集合并：
+JSON rules are loaded from two locations and merged with a union strategy:
 
-| 路径 | 作用域 |
+| Path | Scope |
 |---|---|
-| `~/.vera/permissions.json` | 全局（所有项目共享） |
-| `<project>/.vera/permissions.json` | 项目级（当前项目专用） |
+| `~/.vera/permissions.json` | Global (shared across all projects) |
+| `<project>/.vera/permissions.json` | Project-level (specific to current project) |
 
-合并策略：四个数组字段各自取并集（去重追加，不覆盖）。合并后数组为空则不限制。
+Merge strategy: The four array fields each take the union (deduplicated append, no overwrite). If the merged array is empty, no restriction is applied.
 
 ```typescript
-// 加载合并后的规则
+// Load merged rules
 import { loadPermissionRules } from "@open-vera/core";
 
 const rules = loadPermissionRules("/path/to/project");
 // → { allowedTools?, deniedTools?, allowedBashCommands?, deniedBashCommands? }
 ```
 
-### 文件格式
+### File Format
 
 ```json
 {
@@ -211,34 +211,34 @@ const rules = loadPermissionRules("/path/to/project");
 }
 ```
 
-### Glob 语法
+### Glob Syntax
 
-Bash 命令规则使用简化版 glob：`*` 匹配任意字符序列，`?` 匹配单个字符。内部转换为正则后匹配。
+Bash command rules use simplified glob: `*` matches any character sequence, `?` matches a single character. Internally converted to regex for matching.
 
-| 模式 | 匹配 | 不匹配 |
+| Pattern | Matches | Does not match |
 |---|---|---|
-| `ls *` | `ls -la`、`ls /tmp` | `lsa` |
+| `ls *` | `ls -la`, `ls /tmp` | `lsa` |
 | `rm -rf *` | `rm -rf node_modules` | `rm -r file` |
 | `git push *` | `git push origin main` | `git push-force` |
-| `npm test*` | `npm test`、`npm test:coverage` | `npm test`(完全相同的变体) |
+| `npm test*` | `npm test`, `npm test:coverage` | different variants of `npm test` |
 
 ---
 
-## 错误码速查
+## Error Code Quick Reference
 
-| 错误码 | 触发层 | 说明 |
+| Error Code | Triggered By | Description |
 |---|---|---|
-| `PERMISSION_DENIED` | L0, L1, L2a, L3, L6, L7 | 权限规则拒绝 |
-| `PATH_OUTSIDE_CWD` | L5 | 路径超出允许范围 |
-| `BUDGET_EXCEEDED` | L4 | 消费超预算 |
+| `PERMISSION_DENIED` | L0, L1, L2a, L3, L6, L7 | Permission rule denied |
+| `PATH_OUTSIDE_CWD` | L5 | Path exceeds allowed range |
+| `BUDGET_EXCEEDED` | L4 | Spending exceeds budget |
 
-所有拒绝错误 `retryable: true`。`needsConfirm` 中包含 `retry` 字段（重新调用的参数），用户确认后带上放行标记重试。
+All denial errors have `retryable: true`. `needsConfirm` includes a `retry` field (parameters for re-invocation); after user confirmation, retry with the approval flag attached.
 
 ---
 
-## 配置示例
+## Configuration Examples
 
-### 开发环境（宽松）
+### Development Environment (Relaxed)
 
 ```typescript
 new SecurityPlugin({
@@ -248,7 +248,7 @@ new SecurityPlugin({
 });
 ```
 
-### 代码审查（只读）
+### Code Review (Read-only)
 
 ```typescript
 new SecurityPlugin({
@@ -259,7 +259,7 @@ new SecurityPlugin({
 });
 ```
 
-### 受限沙箱
+### Restricted Sandbox
 
 ```typescript
 new SecurityPlugin({
@@ -271,9 +271,9 @@ new SecurityPlugin({
 });
 ```
 
-### 全局 + 项目合并示例
+### Global + Project Merge Example
 
-全局 `~/.vera/permissions.json`：
+Global `~/.vera/permissions.json`:
 ```json
 {
   "deniedTools": ["sandbox_exec"],
@@ -281,7 +281,7 @@ new SecurityPlugin({
 }
 ```
 
-项目 `.vera/permissions.json`：
+Project `.vera/permissions.json`:
 ```json
 {
   "deniedBashCommands": ["rm -rf *"],
@@ -289,14 +289,14 @@ new SecurityPlugin({
 }
 ```
 
-合并后：`deniedTools=["sandbox_exec"]`、`deniedBashCommands=["sudo *","mkfs.*","rm -rf *"]`、`allowedDomains=["api.mycorp.com"]`
+After merging: `deniedTools=["sandbox_exec"]`, `deniedBashCommands=["sudo *","mkfs.*","rm -rf *"]`, `allowedDomains=["api.mycorp.com"]`
 
 ---
 
-## 设计要点
+## Design Principles
 
-1. **黑名单优先于白名单**：L0 在 L1 之前，同一工具同时出现在黑白名单时，黑名单生效
-2. **Bash 三重保护**：静态 deny 模式 → 静态 allow 豁免 → 运行时危险检测 + 用户确认
-3. **路径纵深防御**：`workdir` + 会话 `allowedPaths` + 用户 `allowPath()` 三者取并集
-4. **Prompt Injection 是辅助防线**：启发式检测可能产生误报，不依赖它作为唯一安全保障
-5. **预算检查在路径检查之前**：超预算时直接拦截，不触发不必要的路径确认交互
+1. **Denylist takes priority over allowlist**: L0 before L1; if a tool appears in both lists, the denylist wins
+2. **Triple Bash protection**: Static deny pattern -> static allow exemption -> runtime danger detection + user confirmation
+3. **Path defense in depth**: Union of `workdir` + session `allowedPaths` + user `allowPath()`
+4. **Prompt Injection is a supplementary defense**: Heuristic detection may produce false positives; do not rely on it as the sole security guarantee
+5. **Budget check before path check**: Intercept immediately when budget is exceeded to avoid unnecessary path confirmation interactions

@@ -1,45 +1,45 @@
-# UI 优化方案
+# UI Refinement Plan
 
-> 目标：在 Harness Web UI 现有骨架基础上，提升视觉一致性、交互流畅度、可访问性和响应式体验。
+> Goal: Improve visual consistency, interaction smoothness, accessibility, and responsive experience on top of the existing Harness Web UI skeleton.
 
-## 当前状态基线
+## Current Baseline
 
-Gateway Web UI 已具备基础 Run 列表、Run 详情、Memory/Checkpoint/Subagent 视图。本节聚焦 UI 质量提升，不新增业务页面。
+Gateway Web UI already has basic Run list, Run details, and Memory/Checkpoint/Subagent views. This section focuses on UI quality improvements, not adding new business pages.
 
-## 主题系统
+## Theme System
 
-### 设计原则
+### Design Principles
 
-- 以 TDesign 设计令牌为基础，扩展 Vera 品牌色和语义色
-- 所有颜色通过 CSS 变量引用，禁止硬编码颜色值
-- 支持深色 / 浅色双主题，跟随系统偏好或手动切换
+- Based on TDesign design tokens, extended with Vera brand colors and semantic colors
+- All colors referenced via CSS variables; hardcoded color values are forbidden
+- Supports dark/light dual themes, following system preference or manual toggle
 
-### 令牌层级
+### Token Hierarchy
 
 ```
 :root {
-  /* 品牌色 */
-  --vera-brand:             rgb(215, 119, 87);    /* Vera 橙 */
-  --vera-brand-hover:       rgb(235, 159, 127);   /* 悬停高亮 */
-  --vera-brand-active:      rgb(195, 99, 67);     /* 按下态 */
+  /* Brand */
+  --vera-brand:             rgb(215, 119, 87);    /* Vera Orange */
+  --vera-brand-hover:       rgb(235, 159, 127);   /* Hover highlight */
+  --vera-brand-active:      rgb(195, 99, 67);     /* Active press */
 
-  /* 语义色 */
-  --vera-success:           rgb(78, 186, 101);    /* 成功 */
-  --vera-error:             rgb(255, 107, 128);   /* 错误 */
-  --vera-warning:           rgb(255, 193, 7);     /* 警告 */
+  /* Semantic */
+  --vera-success:           rgb(78, 186, 101);    /* Success */
+  --vera-error:             rgb(255, 107, 128);   /* Error */
+  --vera-warning:           rgb(255, 193, 7);     /* Warning */
 
-  /* 文字层级 */
+  /* Text hierarchy */
   --vera-text-primary:      rgba(0, 0, 0, 0.9);
   --vera-text-secondary:    rgba(0, 0, 0, 0.6);
   --vera-text-placeholder:  rgba(0, 0, 0, 0.4);
   --vera-text-disabled:     rgba(0, 0, 0, 0.26);
 
-  /* 背景 */
+  /* Backgrounds */
   --vera-bg-base:           rgb(255, 255, 255);
   --vera-bg-container:      rgb(247, 247, 247);
   --vera-bg-elevated:       rgb(255, 255, 255);
 
-  /* 间距 */
+  /* Spacing */
   --vera-space-xs: 4px;
   --vera-space-sm: 8px;
   --vera-space-md: 16px;
@@ -48,7 +48,7 @@ Gateway Web UI 已具备基础 Run 列表、Run 详情、Memory/Checkpoint/Subag
 }
 ```
 
-### 深色主题覆写
+### Dark Theme Overrides
 
 ```css
 [theme-mode="dark"] {
@@ -60,84 +60,84 @@ Gateway Web UI 已具备基础 Run 列表、Run 详情、Memory/Checkpoint/Subag
 }
 ```
 
-## 组件精炼
+## Component Refinement
 
-### Run 卡片优化
+### Run Card Improvements
 
-- 状态指示器使用脉冲动画（running 态）
-- 添加相对时间显示（"3 分钟前"、"1 小时前"替代绝对时间戳）
-- Tool 调用计数和 Token 消耗在卡片上直接可见
-- 长标题截断 + tooltip 悬停完整显示
+- Status indicator uses pulse animation (running state)
+- Add relative time display ("3 minutes ago", "1 hour ago" instead of absolute timestamps)
+- Tool call count and token consumption directly visible on the card
+- Long title truncation + tooltip on hover for full display
 
-### 时间线组件
+### Timeline Component
 
-- 阶段切换动画：当前阶段高亮 + 完成阶段变灰，过渡 200ms ease
-- 步骤折叠 / 展开：默认展开最后 N 步，其余折叠
-- 工具调用内联预览：单行截断，点击展开完整 JSON
-- 虚拟滚动：Run 超过 100 步时启用，保持渲染性能
+- Phase transition animation: current phase highlighted + completed phases dimmed, 200ms ease transition
+- Step collapse/expand: last N steps expanded by default, rest collapsed
+- Tool call inline preview: single-line truncation, click to expand full JSON
+- Virtual scrolling: enabled when Run exceeds 100 steps, maintaining render performance
 
-### 状态面板
+### Status Panel
 
-- 空状态插画 + 引导文案（无 Run / 无 Checkpoint / 无 Memory）
-- 加载骨架屏：ListItem 占位形状 + shimmer 动画
-- 错误状态：友好错误消息 + 重试按钮
-- 滚动位置记忆：切换 Tab 后返回时恢复滚动位置
+- Empty state illustration + guide text (no Run / no Checkpoint / no Memory)
+- Loading skeleton screen: ListItem placeholder shape + shimmer animation
+- Error state: friendly error message + retry button
+- Scroll position memory: restore scroll position when returning after tab switch
 
-### 输入组件
+### Input Component
 
-- 多行输入框，支持 Shift+Enter 换行
-- Slash 命令面板：输入 `/` 触发下拉菜单（/flow、/model、/provider）
-- 历史记录：ArrowUp/ArrowDown 浏览已发送消息
-- 字符计数：在输入框右下角显示当前字符数 / 上限
+- Multi-line input, Shift+Enter for newline
+- Slash command panel: type `/` to trigger dropdown menu (/flow, /model, /provider)
+- History: ArrowUp/ArrowDown to browse sent messages
+- Character count: display current/length limit at bottom-right of input
 
-## 交互改进
+## Interaction Improvements
 
-### 键盘导航
+### Keyboard Navigation
 
-- `Ctrl+K` / `Cmd+K` 打开命令面板（全局搜索、页面跳转）
-- `Ctrl+[` / `Ctrl+]` 切换侧边栏
-- `Esc` 关闭弹窗 / 下拉菜单 / 命令面板
-- `j` / `k` 在列表中上下导航
-- `Enter` 确认选择
-- `?` 显示键盘快捷键清单
+- `Ctrl+K` / `Cmd+K` opens command palette (global search, page navigation)
+- `Ctrl+[` / `Ctrl+]` toggle sidebar
+- `Esc` close modal / dropdown / command palette
+- `j` / `k` navigate up/down in lists
+- `Enter` confirm selection
+- `?` show keyboard shortcut list
 
-### 响应式布局
+### Responsive Layout
 
-| 断点 | 宽度 | 布局 |
+| Breakpoint | Width | Layout |
 |---|---|---|
-| Mobile | < 768px | 单栏，侧边栏抽屉式，表格转卡片 |
-| Tablet | 768px - 1024px | 双栏，侧边栏可收起 |
-| Desktop | > 1024px | 三栏（导航 + 内容 + 详情面板） |
+| Mobile | < 768px | Single column, sidebar as drawer, tables to cards |
+| Tablet | 768px - 1024px | Two columns, sidebar collapsible |
+| Desktop | > 1024px | Three columns (nav + content + detail panel) |
 
-运行中收缩窗口时，自动折叠次要面板，优先保持时间线和内容可见。
+When resizing a running window, auto-collapse secondary panels, prioritizing timeline and content visibility.
 
-### 过渡与反馈
+### Transitions & Feedback
 
-- 页面切换：Route transition 200ms fade
-- 列表更新：新增条目淡入 (opacity 0 → 1)
-- 删除操作：滑出动画 + toast 确认
-- 长时间操作（Run 启动、RAG 重建索引）：Loading overlay + 进度指示
-- 复制按钮：Tool call args / 代码块右上角一键复制，操作后按钮变 ✓ 1 秒
+- Page transitions: route transition 200ms fade
+- List updates: new entries fade in (opacity 0 → 1)
+- Delete operations: slide-out animation + toast confirmation
+- Long operations (Run launch, RAG index rebuild): loading overlay + progress indicator
+- Copy button: one-click copy at top-right of tool call args / code blocks; button shows ✓ for 1 second after copying
 
-## 可访问性
+## Accessibility
 
-- 所有交互元素支持 `Tab` 聚焦，焦点环可见（`:focus-visible` 轮廓 2px 品牌色）
-- 图标配合 `aria-label` 提供屏幕阅读器文本
-- 表格使用 `<thead>` / `<tbody>` + `scope` 属性
-- 状态色不依赖单一颜色表达（running 状态同时使用图标 + 文字 + 颜色）
-- 目标区域不小于 44x44px（移动端触摸友好）
+- All interactive elements support `Tab` focus, visible focus ring (`:focus-visible` outline 2px brand color)
+- Icons paired with `aria-label` for screen reader text
+- Tables use `<thead>` / `<tbody>` + `scope` attributes
+- Status colors not relying on a single color expression (running state uses icon + text + color simultaneously)
+- Touch targets no smaller than 44x44px (mobile touch-friendly)
 
-## 性能预算
+## Performance Budget
 
-- 首屏加载（LCP）< 2.5 秒
-- 交互响应（INP）< 200ms
-- Run 列表虚拟滚动阈值：100 条以上启用
-- API 数据请求合并：列表页一次请求获取 30 条，滚动加载更多
-- 图片/图标使用 SVG sprite 或 icon font 减少请求数
+- First screen load (LCP) < 2.5 seconds
+- Interaction response (INP) < 200ms
+- Run list virtual scrolling threshold: enabled above 100 entries
+- API data request batching: list page fetches 30 entries per request, scroll to load more
+- Images/icons use SVG sprite or icon font to reduce request count
 
-## 实施优先级
+## Implementation Priority
 
-1. **P0**：主题系统 + 空状态 / 加载态 / 错误态
-2. **P1**：键盘导航 + 响应式布局
-3. **P2**：动画过渡 + 虚拟滚动
-4. **P3**：可访问性审计 + 深色主题优化
+1. **P0**: Theme system + empty/loading/error states
+2. **P1**: Keyboard navigation + responsive layout
+3. **P2**: Animation transitions + virtual scrolling
+4. **P3**: Accessibility audit + dark theme refinements

@@ -1,63 +1,63 @@
-# TUI 总览
+# TUI Overview
 
-> Vera 的终端用户界面基于 React + Ink 构建，运行于交互式 TTY，提供对话面板、Diff 展示、Slash 命令系统等完整的终端交互体验。
+> Vera's terminal user interface is built with React + Ink, running in an interactive TTY, providing conversation panels, Diff display, Slash command system, and a complete terminal interaction experience.
 
-## 架构总览
+## Architecture Overview
 
 ```
 packages/core/src/repl/
   index.ts          ← startRepl() → Ink render(<App />) → waitUntilExit()
-  context.ts        ← ReplContext（cwd、config、adapter、sessionStore...）
-  commands/         ← 17 个 /slash 命令，统一 handleCommand 路由
+  context.ts        ← ReplContext (cwd, config, adapter, sessionStore...)
+  commands/         ← 17 /slash commands, unified handleCommand routing
   ui/
-    App.tsx             ← 根组件，全局状态 + Turn 生命周期
-    ConversationPanel   ← 视口裁剪对话列表 + 滚动锚定
-    InputBar            ← 行编辑器（光标/历史/补全/搜索/外部编辑器）
-    StatusBar           ← Breathing spinner + Token 计数
-    OverlayHost         ← 弹出层容器（6 种 Overlay）
-    DiffView / DiffDialog ← 语法级 Diff（word-level 高亮 + 文件列表）
-    SessionPicker       ← 交互式会话恢复（搜索/分页/预览/分支对比）
-    WelcomeScreen       ← 空会话欢迎页
-    ToolResultView      ← 工具调用结果内联展示
-    SelectPrompt        ← 单选/多选提示（复用为 Provider/Model 选择器）
+    App.tsx             ← Root component, global state + Turn lifecycle
+    ConversationPanel   ← Viewport-clipped conversation list + scroll anchoring
+    InputBar            ← Line editor (cursor/history/completion/search/external editor)
+    StatusBar           ← Breathing spinner + Token count
+    OverlayHost         ← Overlay container (6 overlay types)
+    DiffView / DiffDialog ← Syntax-level Diff (word-level highlighting + file list)
+    SessionPicker       ← Interactive session restore (search/pagination/preview/branch compare)
+    WelcomeScreen       ← Empty session welcome screen
+    ToolResultView      ← Tool call result inline display
+    SelectPrompt        ← Single/multi-select prompt (reused for Provider/Model picker)
     renderers/          ← Bash/Code/Error/FileList/Text
-    AskUserQuestion/    ← 多选问答组件
-    controller/         ← 事件投影、Turn 生命周期、路由、持久化
-    hooks/              ← 流式处理、会话生命周期、工具调用
-    state/              ← Composer 状态机、Overlay Reducer、队列、Turn Store
+    AskUserQuestion/    ← Multi-select Q&A component
+    controller/         ← Event projection, Turn lifecycle, routing, persistence
+    hooks/              ← Streaming, session lifecycle, tool calls
+    state/              ← Composer state machine, Overlay Reducer, queue, Turn Store
 ```
 
-## REPL 循环流程
+## REPL Loop Flow
 
-### 启动路径
+### Startup Path
 
 ```text
 startRepl(ctx)
-  → assertInteractiveInput()           // 检查 TTY
-  → render(<App ctx={ctx} />)          // Ink 挂载到终端
-  → waitUntilExit()                    // block 直到用户 exit()
+  → assertInteractiveInput()           // check TTY
+  → render(<App ctx={ctx} />)          // Ink mounts to terminal
+  → waitUntilExit()                    // block until user exit()
 ```
 
-### 主循环：一次 Turn 的完整生命周期
+### Main Loop: Full Lifecycle of One Turn
 
 ```text
-用户输入 → handleSubmit(line)
+User input → handleSubmit(line)
   │
   ├─ Slash Command → handleSlashCommandSubmission()
-  │   └─ 直接操作 UI 状态（setMessages / dispatchOverlay / exit）
+  │   └─ Directly manipulate UI state (setMessages / dispatchOverlay / exit)
   │
-  └─ 普通消息 → Turn Pipeline
-      ├─ 1. resolveTurnRouting()       → Intent 分类 + 选择 Provider/Model
-      ├─ 2. prepareTurnContext()       → 加载历史、Memory、ProjectContext
-      ├─ 3. prepareTurnSetup()         → 组装 Prompt + Tools + toolCallHandler
+  └─ Normal message → Turn Pipeline
+      ├─ 1. resolveTurnRouting()       → Intent classification + select Provider/Model
+      ├─ 2. prepareTurnContext()       → Load history, Memory, ProjectContext
+      ├─ 3. prepareTurnSetup()         → Assemble Prompt + Tools + toolCallHandler
       └─ 4. runPreparedTurn()
-          ├─ Plan Mode                 → 多步计划 + 步骤可视化
-          └─ Stream Mode               → streamAgent() LLM 流式调用
+          ├─ Plan Mode                 → Multi-step plan + step visualization
+          └─ Stream Mode               → streamAgent() LLM streaming call
 ```
 
-### 任务队列
+### Task Queue
 
-当 `streamStatus !== "idle"` 时输入自动入队（enqueue），StatusBar 显示排队数。流式结束后 useEffect 自动出队执行：
+When `streamStatus !== "idle"`, input is automatically queued (enqueue), and StatusBar shows queue count. After streaming ends, useEffect auto-dequeues and executes:
 
 ```typescript
 useEffect(() => {
@@ -67,141 +67,141 @@ useEffect(() => {
 }, [streamStatus, queue.items.length]);
 ```
 
-## 核心组件
+## Core Components
 
-### App（根组件）
+### App (Root Component)
 
 `packages/core/src/repl/ui/App.tsx`
 
-全局状态管理控制中心，通过 `useRef` 持有可变状态避免不必要的重渲染：
+Global state management control center, using `useRef` to hold mutable state and avoid unnecessary re-renders:
 
-| Ref | 用途 |
+| Ref | Purpose |
 |---|---|
-| `ctxRef` | ReplContext（config、adapter、sessionStore） |
-| `streamingBufferRef` / `thinkingBufferRef` | 流式文本/Thinking 增量缓冲区 |
-| `historyRef` | LLM 对话历史（Message[]） |
-| `compressionStateRef` / `memoryTrackerRef` | 上下文压缩 + Memory 提取 |
-| `costRef` | 累计成本（按 Provider/Model 分账） |
-| `abortRef` | AbortController，用于取消当前 Turn |
-| `planStepsRef` | Plan Mode 步骤列表 |
+| `ctxRef` | ReplContext (config, adapter, sessionStore) |
+| `streamingBufferRef` / `thinkingBufferRef` | Streaming text/Thinking incremental buffers |
+| `historyRef` | LLM conversation history (Message[]) |
+| `compressionStateRef` / `memoryTrackerRef` | Context compression + Memory extraction |
+| `costRef` | Cumulative cost (tracked by Provider/Model) |
+| `abortRef` | AbortController, for cancelling the current Turn |
+| `planStepsRef` | Plan Mode step list |
 
-终端尺寸监听 `stdout.on("resize")` → `columns × rows` → 驱动 ConversationPanel 视口计算。
+Terminal size monitoring `stdout.on("resize")` → `columns × rows` → drives ConversationPanel viewport calculations.
 
-### ConversationPanel（对话面板）
+### ConversationPanel
 
 `packages/core/src/repl/ui/ConversationPanel.tsx`
 
-基于线估计的视口裁剪消息列表：
+Line-estimation-based viewport-clipped message list:
 
-1. **Line Estimation**：`getEstimatedMessageLines()` 根据文本长度、wrapWidth、Thinking/工具行数估算每条消息行数，结果缓存到 `heightCacheRef`（Map）中。
-2. **视口裁剪**：根据 `scrollOffset` 和 `availableHeight` 确定 `[viewStart, viewEnd)`，仅渲染可见消息。被剪消息数通过 "↑ N 条消息已隐藏" 提示。
-3. **滚动锚定**：新内容到达时自动增加 `scrollOffset` 补偿，保持用户视觉位置不变。
-4. **上下文保留**：视口顶部是助手消息时，回溯加入前一个用户消息，确保对话不丢失。
+1. **Line Estimation**: `getEstimatedMessageLines()` estimates each message's line count based on text length, wrapWidth, Thinking/tool line count. Results cached in `heightCacheRef` (Map).
+2. **Viewport Clipping**: Determines `[viewStart, viewEnd)` range based on `scrollOffset` and `availableHeight`, only renders visible messages. Hidden messages indicated by "↑ N messages hidden" hint.
+3. **Scroll Anchoring**: When new content arrives, auto-increment `scrollOffset` to compensate, keeping user's visual position stable.
+4. **Context Preservation**: When the viewport top is an assistant message, trace back to include the preceding user message, ensuring conversation continuity.
 
-**消息渲染顺序**：Thinking 块 → Tool Uses → 文本内容。用户消息绿色 `>` 前缀，助手消息橙色 `●` 前缀。Plan Mode 消息渲染步骤列表（pending ○ / running ▶ / done ✓ / failed ✗）。
+**Message render order**: Thinking block → Tool Uses → text content. User messages prefixed with green `>`, assistant messages prefixed with orange `●`. Plan Mode messages render step list (pending ○ / running ▶ / done ✓ / failed ✗).
 
-### InputBar（输入行）
+### InputBar
 
 `packages/core/src/repl/ui/InputBar.tsx`
 
-基于 `composerState` 纯函数状态机：
+Based on the `composerState` pure function state machine:
 
 ```
 (input, key) → reduceComposerInput(composer, input, key, history)
   → { state: ComposerState, effect?: Effect }
-    → onChange(value)                  // 回写 React state
-    → Effect 触发（submit/exit/cancel/scroll）
+    → onChange(value)                  // write back to React state
+    → Effect triggered (submit/exit/cancel/scroll)
 ```
 
-**功能**：光标控制（字素感知、Ctrl+A/E、Meta+Arrow）、编辑（Ctrl+W 删词、Ctrl+U 清行、Ctrl+K 删至行尾）、历史导航（↑↓ 浏览、Ctrl+R 反向搜索）、补全（`/` 命令补全 + Tab 文件路径补全）、外部编辑器（Ctrl+X → `$VISUAL`/`$EDITOR` → 回填）、IME/CJK 兼容。
+**Features**: cursor control (grapheme-aware, Ctrl+A/E, Meta+Arrow), editing (Ctrl+W delete word, Ctrl+U clear line, Ctrl+K delete to end of line), history navigation (↑↓ browse, Ctrl+R reverse search), completion (`/` command completion + Tab file path completion), external editor (Ctrl+X → `$VISUAL`/`$EDITOR` → backfill), IME/CJK compatibility.
 
-**双路径输入**：Ink `useInput()` 处理稳态输入 + 同步 `internal_eventEmitter.on("input")` 覆盖 mount 窗口首个按键。`inkInputReadyRef` 标志位确保不双重解析。
+**Dual-path input**: Ink `useInput()` handles steady-state input + synchronous `internal_eventEmitter.on("input")` covers the first keypress during mount window. `inkInputReadyRef` flag ensures no double parsing.
 
-### StatusBar（状态栏）
+### StatusBar
 
 `packages/core/src/repl/ui/StatusBar.tsx`
 
-- **idle**：`⌥O` 工具输出折叠/展开提示
-- **滚动中**：黄色 ↑ + 滚动导航
-- **活跃**：8 帧品牌橙色呼吸动画（120ms/帧）+ 经过时间 + input/output token + `esc to cancel` + 排队计数
+- **idle**: `⌥O` tool output collapse/expand hint
+- **Scrolling**: yellow ↑ + scroll navigation
+- **Active**: 8-frame brand orange breathing animation (120ms/frame) + elapsed time + input/output tokens + `esc to cancel` + queue count
 
-### OverlayHost（弹出层容器）
+### OverlayHost
 
 `packages/core/src/repl/ui/OverlayHost.tsx`
 
-通过 `useReducer(reduceOverlay)` 驱动 6 种状态：
+Driven by `useReducer(reduceOverlay)` with 6 states:
 
-| Overlay | 组件 | 说明 |
+| Overlay | Component | Description |
 |---|---|---|
-| `diff` | DiffDialog | 全屏 Git Diff 查看器 |
-| `sessionPicker` | SessionPicker | 会话恢复（搜索/预览/分支对比） |
-| `providerPicker` | SelectPrompt | Provider 列表选择 |
-| `modelPicker` | SelectPrompt | Model 选择（按 Provider 分组） |
-| `prompt: question` | AskUserQuestion | 多选问答 |
-| `prompt: approval` | SelectPrompt | 高风险操作确认 |
+| `diff` | DiffDialog | Full-screen Git Diff viewer |
+| `sessionPicker` | SessionPicker | Session restore (search/preview/branch compare) |
+| `providerPicker` | SelectPrompt | Provider list selection |
+| `modelPicker` | SelectPrompt | Model selection (grouped by Provider) |
+| `prompt: question` | AskUserQuestion | Multi-select Q&A |
+| `prompt: approval` | SelectPrompt | High-risk operation confirmation |
 
-切换后通过 `writeConfig()` 持久化并回调 App 更新路由。
+After switching, persists via `writeConfig()` and calls back App to update routing.
 
-### DiffView（差异视图）
+### DiffView
 
 `packages/core/src/repl/ui/DiffView.tsx`
 
-利用 `diffWordsWithSpace` 实现 word-level 语法高亮：
+Uses `diffWordsWithSpace` for word-level syntax highlighting:
 
-- 相邻删除+新增行，变化比例 ≤ 40% 时启用 word-level 着色
-- 删除行红色背景 + 红色字，新增行绿色背景 + 绿色字
-- dim 模式用于历史 Diff（降低亮度）
-- DiffDialog：文件列表视图（↑↓ 导航、Enter 展开详情、esc/q 返回）
+- Adjacent deletion+addition lines with change ratio ≤ 40% get word-level coloring
+- Deleted lines: red background + red text; added lines: green background + green text
+- dim mode for historical Diff (lowered brightness)
+- DiffDialog: file list view (↑↓ navigate, Enter expand details, esc/q back)
 
-### SessionPicker（会话选择器）
+### SessionPicker
 
 `packages/core/src/repl/ui/SessionPicker.tsx`
 
-交互式会话恢复面板：
+Interactive session restore panel:
 
-- **分页加载**：`listSessionsPaged()` 分页，接近底部自动加载更多
-- **全文搜索**：`/` 进入搜索模式，支持 `branch:` `tag:` `cost>` `cost<` `after:` `before:` 过滤器，搜索时全量扫描
-- **会话预览**：复用 ConversationPanel 渲染对话预览（12 行视口 + 滚动）
-- **分支对比**：`listBranches()` 展示同一 parent 的分支树
-- **键盘导航**：↑↓ 选择、PgUp/PgDn 翻页、u/d 滚动预览、o 展开工具、b 分支对比、Enter 恢复、esc 关闭
+- **Paginated loading**: `listSessionsPaged()` paging, auto-load more near bottom
+- **Full-text search**: `/` enters search mode, supports `branch:` `tag:` `cost>` `cost<` `after:` `before:` filters, full scan during search
+- **Session preview**: reuses ConversationPanel to render conversation preview (12-line viewport + scrolling)
+- **Branch comparison**: `listBranches()` shows branch tree for the same parent
+- **Keyboard navigation**: ↑↓ select, PgUp/PgDn page, u/d scroll preview, o expand tools, b branch compare, Enter restore, esc close
 
-## 主题系统
+## Theme System
 
 `packages/core/src/repl/ui/theme.ts`
 
-暗色主题调色板，所有颜色定义为语义命名 CSS RGB 字符串：
+Dark theme palette, all colors defined as semantic-named CSS RGB strings:
 
-### 语义色彩令牌
+### Semantic Color Tokens
 
-| 令牌 | RGB | 用途 |
+| Token | RGB | Usage |
 |---|---|---|
-| `brand` | `(215,119,87)` | 品牌橙 — 助手消息前缀、输入提示符 |
-| `brandShimmer` | `(235,159,127)` | 品牌亮橙 — 队列消息 |
-| `success` | `(78,186,101)` | 成功绿 — 用户消息前缀、工具 OK |
-| `error` | `(255,107,128)` | 错误红 — 失败标记 |
-| `warning` | `(255,193,7)` | 警告黄 — 队列标记、滚动提示 |
-| `suggestion` | `(177,185,249)` | 蓝紫 — 补全建议、Plan 头部 |
-| `text` | `(255,255,255)` | 主文本（白） |
-| `textDim` | `(153,153,153)` | 次级文本（灰） |
-| `textSubtle` | `(80,80,80)` | 低调文本（深灰）— 分隔线 |
+| `brand` | `(215,119,87)` | Brand orange — assistant message prefix, input prompt |
+| `brandShimmer` | `(235,159,127)` | Brand light orange — queued messages |
+| `success` | `(78,186,101)` | Success green — user message prefix, tool OK |
+| `error` | `(255,107,128)` | Error red — failure markers |
+| `warning` | `(255,193,7)` | Warning yellow — queue marker, scroll hint |
+| `suggestion` | `(177,185,249)` | Blue-purple — completion suggestions, Plan header |
+| `text` | `(255,255,255)` | Primary text (white) |
+| `textDim` | `(153,153,153)` | Secondary text (gray) |
+| `textSubtle` | `(80,80,80)` | Subtle text (dark gray) — dividers |
 
-### 功能域色彩
+### Domain Colors
 
-**Diff**：`diffAddedBg (34,92,43)` / `diffAddedWord (56,166,96)` 绿系，`diffRemovedBg (122,41,54)` / `diffRemovedWord (179,89,107)` 红系，`diffHunk (100,149,237)` 矢车菊蓝。
+**Diff**: `diffAddedBg (34,92,43)` / `diffAddedWord (56,166,96)` green scheme, `diffRemovedBg (122,41,54)` / `diffRemovedWord (179,89,107)` red scheme, `diffHunk (100,149,237)` cornflower blue.
 
-**Plan Step**：pending `textDim`、running `suggestion`、done `success`、failed `error`。
+**Plan Step**: pending `textDim`, running `suggestion`, done `success`, failed `error`.
 
-**Spinner**：`spinnerFrames` 8 帧品牌橙从暗→亮→暗，模拟呼吸脉冲。
+**Spinner**: `spinnerFrames` 8 frames of brand orange from dark→light→dark, simulating breathing pulse.
 
-**Tool**：`toolName`（橙）、`toolLabel`（灰）、`toolOk`（绿）、`toolError`（红）。
+**Tool**: `toolName` (orange), `toolLabel` (gray), `toolOk` (green), `toolError` (red).
 
-**Thinking**：`thinkingText (120,120,120)` / `thinkingLabel (100,100,100)` 低对比度灰色。
+**Thinking**: `thinkingText (120,120,120)` / `thinkingLabel (100,100,100)` low-contrast gray.
 
-## 状态管理
+## State Management
 
-### UiEvent 协议
+### UiEvent Protocol
 
-所有 UI 变更通过统一事件协议驱动，不直接 setState：
+All UI changes are driven through a unified event protocol, not direct setState:
 
 ```typescript
 type UiEvent =
@@ -213,65 +213,65 @@ type UiEvent =
   | { type: "usage.updated"; usage: Partial<TokenUsage> }
 ```
 
-`dispatchUiEvent(event)` → `projectUiEvent(viewModel, event)` → 新 `ReplViewModel`：
+`dispatchUiEvent(event)` → `projectUiEvent(viewModel, event)` → new `ReplViewModel`:
 
 ```
 ReplViewModel { messages, status, usage, activeTurn }
 ```
 
-- **activeTurn** 由 `reduceActiveTurn()` 纯函数维护（流式文本 + Thinking + 工具列表 + Token）
-- **messages** 在 `assistant.completed` 时 archive（合并 thinking + toolUses + content）
-- **usage** 累加（inputTotal / outputTotal / cacheWriteTotal / cacheReadTotal / costUsd）
+- **activeTurn** maintained by `reduceActiveTurn()` pure function (streaming text + Thinking + tool list + Tokens)
+- **messages** archived on `assistant.completed` (merge thinking + toolUses + content)
+- **usage** accumulated (inputTotal / outputTotal / cacheWriteTotal / cacheReadTotal / costUsd)
 
-### 状态模块
+### State Modules
 
-| 模块 | 职责 |
+| Module | Responsibility |
 |---|---|
-| `composerState` | InputBar 编辑器状态机，纯函数 reduce |
-| `turnStore` | ActiveTurn reducer，响应 UiEvent |
+| `composerState` | InputBar editor state machine, pure function reduce |
+| `turnStore` | ActiveTurn reducer, responds to UiEvent |
 | `overlayStore` | Overlay Action/Reducer |
-| `queueState` | 输入队列（FIFO + prepend） |
-| `reverseSearch` | Ctrl+R 反向搜索状态 |
-| `blockingPrompt` | 阻塞式 Prompt 类型定义 |
+| `queueState` | Input queue (FIFO + prepend) |
+| `reverseSearch` | Ctrl+R reverse search state |
+| `blockingPrompt` | Blocking Prompt type definitions |
 
-## 输入解析
+## Input Parsing
 
 `packages/core/src/repl/ui/inputKeys.ts`
 
-自研 ANSI 解析器 `parseInputChunk(rawChunk) → { input, key }`，兼容 Ink 协议：
+Custom ANSI parser `parseInputChunk(rawChunk) → { input, key }`, compatible with Ink protocol:
 
-- **过滤**：Focus Event、SGR Mouse、X10 Mouse 控制序列
-- **特殊键**：ANSI Arrow / Page / Return / Escape / Tab / Backspace / Delete → key flags
-- **组合键**：Ctrl+字母（`\x01`~`\x1a`）、Meta+字符（`\x1b`+char）、Shift（大写）
-- **去噪**：`parseInputKey()` 仅返回 key flags
+- **Filtering**: Focus Event, SGR Mouse, X10 Mouse control sequences
+- **Special keys**: ANSI Arrow / Page / Return / Escape / Tab / Backspace / Delete → key flags
+- **Modifier keys**: Ctrl+letter (`\x01`~`\x1a`), Meta+char (`\x1b`+char), Shift (uppercase)
+- **Denoising**: `parseInputKey()` returns only key flags
 
-## 渲染管线
+## Rendering Pipeline
 
-`packages/core/src/repl/ui/renderers/` 提供 5 种内容渲染器：
+`packages/core/src/repl/ui/renderers/` provides 5 content renderers:
 
-| 渲染器 | 说明 |
+| Renderer | Description |
 |---|---|
-| `BashOutputView` | ANSI 颜色解析的 Shell 输出 |
-| `CodeView` | 语法高亮代码块 |
-| `ErrorView` | 结构化错误展示 |
-| `FileListView` | 文件变更/搜索结果列表 |
-| `TextView` | 纯文本（含截断） |
+| `BashOutputView` | ANSI color-parsed shell output |
+| `CodeView` | Syntax-highlighted code blocks |
+| `ErrorView` | Structured error display |
+| `FileListView` | File change/search result list |
+| `TextView` | Plain text (with truncation) |
 
-`ToolResultView` 内联嵌入 ConversationPanel，通过 `toolUsesForDisplay()` 控制策略：默认折叠显示工具名+首行结果，`⌥O` 全局展开显示完整参数和输出。
+`ToolResultView` is inline-embedded in ConversationPanel, controlled by `toolUsesForDisplay()` strategy: default collapsed showing tool name + first line result; `⌥O` globally expands to show full parameters and output.
 
-## 命令系统
+## Command System
 
-17 个 Slash 命令，统一 `handleSlashCommandSubmission()` 调度，签名 `(args[], ctx) => Promise<void>`：
+17 Slash commands, unified `handleSlashCommandSubmission()` dispatch, signature `(args[], ctx) => Promise<void>`:
 
-| 命令 | 说明 | Overlay |
+| Command | Description | Overlay |
 |---|---|---|
-| `/help` | 所有命令及说明 | — |
-| `/model` | 查看/切换模型 | modelPicker |
-| `/provider` | 查看/切换 Provider | providerPicker |
-| `/sessions` | 历史会话摘要 | — |
-| `/resume` | 打开会话选择器 | sessionPicker |
-| `/branch` / `/branches` | 创建/列出分支 | — |
-| `/switch` / `/adopt` / `/drop` / `/merge` | 分支操作 | — |
-| `/title` / `/metadata` | 会话元信息 | — |
-| `/transcript` / `/sub` / `/subjobs` | 导出/子代理 | — |
-| `/try <text>` | 非流式快速执行 | — |
+| `/help` | All commands and descriptions | — |
+| `/model` | View/switch model | modelPicker |
+| `/provider` | View/switch Provider | providerPicker |
+| `/sessions` | Historical session summary | — |
+| `/resume` | Open session picker | sessionPicker |
+| `/branch` / `/branches` | Create/list branches | — |
+| `/switch` / `/adopt` / `/drop` / `/merge` | Branch operations | — |
+| `/title` / `/metadata` | Session metadata | — |
+| `/transcript` / `/sub` / `/subjobs` | Export/sub-agent | — |
+| `/try <text>` | Non-streaming quick execution | — |

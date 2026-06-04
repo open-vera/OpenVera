@@ -1,28 +1,28 @@
-# Ink 演进方案
+# Ink Evolution Plan
 
-> 目标：在不重写现有 TUI 的前提下，通过增量演进提升 Ink 终端的模块化、可测试性和性能。
+> Goal: Improve the modularity, testability, and performance of the Ink terminal UI through incremental evolution without rewriting the existing TUI.
 
-## 当前架构痛点
+## Current Architecture Pain Points
 
-现有 Ink TUI 经过多次迭代已具备完整功能，但也积累了一些结构性挑战：
+The existing Ink TUI has accumulated full functionality through multiple iterations, but also some structural challenges:
 
-1. **巨型 App 组件**：`App.tsx` 约 475 行，集中了尺寸监听、会话生命周期、流式处理、Turn 执行、输入路由、Overlay 管理、Plan 模式等过多职责
-2. **Ref 瀑布**：20+ 个 `useRef` 分散在 App 中，数据流不易追踪
-3. **紧耦合渲染**：`ConversationPanel` 内部包含 Line Estimation、视口裁剪、消息渲染三种职责
-4. **事件协议不完整**：部分 UI 更新绕过 UiEvent 协议直接 `setMessages` / `setUsage`
-5. **无单元测试**：Composer 状态机和事件投影有少量测试，大部分 UI 逻辑依赖手工验证
+1. **Giant App component**: `App.tsx` is approximately 475 lines, concentrating too many responsibilities: resize monitoring, session lifecycle, streaming processing, Turn execution, input routing, Overlay management, Plan mode, etc.
+2. **Ref waterfall**: 20+ `useRef` scattered throughout App, making data flow hard to trace
+3. **Tightly coupled rendering**: `ConversationPanel` internally contains three responsibilities: Line Estimation, viewport clipping, and message rendering
+4. **Incomplete event protocol**: some UI updates bypass `UiEvent` protocol and directly call `setMessages` / `setUsage`
+5. **No unit tests**: Composer state machine and event projection have a few tests; most UI logic relies on manual verification
 
-## 增量演进策略
+## Incremental Evolution Strategy
 
-原则：每次改动保持 UI 行为不变，仅重组内部结构。提交粒度与功能改动分离。
+Principle: keep UI behavior unchanged with each change, only reorganize internal structure. Commit granularity is separated from feature changes.
 
-### Phase 1：App 组件拆分
+### Phase 1: App Component Decomposition
 
-将 `App.tsx` 的职责拆分为 3 个自定义 Hook，App 本身退化为编排层（约 100 行）：
+Split `App.tsx` responsibilities into 3 custom Hooks, with App itself degraded to an orchestration layer (approximately 100 lines):
 
 ```typescript
-// 拆分前：App.tsx — 475 行，20+ refs
-// 拆分后：
+// Before: App.tsx — 475 lines, 20+ refs
+// After:
 
 useTerminalDimensions() → { columns, rows }
 useSessionBridge({ ctx, resumeSessionId }) → { loaded, error }
@@ -32,45 +32,45 @@ function App({ ctx, resumeSessionId }) {
   const dims = useTerminalDimensions();
   const bridge = useSessionBridge({ ctx, resumeSessionId });
   const pipeline = useTurnPipeline({ ctx, routing: dims.routing, viewModel });
-  // 仅负责 JSX 编排
+  // only responsible for JSX orchestration
   return (/* ... */);
 }
 ```
 
-具体 Hook 职责分配：
+Specific Hook responsibility assignments:
 
-| Hook | 拥有 Ref | 对外暴露 |
+| Hook | Owns Refs | Exposes |
 |---|---|---|
 | `useTerminalDimensions` | stdout | `{ columns, rows }` |
 | `useSessionBridge` | ctxRef, historyRef, compressionRef, memoryRef, projectContextRef | `{ loaded, error }` |
-| `useTurnPipeline` | streamingBufferRef, thinkingBufferRef, rafRef, abortRef, costRef, turnCountRef 等 | `{ handleSubmit, handleCancel, streamStatus }` |
+| `useTurnPipeline` | streamingBufferRef, thinkingBufferRef, rafRef, abortRef, costRef, turnCountRef, etc. | `{ handleSubmit, handleCancel, streamStatus }` |
 | `useOverlayController` | dispatchOverlay | `{ overlay, openXxx, close }` |
 
-### Phase 2：Composer 提升为独立模块
+### Phase 2: Promote Composer to Independent Module
 
-将 `composerState.ts` 中的纯函数逻辑提升为可独立测试的模块：
+Promote the pure function logic in `composerState.ts` to an independently testable module:
 
-- **输入**：`(state: ComposerState, input: string, key: ComposerKeyState, history: string[])`
-- **输出**：`{ state: ComposerState; effect?: ComposerEffect }`
-- **100% 纯函数**：不依赖 React、Ink、或任何副作用
+- **Input**: `(state: ComposerState, input: string, key: ComposerKeyState, history: string[])`
+- **Output**: `{ state: ComposerState; effect?: ComposerEffect }`
+- **100% pure function**: no dependency on React, Ink, or any side effects
 
-目标覆盖率：Composer 状态机 ≥ 95%（分支覆盖所有 Ctrk+Key 组合、历史导航、补全选择）。
+Target coverage: Composer state machine >= 95% (branch coverage for all Ctrl+Key combinations, history navigation, completion selection).
 
-同时将 `inputKeys.ts` 提升为独立模块，输入编码表可直接用于测试。
+Also promote `inputKeys.ts` to an independent module; the input encoding table can be directly used for testing.
 
-### Phase 3：事件协议严肃化
+### Phase 3: Formalize Event Protocol
 
-当前存在两条状态更新路径：
+Two state update paths currently exist:
 
 1. `dispatchUiEvent(event)` → `projectUiEvent()` → ViewModel
-2. `setMessages(fn)` / `setUsage(fn)` 直接调用
+2. `setMessages(fn)` / `setUsage(fn)` direct calls
 
-长期方案：将所有 ViewModel 更新统一到 UiEvent 协议，消灭直接 setter 调用。过渡期保留 setter 但标记为 `@deprecated`，审计每个调用点是否可转为事件。
+Long-term approach: unify all ViewModel updates into the UiEvent protocol, eliminating direct setter calls. During the transition, retain setters but mark them `@deprecated`, auditing each call site for potential conversion to events.
 
-#### 新增事件类型
+#### New Event Types
 
 ```typescript
-// 当前缺失的事件类型
+// Currently missing event types
 | { type: "session.loaded"; sessionId: string; turnCount: number }
 | { type: "session.error"; message: string }
 | { type: "history.truncated"; removedCount: number }
@@ -79,9 +79,9 @@ function App({ ctx, resumeSessionId }) {
 | { type: "routing.switched"; provider: string; model: string }
 ```
 
-### Phase 4：视口渲染抽象
+### Phase 4: Viewport Rendering Abstraction
 
-将 `ConversationPanel` 的视口逻辑抽象为通用 Hook：
+Abstract `ConversationPanel`'s viewport logic into a generic Hook:
 
 ```typescript
 function useViewportScrolling<T>({
@@ -89,66 +89,66 @@ function useViewportScrolling<T>({
   estimateLines,    // (item: T) => number
   availableHeight,
 }: ViewportConfig): ViewportResult<T> {
-  // 返回 { visibleItems, hiddenAbove, scrollOffset, handleScroll }
+  // returns { visibleItems, hiddenAbove, scrollOffset, handleScroll }
 }
 ```
 
-`ConversationPanel` 自身变为薄层（约 80 行），仅负责消息 → JSX 映射。
+`ConversationPanel` itself becomes a thin layer (approximately 80 lines), only responsible for message → JSX mapping.
 
-### Phase 5：性能优化
+### Phase 5: Performance Optimization
 
-#### 减少 Ink 重渲染
+#### Reduce Ink Re-renders
 
-- `ConversationPanel` 使用 `React.memo` + 精确 props 比较（跳过 identity-stable setter 的浅比较失败）
-- `DiffView` 已使用 `memo` + `useMemo`，保持
-- `ThinkingView`、`ToolResultView` 添加 `React.memo`
-- 滚动偏移量改为 `useRef` 而非 `useState`（不影响渲染树的变动用 ref 避免额外渲染）
+- `ConversationPanel` uses `React.memo` + precise props comparison (avoids shallow comparison failures on identity-stable setters)
+- `DiffView` already uses `memo` + `useMemo`, keep as-is
+- Add `React.memo` to `ThinkingView`, `ToolResultView`
+- Change scroll offset from `useState` to `useRef` (ref avoids extra renders for changes that don't affect the render tree)
 
-#### ReplayBuffer 替代 setTimeout
+#### ReplayBuffer Replaces setTimeout
 
-当前流式渲染使用 `setTimeout` 56ms（~18fps）合并增量：
+Current streaming rendering uses `setTimeout` 56ms (~18fps) to batch increments:
 
 ```typescript
-// 当前
+// Current
 rafRef.current = setTimeout(() => { flush(); }, 56);
 
-// 优化
-// 使用 requestAnimationFrame 或微任务队列，对齐终端刷新率
+// Optimized
+// Use requestAnimationFrame or microtask queue, aligned to terminal refresh rate
 ```
 
 #### Virtual Scrolling
 
-当消息超过 200 条时启用虚拟滚动模式：仅跟踪预估行高，跳过实际 render，减少 Ink 的 React reconciliation 开销。
+When messages exceed 200, enable virtual scrolling mode: only track estimated line heights, skip actual rendering, reducing Ink's React reconciliation overhead.
 
-## 测试策略
+## Testing Strategy
 
-### 可测试层
+### Testable Layers
 
-| 层 | 测试方式 | 目标覆盖率 |
+| Layer | Test Method | Target Coverage |
 |---|---|---|
-| Composer 状态机 | 纯函数单元测试 | ≥ 95% |
-| UiEvent → ViewModel 投影 | 纯函数单元测试 | ≥ 95% |
-| 输入键码解析 | 纯函数单元测试 | ≥ 90% |
-| Tool 投影（toolUsesForDisplay） | 纯函数单元测试 | ≥ 85% |
-| Hook 集成测试 | React Testing Library | ≥ 70% |
-| 渲染冒烟测试 | Ink `render()` + string snapshot | 关键路径 |
+| Composer state machine | Pure function unit test | >= 95% |
+| UiEvent → ViewModel projection | Pure function unit test | >= 95% |
+| Input key code parsing | Pure function unit test | >= 90% |
+| Tool projection (toolUsesForDisplay) | Pure function unit test | >= 85% |
+| Hook integration tests | React Testing Library | >= 70% |
+| Render smoke tests | Ink `render()` + string snapshot | Critical paths |
 
-### 不测试层
+### Non-testable Layers
 
-- Ink 组件的外貌验证（依赖终端渲染，不适合快照测试）
-- 真实 TTY 交互（留待 E2E 手工验证）
+- Visual appearance verification of Ink components (depends on terminal rendering, unsuitable for snapshot tests)
+- Real TTY interaction (left for manual E2E verification)
 
-## 风险评估
+## Risk Assessment
 
-| 风险 | 概率 | 影响 | 缓解 |
+| Risk | Probability | Impact | Mitigation |
 |---|---|---|---|
-| Hook 拆分破坏闭包引用 | 中 | 高（功能回归） | 严格按 Phase 顺序，每步通过 TTY 冒烟测试 |
-| 事件协议迁移遗漏事件 | 高 | 中（部分更新丢失） | 审计 grep `setMessages\|setUsage\|setStreamStatus` 找到所有直接调用点 |
-| React.memo 导致过期 UI | 低 | 中 | 仅对叶子组件添加 memo，保持 App 层不 memo |
-| Virtual scrolling stutter | 中 | 低（体验降级） | 设置 200 条阈值，低于阈值不启用 |
+| Hook decomposition breaks closure references | Medium | High (functional regression) | Strict Phase ordering, TTY smoke test at each step |
+| Event protocol migration misses events | High | Medium (partial update loss) | Audit grep `setMessages\|setUsage\|setStreamStatus` to find all direct call sites |
+| React.memo causes stale UI | Low | Medium | Only add memo to leaf components, keep App layer unmemoized |
+| Virtual scrolling stutter | Medium | Low (UX degradation) | Set 200-entry threshold, disabled below threshold |
 
-## 不演进的方向（保持现状）
+## Directions NOT to Evolve (Keep As-Is)
 
-- **Ink 版本**：锁定 Ink 5.x，不追大版本升级（API 稳定）
-- **TSX 方案**：不迁移到字符串模板（如 `ink-template`），保持 JSX 可组合性
-- **Web 替代方案**：TUI 和 Web UI 独立演进，不互相替代
+- **Ink version**: lock on Ink 5.x, do not chase major version upgrades (API is stable)
+- **TSX approach**: do not migrate to string templates (e.g. `ink-template`), maintain JSX composability
+- **Web replacement**: TUI and Web UI evolve independently, do not replace each other

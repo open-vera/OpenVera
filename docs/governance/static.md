@@ -1,35 +1,35 @@
-# 静态代码质量扫描
+# Static Code Quality Scanning
 
-> 目标：用一条命令扫出文件过长、函数过复杂、跨文件重复等结构性问题，输出可读报告。
+> Goal: Scan for structural issues (overly long files, overly complex functions, cross-file duplication) with a single command and produce a readable report.
 
 ---
 
-## 工具选型
+## Tool Selection
 
-三工具各司其职，完全并行，无依赖关系。
+Three tools, each with a distinct responsibility, running fully in parallel with no dependencies.
 
-### 结构性指标：oxlint
+### Structural Metrics: oxlint
 
-[oxlint](https://oxc.rs/docs/guide/usage/linter.html) 是 OXC（Oxidation Compiler）工具链的 linter 组件，Rust 实现，**多线程并行**扫描，速度比 ESLint 快 50–100x。
+[oxlint](https://oxc.rs/docs/guide/usage/linter.html) is the linter component of the OXC (Oxidation Compiler) toolchain, implemented in Rust with **multi-threaded parallel** scanning, 50-100x faster than ESLint.
 
-- 内置多线程，天然支持 monorepo 并行
-- 覆盖文件长度、函数长度、圈复杂度、嵌套深度、参数数量（见下表）
-- 独立二进制，与主 ESLint 配置完全隔离
+- Built-in multi-threading, naturally supports monorepo parallelism
+- Covers file length, function length, cyclomatic complexity, nesting depth, and parameter count (see table below)
+- Standalone binary, fully isolated from the main ESLint configuration
 
-### 认知复杂度：ESLint + sonarjs（无类型检查模式）
+### Cognitive Complexity: ESLint + sonarjs (no type-checking mode)
 
-[eslint-plugin-sonarjs](https://github.com/SonarSource/eslint-plugin-sonarjs) 提供认知复杂度（cognitive complexity）规则。认知复杂度比圈复杂度更接近"阅读难度"——嵌套越深惩罚越重，`&&`/`||` 链式判断也会放大得分。
+[eslint-plugin-sonarjs](https://github.com/SonarSource/eslint-plugin-sonarjs) provides cognitive complexity rules. Cognitive complexity is closer to "readability difficulty" than cyclomatic complexity -- deeper nesting incurs heavier penalties, and `&&`/`||` chained conditions also amplify the score.
 
-关键：sonarjs 所有规则是**纯 AST 分析**，不需要 TypeScript 类型信息。因此配置一个极简 ESLint 实例，只挂 sonarjs 规则、不开 `parserOptions.projectService`，速度比完整 lint 快 **10–20x**：
+Key point: all sonarjs rules are **pure AST analysis** and do not need TypeScript type information. Therefore, using a minimal ESLint instance with only sonarjs rules and without `parserOptions.projectService` is **10-20x faster** than a full lint:
 
 ```js
-// eslint.sonarjs.config.js（独立配置，不影响主 eslint.config.js）
+// eslint.sonarjs.config.js (independent config, does not affect main eslint.config.js)
 import sonarjs from "eslint-plugin-sonarjs";
 import tsParser from "@typescript-eslint/parser";
 
 export default [{
   plugins: { sonarjs },
-  languageOptions: { parser: tsParser },   // 只解析，跳过类型解析
+  languageOptions: { parser: tsParser },   // parse only, skip type resolution
   rules: {
     "sonarjs/cognitive-complexity": ["warn", 15],
     "sonarjs/no-identical-functions": "warn",
@@ -38,108 +38,108 @@ export default [{
 }];
 ```
 
-### 重复度检测：jscpd
+### Duplication Detection: jscpd
 
-[jscpd](https://github.com/kucherenko/jscpd)（JS Copy-Paste Detector）是目前 JS/TS 生态最成熟的跨文件重复代码检测工具。
+[jscpd](https://github.com/kucherenko/jscpd) (JS Copy-Paste Detector) is the most mature cross-file duplicate code detection tool in the JS/TS ecosystem.
 
-- 支持 `--workers N` 多进程并行 tokenize
-- token 级别匹配（不受变量名重命名影响）
-- 输出 JSON / Markdown / HTML 多种格式
+- Supports `--workers N` multi-process parallel tokenization
+- Token-level matching (unaffected by variable renaming)
+- Output in JSON / Markdown / HTML formats
 
-> Rust 生态目前尚无成熟的跨文件 duplication detector，jscpd 是唯一选择。
+> The Rust ecosystem currently has no mature cross-file duplication detector; jscpd is the only option.
 
-### 并行执行策略
+### Parallel Execution Strategy
 
-三个工具扫描的是**完全不相交的关注点**，在 skill 脚本里同时启动：
+The three tools scan **completely disjoint concerns** and are launched simultaneously in the skill script:
 
 ```
 skill scan
-├── oxlint（结构指标）         ~0.1s ─┐
-├── eslint + sonarjs（认知复杂度）~3s ─┤─→ Promise.all → 合并报告
-└── jscpd（重复度）            ~4s ─┘
+├── oxlint (structural metrics)              ~0.1s ─┐
+├── eslint + sonarjs (cognitive complexity)   ~3s  ─┤─→ Promise.all → merge reports
+└── jscpd (duplication)                       ~4s ─┘
 ```
 
-总耗时 ≈ max(三者) ≈ **4s**，而非三者之和。
+Total time ≈ max(all three) ≈ **4s**, not the sum of all three.
 
 ---
 
-## 指标与阈值
+## Metrics and Thresholds
 
-| 类别 | 指标 | 工具 | 规则名 | warn | error |
+| Category | Metric | Tool | Rule Name | warn | error |
 |---|---|---|---|---|---|
-| 文件 | 文件总行数 | oxlint | `max-lines` | 300 | 600 |
-| 函数 | 函数体行数 | oxlint | `max-lines-per-function` | 50 | 100 |
-| 复杂度 | 圈复杂度（分支数） | oxlint | `complexity` | 10 | 20 |
-| 嵌套 | 最深 block 层数 | oxlint | `max-depth` | 4 | 6 |
-| 参数 | 函数参数数量 | oxlint | `max-params` | 4 | 7 |
-| 认知复杂度 | 阅读难度评分 | sonarjs | `cognitive-complexity` | 15 | — |
-| 重复 | 重复 token 块 | jscpd | `--min-tokens` | 50 | — |
+| File | Total file lines | oxlint | `max-lines` | 300 | 600 |
+| Function | Function body lines | oxlint | `max-lines-per-function` | 50 | 100 |
+| Complexity | Cyclomatic complexity (branch count) | oxlint | `complexity` | 10 | 20 |
+| Nesting | Maximum block depth | oxlint | `max-depth` | 4 | 6 |
+| Parameters | Function parameter count | oxlint | `max-params` | 4 | 7 |
+| Cognitive Complexity | Readability difficulty score | sonarjs | `cognitive-complexity` | 15 | — |
+| Duplication | Duplicate token block | jscpd | `--min-tokens` | 50 | — |
 
-**阈值设计原则**：
-- warn = 值得关注，不阻断；error = 超出业界普遍共识，需重构
-- 阈值参考 Google/Airbnb 规范及 SonarQube 默认配置
-- 重复度只输出报告，不设 error 等级（先摸清现状）
+**Threshold design principles**:
+- warn = worth attention, non-blocking; error = exceeds broad industry consensus, needs refactoring
+- Thresholds reference Google/Airbnb standards and SonarQube default configurations
+- Duplication only produces a report, no error level (assess the current state first)
 
 ---
 
-## Skill 设计
+## Skill Design
 
-### 输入
+### Input
 
 ```bash
-# 扫描全部 packages（默认）
+# Scan all packages (default)
 /quality-scan
 
-# 只扫指定包
+# Scan only specific packages
 /quality-scan packages/core
 
-# 输出详细模式（列出每个违规位置）
+# Verbose output (list each violation location)
 /quality-scan --verbose
 ```
 
-### 输出
+### Output
 
-终端打印摘要 + 写入 `docs/code-governance/report-<date>.md`：
+Terminal summary + write to `docs/code-governance/report-<date>.md`:
 
 ```
 ═══════════════════════════════════════
-  Vera 代码质量扫描报告  2026-04-27
+  Vera Code Quality Scan Report  2026-04-27
 ═══════════════════════════════════════
 
-【结构性指标】oxlint
-  ✓ 文件长度   0 error  3 warn
-  ✗ 函数长度   2 error  8 warn
-  ✓ 圈复杂度   0 error  1 warn
-  ✓ 嵌套深度   0 error  0 warn
-  ✓ 参数数量   0 error  2 warn
+[Structural Metrics] oxlint
+  ✓ File length      0 error  3 warn
+  ✗ Function length  2 error  8 warn
+  ✓ Cyclomatic complexity  0 error  1 warn
+  ✓ Nesting depth    0 error  0 warn
+  ✓ Parameter count  0 error  2 warn
 
-  Top 违规：
-    packages/core/src/agent/loop.ts:47  函数 agentLoop() 113 行 (limit: 100)
-    packages/core/src/plan/repl-runner.ts:12  函数 run() 108 行 (limit: 100)
+  Top violations:
+    packages/core/src/agent/loop.ts:47  function agentLoop() 113 lines (limit: 100)
+    packages/core/src/plan/repl-runner.ts:12  function run() 108 lines (limit: 100)
 
-【重复度】jscpd
-  重复率：4.2%  (建议 < 5%)
-  重复块：7 处
-  最大块：packages/harness/src/executor.ts:80–120
-          packages/harness/src/runner.ts:45–85  (40 lines)
+[Duplication] jscpd
+  Duplication rate: 4.2%  (recommended < 5%)
+  Duplicate blocks: 7
+  Largest block: packages/harness/src/executor.ts:80–120
+                packages/harness/src/runner.ts:45–85  (40 lines)
 
 ═══════════════════════════════════════
-  总结：2 error  14 warn  重复率 4.2%
+  Summary: 2 error  14 warn  duplication rate 4.2%
 ═══════════════════════════════════════
 ```
 
-### Skill 实现结构
+### Skill Implementation Structure
 
 ```
 .claude/skills/quality-scan/
-├── skill.md              # skill 元信息与入口提示词
-├── scan.ts               # 并行启动三工具，合并结果
-├── oxlint.config.json    # oxlint 规则配置（独立于主 eslint.config.js）
-├── eslint.sonarjs.config.js  # 极简 ESLint，只跑 sonarjs，无类型检查
-└── report.ts             # 格式化输出 + 写 Markdown 报告
+├── skill.md              # skill metadata and entry prompt
+├── scan.ts               # launch three tools in parallel, merge results
+├── oxlint.config.json    # oxlint rule configuration (independent of main eslint.config.js)
+├── eslint.sonarjs.config.js  # minimal ESLint, only sonarjs, no type checking
+└── report.ts             # format output + write Markdown report
 ```
 
-`oxlint.config.json`：
+`oxlint.config.json`:
 
 ```json
 {
@@ -153,7 +153,7 @@ skill scan
 }
 ```
 
-`eslint.sonarjs.config.js`（只解析 AST，不挂 projectService，快 10–20x）：
+`eslint.sonarjs.config.js` (AST-only, no projectService, 10-20x faster):
 
 ```js
 import sonarjs from "eslint-plugin-sonarjs";
@@ -172,21 +172,21 @@ export default [{
 
 ---
 
-## 与日常 lint 的关系
+## Relationship with Daily Lint
 
-| | 日常 `pnpm lint` | `quality-scan` |
+| | Daily `pnpm lint` | `quality-scan` |
 |---|---|---|
-| 目的 | 正确性、风格 | 结构复杂度、重复度 |
-| 工具 | ESLint + typescript-eslint（类型检查） | oxlint + ESLint/sonarjs（无类型检查）+ jscpd |
-| 触发时机 | 每次提交前 | 按需 / 定期 |
-| 阻断构建？ | 是（error 时） | 否（只报告） |
+| Purpose | Correctness, style | Structural complexity, duplication |
+| Tools | ESLint + typescript-eslint (type checking) | oxlint + ESLint/sonarjs (no type checking) + jscpd |
+| Trigger | Before every commit | On demand / periodically |
+| Blocks build? | Yes (on error) | No (report only) |
 
-三份配置（`eslint.config.js` / `oxlint.config.json` / `eslint.sonarjs.config.js`）完全独立，互不干扰。
+The three configs (`eslint.config.js` / `oxlint.config.json` / `eslint.sonarjs.config.js`) are fully independent and do not interfere with each other.
 
 ---
 
-## 待评估
+## To Be Evaluated
 
-- [ ] 认知复杂度（cognitive complexity）：oxlint 支持后可替换圈复杂度
-- [ ] CI 集成：PR 时自动跑扫描，将报告贴到 PR comment
-- [ ] 趋势追踪：多次扫描结果对比，观察质量变化曲线
+- [ ] Cognitive complexity: once oxlint supports it, it can replace cyclomatic complexity
+- [ ] CI integration: auto-run scan on PR and post report as PR comment
+- [ ] Trend tracking: compare multiple scan results, observe quality change curve

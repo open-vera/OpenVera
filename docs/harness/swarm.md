@@ -1,111 +1,112 @@
-# 蜂群 Swarm -- 并行沙箱调度系统
+# Swarm -- Parallel Sandbox Scheduling System
 
-Swarm 是 Vera Harness 层的并行任务调度模块，提供多沙箱并发执行能力。它管理优先级任务队列、并发沙箱创建、任务拆分和结果合并，让开发者把一批独立的计算任务并行投递到多个安全隔离的沙箱中执行。
+Swarm is the parallel task scheduling module in the Vera Harness layer, providing multi-sandbox concurrent execution capability. It manages a priority task queue, concurrent sandbox creation, task splitting, and result merging, allowing developers to submit a batch of independent computation tasks in parallel to multiple securely isolated sandboxes.
 
-核心代码位于 `packages/harness/src/swarm/`。
-
----
-
-## 整体架构
-
-```
-用户提交任务
-    │
-    ▼
-┌──────────────────────────────┐
-│       SwarmScheduler         │
-│                              │
-│  submit(task) → 优先级队列    │
-│       │                      │
-│       ├─ 创建 Sandbox         │
-│       ├─ 上传文件/内容         │
-│       ├─ 执行命令              │
-│       ├─ 收集结果              │
-│       └─ 销毁/复用 Sandbox     │
-│                              │
-│  事件系统 (EventEmitter)       │
-│  预算控制                      │
-│  自动重试                      │
-└──────────────────────────────┘
-    │
-    ▼
-┌──────────────┐    ┌──────────────┐
-│ TaskSplitter │    │ ResultMerger │
-│              │    │              │
-│ 拆分大任务    │    │ 合并并行结果  │
-│ 为子任务      │    │ 为统一输出    │
-└──────────────┘    └──────────────┘
-```
+Core code is located at `packages/harness/src/swarm/`.
 
 ---
 
-## 核心类型
+## Overall Architecture
+
+```
+User submits task
+    |
+    v
++------------------------------+
+|       SwarmScheduler         |
+|                              |
+|  submit(task) -> priority queue |
+|       |                      |
+|       +-- Create Sandbox      |
+|       +-- Upload files/content|
+|       +-- Execute command     |
+|       +-- Collect result      |
+|       +-- Destroy/reuse Sandbox|
+|                              |
+|  Event system (EventEmitter)  |
+|  Budget control               |
+|  Auto retry                   |
++------------------------------+
+    |
+    v
++--------------+    +--------------+
+| TaskSplitter |    | ResultMerger |
+|              |    |              |
+| Split large  |    | Merge parallel|
+| tasks into   |    | results into  |
+| sub-tasks    |    | unified output|
++--------------+    +--------------+
+```
+
+---
+
+## Core Types
 
 ### SwarmTask
 
 ```typescript
 interface SwarmTask {
-  readonly id: string;                                 // 唯一标识（可自动生成）
-  readonly name: string;                               // 任务名称
-  readonly priority: TaskPriority;                     // 优先级
-  readonly command: string;                            // 沙箱内执行的命令
-  readonly files?: Array<{ localPath: string; remotePath: string }>;   // 上传文件
-  readonly contents?: Array<{ content: string | Uint8Array; remotePath: string }>; // 上传内容
-  readonly workdir?: string;                           // 工作目录
-  readonly env?: Record<string, string>;               // 环境变量
-  readonly timeoutSeconds?: number;                    // 超时（秒）
-  readonly sandboxOptions?: Partial<SandboxCreateOptions>;  // 沙箱选项覆盖
-  readonly maxRetries?: number;                        // 最大重试次数
+  readonly id: string;                                 // Unique identifier (auto-generated)
+  readonly name: string;                               // Task name
+  readonly priority: TaskPriority;                     // Priority
+  readonly command: string;                            // Command to execute in sandbox
+  readonly files?: Array<{ localPath: string; remotePath: string }>;   // Files to upload
+  readonly contents?: Array<{ content: string | Uint8Array; remotePath: string }>; // Content to upload
+  readonly workdir?: string;                           // Working directory
+  readonly env?: Record<string, string>;               // Environment variables
+  readonly timeoutSeconds?: number;                    // Timeout (seconds)
+  readonly sandboxOptions?: Partial<SandboxCreateOptions>;  // Sandbox option overrides
+  readonly maxRetries?: number;                        // Max retries
 }
 ```
 
 ### TaskPriority
 
-| 值 | 内部权重 | 说明 |
+| Value | Internal Weight | Description |
 |---|---|---|
-| `"critical"` | 4 | 最高优先级，优先调度 |
-| `"high"` | 3 | 高优先级 |
-| `"normal"` | 2 | 默认优先级 |
-| `"low"` | 1 | 低优先级，最后调度 |
+| `"critical"` | 4 | Highest priority, scheduled first |
+| `"high"` | 3 | High priority |
+| `"normal"` | 2 | Default priority |
+| `"low"` | 1 | Low priority, scheduled last |
 
 ### SwarmTaskResult
 
 ```typescript
 interface SwarmTaskResult {
-  readonly taskId: string;           // 对应任务 ID
-  readonly taskName: string;         // 任务名称
-  readonly status: SwarmTaskStatus;  // 最终状态
-  readonly exitCode: number | null;  // 退出码
-  readonly stdout: string;           // 标准输出
-  readonly stderr: string;           // 标准错误
-  readonly durationMs: number;       // 执行时长
-  readonly sandboxId: string;        // 沙箱 ID
-  readonly error?: string;           // 错误信息
-  readonly retries: number;          // 重试次数
+  readonly taskId: string;           // Corresponding task ID
+  readonly taskName: string;         // Task name
+  readonly status: SwarmTaskStatus;  // Final status
+  readonly exitCode: number | null;  // Exit code
+  readonly stdout: string;           // Standard output
+  readonly stderr: string;           // Standard error
+  readonly durationMs: number;       // Execution duration
+  readonly sandboxId: string;        // Sandbox ID
+  readonly error?: string;           // Error message
+  readonly retries: number;          // Retry count
 }
 ```
 
 ### SwarmTaskStatus
 
 ```
-pending → assigned → running → completed / failed / timeout / cancelled
+pending -> assigned -> running -> completed / failed / timeout / cancelled
 ```
 
-| 状态 | 说明 |
+| Status | Description |
 |---|---|
-| `pending` | 在队列中等待 |
-| `assigned` | 已分配沙箱 |
-| `running` | 正在执行 |
-| `completed` | 执行成功（exitCode=0） |
-| `failed` | 执行失败（exitCode≠0 或无沙箱） |
-| `timeout` | 超时 |
-| `cancelled` | 被取消 |
+| `pending` | Waiting in queue |
+| `assigned` | Sandbox allocated |
+| `running` | Currently executing |
+| `completed` | Execution succeeded (exitCode=0) |
+| `failed` | Execution failed (exitCode!=0 or no sandbox) |
+| `timeout` | Timed out |
+| `cancelled` | Cancelled |
 
 ---
 
-## 优先级队列
+## Priority Queue
 
-调度器内部使用 `PriorityQueue` 实现。高优先级任务先出队，同优先级按 FIFO 排序。
+The scheduler uses a `PriorityQueue` internally. Higher-priority tasks are dequeued first; same-priority tasks follow FIFO order.
 
 ```typescript
 const PRIORITY_ORDER: Record<TaskPriority, number> = {
@@ -116,15 +117,15 @@ const PRIORITY_ORDER: Record<TaskPriority, number> = {
 };
 ```
 
-队列用有序数组实现，插入时按优先级二分定位，出队时取队首。
+The queue is implemented as a sorted array, with binary-search-based insertion for priority ordering and dequeue from the front.
 
-**不保证严格公平性**：连续提交 `critical` 任务会长期占用沙箱，`low` 任务可能饥饿。生产场景应混合使用优先级。
+**Strict fairness is not guaranteed**: continuously submitting `critical` tasks can monopolize sandboxes, and `low` tasks may starve. Production scenarios should mix priority levels.
 
 ---
 
-## 事件系统
+## Event System
 
-调度器在生命周期关键节点触发事件，外部可注册 listener 监听：
+The scheduler fires events at key lifecycle points. External listeners can register to observe them:
 
 ```typescript
 type SwarmSchedulerEvent =
@@ -137,56 +138,56 @@ type SwarmSchedulerEvent =
   | { type: "sandbox:created"; sandboxId: string }
   | { type: "sandbox:destroyed"; sandboxId: string }
   | { type: "scheduler:idle" }
-  | { type: "scheduler:drained" };  // 所有任务完成
+  | { type: "scheduler:drained" };  // All tasks completed
 ```
 
-**事件顺序示例：**
+**Event order example:**
 
 ```
-task:queued → sandbox:created → task:assigned → task:started → task:completed → sandbox:destroyed → scheduler:drained
+task:queued -> sandbox:created -> task:assigned -> task:started -> task:completed -> sandbox:destroyed -> scheduler:drained
 ```
 
 ---
 
 ## Scheduler API
 
-### 创建与配置
+### Creation and Configuration
 
 ```typescript
 import { createSwarmScheduler } from "@open-vera/harness";
 import type { SwarmSchedulerConfig, SandboxProvider } from "@open-vera/harness";
 
 const scheduler = createSwarmScheduler({
-  maxConcurrency: 4,                    // 最大并行沙箱数
-  provider: mySandboxProvider,          // 沙箱提供者实例
-  defaultSandboxOptions: {              // 默认沙箱选项
+  maxConcurrency: 4,                    // Max concurrent sandboxes
+  provider: mySandboxProvider,          // Sandbox provider instance
+  defaultSandboxOptions: {              // Default sandbox options
     image: "ubuntu:22.04",
     cpu: 1,
     memoryMb: 512,
   },
-  defaultTimeoutSeconds: 300,           // 默认超时 5 分钟
-  pollIntervalMs: 100,                  // 轮询间隔 100ms
-  autoDestroy: true,                    // 执行完毕自动销毁沙箱
-  budgetLimit: 100,                     // 预算限制（耗时秒数，0=无限制）
+  defaultTimeoutSeconds: 300,           // Default timeout 5 minutes
+  pollIntervalMs: 100,                  // Polling interval 100ms
+  autoDestroy: true,                    // Auto-destroy sandbox after completion
+  budgetLimit: 100,                     // Budget limit (elapsed seconds, 0=unlimited)
 });
 ```
 
-**配置字段：**
+**Configuration fields:**
 
-| 字段 | 类型 | 默认值 | 说明 |
+| Field | Type | Default | Description |
 |---|---|---|---|
-| `maxConcurrency` | number | （必填） | 最大并发沙箱数 |
-| `provider` | SandboxProvider | （必填） | 沙箱提供者 |
-| `defaultSandboxOptions` | object | `{}` | 默认沙箱创建选项 |
-| `defaultTimeoutSeconds` | number | `300` | 默认任务超时（秒） |
-| `pollIntervalMs` | number | `100` | 轮询间隔（毫秒） |
-| `autoDestroy` | boolean | `true` | 任务完成后自动销毁沙箱 |
-| `budgetLimit` | number | `0` | 预算上限（单位：秒，0=无限） |
+| `maxConcurrency` | number | (required) | Max concurrent sandboxes |
+| `provider` | SandboxProvider | (required) | Sandbox provider |
+| `defaultSandboxOptions` | object | `{}` | Default sandbox creation options |
+| `defaultTimeoutSeconds` | number | `300` | Default task timeout (seconds) |
+| `pollIntervalMs` | number | `100` | Polling interval (milliseconds) |
+| `autoDestroy` | boolean | `true` | Auto-destroy sandbox after task completion |
+| `budgetLimit` | number | `0` | Budget cap (unit: seconds, 0=unlimited) |
 
-### 提交任务
+### Submitting Tasks
 
 ```typescript
-// 单个任务
+// Single task
 const taskId = scheduler.submit({
   name: "Run tests for module-a",
   priority: "normal",
@@ -199,7 +200,7 @@ const taskId = scheduler.submit({
   maxRetries: 2,
 });
 
-// 批量提交
+// Batch submit
 const taskIds = scheduler.submitBatch([
   { name: "lint", command: "npm run lint", priority: "high" },
   { name: "test-a", command: "npm test module-a", priority: "normal" },
@@ -207,32 +208,32 @@ const taskIds = scheduler.submitBatch([
 ]);
 ```
 
-`submit` 返回 task ID。如果未提供 `id`，自动生成 `task-1`, `task-2`, ...。
+`submit` returns a task ID. If no `id` is provided, it is auto-generated as `task-1`, `task-2`, ...
 
-### 获取结果
+### Getting Results
 
 ```typescript
-// 获取单个结果
+// Get single result
 const result = scheduler.getResult(taskId);
 if (result) {
   console.log(result.stdout);
   console.log(`Duration: ${result.durationMs}ms`);
 }
 
-// 获取所有结果
+// Get all results
 const allResults = scheduler.getResults();
 
-// 等待全部完成
+// Wait for all to complete
 const results = await scheduler.waitForAll();
 for (const r of results) {
   console.log(`${r.taskName}: ${r.status} (${r.durationMs}ms)`);
 }
 
-// 等待单个任务
+// Wait for single task
 const result = await scheduler.waitForTask(taskId);
 ```
 
-### 状态查询
+### Status Query
 
 ```typescript
 const status = scheduler.getStatus();
@@ -247,19 +248,19 @@ const status = scheduler.getStatus();
 // }
 ```
 
-### 取消与关闭
+### Cancellation and Shutdown
 
 ```typescript
-// 取消单个任务
+// Cancel single task
 scheduler.cancel(taskId);
-// 如果任务在队列中 → 直接移除
-// 如果任务正在执行 → 销毁其沙箱（强制中止）
+// If task is in queue -> remove directly
+// If task is executing -> destroy its sandbox (force stop)
 
-// 关闭调度器（取消所有排队任务，销毁所有沙箱）
+// Shut down scheduler (cancel all queued tasks, destroy all sandboxes)
 await scheduler.shutdown();
 ```
 
-### 事件监听
+### Event Listening
 
 ```typescript
 scheduler.on((event) => {
@@ -279,26 +280,26 @@ scheduler.on((event) => {
 
 ---
 
-## 任务拆分 (TaskSplitter)
+## Task Splitting (TaskSplitter)
 
-`TaskSplitter` 自动将大任务拆分为可并行的子任务。
+`TaskSplitter` automatically splits large tasks into parallelizable sub-tasks.
 
-### 内置策略
+### Built-in Strategies
 
 #### FileBatchSplitStrategy
 
-按文件数量分批。当 `task.files.length > batchSize`（默认 10）时触发。
+Splits by file count. Triggers when `task.files.length > batchSize` (default 10).
 
 ```typescript
 import { FileBatchSplitStrategy } from "@open-vera/harness";
 
 const strategy = new FileBatchSplitStrategy(10);
-// 100 个文件 → 10 个子任务（每批 10 个文件）
+// 100 files -> 10 sub-tasks (10 files per batch)
 ```
 
 #### ContentBatchSplitStrategy
 
-按内容片段数量分批。当 `task.contents.length > batchSize`（默认 10）时触发。
+Splits by content fragment count. Triggers when `task.contents.length > batchSize` (default 10).
 
 ```typescript
 import { ContentBatchSplitStrategy } from "@open-vera/harness";
@@ -308,32 +309,32 @@ const strategy = new ContentBatchSplitStrategy(10);
 
 #### ParallelCommandSplitStrategy
 
-将用 `;` 分隔的独立命令拆分为并行子任务。注意：`&&` 连接的命令不拆分（存在依赖关系）。
+Splits independent commands separated by `;` into parallel sub-tasks. Note: commands joined by `&&` are not split (existence of dependencies).
 
 ```typescript
 import { ParallelCommandSplitStrategy } from "@open-vera/harness";
 
-// "lint; test; build" → 3 个独立子任务
-// "lint && test" → 不拆分
+// "lint; test; build" -> 3 independent sub-tasks
+// "lint && test" -> not split
 ```
 
-分号拆分时正确处理引号内的分号，避免误拆分。
+Semicolons inside quoted strings are correctly handled during semicolon-based splitting to avoid erroneous splits.
 
 #### CustomSplitStrategy
 
-用户自定义拆分逻辑：
+User-defined split logic:
 
 ```typescript
 import { CustomSplitStrategy } from "@open-vera/harness";
 
 const strategy = new CustomSplitStrategy(
   "my-strategy",
-  (task) => task.name.includes("batch"),       // predicate：是否可拆分
-  (task) => [/* ...SwarmTask[] */],             // splitter：拆分为子任务
+  (task) => task.name.includes("batch"),       // predicate: can it be split?
+  (task) => [/* ...SwarmTask[] */],             // splitter: split into sub-tasks
 );
 ```
 
-### 使用
+### Usage
 
 ```typescript
 import { TaskSplitter } from "@open-vera/harness";
@@ -343,31 +344,31 @@ const splitter = new TaskSplitter({
     new FileBatchSplitStrategy(5),
     new ParallelCommandSplitStrategy(),
   ],
-  maxSubTasks: 20,      // 最多拆成 20 个子任务
-  splitThreshold: 2,    // 任务复杂度 < 2 时不拆分
+  maxSubTasks: 20,      // Max 20 sub-tasks
+  splitThreshold: 2,    // Do not split when task complexity < 2
 });
 
 const result = splitter.trySplit(myTask);
 if (result) {
   console.log(`Split into ${result.subTasks.length} sub-tasks via ${result.strategy}`);
-  // 将子任务批量提交
+  // Submit sub-tasks in batch
   scheduler.submitBatch(result.subTasks);
 }
 ```
 
-**任务复杂度估算：** `1 + files.length + contents.length + (2 if multi-command)`，小于 `splitThreshold` 的任务不触发拆分。
+**Task complexity estimation:** `1 + files.length + contents.length + (2 if multi-command)`. Tasks with complexity below `splitThreshold` do not trigger splitting.
 
 ---
 
-## 结果合并 (ResultMerger)
+## Result Merging (ResultMerger)
 
-`ResultMerger` 将并行执行的子任务结果合并为统一的输出。
+`ResultMerger` merges parallel execution sub-task results into a unified output.
 
-### 内置策略
+### Built-in Strategies
 
-#### ConcatMergeStrategy（默认）
+#### ConcatMergeStrategy (Default)
 
-拼接所有子任务的 stdout/stderr，适合文本输出类任务。
+Concatenates stdout/stderr of all sub-tasks. Suitable for text-output tasks.
 
 ```typescript
 import { ConcatMergeStrategy } from "@open-vera/harness";
@@ -377,16 +378,16 @@ import { ConcatMergeStrategy } from "@open-vera/harness";
 // [test-b] tests passed: 18/18
 ```
 
-**MergedResult 状态：**
-- 全部成功 → `"completed"`
-- 部分失败 → `"partial"`
-- 全部失败 → `"failed"`
+**MergedResult status:**
+- All successful -> `"completed"`
+- Partial failure -> `"partial"`
+- All failed -> `"failed"`
 
-`totalDurationMs` 是所有子任务耗时之和，`wallClockDurationMs` 是最大子任务耗时（反映并行执行的真实墙钟时间）。
+`totalDurationMs` is the sum of all sub-task durations, `wallClockDurationMs` is the maximum sub-task duration (reflecting the true wall-clock time of parallel execution).
 
 #### ReportMergeStrategy
 
-生成结构化的 Markdown 表格报告：
+Generates a structured Markdown table report:
 
 ```typescript
 import { ReportMergeStrategy } from "@open-vera/harness";
@@ -431,7 +432,7 @@ const strategy = new CustomMergeStrategy(
 );
 ```
 
-### 使用
+### Usage
 
 ```typescript
 import { ResultMerger, ConcatMergeStrategy, ReportMergeStrategy } from "@open-vera/harness";
@@ -444,22 +445,22 @@ const merger = new ResultMerger({
 const results = await scheduler.waitForAll();
 const merged = merger.merge(results);
 console.log(merged.summary);  // "42/42 tasks completed"
-console.log(merged.stdout);   // 合并后的输出
+console.log(merged.stdout);   // Merged output
 
-// 指定策略合并
+// Merge with specified strategy
 const report = merger.mergeWith(results, "report");
 ```
 
 ---
 
-## 典型工作流
+## Typical Workflows
 
-### 并行测试
+### Parallel Testing
 
 ```typescript
 import { createSwarmScheduler, TaskSplitter, ResultMerger } from "@open-vera/harness";
 
-// 1. 初始化
+// 1. Initialize
 const scheduler = createSwarmScheduler({
   maxConcurrency: 4,
   provider: sandboxProvider,
@@ -469,7 +470,7 @@ const scheduler = createSwarmScheduler({
 const splitter = new TaskSplitter();
 const merger = new ResultMerger({ defaultStrategy: "concat" });
 
-// 2. 拆分任务
+// 2. Split task
 const task = {
   name: "test-suite",
   command: "npm test -- --filter=$MODULE",
@@ -479,22 +480,22 @@ const task = {
 };
 const split = splitter.trySplit(task);
 
-// 3. 提交执行
+// 3. Submit and execute
 if (split) {
   scheduler.submitBatch(split.subTasks);
 } else {
   scheduler.submit(task);
 }
 
-// 4. 等待完成
+// 4. Wait for completion
 const results = await scheduler.waitForAll();
 
-// 5. 合并结果
+// 5. Merge results
 const merged = merger.merge(results);
 console.log(merged.summary);
 ```
 
-### 事件驱动监控
+### Event-Driven Monitoring
 
 ```typescript
 scheduler.on((event) => {
@@ -509,14 +510,14 @@ scheduler.on((event) => {
 });
 ```
 
-### 预算控制
+### Budget Control
 
 ```typescript
 const scheduler = createSwarmScheduler({
   maxConcurrency: 8,
   provider: sandboxProvider,
-  budgetLimit: 3600, // 总执行时间不超过 1 小时（秒）
+  budgetLimit: 3600, // Total execution time not to exceed 1 hour (seconds)
 });
 
-// 当累计执行时间超过 budgetLimit 时，调度器自动停止分配新任务
+// When cumulative execution time exceeds budgetLimit, the scheduler automatically stops assigning new tasks
 ```

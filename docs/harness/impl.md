@@ -1,118 +1,118 @@
-# Multi-Agent MVP 实施记录
+# Multi-Agent MVP Implementation Record
 
-## 已实现（P0 MVP）
+## Implemented (P0 MVP)
 
-### Monorepo 架构
+### Monorepo Architecture
 
-pnpm workspace monorepo，4 个包：
+pnpm workspace monorepo, 4 packages:
 
-| 包 | 说明 | 状态 |
+| Package | Description | Status |
 |----|------|------|
-| `@vera/types` | 共享类型 + Zod Schemas | ✅ |
-| `@vera/core` | 编排引擎 + Agent 适配器 + CLI | ✅ |
-| `@vera/server` | HTTP API Server（浏览器模式） | ✅ |
-| `@vera/web-ui` | Vue 3 前端 + Tauri 桌面应用 | ✅ |
+| `@vera/types` | Shared types + Zod Schemas | Done |
+| `@vera/core` | Orchestration engine + Agent adapters + CLI | Done |
+| `@vera/server` | HTTP API Server (browser mode) | Done |
+| `@vera/web-ui` | Vue 3 frontend + Tauri desktop app | Done |
 
-### 核心引擎 (@vera/core)
+### Core Engine (@vera/core)
 
-- **TypeScript 类型 + Zod Schema** — `packages/types/src/` 全部协议、Agent、Blackboard、Flow、Session 类型定义
-- **NDJSON Transport** — ANSI 剥离、启发式 JSON 提取、流式解析
-- **Blackboard** — 内存实现、角色写入约束、critic reasoning 隔离、乐观锁版本控制
-- **FSM Orchestrator** — 状态机编排、condition 表达式求值（expr-eval）、终止判定、system prompt 模板注入
-- **Config Loader** — YAML FlowConfig + adapters + agents 加载校验、credentials.json 凭证注入、变量替换
-- **Trace Log + Cost Tracking** — pino NDJSON trace、per-agent/per-role 成本统计
-- **CLI** — `vera run` 命令、Ctrl+C 优雅终止、session 数据持久化
+- **TypeScript types + Zod Schema** -- All protocol, Agent, Blackboard, Flow, Session type definitions in `packages/types/src/`
+- **NDJSON Transport** -- ANSI stripping, heuristic JSON extraction, streaming parse
+- **Blackboard** -- In-memory implementation, role-based write constraints, critic reasoning isolation, optimistic-lock version control
+- **FSM Orchestrator** -- State machine orchestration, condition expression evaluation (expr-eval), termination judgment, system prompt template injection
+- **Config Loader** -- YAML FlowConfig + adapters + agents loading and validation, credentials.json credential injection, variable substitution
+- **Trace Log + Cost Tracking** -- pino NDJSON trace, per-agent/per-role cost statistics
+- **CLI** -- `vera run` command, Ctrl+C graceful termination, session data persistence
 
-### Agent Adapters（5 个）
+### Agent Adapters (5)
 
-| Adapter | 方式 | 状态 |
+| Adapter | Method | Status |
 |---------|------|------|
-| Claude Code | CLI `--settings` | ✅ 已验证 |
-| Claude Code Bare | CLI `--bare --settings` | ✅ 已验证 |
-| Gemini API | HTTP Vertex AI REST API | ✅ 已验证 |
-| Gemini CLI | CLI（有子进程 hang bug） | ⚠️ 待修复 |
-| OpenCode | CLI `--pure --format json` | ✅ 已验证 |
+| Claude Code | CLI `--settings` | Done verified |
+| Claude Code Bare | CLI `--bare --settings` | Done verified |
+| Gemini API | HTTP Vertex AI REST API | Done verified |
+| Gemini CLI | CLI (has subprocess hang bug) | Pending fix |
+| OpenCode | CLI `--pure --format json` | Done verified |
 
-### 已验证的 Flow
+### Verified Flows
 
-| Flow | Proposer | Critic | Judge | 结果 |
+| Flow | Proposer | Critic | Judge | Result |
 |------|----------|--------|-------|------|
-| `cc-only.yaml` | Claude | Claude | Claude | ✅ score 0.85 |
-| `cc-mixed.yaml` | Claude(full) | Claude(bare) | Claude(bare) | ✅ score 0.88 |
-| `minimal.yaml` | Claude | Gemini API | Claude | ✅ score 0.88 |
-| `heterogeneous.yaml` | Claude | Kimi(OpenCode) | Gemini API | ✅ score 0.90 |
+| `cc-only.yaml` | Claude | Claude | Claude | Done score 0.85 |
+| `cc-mixed.yaml` | Claude(full) | Claude(bare) | Claude(bare) | Done score 0.88 |
+| `minimal.yaml` | Claude | Gemini API | Claude | Done score 0.88 |
+| `heterogeneous.yaml` | Claude | Kimi(OpenCode) | Gemini API | Done score 0.90 |
 
 ### HTTP API Server (@vera/server)
 
-| Endpoint | Method | 说明 |
+| Endpoint | Method | Description |
 |----------|--------|------|
-| `/api/sessions` | GET | 会话列表 |
-| `/api/sessions/:id` | GET | 会话详情 |
-| `/api/sessions/:id/blackboard` | GET | Blackboard 状态 |
-| `/api/flows` | GET | 可用 Flow 列表 |
-| `/api/run` | POST | 启动编排 |
+| `/api/sessions` | GET | Session list |
+| `/api/sessions/:id` | GET | Session details |
+| `/api/sessions/:id/blackboard` | GET | Blackboard state |
+| `/api/flows` | GET | Available flow list |
+| `/api/run` | POST | Start orchestration |
 
 ### Web UI (@vera/web-ui)
 
-| 组件 | 功能 |
+| Component | Function |
 |------|------|
-| FlowRunner | 选择 flow + 输入任务 + 启动编排 + 实时进度 |
-| SessionList | 会话卡片列表 + 搜索/筛选/排序 |
-| SessionDetail | 会话详情弹窗 + Trace 时间线 + Blackboard 查看 |
-| FlowVisualizer | FSM 流程可视化（待集成 Mermaid） |
-| StatsPanel | 成本/Token/耗时统计图表 |
+| FlowRunner | Select flow + input task + start orchestration + real-time progress |
+| SessionList | Session card list + search/filter/sort |
+| SessionDetail | Session detail modal + Trace timeline + Blackboard viewer |
+| FlowVisualizer | FSM flow visualization (Mermaid integration pending) |
+| StatsPanel | Cost/Token/Duration statistics charts |
 
-**双模式支持：**
-- 浏览器模式：`pnpm dev` (Vite) + `@vera/server` (HTTP API)
-- Tauri 桌面模式：`pnpm dev:tauri` (Tauri IPC，Rust 后端直接读文件)
+**Dual mode support:**
+- Browser mode: `pnpm dev` (Vite) + `@vera/server` (HTTP API)
+- Tauri desktop mode: `pnpm dev:tauri` (Tauri IPC, Rust backend reads files directly)
 
 ### Tauri Rust Backend
 
-Tauri Commands 实现了 session 读取和 flow 执行：
-- `list_sessions()` — 读取 sessions/ 目录
-- `get_session(id)` — 读取 result.json
-- `get_blackboard(id)` — 读取 blackboard.json
-- `list_flows()` — 列出 configs/flows/
-- `run_flow(flow, task)` — spawn vera-core 进程
+Tauri Commands implement session reading and flow execution:
+- `list_sessions()` -- Read sessions/ directory
+- `get_session(id)` -- Read result.json
+- `get_blackboard(id)` -- Read blackboard.json
+- `list_flows()` -- List configs/flows/
+- `run_flow(flow, task)` -- spawn vera-core process
 
-### 测试
+### Tests
 
-- 28 个单元测试全部通过（ndjson、blackboard、condition eval、config loader）
+- 28 unit tests all passing (ndjson, blackboard, condition eval, config loader)
 
 ---
 
-## Demo 使用方法
+## Demo Usage
 
-### 快速体验（浏览器模式）
+### Quick Start (Browser Mode)
 
 ```bash
-# 一键启动
+# One-click start
 bash demo/start.sh
 
-# 或手动：
+# Or manually:
 pnpm build
 node packages/server/dist/index.js --port 3000 --sessions-dir ./sessions &
 cd packages/web-ui && pnpm dev
-# 打开 http://localhost:5173
+# Open http://localhost:5173
 ```
 
-### 运行编排
+### Run Orchestration
 
 ```bash
-# 使用默认 flow + task
+# Use default flow + task
 bash demo/run-flow.sh
 
-# 自定义
-bash demo/run-flow.sh --flow configs/flows/cc-only.yaml --task "你的任务描述"
+# Custom
+bash demo/run-flow.sh --flow configs/flows/cc-only.yaml --task "your task description"
 
-# 或直接用 CLI
+# Or use CLI directly
 node packages/core/dist/index.js run \
   --flow configs/flows/cc-mixed.yaml \
   --task "Review this code: ..." \
   --config-dir configs/
 ```
 
-### Tauri 桌面模式
+### Tauri Desktop Mode
 
 ```bash
 cd packages/web-ui
@@ -121,80 +121,80 @@ pnpm dev:tauri
 
 ---
 
-## 已知问题
+## Known Issues
 
-1. **Gemini CLI 子进程 hang** — 非 TTY 下卡死，已用 `gemini-api`（HTTP）替代
-2. **confidence 固定 0.50** — Agent 返回的 JSON 不总包含 confidence 字段
-3. **token 统计不完整** — Claude CLI 的 token 数据未正确提取
-4. **FlowVisualizer 未完成** — 待集成 Mermaid.js
+1. **Gemini CLI subprocess hang** -- Freezes in non-TTY, replaced with `gemini-api` (HTTP)
+2. **confidence fixed at 0.50** -- Agent returned JSON does not always include confidence field
+3. **Incomplete token statistics** -- Claude CLI token data not correctly extracted
+4. **FlowVisualizer incomplete** -- Mermaid.js integration pending
 
-### 上下文窗口管理问题
+### Context Window Management Issues
 
-当前所有 agent 调用都是 single-shot，每次把全部上下文拼成一个 prompt。存在以下问题：
+All current agent calls are single-shot, concatenating the full context into one prompt each time. The following issues exist:
 
-**问题 1: 无上下文大小控制**
-- `context-assembler.ts` 将 goal.md + 角色描述 + 知识库全部文件 + 步骤定义 + 所有前序 handoff + 项目目录全部源码拼在一起
-- 项目文件多、知识库文件多时，轻松超出模型上下文窗口
-- 没有 token 计数和截断机制
+**Issue 1: No context size control**
+- `context-assembler.ts` concatenates goal.md + role description + all knowledge base files + step definitions + all previous handoffs + all project directory source code
+- When project files are many or knowledge base files are many, it easily exceeds model context window
+- No token counting or truncation mechanism
 
-**问题 2: 知识库全量读取，无按需过滤**
-- `readAgentKnowledge()` 读取 agent 目录下全部 .md 文件
-- 设计步骤不需要读 test-strategy.md，需求步骤不需要读 code-standards.md
-- 应该由编排 agent 或步骤定义指定本步骤需要读取哪些知识库文件
+**Issue 2: Full knowledge base read, no on-demand filtering**
+- `readAgentKnowledge()` reads all .md files under the agent directory
+- Design steps do not need test-strategy.md, requirement steps do not need code-standards.md
+- Should let the orchestration agent or step definition specify which knowledge base files to read for this step
 
-**问题 3: 前序上下文无摘要/压缩**
-- 步骤越多，前序 handoff.md 越长
-- 第 5 步的 agent 会收到前面 4 步全部 handoff 内容
-- 应该对远距离的前序步骤做摘要压缩，只保留近 1-2 步的完整 handoff
+**Issue 3: No summary/compression of prior context**
+- The more steps, the longer the prior handoff.md
+- Step 5 agent receives all handoff content from the previous 4 steps
+- Should summarize and compress distant prior steps, only keeping full handoff of the last 1-2 steps
 
-**问题 4: Agent 无状态，重做时丢失上下文**
-- 每次调用都是全新的 single-shot，没有对话历史
-- 重做时只通过 retryHint（挑战反馈文本）传递上下文
-- 不知道之前尝试过什么方案被 reject 了，可能重复犯错
+**Issue 4: Agent stateless, loses context on redo**
+- Each call is a fresh single-shot, no conversation history
+- Redo only passes context via retryHint (challenge feedback text)
+- Does not know what approaches were previously attempted and rejected, may repeat mistakes
 
-**问题 5: 编排 agent 上下文最重**
-- `gatherFlowContext()` 一次读入 flow/<name>/main.md + goal.md + 所有 agents/*/main.md + 所有 flows/*/README.md
-- 随着角色和步骤增多，单次调用的 prompt 会非常庞大
+**Issue 5: Orchestration agent context is heaviest**
+- `gatherFlowContext()` reads flow/<name>/main.md + goal.md + all agents/*/main.md + all flows/*/README.md at once
+- As roles and steps increase, a single call's prompt becomes very large
 
-**问题 6: 项目目录全量读取**
-- `readProjectFiles()` 读取 workspace 下全部 .md/.ts/.json 文件
-- 随着步骤推进，项目目录文件越来越多
-- 没有按步骤相关性过滤（测试步骤不需要读 PRD 文档全文）
+**Issue 6: Full project directory read**
+- `readProjectFiles()` reads all .md/.ts/.json files under the workspace
+- As steps progress, project directory files increase
+- No filtering by step relevance (testing steps do not need full PRD document text)
 
-**优化方向（后续）:**
-- Token 计数 + 动态截断（按优先级裁剪上下文）
-- 编排 agent 指定每步需要读取的知识库文件列表
-- 前序步骤摘要压缩（只保留最近 N 步的完整 handoff）
-- Agent 对话历史（长连接模式或历史记录注入）
-- 项目文件按步骤相关性过滤（步骤定义中声明需要读的文件路径）
+**Optimization directions (future):**
+- Token counting + dynamic truncation (trim context by priority)
+- Orchestration agent specifies per-step knowledge base file list
+- Prior step summary compression (only keep last N steps' complete handoff)
+- Agent conversation history (long-running mode or history injection)
+- Project file filtering by step relevance (declare required file paths in step definition)
 
 ---
 
-## 后续计划
+## Future Plans
 
-### P0（紧急 — 上下文管理优化）
+### P0 (Urgent -- Context Management Optimization)
 
-当前最大瓶颈：每次 agent 调用都是 single-shot 全量上下文，重做时没有历史记忆，挑战者得分持续上不去。
+The biggest current bottleneck: every agent call is single-shot with full context, no historical memory on redo, challenger scores persistently fail to rise.
 
-- [ ] **上下文压缩与摘要** — 对长文本（前序产出、知识库）做智能摘要，控制 prompt 大小
-- [ ] **重做时注入完整历史** — 包含所有前次尝试的产出 + 挑战反馈，而非只有最近一次
-- [ ] **项目文件按需读取** — 参考 grep/search 机制，只读取与当前步骤相关的文件
-- [ ] **Token 计数与动态裁剪** — 按优先级裁剪上下文（目标 > 角色 > 知识库 > 前序产出 > 项目文件）
-- [ ] **知识库按需过滤** — 编排 agent 指定每步需要读取的知识库文件列表
+- [ ] **Context compression and summarization** -- Intelligent summarization of long text (prior outputs, knowledge base) to control prompt size
+- [ ] **Inject full history on redo** -- Include all previous attempt outputs + challenge feedback, not just the most recent one
+- [ ] **On-demand project file reading** -- Reference grep/search mechanism, only read files relevant to the current step
+- [ ] **Token counting and dynamic trimming** -- Trim context by priority (goal > role > knowledge base > prior outputs > project files)
+- [ ] **On-demand knowledge base filtering** -- Orchestration agent specifies per-step knowledge base file list
 
-### P1（近期）
+### P1 (Near-term)
 
-- [ ] **条件跳转** — flow/<name>/main.md 步骤支持可选的 `跳过条件`（如"上一步得分 > 0.9"），编排 agent 参考执行
-- [x] **挑战失败人工介入** — max_retries 用完后暂停等人决定（已实现）
-- [x] **步骤级人工审批** — README.md 标记 `require_approval`，挑战通过后暂停等人确认（已实现）
-- [x] **Ctrl+C 安全暂停** — 保存状态，--resume 恢复（已实现）
-- [ ] Node.js SEA 打包 — 将 @vera/core 打包为独立二进制 sidecar
-- [ ] 编排实时进度 — Tauri events 推送 step 进度到前端
+- [ ] **Conditional jumps** -- flow/<name>/main.md steps support optional `skip_condition` (e.g. "previous step score > 0.9"), orchestration agent references it for execution
+- [x] **Challenge failure human intervention** -- Pause and wait for human decision after max_retries exhausted (implemented)
+- [x] **Step-level human approval** -- README.md marks `require_approval`, pause and wait for human confirmation after challenge passes (implemented)
+- [x] **Ctrl+C safe pause** -- Save state, --resume to recover (implemented)
+- [ ] Node.js SEA packaging -- Package @vera/core as standalone binary sidecar
+- [ ] Real-time orchestration progress -- Tauri events push step progress to frontend
 
-### P2（中期）
+### P2 (Medium-term)
 
-- [ ] 并行步骤（fan-out / fan-in）— 多 agent 并行执行同一步骤
-- [ ] 长连接模式（MCP Server stdio）— 进程复用、增量上下文
-- [ ] 记忆系统 — Session/Working/Knowledge Memory
-- [ ] 多 session 并发
-- [ ] 流程可视化编辑器（拖拽 flow 配置）
+- [ ] Parallel steps (fan-out / fan-in) -- Multiple agents execute same step in parallel
+- [ ] Long-running mode (MCP Server stdio) -- Process reuse, incremental context
+- [ ] Memory system -- Session/Working/Knowledge Memory
+- [ ] Multi-session concurrency
+- [ ] Flow visual editor (drag-and-drop flow config)
