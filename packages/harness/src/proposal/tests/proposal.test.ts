@@ -3,7 +3,7 @@
  * Covers: ProposalStore, ProposalPipeline.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdirSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ProposalStore } from "../store.js";
@@ -13,9 +13,7 @@ import type { ImprovementProposal } from "../../dreaming/runner.js";
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function makeTmpDir(name: string): string {
-  const dir = join(tmpdir(), `proposal-test-${name}-${Date.now()}`);
-  mkdirSync(dir, { recursive: true });
-  return dir;
+  return mkdtempSync(join(tmpdir(), `proposal-test-${name}-`));
 }
 
 function cleanup(dir: string): void {

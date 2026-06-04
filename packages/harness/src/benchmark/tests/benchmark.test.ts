@@ -3,7 +3,7 @@
  * Covers: BenchmarkHarness, BenchmarkReporter, RegressionDetector.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdirSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { BenchmarkHarness } from "../harness.js";
@@ -15,9 +15,7 @@ import type { EvalCase, AgentExecutor, AgentResponse } from "../../eval/harness.
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function makeTmpDir(name: string): string {
-  const dir = join(tmpdir(), `benchmark-test-${name}-${Date.now()}`);
-  mkdirSync(dir, { recursive: true });
-  return dir;
+  return mkdtempSync(join(tmpdir(), `benchmark-test-${name}-`));
 }
 
 function cleanup(dir: string): void {

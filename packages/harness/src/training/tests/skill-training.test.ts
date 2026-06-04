@@ -3,7 +3,7 @@
  * Covers: SkillOptAdapter, DataPreparer, Trainer, TrainingEvalRunner, SkillImporter.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DataPreparer } from "../data-preparer.js";
@@ -12,9 +12,7 @@ import { SkillImporter } from "../skill-importer.js";
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function makeTmpDir(name: string): string {
-  const dir = join(tmpdir(), `skill-training-test-${name}-${Date.now()}`);
-  mkdirSync(dir, { recursive: true });
-  return dir;
+  return mkdtempSync(join(tmpdir(), `skill-training-test-${name}-`));
 }
 
 function cleanup(dir: string): void {
