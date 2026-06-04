@@ -3,49 +3,49 @@ layout: home
 
 hero:
   name: "OpenVera"
-  text: "Harness-native Agent Runtime"
-  tagline: Self-planning · self-looping · self-critiquing · self-evolving
+  text: "Harness 原生 Agent Runtime"
+  tagline: 自规划 · 自循环 · 自批判 · 自进化
   actions:
     - theme: brand
-      text: Install →
+      text: 安装 →
       link: "#install"
     - theme: alt
-      text: Documentation
+      text: 文档
       link: /README
     - theme: alt
       text: GitHub
       link: https://github.com/open-vera/OpenVera
 ---
 
-## Vision
+## 愿景
 
-> **Accelerate human creativity, achieve SOTA AGI.**
+> **加速人类创造力，迈向 SOTA AGI。**
 
-We are at an inflection point: models are capable enough, but the execution framework is the bottleneck. Vera's mission is to build the **reliable, verifiable, compounding** agent runtime that turns human ideas into working reality — at a pace and quality no manual process can match.
+我们正站在拐点：模型能力已经足够，瓶颈是**执行框架**。Vera 的使命是构建一个**可靠、可验证、持续进化**的 agent runtime，让人类创意以手动流程无法匹敌的速度和质量，转化为可工作的现实。
 
-### Core Beliefs
+### 核心价值观
 
-- **Harness is the kernel, not a safety wrapper.** Every tool call, every state transition, every self-improvement passes through a principled execution framework.
-- **Don't design a system that produces more output. Design a system that is harder to let unqualified output through.**
-- **Critique must be structurally independent.** The same agent cannot be implementer, evaluator, and judge of its own work.
-- **Failure must produce attribution, not just retry.** Without root cause analysis, recovery is just higher-cost repetition.
-- **Improvement must be evidence-driven.** Every change earns its way in through benchmarks, not intuition.
+- **Harness 是内核，不是安全壳。** 每次工具调用、每次状态转换、每次自我改进，都经过有原则的执行框架。
+- **不设计产出更多的系统。设计更难让不合格输出通过的系统。**
+- **批判必须结构独立。** 同一个 agent 不能同时是实施者、评估者和裁判。
+- **失败必须产生归因，而不只是重试。** 没有根因分析，恢复只是更高成本的重复错误。
+- **改进必须以证据驱动。** 每次变更都通过基准测试验证才能合入。
 
-## Install {#install}
+## 安装 {#install}
 
 ```bash
 npm i @open-vera/openvera@latest -g
 ai
 ```
 
-`ai`, `vera`, and `openvera` are all aliases. First run launches an interactive setup wizard.
+`ai`、`vera`、`openvera` 三个命令等价。首次运行自动进入交互式配置向导。
 
 ```bash
-ai init          # re-run setup wizard
-ai init --force  # force re-run even if config exists
+ai init          # 重新运行配置向导
+ai init --force  # 已有配置时强制重新初始化
 ```
 
-## Quick Config
+## 快速配置
 
 ```jsonc
 // .vera/settings.json
@@ -57,91 +57,103 @@ ai init --force  # force re-run even if config exists
 }
 ```
 
-Enable model routing to auto-switch by task complexity:
+开启路由按任务复杂度自动切模型：
 
 ```jsonc
 "routing": { "enabled": true, "classifier": "...", "l0": "...", "l1": "...", "l2": "..." }
 ```
 
-| Field | Purpose |
+| 字段 | 用途 |
 |---|---|
-| `providers` | Connection config per provider (adapter, api_key, base_url) |
-| `default_model` | Model when routing is disabled |
-| `routing` | L0/L1/L2 auto model selection by task complexity |
-| `session` | AI title generation, long-session compaction |
+| `providers` | 每个 provider 的连接配置（adapter、api_key、base_url） |
+| `default_model` | 未开启路由时使用的默认模型 |
+| `routing` | L0/L1/L2 按任务复杂度自动选择模型 |
+| `session` | AI 标题生成、长会话自动压缩 |
 
-[→ Full configuration guide](/README)
+[→ 完整配置指南](/README)
 
-## Features
+## 功能
 
-### Agent Runtime
+### Agent 运行时
 
-| Capability | Description |
+| 能力 | 说明 |
 |---|---|
-| **Intent Routing** | L0/L1/L2 classification (~100ms), automatic model selection by task complexity |
-| **Plan Mode** | Structured ExecutionPlan, 11-state flow machine, nested planning, checkpoint/resume |
-| **Critique Loop** | Independent Challenger scores every step, confidence < 0.7 triggers automatic replan |
-| **Infinite Context** | Progressive compression + micro-compact + reactive compact + recall; first message always preserved |
-| **Subagent System** | Orchestrator/worker architecture, dependency DAG, 3 isolation modes (none / try / remote) |
-| **Tool Middleware** | Multi-layer before/after/onError pipeline, error isolation per layer |
+| **意图路由** | L0/L1/L2 三级分类（约 100ms），按任务复杂度自动选模型 |
+| **Plan Mode** | 结构化执行计划、11 状态机、嵌套规划、checkpoint/resume |
+| **Critique 回路** | 独立 Challenger 每步打分，置信度 < 0.7 自动触发重规划 |
+| **无限上下文** | 渐进压缩 + 微压缩 + 响应式压缩 + 召回；首条消息永远保留 |
+| **Subagent 系统** | 编排器/工作器架构、依赖 DAG、3 种隔离模式（none / try / remote） |
+| **Tool 中间件** | 多层 before/after/onError 管道，层间错误隔离 |
 
-### Data & Persistence
+### 数据 & 持久化
 
-| Capability | Description |
+| 能力 | 说明 |
 |---|---|
-| **Session Store** | JSONL persistence, AI-generated titles, cost tracking, branching (/try, /merge) |
-| **Memory System** | Thread-safe writes, crash-safe, tier separation (semantic / episodic / working) |
-| **Permission Rules** | Persistent allow/deny per tool/path, bash risk confirmation gates |
-| **Project Context** | `.vera/rules.md`, `CLAUDE.md`, path-scoped rule activation |
+| **Session 存储** | JSONL 持久化、AI 标题生成、成本追踪、分支（/try、/merge） |
+| **Memory 系统** | 线程安全写入、崩溃安全、分层存储（语义 / 情景 / 工作） |
+| **权限规则** | 持久化允许/拒绝（按工具/路径）、bash 风险确认门控 |
+| **项目上下文** | `.vera/rules.md`、`CLAUDE.md`、路径作用域规则激活 |
 
-### Tools & Platform
+### 工具 & 平台
 
-| Capability | Description |
+| 能力 | 说明 |
 |---|---|
-| **7 Built-in Tools** | `read_file` `write_file` `edit_file` `list_dir` `glob` `grep` `bash` |
-| **Custom Skills** | Markdown-defined skills, intent-driven activation, hot-reload |
-| **Gateway UI** | Management console: Run workspace, Capability manager, Doctor, Project registry |
-| **Multi-Channel** | CLI REPL, HTTP API, Discord bot, Feishu bot — via unified ChannelAdapter interface |
-| **Sandbox** | Code execution isolation, path boundary enforcement, security-plugin architecture |
+| **7 个内置工具** | `read_file` `write_file` `edit_file` `list_dir` `glob` `grep` `bash` |
+| **自定义 Skill** | Markdown 定义 skill、意图驱动激活、热重载 |
+| **Gateway UI** | 管理控制台：Run 工作区、能力管理、Doctor、项目管理 |
+| **多端 Channel** | CLI REPL、HTTP API、Discord 机器人、飞书机器人 — 统一 ChannelAdapter 接口 |
+| **Sandbox** | 代码执行隔离、路径边界管控、安全插件架构 |
 
-## Architecture
+## 架构
 
 ```
-Human Idea
-  → Intent classification & model routing (L0 / L1 / L2)
-  → Structured Flow → ExecutionPlan
-  → Step-by-step execution via tool runtime
-  → Independent Critique (Challenger)
-  → Failure attribution & Replan
-  → Lesson persistence → Memory
-  → Benchmark-gated Proposal → Rollout
-  → Next cycle, within boundaries
+人类想法
+  → 意图分类 & 模型路由 (L0 / L1 / L2)
+  → 结构化 Flow → ExecutionPlan
+  → 通过工具运行时逐步执行
+  → 独立批判 (Challenger)
+  → 失败归因 & 重规划
+  → 经验持久化 → 记忆
+  → 基准验证的 Proposal → Rollout
+  → 下一轮循环，在边界内
 ```
 
-**Separation of concerns:**
+**职责分离：**
 
 ```
 packages/
-├── core/        Stateless agent loop — adapters, tools, session, context
-├── harness/     Stateful orchestration — flow state machine, critique, skill
-├── gateway/     Capability registry, project registry, doctor
-├── logger/      Structured logging with redaction
-└── shared/      Shared types and utilities
+├── core/        无状态 agent loop — adapters、tools、session、context
+├── harness/     有状态编排 — flow 状态机、critique、skill
+├── gateway/     能力注册、项目注册、健康检查
+├── logger/      结构化日志（含脱敏）
+└── shared/      共享类型与工具
 
 apps/
-├── gateway-ui/web/    Vue 3 management console
-└── gateway-ui/server/ API server
+├── gateway-ui/web/    Vue 3 管理控制台
+└── gateway-ui/server/ API 服务端
 ```
 
-> **The critical constraint:** A Role Agent never decides whether its own work is complete. That right belongs exclusively to the Challenger. See [Harness Design →](/harness/design)
+> **关键约束：** Role Agent 不拥有"算不算完成"的决定权。该权利专属 Challenger。详见 [Harness 设计 →](/harness/design)
 
-## Roadmap
+## 路线图
 
-| Phase | Goal | Key Deliverables | Status |
+| 阶段 | 目标 | 关键交付 | 状态 |
 |---|---|---|---|
-| **P0** | Harness-driven execution runtime | Intent routing, 7 tools, infinite context, Plan Mode, Critique, Session, Subagent | ✅ Complete |
-| **P1** | Self-loop & self-correction | Checkpoint/Resume, Memory persistence, Subagent orchestrator/pool, Tool middleware | ✅ Complete |
-| **P2** | Self-evolution | Dreaming → Proposal → Human review → Benchmark-gated Rollout → Regression loop | 📋 Planned |
-| **P3** | Universal agent platform | Computer Use, MCP, multi-agent networks, adaptive strategies | 📋 Planned |
+| **P0** | Harness 驱动的执行运行时 | 意图路由、7 工具、无限上下文、Plan Mode、Critique、Session、Subagent | ✅ 完成 |
+| **P1** | 自循环 & 自修正 | Checkpoint/Resume、Memory 持久化、Subagent 编排器/池、Tool 中间件 | ✅ 完成 |
+| **P2** | 自进化 | Dreaming → Proposal → 人工审核 → 基准门控 Rollout → 回归闭环 | 📋 规划中 |
+| **P3** | 通用 agent 平台 | Computer Use、MCP、多 agent 网络、自适应策略 | 📋 规划中 |
 
-[→ Full roadmap](/roadmap)
+[→ 完整路线图](/roadmap) · [→ P0 改进计划](/P0-IMPROVEMENT-PLAN) · [→ P1 实施计划](/P1-IMPLEMENTATION-PLAN)
+
+## 技术栈
+
+| 层 | 技术 |
+|---|---|
+| 语言 | TypeScript（strict、ESM） |
+| 包管理 | pnpm workspace monorepo |
+| LLM 适配器 | Anthropic、OpenAI、Gemini、DeepSeek、Groq、Azure |
+| 终端 UI | React + Ink |
+| Web UI | Vue 3 + Vite |
+| 测试 | Vitest（覆盖率 ≥ 90%） |
+| 静态分析 | oxlint + eslint-plugin-sonarjs + jscpd |

@@ -1,0 +1,1 @@
+../../core/skill-tool-integration.md

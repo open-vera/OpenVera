@@ -1,0 +1,1 @@
+../../harness/architecture.md

@@ -1,0 +1,1 @@
+../../core/skill-authoring-guide.md
