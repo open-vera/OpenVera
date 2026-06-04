@@ -8,6 +8,9 @@ import type {
   ContentPart,
 } from "../types/index.js";
 import type { ModelInfo } from "../types/model.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("adapter:anthropic");
 
 export class AnthropicAdapter implements LLMAdapter {
   private client: Anthropic;
@@ -20,17 +23,26 @@ export class AnthropicAdapter implements LLMAdapter {
   }
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
-    const response = await this.client.messages.create({
-      model: request.model,
-      max_tokens: request.max_tokens ?? 8096,
-      system: request.system,
-      messages: this.toAnthropicMessages(request.messages),
-      tools: this.toAnthropicTools(request),
-    }, { signal: request.signal });
-    return this.fromAnthropicResponse(response);
+    const startMs = Date.now();
+    try {
+      const response = await this.client.messages.create({
+        model: request.model,
+        max_tokens: request.max_tokens ?? 8096,
+        system: request.system,
+        messages: this.toAnthropicMessages(request.messages),
+        tools: this.toAnthropicTools(request),
+      }, { signal: request.signal });
+      const durationMs = Date.now() - startMs;
+      log.debug("complete done", { model: request.model, duration_ms: durationMs, usage: response.usage });
+      return this.fromAnthropicResponse(response);
+    } catch (err) {
+      log.warn("complete failed", { model: request.model, duration_ms: Date.now() - startMs, error: String(err) });
+      throw err;
+    }
   }
 
   async *stream(request: CompletionRequest): AsyncIterable<StreamEvent> {
+    const startMs = Date.now();
     // 累积 tool call 参数（Anthropic 流式分块下发 JSON）
     const toolCalls: Record<
       number,
@@ -87,6 +99,8 @@ export class AnthropicAdapter implements LLMAdapter {
     }
 
     const final = await apiStream.finalMessage();
+    const durationMs = Date.now() - startMs;
+    log.debug("stream done", { model: request.model, duration_ms: durationMs, usage: final.usage });
     yield {
       type: "done",
       stop_reason: final.stop_reason === "tool_use" ? "tool_use" : "end_turn",

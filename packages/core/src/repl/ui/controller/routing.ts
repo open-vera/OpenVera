@@ -25,6 +25,29 @@ export interface TurnRoutingResult {
 type ResolveModelFn = typeof resolveModel;
 type RouteKey = "l0" | "l1" | "l2" | "l3";
 const ROUTE_KEYS: RouteKey[] = ["l0", "l1", "l2", "l3"];
+const CLASSIFIER_FAILURE_TTL_MS = 60_000;
+
+const classifierFailures = new Map<string, number>();
+
+function classifierFailureKey(provider: string, model: string): string {
+  return `${provider}:${model}`;
+}
+
+function isClassifierCircuitOpen(provider: string, model: string, now = Date.now()): boolean {
+  const retryAfter = classifierFailures.get(classifierFailureKey(provider, model));
+  if (retryAfter === undefined) return false;
+  if (retryAfter > now) return true;
+  classifierFailures.delete(classifierFailureKey(provider, model));
+  return false;
+}
+
+function recordClassifierFailure(provider: string, model: string, now = Date.now()): void {
+  classifierFailures.set(classifierFailureKey(provider, model), now + CLASSIFIER_FAILURE_TTL_MS);
+}
+
+export function clearClassifierFailureCircuit(): void {
+  classifierFailures.clear();
+}
 
 function sameTarget(a: RoutingTarget | undefined, b: RoutingTarget): boolean {
   return a?.provider === b.provider && a.model === b.model;
@@ -76,11 +99,23 @@ export async function resolveTurnRouting({
     };
   }
 
-  onRoutingStart?.();
   const classifierTarget = routingCfg.classifier;
   const classifierAdapter = classifierTarget ? ctx.buildAdapter(classifierTarget.provider) : ctx.adapter;
   const classifierModel = classifierTarget?.model ?? "claude-haiku-4-5";
   const classifierProvider = classifierTarget?.provider ?? defaultProvider;
+
+  if (isClassifierCircuitOpen(classifierProvider, classifierModel)) {
+    return {
+      adapter: ctx.adapter,
+      model: ctx.model,
+      provider: defaultProvider,
+      intent: null,
+      failed: true,
+      uiRouting: { provider: defaultProvider, model: ctx.model, intent: null },
+    };
+  }
+
+  onRoutingStart?.();
 
   try {
     const routed = await resolveModelFn(
@@ -102,6 +137,7 @@ export async function resolveTurnRouting({
       uiRouting: { provider, model: routed.model, intent: routed.intent },
     };
   } catch (error) {
+    recordClassifierFailure(classifierProvider, classifierModel);
     return {
       adapter: ctx.adapter,
       model: ctx.model,

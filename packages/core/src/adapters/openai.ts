@@ -8,6 +8,9 @@ import type {
   ContentPart,
 } from "../types/index.js";
 import type { ModelInfo } from "../types/model.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("adapter:openai");
 
 export class OpenAIAdapter implements LLMAdapter {
   private client: OpenAI;
@@ -17,17 +20,25 @@ export class OpenAIAdapter implements LLMAdapter {
   }
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
-    const response = await this.client.chat.completions.create({
-      model: request.model,
-      max_tokens: request.max_tokens,
-      temperature: request.temperature,
-      messages: this.toOpenAIMessages(request),
-      tools: this.toOpenAITools(request),
-    });
-    return this.fromOpenAIResponse(response);
+    const startMs = Date.now();
+    try {
+      const response = await this.client.chat.completions.create({
+        model: request.model,
+        max_tokens: request.max_tokens,
+        temperature: request.temperature,
+        messages: this.toOpenAIMessages(request),
+        tools: this.toOpenAITools(request),
+      });
+      log.debug("complete done", { model: request.model, duration_ms: Date.now() - startMs, usage: response.usage });
+      return this.fromOpenAIResponse(response);
+    } catch (err) {
+      log.warn("complete failed", { model: request.model, duration_ms: Date.now() - startMs, error: String(err) });
+      throw err;
+    }
   }
 
   async *stream(request: CompletionRequest): AsyncIterable<StreamEvent> {
+    const startMs = Date.now();
     // 累积 tool call（OpenAI 流式下发 index + 增量 arguments）
     const toolCalls: Record<
       number,
@@ -103,6 +114,7 @@ export class OpenAIAdapter implements LLMAdapter {
       stop_reason: finishReason === "tool_calls" ? "tool_use" : "end_turn",
       usage: usage ? { ...usage, reasoning_tokens: reasoningTokens } : undefined,
     };
+    log.debug("stream done", { model: request.model, duration_ms: Date.now() - startMs, usage });
   }
 
   async listModels(): Promise<ModelInfo[]> {

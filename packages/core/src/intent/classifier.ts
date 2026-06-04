@@ -1,6 +1,9 @@
 import type { LLMAdapter } from "../adapters/base.js";
 import type { RoutingConfig, RoutingTarget } from "../config/types.js";
 import type { ContentPart, Usage } from "../types/index.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("intent");
 
 export interface IntentResult {
   level: 0 | 1 | 2 | 3;
@@ -39,6 +42,7 @@ export async function classifyIntent(
   classifierModel: string,
   onUsage?: (usage: Usage) => void
 ): Promise<IntentResult> {
+  const startMs = Date.now();
   const response = await adapter.complete({
     model: classifierModel,
     system: CLASSIFIER_PROMPT,
@@ -58,7 +62,14 @@ export async function classifyIntent(
     .map((p) => p.text)
     .join("");
 
-  return JSON.parse(extractJson(text)) as IntentResult;
+  const result = JSON.parse(extractJson(text)) as IntentResult;
+  log.debug("intent classified", {
+    level: result.level,
+    domain: result.domain,
+    needs_tools: result.needs_tools,
+    duration_ms: Date.now() - startMs,
+  });
+  return result;
 }
 
 type LevelRouteKey = "l0" | "l1" | "l2" | "l3";

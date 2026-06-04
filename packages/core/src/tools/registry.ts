@@ -12,6 +12,9 @@ import type {
 import { toolDefToSchema, errorResult } from "./types.js";
 import { executeWithTimeout } from "./executor.js";
 import { ToolStatsCollector } from "./tool-stats.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("tool:registry");
 
 export class ToolRegistry {
   private tools = new Map<string, ToolDef>();
@@ -270,6 +273,8 @@ export class ToolRegistry {
 
     // Record stats (fire-and-forget)
     this.statsCollector.record(name, currentArgs, result, durationMs, ctx.sessionId);
+
+    log.debug("tool executed", { tool: name, ok: result.ok, duration_ms: durationMs });
 
     return result;
   }

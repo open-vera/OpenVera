@@ -2,6 +2,9 @@ import type { LLMAdapter } from "@open-vera/core/adapters";
 import type { AgentAssignment, StepResult } from "@open-vera/core/types";
 import type { RunAssignmentOptions } from "../runtime/internal.js";
 import type { AgentRunner } from "./types.js";
+import { createLogger } from "@open-vera/core";
+
+const log = createLogger("harness:stream-runner");
 
 function buildAssignmentPrompt(assignment: AgentAssignment): string {
   const context =
@@ -40,10 +43,13 @@ export class StreamAgentRunner implements AgentRunner {
     assignment: AgentAssignment,
     options: RunAssignmentOptions
   ): Promise<StepResult> {
+    const startMs = Date.now();
     const { streamAgent } = await import("@open-vera/core/agent");
 
     const prompt = buildAssignmentPrompt(assignment);
     const toolCalls: StepResult["toolCalls"] = [];
+
+    log.debug("stream-runner start", { stepId: assignment.stepId, goal: assignment.goal.slice(0, 80) });
 
     const agentPromise = streamAgent(
       prompt,
@@ -88,6 +94,8 @@ export class StreamAgentRunner implements AgentRunner {
     } else {
       output = await agentPromise;
     }
+
+    log.debug("stream-runner done", { stepId: assignment.stepId, outputLen: output.length, toolCalls: toolCalls.length, duration_ms: Date.now() - startMs });
 
     return {
       flowId: assignment.flowId,

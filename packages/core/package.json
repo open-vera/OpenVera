@@ -32,8 +32,8 @@
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch --preserveWatchOutput",
-    "dev": "tsx src/index.ts",
-    "dev:watch": "tsx watch --clear-screen=false src/index.ts",
+    "dev": "tsx src/main.ts",
+    "dev:watch": "tsx watch --clear-screen=false src/main.ts",
     "release": "pnpm build && pnpm publish --no-git-checks",
     "test": "vitest run",
     "test:smoke": "vitest run tests/p0-alignment-smoke.test.ts",

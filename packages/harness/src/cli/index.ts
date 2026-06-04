@@ -4,6 +4,21 @@ process.on("SIGINT", () => process.exit(0));
 process.on("SIGTERM", () => process.exit(0));
 
 import { readFileSync } from "node:fs";
+import { createLogger } from "@open-vera/core";
+
+const log = createLogger("cli");
+
+// Crash prevention: log unhandled errors instead of crashing silently
+process.on("uncaughtException", (err) => {
+  log.error("uncaughtException", { error: err.message, stack: err.stack, name: err.name });
+  process.stderr.write(`FATAL: ${err.message}\n`);
+  process.exit(1);
+});
+process.on("unhandledRejection", (reason) => {
+  log.error("unhandledRejection", { reason: String(reason) });
+  process.stderr.write(`FATAL: Unhandled rejection: ${String(reason)}\n`);
+  process.exit(1);
+});
 
 interface ParsedArgs {
   command: string[];
@@ -93,27 +108,33 @@ if (flags["help"] || flags["h"]) {
   process.exit(0);
 }
 
-if (command[0] === "flow" && command[1] === "run") {
-  const { runFlowCommand } = await import("./flow-run.js");
-  await runFlowCommand({
-    dir: flags["dir"] as string | undefined,
-    model: flags["model"] as string | undefined,
-    provider: flags["provider"] as string | undefined,
-    apiKey: flags["api-key"] as string | undefined,
-    artifactsDir: flags["artifacts-dir"] as string | undefined,
-    maxSteps: flags["max-steps"] !== undefined ? Number(flags["max-steps"]) : undefined,
-    skipPlanCritique: Boolean(flags["skip-plan-critique"]),
-  });
-} else if (command[0] === undefined || command[0] === "repl") {
-  const { runReplCommand } = await import("./repl-run.js");
-  await runReplCommand({
-    dir: flags["dir"] as string | undefined,
-    model: flags["model"] as string | undefined,
-    provider: flags["provider"] as string | undefined,
-    apiKey: flags["api-key"] as string | undefined,
-    resume: flags["resume"] as string | undefined,
-  });
-} else {
-  printHelp();
+try {
+  if (command[0] === "flow" && command[1] === "run") {
+    const { runFlowCommand } = await import("./flow-run.js");
+    await runFlowCommand({
+      dir: flags["dir"] as string | undefined,
+      model: flags["model"] as string | undefined,
+      provider: flags["provider"] as string | undefined,
+      apiKey: flags["api-key"] as string | undefined,
+      artifactsDir: flags["artifacts-dir"] as string | undefined,
+      maxSteps: flags["max-steps"] !== undefined ? Number(flags["max-steps"]) : undefined,
+      skipPlanCritique: Boolean(flags["skip-plan-critique"]),
+    });
+  } else if (command[0] === undefined || command[0] === "repl") {
+    const { runReplCommand } = await import("./repl-run.js");
+    await runReplCommand({
+      dir: flags["dir"] as string | undefined,
+      model: flags["model"] as string | undefined,
+      provider: flags["provider"] as string | undefined,
+      apiKey: flags["api-key"] as string | undefined,
+      resume: flags["resume"] as string | undefined,
+    });
+  } else {
+    printHelp();
+    process.exit(1);
+  }
+} catch (err) {
+  log.error("cli command failed", { error: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
+  process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
   process.exit(1);
 }

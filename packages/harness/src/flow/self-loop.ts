@@ -20,6 +20,9 @@ import type { StepResult } from "@open-vera/core/types";
 import type { HarnessRuntime } from "../runtime/runtime.js";
 import type { FlowHandle, FlowLoopResult } from "../runtime/internal.js";
 import type { CriticAgent, CriticResult } from "../critic/index.js";
+import { createLogger } from "@open-vera/core";
+
+const log = createLogger("harness:self-loop");
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -126,10 +129,13 @@ export class SelfLoopRunner {
    * whether to continue with another cycle or stop.
    */
   async run(initialHandle: FlowHandle): Promise<SelfLoopResult> {
+    const startMs = Date.now();
     let handle = initialHandle;
     const entries: CycleEntry[] = [];
     let accumulatedCost = 0;
     let terminationReason: TerminationReason | undefined;
+
+    log.info("self-loop start", { flowId: handle.flow.flowId, maxCycles: this.config.maxCycles });
 
     for (let cycle = 1; cycle <= this.config.maxCycles; cycle++) {
       // Execute the full plan via the flow loop
@@ -163,6 +169,8 @@ export class SelfLoopRunner {
       // Write cycle_end JSONL entry to session timeline
       await this.appendCycleTimeline(handle, entry);
 
+      log.debug("self-loop cycle end", { cycle, confidence: critique.confidence, cost: cycleCost, action: decision.action });
+
       // If termination triggered, stop
       if (decision.action === "stop") {
         terminationReason = decision.reason;
@@ -179,6 +187,8 @@ export class SelfLoopRunner {
     if (!terminationReason) {
       terminationReason = "max_cycles";
     }
+
+    log.info("self-loop end", { flowId: handle.flow.flowId, cycles: entries.length, terminationReason, totalCost: accumulatedCost, duration_ms: Date.now() - startMs });
 
     return {
       handle,

@@ -36,6 +36,9 @@ import {
   insertCompressionInstruction,
   resolveInsertCompress,
 } from "../context/compression.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("agent:loop");
 
 export type ToolHandler = (
   name: string,
@@ -392,6 +395,8 @@ export async function runAgent(
   let lastTurnHadToolResults = false;
   let emptyAfterToolRetries = 0;
 
+  log.debug("runAgent start", { model, maxTurns });
+
   try {
     for (let turn = 0; shouldContinueTurns(turn, maxTurns); turn++) {
       // ── Auto-compact: proactive compression when over threshold ────────
@@ -488,6 +493,7 @@ export async function runAgent(
     }
   } finally {
     await hooks?.onSessionEnd?.();
+    log.debug("runAgent end", { resultLen: result.length });
   }
 
   return result;
@@ -579,8 +585,11 @@ export async function streamAgent(
   let lastTurnHadToolResults = false;
   let emptyAfterToolRetries = 0;
 
+  log.debug("streamAgent start", { model, turnCount: history.length > 0 ? history.length : 0, maxTurns });
+
   try {
     for (let turn = 0; shouldContinueTurns(turn, maxTurns); turn++) {
+      const turnStartMs = Date.now();
       // ── Auto-compact: proactive compression when over threshold ────────
       let pendingCompression: InsertCompressPending | undefined;
       if (compressionState && options.compressionOptions) {
@@ -646,6 +655,14 @@ export async function streamAgent(
 
       // ── onTurnEnd (before tool execution) ─────────────────────────────
       await hooks?.onTurnEnd?.(turn, turnUsage, turnText);
+
+      log.debug("turn completed", {
+        turn,
+        duration_ms: Date.now() - turnStartMs,
+        textLen: turnText.length,
+        toolCalls: collectedToolCalls.length,
+        usage: turnUsage,
+      });
 
       // ── Memory: detect usage from this turn's response ─────────────────
       if (memoryTracker && scannedMemoryFiles && turnText) {
@@ -731,6 +748,7 @@ export async function streamAgent(
     }
   } finally {
     await hooks?.onSessionEnd?.();
+    log.debug("streamAgent end", { finalTextLen: finalText.length });
   }
 
   return finalText;

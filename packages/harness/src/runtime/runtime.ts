@@ -59,6 +59,9 @@ import type { ResumeOptions, ForkOptions } from "./internal.js";
 import { SelfLoopRunner } from "../flow/self-loop.js";
 import type { SelfLoopRunnerConfig, SelfLoopResult } from "../flow/self-loop.js";
 import type { CriticAgent } from "../critic/critic-agent.js";
+import { createLogger } from "@open-vera/core";
+
+const log = createLogger("harness:runtime");
 
 function now(): string {
   return new Date().toISOString();
@@ -275,8 +278,11 @@ export class HarnessRuntime {
     assignment: AgentAssignment,
     options: RunAssignmentOptions = {}
   ): Promise<StepExecutionBundle> {
+    const startMs = Date.now();
     const runner = this.getRunner(assignment.assignedAgent);
+    log.info("step start", { stepId: assignment.stepId, agent: assignment.assignedAgent ?? "default" });
     const result = await runner.run(assignment, options);
+    log.info("step done", { stepId: assignment.stepId, duration_ms: Date.now() - startMs, toolCalls: result.toolCalls.length });
 
     const artifact = await writeJsonArtifact(
       handle.store,
@@ -314,7 +320,9 @@ export class HarnessRuntime {
     handle: FlowHandle,
     input: PlanCritiqueInput
   ): Promise<{ handle: FlowHandle; result: StepCritiqueArtifact }> {
+    const startMs = Date.now();
     const result = await critiquePlan(this.adapter, this.model, input);
+    log.debug("plan critique done", { confidence: result.critique.confidence, duration_ms: Date.now() - startMs });
     const artifact = await writeJsonArtifact(
       handle.store,
       {
@@ -341,7 +349,9 @@ export class HarnessRuntime {
     handle: FlowHandle,
     input: StepCritiqueInput
   ): Promise<{ handle: FlowHandle; result: StepCritiqueArtifact }> {
+    const startMs = Date.now();
     const result = await critiqueStep(this.adapter, this.model, input);
+    log.debug("step critique done", { stepName: input.stepName, confidence: result.critique.confidence, duration_ms: Date.now() - startMs });
     const artifact = await writeJsonArtifact(
       handle.store,
       {
@@ -403,11 +413,13 @@ export class HarnessRuntime {
     handle: FlowHandle,
     input: ReplanInput
   ): Promise<{ handle: FlowHandle; plan: ExecutionPlan; diff: PlanDiff }> {
+    const startMs = Date.now();
     const { plan, diff } = await replanWithCritique(
       this.adapter,
       this.model,
       input
     );
+    log.info("replan done", { failedStepId: input.failedStepId, duration_ms: Date.now() - startMs, added: diff.added.length, removed: diff.removed.length });
     const artifact = await writeJsonArtifact(
       handle.store,
       {
@@ -441,9 +453,12 @@ export class HarnessRuntime {
     initialHandle: FlowHandle,
     options: RunFlowLoopOptions = {}
   ): Promise<FlowLoopResult> {
+    const startMs = Date.now();
     let handle = initialHandle;
     const completedSteps: string[] = [];
     const maxSteps = options.maxSteps ?? handle.flow.plan?.steps.length ?? 0;
+
+    log.info("flow loop start", { flowId: handle.flow.flowId, maxSteps, goal: handle.flow.goal });
 
     for (let count = 0; count < maxSteps; count++) {
       const pendingStepId = getPendingStepId(handle.flow.plan);
@@ -571,6 +586,7 @@ export class HarnessRuntime {
 
     const failedHandle = this.failFlow(handle);
     await this.autoCheckpointFlow(failedHandle);
+    log.info("flow loop end", { flowId: handle.flow.flowId, duration_ms: Date.now() - startMs, completedSteps: completedSteps.length, failedStepId: handle.flow.activeStepId });
     return {
       handle: failedHandle,
       completedSteps,

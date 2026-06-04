@@ -2,6 +2,9 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { resolve, dirname } from "path";
 import type { VeraConfig } from "./types.js";
 import { ConfigError } from "../errors.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("config");
 
 const CONFIG_FILENAME = "settings.json";
 
@@ -13,16 +16,21 @@ const CONFIG_FILENAME = "settings.json";
  * - 找不到：返回空配置 {}
  */
 export function loadConfig(configPath?: string): VeraConfig {
+  const startMs = Date.now();
   const filePath = resolveConfigPath(configPath);
 
   if (!existsSync(filePath)) {
+    log.debug("no config file found, returning empty config", { path: filePath });
     return {};
   }
 
   try {
     const raw = readFileSync(filePath, "utf-8");
-    return JSON.parse(raw) as VeraConfig;
+    const config = JSON.parse(raw) as VeraConfig;
+    log.debug("config loaded", { path: filePath, duration_ms: Date.now() - startMs });
+    return config;
   } catch (err) {
+    log.error("failed to parse config", { path: filePath, error: String(err) });
     throw new ConfigError(`Failed to parse config at ${filePath}: ${String(err)}`, { cause: err });
   }
 }

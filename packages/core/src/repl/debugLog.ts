@@ -1,10 +1,11 @@
-// Debug logger that bypasses console capture in captureCommandOutput.
+// Debug logger that delegates to the new structured logger.
 // Use process.stderr.write so logs are always visible during development.
 
-const ENABLED = !!process.env["VERA_DEBUG_RESUME"];
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("repl");
 
 export function debugLog(...args: unknown[]): void {
-  if (!ENABLED) return;
-  const msg = args.map(String).join(" ") + "\n";
-  process.stderr.write(msg);
+  const msg = args.map(String).join(" ");
+  log.debug(msg);
 }

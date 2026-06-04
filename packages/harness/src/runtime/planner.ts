@@ -2,6 +2,9 @@ import type { LLMAdapter } from "@open-vera/core/adapters";
 import type { ExecutionPlan, PlanStep } from "@open-vera/core/types";
 import { completeJson } from "./json.js";
 import { PlannerError } from "@open-vera/core/errors";
+import { createLogger } from "@open-vera/core";
+
+const log = createLogger("harness:planner");
 // Re-export for tests
 
 export interface PlanFromPromptOptions {
@@ -119,6 +122,7 @@ export async function planFromPrompt(
   adapter: LLMAdapter,
   options: PlanFromPromptOptions = {},
 ): Promise<ExecutionPlan> {
+  const startMs = Date.now();
   const model = options.model ?? "claude-sonnet-4-6";
   const maxRetries = options.maxRetries ?? 2;
   const prompt = buildPlannerPrompt(
@@ -135,7 +139,9 @@ export async function planFromPrompt(
       const raw = await completeJson<unknown>(adapter, model, retryPrompt, {
         maxTokens: 2048,
       });
-      return validatePlan(raw.parsed);
+      const plan = validatePlan(raw.parsed);
+      log.info("plan generated", { goal: goal.slice(0, 80), steps: plan.steps.length, risk: plan.risk, duration_ms: Date.now() - startMs });
+      return plan;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       if (attempt < maxRetries) {

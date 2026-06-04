@@ -4,6 +4,9 @@ import type {
   JsonCompletionResult,
 } from "./internal.js";
 import type { Message, ContentPart } from "@open-vera/core/types";
+import { createLogger } from "@open-vera/core";
+
+const log = createLogger("harness:json");
 
 function extractText(message: Message): string {
   if (typeof message.content === "string") return message.content;
@@ -34,6 +37,7 @@ export async function completeJson<T>(
   prompt: string,
   options: JsonCompletionOptions = {}
 ): Promise<JsonCompletionResult<T>> {
+  const startMs = Date.now();
   const messages: Message[] = [{ role: "user", content: prompt }];
 
   for (let attempt = 0; attempt <= MAX_JSON_RETRIES; attempt++) {
@@ -49,6 +53,7 @@ export async function completeJson<T>(
 
     try {
       const parsed = JSON.parse(jsonText) as T;
+      log.debug("completeJson done", { model, duration_ms: Date.now() - startMs, attempts: attempt + 1, promptLen: prompt.length });
       return { text, parsed };
     } catch (err) {
       if (attempt === MAX_JSON_RETRIES) {

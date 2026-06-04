@@ -14,6 +14,9 @@ import type {
 } from "../types/index.js";
 import type { ModelInfo } from "../types/model.js";
 import { AdapterRequestError } from "../errors.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("adapter:gemini");
 
 export class GeminiAdapter implements LLMAdapter {
   private genAI: GoogleGenerativeAI;
@@ -25,12 +28,20 @@ export class GeminiAdapter implements LLMAdapter {
   }
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
-    const { chat, lastParts } = this.buildChat(request);
-    const result = await chat.sendMessage(lastParts);
-    return this.fromGeminiResponse(result.response);
+    const startMs = Date.now();
+    try {
+      const { chat, lastParts } = this.buildChat(request);
+      const result = await chat.sendMessage(lastParts);
+      log.debug("complete done", { model: request.model, duration_ms: Date.now() - startMs });
+      return this.fromGeminiResponse(result.response);
+    } catch (err) {
+      log.warn("complete failed", { model: request.model, duration_ms: Date.now() - startMs, error: String(err) });
+      throw err;
+    }
   }
 
   async *stream(request: CompletionRequest): AsyncIterable<StreamEvent> {
+    const startMs = Date.now();
     const { chat, lastParts } = this.buildChat(request);
     const result = await chat.sendMessageStream(lastParts);
 
@@ -78,6 +89,7 @@ export class GeminiAdapter implements LLMAdapter {
       stop_reason: toolCalls.length > 0 ? "tool_use" : "end_turn",
       usage,
     };
+    log.debug("stream done", { model: request.model, duration_ms: Date.now() - startMs, usage });
   }
 
   async listModels(): Promise<ModelInfo[]> {
