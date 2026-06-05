@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import type { LLMAdapter } from "../../../adapters/base.js";
 import type { SessionConfig } from "../../../config/types.js";
 import type { MemoryFile } from "../../../memory/index.js";
 
@@ -57,12 +56,7 @@ export function buildDynamicContextOptions(
   modelContextLimit: number,
   model: string,
   compactConfig?: SessionConfig["compact"],
-  buildAdapter?: (provider: string, model?: string) => LLMAdapter,
 ) {
-  const compressionAdapter = compactConfig?.provider && buildAdapter
-    ? buildAdapter(compactConfig.provider, compactConfig.model)
-    : undefined;
-
   return {
     contextOptions: {
       maxTokens: modelContextLimit,
@@ -75,7 +69,7 @@ export function buildDynamicContextOptions(
       keepRecentTurns: 6,
       model: compactConfig?.model ?? model,
     },
-    ...(compressionAdapter ? { compressionAdapter } : {}),
+    ...(compactConfig?.provider ? { compressionProvider: compactConfig.provider } : {}),
     microCompactOptions: {
       enabled: true,
       gapThresholdMinutes: 60,

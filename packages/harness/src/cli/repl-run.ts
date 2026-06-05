@@ -4,15 +4,13 @@ import { startRepl } from "@open-vera/core/repl";
 import { SessionStore } from "@open-vera/core/session";
 import { createToolRegistry } from "@open-vera/core/tools";
 import { PromptStore } from "@open-vera/core/prompt";
-import { AnthropicAdapter, OpenAIAdapter, GeminiAdapter } from "@open-vera/core/adapters";
+import { LlmService } from "@open-vera/core/adapters";
 import type { LLMAdapter } from "@open-vera/core/adapters";
 import {
   globalVeraDir,
   isConfigEmpty,
   loadConfig,
   projectResourcePath,
-  resolveDefaultTarget,
-  resolveProviderModelConfig,
   runSetupWizard,
   syncExternalResources,
 } from "@open-vera/core/config";
@@ -64,10 +62,16 @@ export async function runReplCommand(args: ReplRunArgs): Promise<void> {
     cwd,
   );
   const model = args.model ?? defaultModel;
+  const llmService = new LlmService({ config, apiKeyOverride: args.apiKey });
 
   const sessionStore = new SessionStore({ cwd });
-  const { registry: toolRegistry, security } = createToolRegistry({ cwd });
-  const toolProvider = new RegistryToolProvider(toolRegistry, cwd, sessionStore.sessionId);
+  const { registry: toolRegistry, toolHost, security, loadPlugins } = createToolRegistry({
+    cwd,
+    llmService,
+    defaultModel: model,
+  });
+  await loadPlugins();
+  const toolProvider = new RegistryToolProvider(toolHost, cwd, sessionStore.sessionId);
   const promptStore = new PromptStore();
 
   const userSkillsDir = join(globalVeraDir(), "skills");
@@ -75,20 +79,7 @@ export async function runReplCommand(args: ReplRunArgs): Promise<void> {
   const skillResolver = createSkillResolver(toolProvider, userSkillsDir, projectSkillsDir);
 
   function buildAdapter(providerName: string, modelName?: string): LLMAdapter {
-    const defaultTarget = resolveDefaultTarget(config);
-    const pc = resolveProviderModelConfig(config, {
-      provider: providerName,
-      model: modelName ?? defaultTarget.model,
-    });
-    const apiKey = pc.api_key ??
-      (pc.adapter === "openai" ? process.env.OPENAI_API_KEY :
-       pc.adapter === "gemini" ? process.env.GEMINI_API_KEY :
-       process.env.ANTHROPIC_API_KEY);
-    switch (pc.adapter) {
-      case "openai": return new OpenAIAdapter(apiKey, pc.base_url, pc.headers);
-      case "gemini": return new GeminiAdapter(apiKey);
-      default: return new AnthropicAdapter(apiKey, pc.base_url, pc.headers);
-    }
+    return llmService.buildAdapter(providerName, modelName);
   }
 
   await startRepl(
@@ -97,10 +88,11 @@ export async function runReplCommand(args: ReplRunArgs): Promise<void> {
       config,
       adapter,
       model,
-      tools: toolRegistry.getSchemas(),
+      tools: toolHost.getSchemas(),
       buildAdapter,
       sessionStore,
       registry: toolRegistry,
+      toolHost,
       promptStore,
       security,
       resolveSkillBundle: (intent) => {

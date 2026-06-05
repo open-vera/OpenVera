@@ -338,7 +338,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
       clearAbort: () => { abortRef.current = null; },
       plan: {
         executor: planExec,
-        context: { adapter: activeAdapter, model: activeModel, tools: activeTools, system: activeSystem, maxTurns: resolvedPrompt?.maxTurns, signal: controller.signal, onToolCall: toolCallHandler, runDir, history: historyRef.current, ...dynamicContext },
+        context: { adapter: activeAdapter, llmService: ctxRef.current.llmService, model: activeModel, tools: activeTools, system: activeSystem, maxTurns: resolvedPrompt?.maxTurns, signal: controller.signal, onToolCall: toolCallHandler, runDir, history: historyRef.current, ...dynamicContext },
         stepsRef: planStepsRef,
         stepTextRef: planStepTextRef,
         rafRef: planRafRef,
@@ -346,6 +346,7 @@ export function App({ ctx, resumeSessionId }: AppProps) {
       stream: {
         agentOptions: {
           adapter: activeAdapter,
+          llmService: ctxRef.current.llmService,
           model: activeModel,
           tools: activeTools,
           system: activeSystem,

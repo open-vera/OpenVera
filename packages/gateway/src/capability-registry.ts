@@ -6,6 +6,7 @@ import type {
   CapabilityKind,
   GatewayProject,
 } from "@open-vera/shared";
+import type { PluginHost, RuntimeCapabilityKind } from "@open-vera/plugin-runtime";
 
 export class CapabilityRegistry {
   private readonly capabilities = new Map<string, CapabilityDescriptor>();
@@ -47,6 +48,17 @@ export class CapabilityRegistry {
     };
     this.capabilities.set(id, updated);
     return updated;
+  }
+
+  registerRuntimeCapabilities(pluginHost: Pick<PluginHost, "capabilities">, kind?: RuntimeCapabilityKind): void {
+    this.registerMany(pluginHost.capabilities.listDescriptors(kind));
+  }
+
+  async registerRuntimeCapabilitiesWithHealth(
+    pluginHost: Pick<PluginHost, "capabilities">,
+    kind?: RuntimeCapabilityKind,
+  ): Promise<void> {
+    this.registerMany(await pluginHost.capabilities.listDescriptorsWithHealth(kind));
   }
 }
 

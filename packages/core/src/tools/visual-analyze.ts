@@ -8,6 +8,7 @@ import { extname } from "node:path";
 import type { ToolDef, ToolResult, ToolContext } from "./types.js";
 import { errorResult } from "./types.js";
 import type { LLMAdapter } from "../adapters/base.js";
+import type { LlmRequestOptions } from "../adapters/llm-service.js";
 
 export interface VisualAnalyzeArgs {
   /** Path to the screenshot/image file */
@@ -36,6 +37,15 @@ const DEFAULT_PROMPT =
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 const DEFAULT_MAX_TOKENS = 2048;
 
+export interface VisionLlmServiceLike {
+  complete(
+    request: Parameters<LLMAdapter["complete"]>[0],
+    options?: LlmRequestOptions,
+  ): ReturnType<LLMAdapter["complete"]>;
+}
+
+export type VisualAnalyzeLlm = LLMAdapter | VisionLlmServiceLike;
+
 function getMimeType(filePath: string): string {
   const ext = extname(filePath).toLowerCase();
   const mimeMap: Record<string, string> = {
@@ -50,7 +60,7 @@ function getMimeType(filePath: string): string {
 }
 
 export function createVisualAnalyzeTool(
-  adapter: LLMAdapter,
+  llm: VisualAnalyzeLlm,
   defaultModel?: string,
 ): ToolDef<VisualAnalyzeArgs> {
   return {
@@ -121,7 +131,7 @@ export function createVisualAnalyzeTool(
       const prompt = args.prompt ?? DEFAULT_PROMPT;
 
       try {
-        const response = await adapter.complete({
+        const response = await completeVision(llm, {
           model,
           max_tokens: args.maxTokens ?? DEFAULT_MAX_TOKENS,
           messages: [
@@ -166,4 +176,23 @@ export function createVisualAnalyzeTool(
       }
     },
   };
+}
+
+function completeVision(
+  llm: VisualAnalyzeLlm,
+  request: Parameters<LLMAdapter["complete"]>[0],
+): ReturnType<LLMAdapter["complete"]> {
+  if (isVisionLlmService(llm)) {
+    return llm.complete(request, { model: request.model, purpose: "vision" });
+  }
+  return (llm as LLMAdapter).complete(request);
+}
+
+function isVisionLlmService(value: VisualAnalyzeLlm): value is VisionLlmServiceLike {
+  return typeof (value as VisionLlmServiceLike).complete === "function"
+    && (
+      !("stream" in value)
+      || "buildAdapter" in value
+      || "selectAdapter" in value
+    );
 }

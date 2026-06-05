@@ -105,11 +105,11 @@ export class ChannelPluginRegistry {
    * Unregister a plugin. Unloads any active adapters created by this plugin first.
    * Returns the number of adapters unloaded.
    */
-  unregisterPlugin(name: string): number {
+  async unregisterPlugin(name: string): Promise<number> {
     if (!this.plugins.has(name)) {
       return 0;
     }
-    const unloaded = this.unloadAllByPlugin(name);
+    const unloaded = await this.unloadAllByPlugin(name);
     this.plugins.delete(name);
     return unloaded;
   }
@@ -179,11 +179,7 @@ export class ChannelPluginRegistry {
       return undefined;
     }
 
-    // Disconnect if connected
-    if (entry.adapter.state === "connected") {
-      await entry.adapter.disconnect();
-    }
-
+    await entry.adapter.disconnect();
     this.loadedAdapters.delete(instanceName);
     return entry.adapter;
   }
@@ -227,11 +223,11 @@ export class ChannelPluginRegistry {
    * Unload all adapters created by a specific plugin.
    * Returns the count of unloaded adapters.
    */
-  unloadAllByPlugin(pluginName: string): number {
+  async unloadAllByPlugin(pluginName: string): Promise<number> {
     let count = 0;
-    for (const [instanceName, entry] of this.loadedAdapters) {
+    for (const [instanceName, entry] of Array.from(this.loadedAdapters.entries())) {
       if (entry.pluginName === pluginName) {
-        // Synchronous remove; caller should disconnect beforehand if needed
+        await entry.adapter.disconnect();
         this.loadedAdapters.delete(instanceName);
         count++;
       }
@@ -244,10 +240,8 @@ export class ChannelPluginRegistry {
    */
   async unloadAll(): Promise<number> {
     let count = 0;
-    for (const [instanceName, entry] of this.loadedAdapters) {
-      if (entry.adapter.state === "connected") {
-        await entry.adapter.disconnect();
-      }
+    for (const [instanceName, entry] of Array.from(this.loadedAdapters.entries())) {
+      await entry.adapter.disconnect();
       this.loadedAdapters.delete(instanceName);
       count++;
     }

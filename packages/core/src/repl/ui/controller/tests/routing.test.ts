@@ -55,6 +55,7 @@ describe("resolveTurnRouting", () => {
     });
     expect(first.model).toBe("claude-haiku-4-5");
     expect(first.error).toBeInstanceOf(Error);
+    expect(ctx.buildAdapter).toHaveBeenCalledWith("classifier", "classifier-model", { purpose: "routing" });
 
     const second = await resolveTurnRouting({
       line: "inspect workspace again",

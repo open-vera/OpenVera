@@ -76,6 +76,7 @@ OpenVera 是一个分四层结构的 monorepo。依赖方向严格为：`harness
 |---|---|
 | [概览](./platform/overview.md) | 平台层架构与扩展点 |
 | [插件系统](./platform/plugin.md) | 插件 API、生命周期钩子、注册表 |
+| [插件实施计划](./platform/plugin-implementation-plan.md) | 插件化重构的源码校准、阶段拆解与文件级任务 |
 | [计算机使用](./platform/computer-use.md) | 浏览器与桌面自动化、基准测试集成 |
 | [多 Agent](./platform/multi-agent.md) | 多 Agent 网络、通信协议、协调模式 |
 | [MCP 集成](./platform/mcp.md) | 模型上下文协议、工具服务器、资源提供者 |

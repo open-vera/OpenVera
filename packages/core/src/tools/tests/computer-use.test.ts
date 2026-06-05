@@ -81,6 +81,7 @@ vi.mock("../visual-analyze.js", () => {
 // ── Import after mock ─────────────────────────────────────────────────────────
 
 import { computerUseTool } from "../computer-use.js";
+import { createVisualAnalyzeTool } from "../visual-analyze.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -816,14 +817,35 @@ describe("CU10: computer_use meta-tool", () => {
     );
   });
 
-  it("should return error when visual_analyze needs llmAdapter but none provided", async () => {
+  it("should use llmService for visual_analyze when provided", async () => {
+    const mockService = { complete: vi.fn(), stream: vi.fn(), buildAdapter: vi.fn() };
+    const ctxWithService: ToolContext = { ...mockCtx, llmService: mockService as never };
+
+    const result = await computerUseTool.execute(
+      {
+        task: "take a screenshot and analyze it",
+        environment: "desktop",
+        screenshotPath: "/tmp/service.png",
+      },
+      ctxWithService,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(createVisualAnalyzeTool).toHaveBeenCalledWith(mockService, undefined);
+    expect(mockVisualAnalyzeExecute).toHaveBeenCalledWith(
+      expect.objectContaining({ imagePath: "/tmp/service.png" }),
+      ctxWithService,
+    );
+  });
+
+  it("should return error when visual_analyze needs LLM service/adapter but none provided", async () => {
     const result = await computerUseTool.execute(
       { task: "navigate to https://example.com and analyze the screenshot" },
-      mockCtx, // no llmAdapter
+      mockCtx, // no llmService/llmAdapter
     );
 
     expect(result.ok).toBe(false);
-    expect(result.content).toContain("LLM adapter not available");
+    expect(result.content).toContain("LLM service/adapter not available");
   });
 
   it("should stop composite task if visual_analyze fails", async () => {

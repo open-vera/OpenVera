@@ -1,9 +1,11 @@
 // AnalyticsPlugin — session JSONL 写入（从 App.tsx 移入 hook）
 
+import type { ToolAuditSink } from "./tool-host.js";
 import type { ToolLifecycleHook, ToolResult, ToolContext } from "./types.js";
 import type { SessionStore } from "../session/index.js";
 
-export class AnalyticsPlugin implements ToolLifecycleHook {
+export class AnalyticsPlugin implements ToolLifecycleHook, ToolAuditSink {
+  readonly name = "builtin-analytics-sink";
   private store: SessionStore;
   // Map toolCallId → uuid so onAfterToolCall can write the result entry
   private pendingCallUuids = new Map<string, string>();
@@ -42,5 +44,15 @@ export class AnalyticsPlugin implements ToolLifecycleHook {
       toolCallId: name,
       content: result.content,
     });
+  }
+
+  async onToolResult(event: {
+    name: string;
+    args: Record<string, unknown>;
+    ctx: ToolContext;
+    result: ToolResult;
+  }): Promise<void> {
+    await this.onBeforeToolCall(event.name, event.args, event.ctx);
+    await this.onAfterToolCall(event.name, event.args, event.result, event.ctx);
   }
 }

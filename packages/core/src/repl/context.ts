@@ -1,8 +1,10 @@
 import type { LLMAdapter } from "../adapters/base.js";
+import type { LlmService } from "../adapters/llm-service.js";
+import type { LlmPurpose } from "../adapters/llm-service.js";
 import type { VeraConfig } from "../config/types.js";
 import type { SessionStore, LoadedSession } from "../session/index.js";
 import type { Tool } from "../types/index.js";
-import type { SecurityConfig, ToolRegistry, ToolRegistryBundle } from "../tools/index.js";
+import type { SecurityConfig, ToolHost, ToolRegistry, ToolRegistryBundle } from "../tools/index.js";
 import type { SecurityPlugin } from "../tools/security.js";
 import type { PlanExecutor } from "../plan/index.js";
 import type { PromptStore } from "../prompt/index.js";
@@ -24,11 +26,13 @@ export interface ReplContext {
   cwd: string;
   config: VeraConfig;
   adapter: LLMAdapter;
+  llmService?: LlmService;
   model: string;
   tools: Tool[];
-  buildAdapter: (provider: string, model?: string) => LLMAdapter;
+  buildAdapter: (provider: string, model?: string, options?: { purpose?: LlmPurpose }) => LLMAdapter;
   sessionStore: SessionStore;
   registry?: ToolRegistry;
+  toolHost?: ToolHost;
   createToolRegistry?: (opts: {
     cwd: string;
     security?: SecurityConfig;
@@ -52,4 +56,3 @@ export interface ReplContext {
   onSwitchProvider?: (provider: string, model: string) => void;
   onSwitchModel?: (model: string) => void;
 }
-

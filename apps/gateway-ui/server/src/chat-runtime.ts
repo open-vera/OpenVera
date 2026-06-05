@@ -1,8 +1,9 @@
 import type { Message } from "@open-vera/core/types";
 import { existsSync } from "node:fs";
-import { loadConfig, resolveDefaultTarget, resolveProviderModelConfig } from "@open-vera/core/config";
-import { AnthropicAdapter, GeminiAdapter, OpenAIAdapter, type LLMAdapter } from "@open-vera/core/adapters";
+import { loadConfig, resolveProviderModelConfig } from "@open-vera/core/config";
+import { LlmService, resolveEnvKey, type LLMAdapter } from "@open-vera/core/adapters";
 import { runAgent } from "@open-vera/core/agent";
+import { EventBus, type RuntimeCapabilityRegistry } from "@open-vera/plugin-runtime";
 import type { ConversationMessage } from "./conversation-store.js";
 
 export interface ChatRuntimeResult {
@@ -11,41 +12,26 @@ export interface ChatRuntimeResult {
   error?: string;
 }
 
-function resolveEnvKey(adapter: string, name: string): string | undefined {
-  switch (adapter) {
-    case "openai":
-      return process.env.OPENAI_API_KEY;
-    case "gemini":
-      return process.env.GEMINI_API_KEY;
-    default:
-      return process.env.ANTHROPIC_API_KEY ?? process.env[`${name.toUpperCase()}_API_KEY`];
-  }
+export interface ChatRuntimeOptions {
+  capabilities?: RuntimeCapabilityRegistry;
+  eventBus?: EventBus;
+  sessionId?: string;
+  traceId?: string;
 }
 
-function buildAdapter(projectRoot: string, providerName?: string, modelName?: string): { adapter: LLMAdapter; model: string } | undefined {
+function buildAdapter(
+  projectRoot: string,
+  providerName?: string,
+  modelName?: string,
+  options: ChatRuntimeOptions = {},
+): { adapter: LLMAdapter; model: string } | undefined {
   const config = loadConfig(undefined, projectRoot);
-  const target = resolveDefaultTarget(config);
-  const name = providerName ?? target.provider;
-  const model = modelName ?? target.model;
-  const pc = resolveProviderModelConfig(config, { provider: name, model });
-  const apiKey = pc.api_key || resolveEnvKey(pc.adapter, name);
-  if (!apiKey) return undefined;
-
-  let adapter: LLMAdapter;
-  switch (pc.adapter) {
-    case "openai":
-      adapter = new OpenAIAdapter(apiKey, pc.base_url, pc.headers);
-      break;
-    case "gemini":
-      adapter = new GeminiAdapter(apiKey);
-      break;
-    case "anthropic":
-    default:
-      adapter = new AnthropicAdapter(apiKey, pc.base_url, pc.headers);
-      break;
-  }
-
-  return { adapter, model };
+  const service = new LlmService({ config, capabilities: options.capabilities, eventBus: options.eventBus });
+  const selected = service.selectAdapter({ provider: providerName, model: modelName, purpose: "chat" });
+  const pc = resolveProviderModelConfig(config, { provider: selected.provider, model: selected.model });
+  const runtimeAdapter = options.capabilities?.get(selected.adapterType);
+  if (!runtimeAdapter && !pc.api_key && !resolveEnvKey(selected.adapterType, selected.provider)) return undefined;
+  return { adapter: service.buildAdapter(selected.provider, selected.model), model: selected.model };
 }
 
 function toAgentHistory(messages: ConversationMessage[]): Message[] {
@@ -61,6 +47,7 @@ export async function runChatCompletion(
   projectRoot: string,
   userMessage: string,
   priorMessages: ConversationMessage[] = [],
+  options: ChatRuntimeOptions = {},
 ): Promise<ChatRuntimeResult> {
   const settingsPath = `${projectRoot}/.vera/settings.json`;
   if (!existsSync(settingsPath) && !process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY) {
@@ -71,7 +58,7 @@ export async function runChatCompletion(
   }
 
   try {
-    const built = buildAdapter(projectRoot);
+    const built = buildAdapter(projectRoot, undefined, undefined, options);
     if (!built) {
       return {
         text: "未找到可用 API Key，无法调用 LLM。",
@@ -83,6 +70,9 @@ export async function runChatCompletion(
     const text = await runAgent(userMessage, {
       adapter: built.adapter,
       model: built.model,
+      eventBus: options.eventBus,
+      sessionId: options.sessionId,
+      traceId: options.traceId,
       history,
       maxTurns: 12,
       system: "You are the Vera Gateway assistant. Answer concisely in the user's language.",

@@ -14,7 +14,9 @@ import type {
   TaskScope,
   Tool,
 } from "@open-vera/core/types";
+import type { ToolContext } from "@open-vera/core/tools";
 import type { SkillBundle } from "../skill/index.js";
+import type { ToolHostLike } from "../agent/stream-runner.js";
 
 export interface LegacyChallengeIssue {
   severity: "critical" | "major" | "minor";
@@ -66,6 +68,19 @@ export interface RuntimeOptions {
    * Requires checkpointsDir to be set. Default: true when checkpointsDir is set.
    */
   autoCheckpoint?: boolean;
+  /**
+   * Runtime service overrides used as the compatibility seam for planner,
+   * critic, replan, retrospective, and default runner selection.
+   */
+  services?: Partial<import("./services.js").HarnessServices>;
+  /** Optional LLM service used by the default runner instead of a raw adapter. */
+  llmService?: import("@open-vera/core/adapters").LlmService;
+  /** Provider hint passed to LlmService by the default runner. */
+  provider?: string;
+  /** Optional ToolHost used by the default runner when no skill executor handles a tool call. */
+  toolHost?: ToolHostLike;
+  /** Baseline tool execution context merged into default-runner tool calls. */
+  toolContext?: Partial<ToolContext>;
 }
 
 export interface FlowHandle {
@@ -80,6 +95,9 @@ export interface RunAssignmentOptions {
   agentSkillBundles?: Record<string, SkillBundle>;
   /** Pre-resolved executors from SkillResolver; if provided, onToolCall is ignored */
   executors?: Map<string, (args: Record<string, unknown>) => Promise<string> | string>;
+  /** Runtime ToolHost fallback for tool calls not resolved by skill executors. */
+  toolHost?: ToolHostLike;
+  toolContext?: Partial<ToolContext>;
   onToolCall?: (
     name: string,
     args: Record<string, unknown>

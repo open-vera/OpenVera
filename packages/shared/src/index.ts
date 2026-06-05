@@ -19,7 +19,7 @@ export type CapabilityKind =
 
 export type CapabilityScope = "global" | "project" | "session" | "run";
 
-export type CapabilityStatus = "available" | "disabled" | "error" | "unknown";
+export type CapabilityStatus = "available" | "disabled" | "error" | "unknown" | "shadow";
 
 export type CapabilityAction =
   | "view"

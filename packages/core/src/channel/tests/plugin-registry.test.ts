@@ -94,15 +94,15 @@ describe("ChannelPluginRegistry", () => {
   });
 
   describe("unregisterPlugin", () => {
-    it("should remove a registered plugin", () => {
+    it("should remove a registered plugin", async () => {
       const plugin = createPlugin();
       registry.registerPlugin(plugin);
-      expect(registry.unregisterPlugin("test-plugin")).toBe(0);
+      await expect(registry.unregisterPlugin("test-plugin")).resolves.toBe(0);
       expect(registry.hasPlugin("test-plugin")).toBe(false);
     });
 
-    it("should return 0 for non-existent plugin", () => {
-      expect(registry.unregisterPlugin("nonexistent")).toBe(0);
+    it("should return 0 for non-existent plugin", async () => {
+      await expect(registry.unregisterPlugin("nonexistent")).resolves.toBe(0);
     });
 
     it("should unload adapters created by the plugin", async () => {
@@ -112,7 +112,7 @@ describe("ChannelPluginRegistry", () => {
       await registry.loadAdapter("test-plugin", "instance-2");
       expect(registry.adapterCount).toBe(2);
 
-      const unloaded = registry.unregisterPlugin("test-plugin");
+      const unloaded = await registry.unregisterPlugin("test-plugin");
       expect(unloaded).toBe(2);
       expect(registry.adapterCount).toBe(0);
       expect(registry.hasPlugin("test-plugin")).toBe(false);
@@ -237,7 +237,7 @@ describe("ChannelPluginRegistry", () => {
       expect(adapter.disconnect).toHaveBeenCalled();
     });
 
-    it("should not call disconnect if adapter is not connected", async () => {
+    it("should call disconnect even if adapter is not connected so resources are released", async () => {
       const adapter = createMockAdapter();
       const plugin: ChannelPlugin = {
         meta: { name: "test-plugin", description: "test", channelType: "cli", version: "1.0.0" },
@@ -247,7 +247,7 @@ describe("ChannelPluginRegistry", () => {
       await registry.loadAdapter("test-plugin", "inst");
       // Adapter starts disconnected
       await registry.unloadAdapter("inst");
-      expect(adapter.disconnect).not.toHaveBeenCalled();
+      expect(adapter.disconnect).toHaveBeenCalled();
     });
   });
 
@@ -327,15 +327,37 @@ describe("ChannelPluginRegistry", () => {
       await registry.loadAdapter("p1", "p1-inst-2");
       await registry.loadAdapter("p2", "p2-inst-1");
 
-      const count = registry.unloadAllByPlugin("p1");
+      const count = await registry.unloadAllByPlugin("p1");
       expect(count).toBe(2);
       expect(registry.adapterCount).toBe(1);
       expect(registry.getLoadedAdapter("p2-inst-1")).toBeDefined();
     });
 
-    it("should return 0 if no adapters from that plugin", () => {
+    it("should return 0 if no adapters from that plugin", async () => {
       registry.registerPlugin(createPlugin({ name: "p1" }));
-      expect(registry.unloadAllByPlugin("p1")).toBe(0);
+      await expect(registry.unloadAllByPlugin("p1")).resolves.toBe(0);
+    });
+
+    it("should await disconnect before removing plugin adapters", async () => {
+      const events: string[] = [];
+      const adapter = createMockAdapter({
+        disconnect: vi.fn(async () => {
+          events.push("disconnect:start");
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          events.push("disconnect:end");
+        }),
+      });
+      registry.registerPlugin({
+        meta: { name: "p1", description: "test", channelType: "cli", version: "1.0.0" },
+        factory: async () => adapter,
+      });
+      await registry.loadAdapter("p1", "p1-inst");
+
+      const count = await registry.unloadAllByPlugin("p1");
+
+      expect(count).toBe(1);
+      expect(events).toEqual(["disconnect:start", "disconnect:end"]);
+      expect(registry.adapterCount).toBe(0);
     });
   });
 
@@ -363,7 +385,7 @@ describe("ChannelPluginRegistry", () => {
       expect(count).toBe(2);
       expect(registry.adapterCount).toBe(0);
       expect(adapter1.disconnect).toHaveBeenCalled();
-      expect(adapter2.disconnect).not.toHaveBeenCalled();
+      expect(adapter2.disconnect).toHaveBeenCalled();
     });
 
     it("should return 0 when no adapters loaded", async () => {

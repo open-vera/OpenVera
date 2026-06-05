@@ -2,6 +2,8 @@
 import express from "express";
 import cors from "cors";
 import { resolve } from "node:path";
+import { GatewayPluginAdmin, type GatewayPluginRecord } from "@open-vera/gateway";
+import { EventBus } from "@open-vera/plugin-runtime";
 import { runExecutionAction, runManagementAction, type ExecutionAction, type ManagementAction } from "./actions.js";
 import { runChatCompletion } from "./chat-runtime.js";
 import {
@@ -31,7 +33,12 @@ import {
   spawnRun,
   type SpawnRunRequest,
 } from "./runtime-store.js";
-import { loadGatewayState, summarizeCapabilities } from "./state.js";
+import {
+  handlePluginAdminError,
+  loadGatewayState,
+  loadGatewayStateWithHealth,
+  summarizeCapabilities,
+} from "./state.js";
 
 interface ServerArgs {
   port: number;
@@ -77,48 +84,115 @@ if (rawArgs.includes("--help") || rawArgs.includes("-h")) {
 
 const args = parseArgs(rawArgs);
 const app = express();
+const gatewayEventBus = new EventBus();
+const gatewayPluginAdmin = new GatewayPluginAdmin({ roots: args.roots, eventBus: gatewayEventBus });
 
 app.use(cors());
 app.use(express.json());
 
 app.get("/api/gateway/overview", (_req, res) => {
-  const state = loadGatewayState(args.roots);
-  res.json({
-    generatedAt: state.doctor.generatedAt,
-    roots: args.roots,
-    projectCount: state.projects.length,
-    capabilityCount: state.capabilities.length,
-    capabilitySummary: summarizeCapabilities(state.capabilities),
-    doctorStatus: state.doctor.status,
-  });
+  void loadGatewayStateWithHealth(args.roots, { pluginAdmin: gatewayPluginAdmin })
+    .then((state) => {
+      res.json({
+        generatedAt: state.doctor.generatedAt,
+        roots: args.roots,
+        projectCount: state.projects.length,
+        capabilityCount: state.capabilities.length,
+        capabilitySummary: summarizeCapabilities(state.capabilities),
+        doctorStatus: state.doctor.status,
+      });
+    })
+    .catch((error: unknown) => {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to load gateway overview" });
+    });
 });
 
 app.get("/api/projects", (_req, res) => {
-  res.json(loadGatewayState(args.roots).projects);
+  res.json(loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin }).projects);
 });
 
 app.get("/api/capabilities", (req, res) => {
   const kind = typeof req.query.kind === "string" ? req.query.kind : undefined;
-  const capabilities = loadGatewayState(args.roots).capabilities;
-  res.json(kind ? capabilities.filter((capability) => capability.kind === kind) : capabilities);
+  void loadGatewayStateWithHealth(args.roots, { pluginAdmin: gatewayPluginAdmin })
+    .then((state) => {
+      const capabilities = state.capabilities;
+      res.json(kind ? capabilities.filter((capability) => capability.kind === kind) : capabilities);
+    })
+    .catch((error: unknown) => {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to list capabilities" });
+    });
+});
+
+app.get("/api/plugins", (_req, res) => {
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
+  res.json(state.pluginAdmin.list());
+});
+
+app.get("/api/plugins/:pluginId", (req, res) => {
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
+  try {
+    res.json(state.pluginAdmin.inspect({
+      pluginId: req.params.pluginId,
+      projectId: typeof req.query.projectId === "string" ? req.query.projectId : undefined,
+    }));
+  } catch (error) {
+    const handled = handlePluginAdminError(error);
+    res.status(handled.status).json(handled.body);
+  }
+});
+
+app.post("/api/plugins/:pluginId/:action", (req, res) => {
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
+  const projectId = typeof req.body?.projectId === "string" ? req.body.projectId : undefined;
+  const target = { pluginId: req.params.pluginId, projectId };
+  const action = req.params.action;
+
+  const operation = action === "enable"
+    ? state.pluginAdmin.enable(target)
+    : action === "disable"
+      ? state.pluginAdmin.disable(target)
+      : action === "reload"
+        ? state.pluginAdmin.reload(target)
+        : undefined;
+
+  if (!operation) {
+    res.status(400).json({ error: `Unsupported plugin action: ${action}` });
+    return;
+  }
+
+  void operation
+    .then((record: GatewayPluginRecord) => res.status(202).json(record))
+    .catch((error: unknown) => {
+      const handled = handlePluginAdminError(error);
+      res.status(handled.status).json(handled.body);
+    });
 });
 
 app.get("/api/projects/:projectId/capabilities", (req, res) => {
-  const state = loadGatewayState(args.roots);
-  const project = state.projects.find((item) => item.id === req.params.projectId);
-  if (!project) {
-    res.status(404).json({ error: "Project not found" });
-    return;
-  }
-  res.json(state.capabilities.filter((capability) => capability.projectId === project.id));
+  void loadGatewayStateWithHealth(args.roots, { pluginAdmin: gatewayPluginAdmin })
+    .then((state) => {
+      const project = state.projects.find((item) => item.id === req.params.projectId);
+      if (!project) {
+        res.status(404).json({ error: "Project not found" });
+        return;
+      }
+      res.json(state.capabilities.filter((capability) => capability.projectId === project.id));
+    })
+    .catch((error: unknown) => {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to list project capabilities" });
+    });
 });
 
 app.get("/api/gateway/doctor", (_req, res) => {
-  res.json(loadGatewayState(args.roots).doctor);
+  void loadGatewayStateWithHealth(args.roots, { pluginAdmin: gatewayPluginAdmin })
+    .then((state) => res.json(state.doctor))
+    .catch((error: unknown) => {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to run doctor" });
+    });
 });
 
 app.get("/api/runs", (req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   const projectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
   void listRuns(state.projects, projectId).then((runs) => res.json(runs)).catch((err: unknown) => {
     const message = err instanceof Error ? err.message : "Failed to list runs";
@@ -127,7 +201,7 @@ app.get("/api/runs", (req, res) => {
 });
 
 app.post("/api/runs", (req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   const body = (req.body ?? {}) as SpawnRunRequest & { projectId?: string };
   const project = body.projectId
     ? state.projects.find((item) => item.id === body.projectId)
@@ -141,7 +215,7 @@ app.post("/api/runs", (req, res) => {
 });
 
 app.get("/api/runs/:runId", (req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   void getRun(state.projects, req.params.runId).then((run) => {
     if (!run) {
       res.status(404).json({ error: "Run not found" });
@@ -152,7 +226,7 @@ app.get("/api/runs/:runId", (req, res) => {
 });
 
 app.get("/api/runs/:runId/timeline", (req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   void getTimeline(state.projects, req.params.runId).then((timeline) => {
     if (!timeline) {
       res.status(404).json({ error: "Timeline not found" });
@@ -163,7 +237,7 @@ app.get("/api/runs/:runId/timeline", (req, res) => {
 });
 
 app.get("/api/runs/:runId/stream", (req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   const live = req.query.live === "1" || req.query.live === "true";
   res.setHeader("content-type", "text/event-stream");
   res.setHeader("cache-control", "no-cache");
@@ -190,7 +264,7 @@ app.get("/api/runs/:runId/stream", (req, res) => {
 });
 
 app.get("/api/runs/:runId/steps/:stepId", (req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   void getStep(state.projects, req.params.runId, req.params.stepId).then((step) => {
     if (!step) {
       res.status(404).json({ error: "Step not found" });
@@ -201,7 +275,7 @@ app.get("/api/runs/:runId/steps/:stepId", (req, res) => {
 });
 
 app.get("/api/runs/:runId/artifacts/:artifactId", (req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   void getArtifact(state.projects, req.params.runId, req.params.artifactId).then((artifact) => {
     if (artifact === undefined) {
       res.status(404).json({ error: "Artifact not found" });
@@ -212,7 +286,7 @@ app.get("/api/runs/:runId/artifacts/:artifactId", (req, res) => {
 });
 
 app.get("/api/runs/:runId/memory", (req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   const tier = typeof req.query.tier === "string" ? req.query.tier : undefined;
   const search = typeof req.query.search === "string" ? req.query.search : undefined;
   void getMemory(state.projects, req.params.runId, tier, search).then((memory) => {
@@ -225,7 +299,7 @@ app.get("/api/runs/:runId/memory", (req, res) => {
 });
 
 app.get("/api/runs/:runId/checkpoints", (req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   void getCheckpoints(state.projects, req.params.runId).then((checkpoints) => {
     if (!checkpoints) {
       res.status(404).json({ error: "Checkpoints not found" });
@@ -236,7 +310,7 @@ app.get("/api/runs/:runId/checkpoints", (req, res) => {
 });
 
 app.get("/api/runs/:runId/checkpoints/:checkpointId", (req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   void getCheckpoint(state.projects, req.params.runId, req.params.checkpointId).then((checkpoint) => {
     if (!checkpoint) {
       res.status(404).json({ error: "Checkpoint not found" });
@@ -247,7 +321,7 @@ app.get("/api/runs/:runId/checkpoints/:checkpointId", (req, res) => {
 });
 
 app.get("/api/runs/:runId/subagents", (req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   void getSubagents(state.projects, req.params.runId).then((subagents) => {
     if (!subagents) {
       res.status(404).json({ error: "Subagents not found" });
@@ -258,7 +332,7 @@ app.get("/api/runs/:runId/subagents", (req, res) => {
 });
 
 app.get("/api/flows", (req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   const projectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
   void listFlows(state.projects, projectId).then((flows) => res.json(flows)).catch((err: unknown) => {
     const message = err instanceof Error ? err.message : "Failed to list flows";
@@ -267,7 +341,7 @@ app.get("/api/flows", (req, res) => {
 });
 
 app.get("/api/cost", (_req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   void getCostSummary(state.projects).then((cost) => res.json(cost)).catch((err: unknown) => {
     const message = err instanceof Error ? err.message : "Failed to summarize cost";
     res.status(500).json({ error: message });
@@ -275,7 +349,7 @@ app.get("/api/cost", (_req, res) => {
 });
 
 app.get("/api/gateway/operations/summary", (_req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   void listRuns(state.projects)
     .then((runs) => res.json(getOperationsSummary(state.projects, runs)))
     .catch((err: unknown) => {
@@ -288,7 +362,7 @@ app.get("/api/gateway/operations/resources", (_req, res) => {
 });
 
 app.get("/api/gateway/operations/activity", (_req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   void listRuns(state.projects)
     .then((runs) => res.json(getActivityHeatmap(runs)))
     .catch((err: unknown) => {
@@ -297,7 +371,7 @@ app.get("/api/gateway/operations/activity", (_req, res) => {
 });
 
 app.get("/api/projects/:projectId/runs", (req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   const project = state.projects.find((item) => item.id === req.params.projectId);
   if (!project) {
     res.status(404).json({ error: "Project not found" });
@@ -309,7 +383,7 @@ app.get("/api/projects/:projectId/runs", (req, res) => {
 });
 
 app.get("/api/projects/:projectId/flows", (req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   const project = state.projects.find((item) => item.id === req.params.projectId);
   if (!project) {
     res.status(404).json({ error: "Project not found" });
@@ -331,7 +405,7 @@ app.post("/api/conversations", (req, res) => {
     res.status(400).json({ error: "projectId is required" });
     return;
   }
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   if (!state.projects.some((project) => project.id === body.projectId)) {
     res.status(404).json({ error: "Project not found" });
     return;
@@ -364,7 +438,7 @@ app.post("/api/conversations/:conversationId/messages", (req, res) => {
     return;
   }
 
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   const project = state.projects.find((item) => item.id === existing.projectId);
   if (!project) {
     res.status(404).json({ error: "Project not found for conversation" });
@@ -380,7 +454,13 @@ app.post("/api/conversations/:conversationId/messages", (req, res) => {
 
     if (role === "user") {
       const prior = getConversation(conversationId)?.messages.slice(0, -1) ?? [];
-      const completion = await runChatCompletion(project.rootDir, content, prior);
+      await state.pluginAdmin.activateEnabledPlugins();
+      const completion = await runChatCompletion(project.rootDir, content, prior, {
+        capabilities: state.pluginAdmin.getProjectCapabilities(project.id),
+        eventBus: gatewayEventBus,
+        sessionId: conversationId,
+        traceId: message.id,
+      });
       appendAssistantMessage(conversationId, completion.text);
     }
 
@@ -392,7 +472,7 @@ app.post("/api/conversations/:conversationId/messages", (req, res) => {
 });
 
 app.get("/api/projects/:projectId/rag/search", (req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   const project = state.projects.find((item) => item.id === req.params.projectId);
   if (!project) {
     res.status(404).json({ error: "Project not found" });
@@ -403,7 +483,7 @@ app.get("/api/projects/:projectId/rag/search", (req, res) => {
 });
 
 app.get("/api/projects/:projectId/mcp/servers", (req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   const project = state.projects.find((item) => item.id === req.params.projectId);
   if (!project) {
     res.status(404).json({ error: "Project not found" });
@@ -413,7 +493,7 @@ app.get("/api/projects/:projectId/mcp/servers", (req, res) => {
 });
 
 app.get("/api/projects/:projectId/mcp/tools", (req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   const project = state.projects.find((item) => item.id === req.params.projectId);
   if (!project) {
     res.status(404).json({ error: "Project not found" });
@@ -423,7 +503,7 @@ app.get("/api/projects/:projectId/mcp/tools", (req, res) => {
 });
 
 app.get("/api/projects/:projectId", (req, res) => {
-  const state = loadGatewayState(args.roots);
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
   const project = state.projects.find((item) => item.id === req.params.projectId);
   if (!project) {
     res.status(404).json({ error: "Project not found" });
@@ -442,12 +522,30 @@ app.get("/api/projects/:projectId", (req, res) => {
 });
 
 app.post("/api/manage/:action", (req, res) => {
-  res.status(202).json(runManagementAction(req.params.action as ManagementAction, req.body ?? {}));
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
+  void runManagementAction(req.params.action as ManagementAction, req.body ?? {}, {
+    projects: state.projects,
+    pluginAdmin: gatewayPluginAdmin,
+    eventBus: gatewayEventBus,
+  })
+    .then((result) => res.status(202).json(result))
+    .catch((err: unknown) => {
+      const handled = handlePluginAdminError(err);
+      if (handled.status !== 500 || handled.body.error) {
+        res.status(handled.status).json(handled.body);
+        return;
+      }
+      res.status(500).json({ error: err instanceof Error ? err.message : "Management action failed" });
+    });
 });
 
 app.post("/api/execute/:action", (req, res) => {
-  const state = loadGatewayState(args.roots);
-  void runExecutionAction(req.params.action as ExecutionAction, req.body ?? {}, { projects: state.projects })
+  const state = loadGatewayState(args.roots, { pluginAdmin: gatewayPluginAdmin });
+  void runExecutionAction(req.params.action as ExecutionAction, req.body ?? {}, {
+    projects: state.projects,
+    pluginAdmin: gatewayPluginAdmin,
+    eventBus: gatewayEventBus,
+  })
     .then((result) => res.status(202).json(result))
     .catch((err: unknown) => {
       res.status(500).json({ error: err instanceof Error ? err.message : "Execution failed" });
@@ -463,6 +561,9 @@ app.listen(args.port, () => {
   console.log("  GET /api/gateway/doctor");
   console.log("  GET /api/projects");
   console.log("  GET /api/capabilities");
+  console.log("  GET /api/plugins");
+  console.log("  GET /api/plugins/:pluginId");
+  console.log("  POST /api/plugins/:pluginId/:action");
   console.log("  GET /api/projects/:projectId/capabilities");
   console.log("  GET /api/runs");
   console.log("  GET /api/runs/:runId");

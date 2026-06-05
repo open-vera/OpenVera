@@ -1,25 +1,6 @@
 import { loadConfig, resolveDefaultTarget, resolveProviderModelConfig } from "@open-vera/core/config";
-import { AnthropicAdapter, OpenAIAdapter, GeminiAdapter } from "@open-vera/core/adapters";
+import { envVarFor, LlmService, resolveEnvKey } from "@open-vera/core/adapters";
 import type { LLMAdapter } from "@open-vera/core/adapters";
-
-function resolveEnvKey(adapter: string, name: string): string | undefined {
-  switch (adapter) {
-    case "openai":
-      return process.env.OPENAI_API_KEY;
-    case "gemini":
-      return process.env.GEMINI_API_KEY;
-    default:
-      return process.env.ANTHROPIC_API_KEY ?? process.env[`${name.toUpperCase()}_API_KEY`];
-  }
-}
-
-function envVarFor(adapter: string): string {
-  switch (adapter) {
-    case "openai": return "OPENAI_API_KEY";
-    case "gemini": return "GEMINI_API_KEY";
-    default: return "ANTHROPIC_API_KEY";
-  }
-}
 
 export function buildCliAdapter(
   providerArg?: string,
@@ -54,18 +35,10 @@ export function buildCliAdapter(
     process.exit(1);
   }
 
-  let adapter: LLMAdapter;
-  switch (pc.adapter) {
-    case "openai":
-      adapter = new OpenAIAdapter(apiKey, pc.base_url, pc.headers);
-      break;
-    case "gemini":
-      adapter = new GeminiAdapter(apiKey);
-      break;
-    default:
-      adapter = new AnthropicAdapter(apiKey, pc.base_url, pc.headers);
-  }
-
-  const model = target.model;
-  return { adapter, model };
+  const service = new LlmService({ config, apiKeyOverride: apiKey });
+  const selected = service.selectAdapter({ provider: providerName, model: target.model, purpose: "chat" });
+  return {
+    adapter: service.buildAdapter(selected.provider, selected.model),
+    model: selected.model,
+  };
 }

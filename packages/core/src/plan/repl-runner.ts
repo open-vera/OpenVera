@@ -41,8 +41,10 @@ export interface PlanRunContext {
   /** Model-facing history to continue from before the plan starts. */
   history?: Message[];
   maxTurns?: AgentOptions["maxTurns"];
+  llmService?: AgentOptions["llmService"];
   contextOptions?: AgentOptions["contextOptions"];
   compressionOptions?: AgentOptions["compressionOptions"];
+  compressionProvider?: AgentOptions["compressionProvider"];
   microCompactOptions?: AgentOptions["microCompactOptions"];
   compressionState?: AgentOptions["compressionState"];
   microCompactState?: AgentOptions["microCompactState"];
@@ -110,11 +112,13 @@ export const defaultPlanExecutor: PlanExecutor = async (
           system: ctx.system,
           history,
           maxTurns: ctx.maxTurns,
+          llmService: ctx.llmService,
           onUsage,
           signal: ctx.signal,
           runDir: ctx.runDir,
           contextOptions: ctx.contextOptions,
           compressionOptions: ctx.compressionOptions,
+          compressionProvider: ctx.compressionProvider,
           microCompactOptions: ctx.microCompactOptions,
           compressionState: ctx.compressionState,
           microCompactState: ctx.microCompactState,

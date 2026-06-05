@@ -1,4 +1,6 @@
 import type { GatewayProject } from "@open-vera/gateway";
+import type { EventBus } from "@open-vera/plugin-runtime";
+import type { GatewayPluginAdmin } from "@open-vera/gateway";
 import {
   appendAssistantMessage,
   appendMessage,
@@ -17,6 +19,8 @@ export type ManagementAction =
   | "rag.reindex"
   | "channel.connect"
   | "channel.disconnect"
+  | "channel.test"
+  | "channel.reload"
   | "sandbox.test";
 
 export type ExecutionAction =
@@ -46,9 +50,18 @@ export interface ActionResult {
 
 export interface ActionContext {
   projects: GatewayProject[];
+  pluginAdmin?: GatewayPluginAdmin;
+  eventBus?: EventBus;
 }
 
-export function runManagementAction(action: ManagementAction, request: ActionRequest): ActionResult {
+export async function runManagementAction(
+  action: ManagementAction,
+  request: ActionRequest,
+  context?: ActionContext,
+): Promise<ActionResult> {
+  if (isChannelManagementAction(action)) {
+    return handleChannelManagement(action, request, context);
+  }
   return createActionResult(action, request, "accepted", managementMessage(action));
 }
 
@@ -100,7 +113,13 @@ async function handleChatSend(request: ActionRequest, context: ActionContext): P
   }
 
   const prior = getConversation(conversationId)?.messages.slice(0, -1) ?? [];
-  const completion = await runChatCompletion(project.rootDir, content, prior);
+  await context.pluginAdmin?.activateEnabledPlugins();
+  const completion = await runChatCompletion(project.rootDir, content, prior, {
+    capabilities: context.pluginAdmin?.getProjectCapabilities(project.id),
+    eventBus: context.eventBus,
+    sessionId: conversationId,
+    traceId: userMessage.id,
+  });
   const assistant = appendAssistantMessage(conversationId, completion.text);
 
   return createActionResult(
@@ -164,6 +183,35 @@ function handleMcpToolCall(request: ActionRequest, context: ActionContext): Acti
   return createActionResult("mcp.tool.call", request, "simulated", simulated.message, { tools, serverId, toolName });
 }
 
+async function handleChannelManagement(
+  action: Extract<ManagementAction, `channel.${string}`>,
+  request: ActionRequest,
+  context?: ActionContext,
+): Promise<ActionResult> {
+  if (!context?.pluginAdmin) {
+    return createActionResult(action, request, "simulated", "Gateway plugin admin is required for channel actions");
+  }
+
+  const capabilityId = channelCapabilityId(request);
+  if (!capabilityId) {
+    return createActionResult(action, request, "accepted", "channel capability target is required");
+  }
+
+  const result = await context.pluginAdmin.runChannelAction(
+    action.slice("channel.".length) as "connect" | "disconnect" | "test" | "reload",
+    {
+      projectId: request.projectId,
+      capabilityId,
+      instanceName: channelInstanceName(request),
+      config: channelConfig(request),
+    },
+  );
+
+  return createActionResult(action, request, "accepted", `Channel ${result.action} completed: ${result.instanceName}`, {
+    ...result,
+  });
+}
+
 function resolveProject(request: ActionRequest, context: ActionContext): GatewayProject | undefined {
   if (request.projectId) {
     return context.projects.find((project) => project.id === request.projectId);
@@ -191,6 +239,37 @@ function createActionResult(
   };
 }
 
+function channelCapabilityId(request: ActionRequest): string | undefined {
+  const payload = request.payload ?? {};
+  return typeof request.target === "string"
+    ? request.target
+    : typeof payload.capabilityId === "string"
+      ? payload.capabilityId
+      : typeof payload.channel === "string"
+        ? payload.channel
+        : undefined;
+}
+
+function channelInstanceName(request: ActionRequest): string | undefined {
+  const value = request.payload?.instanceName;
+  return typeof value === "string" ? value : undefined;
+}
+
+function channelConfig(request: ActionRequest): Record<string, unknown> | undefined {
+  const value = request.payload?.config;
+  return isRecord(value) ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isChannelManagementAction(
+  action: ManagementAction,
+): action is Extract<ManagementAction, `channel.${string}`> {
+  return action.startsWith("channel.");
+}
+
 function managementMessage(action: ManagementAction): string {
   switch (action) {
     case "config.edit":
@@ -205,6 +284,10 @@ function managementMessage(action: ManagementAction): string {
       return "Channel connect request accepted.";
     case "channel.disconnect":
       return "Channel disconnect request accepted.";
+    case "channel.test":
+      return "Channel test call accepted.";
+    case "channel.reload":
+      return "Channel reload request accepted.";
     case "sandbox.test":
       return "Sandbox test call accepted.";
   }

@@ -2,6 +2,7 @@ import { resolve, join } from "node:path";
 import { existsSync } from "node:fs";
 import { HarnessRuntime } from "../runtime/runtime.js";
 import type { FlowLoopEvent, RunFlowLoopOptions } from "../runtime/internal.js";
+import { LlmService } from "@open-vera/core/adapters";
 import { buildCliAdapter } from "./adapter.js";
 import { flowDefinitionToPlan } from "./plan.js";
 import { createSkillResolver, RegistryToolProvider } from "../skill/index.js";
@@ -73,13 +74,20 @@ export async function runFlowCommand(args: FlowRunArgs): Promise<void> {
 
   const { adapter, model: defaultModel } = buildCliAdapter(args.provider, args.apiKey, projectDir);
   const model = args.model ?? defaultModel;
+  const llmService = new LlmService({ config, apiKeyOverride: args.apiKey });
 
   // ── Tool + Skill setup ──────────────────────────────────────────────────────
   const cwd = projectDir;
   const sessionStore = new SessionStore({ cwd });
-  const { registry: toolRegistry } = createToolRegistry({ cwd, sessionStore });
+  const { registry: toolRegistry, toolHost, loadPlugins } = createToolRegistry({
+    cwd,
+    sessionStore,
+    llmService,
+    defaultModel: model,
+  });
+  await loadPlugins();
 
-  const toolProvider = new RegistryToolProvider(toolRegistry, cwd, sessionStore.sessionId);
+  const toolProvider = new RegistryToolProvider(toolHost, cwd, sessionStore.sessionId);
 
   // Load skills: builtin + global (~/.vera/skills/) + project-level (.vera/skills/).
   const userSkillsDir = join(globalVeraDir(), "skills");
@@ -109,6 +117,10 @@ export async function runFlowCommand(args: FlowRunArgs): Promise<void> {
   const runtime = new HarnessRuntime(adapter, model, {
     artifactsRootDir: args.artifactsDir ?? join(flowDir, "iterations", flowInput.name),
     agents,
+    llmService,
+    provider: args.provider ?? config.default_provider,
+    toolHost,
+    toolContext: { cwd, sessionId: sessionStore.sessionId },
   });
 
   const flowId = `iter-${new Date().toISOString().replace(/[:.]/g, "-")}`;
@@ -185,6 +197,8 @@ export async function runFlowCommand(args: FlowRunArgs): Promise<void> {
     tools: defaultBundle.tools,
     system: defaultBundle.system,
     executors: defaultBundle.executors,
+    toolHost,
+    toolContext: { cwd, sessionId: sessionStore.sessionId },
     agentSkillBundles,
     onEvent: (event: FlowLoopEvent) => {
       switch (event.type) {

@@ -94,7 +94,7 @@ export async function prepareTurnContext({
 
   const modelContextLimit = getModelContextLimit(activeModel);
   const dynamicContext = {
-    ...buildDynamicContextOptions(modelContextLimit, activeModel, ctx.config.session?.compact, ctx.buildAdapter),
+    ...buildDynamicContextOptions(modelContextLimit, activeModel, ctx.config.session?.compact),
     compressionState: refs.compressionStateRef.current,
     microCompactState: refs.microCompactStateRef.current,
     memoryTracker,

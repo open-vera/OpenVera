@@ -25,6 +25,13 @@ export {
 export { ChannelGateway } from "./gateway.js";
 export type { SessionBinding, MessageHandler } from "./gateway.js";
 
+export { ChannelService } from "./service.js";
+export type {
+  ChannelServiceOptions,
+  ChannelAdapterCapabilityInput,
+  ChannelInstanceRecord,
+} from "./service.js";
+
 export { CliChannelAdapter } from "./cli-channel.js";
 export type { CliChannelConfig } from "./cli-channel.js";
 

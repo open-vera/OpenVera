@@ -97,6 +97,10 @@ function detectEnvironment(task: string): Environment {
   return "cli";
 }
 
+function getVisionLlm(ctx: ToolContext) {
+  return ctx.llmService ?? ctx.llmAdapter;
+}
+
 // ── Sub-tool Dispatch ──────────────────────────────────────────────────────────
 
 async function dispatchBrowserAction(
@@ -422,10 +426,11 @@ async function executeWithOrchestrator(
 
   const registry = buildToolRegistry();
 
-  // Add visual_analyze tool dynamically (needs LLM adapter)
+  // Add visual_analyze tool dynamically (needs LLM service/adapter)
   const resolver: ToolResolver = (name: string) => {
-    if (name === "visual_analyze" && ctx.llmAdapter) {
-      return createVisualAnalyzeTool(ctx.llmAdapter, ctx.defaultModel);
+    const llm = getVisionLlm(ctx);
+    if (name === "visual_analyze" && llm) {
+      return createVisualAnalyzeTool(llm, ctx.defaultModel);
     }
     return registry.get(name);
   };
@@ -606,14 +611,20 @@ export const computerUseTool: ToolDef<ComputerUseArgs> = {
               );
               break;
             case "visual_analyze":
-              if (!ctx.llmAdapter) {
-                result = errorResult("UNKNOWN", "LLM adapter not available — cannot run visual analysis. Provide llmAdapter in ToolContext.");
-              } else {
-                const visualTool = createVisualAnalyzeTool(ctx.llmAdapter, ctx.defaultModel);
-                result = await visualTool.execute(
-                  step.args as unknown as Parameters<typeof visualTool.execute>[0],
-                  ctx
-                );
+              {
+                const llm = getVisionLlm(ctx);
+                if (!llm) {
+                  result = errorResult(
+                    "UNKNOWN",
+                    "LLM service/adapter not available — cannot run visual analysis. Provide llmService or llmAdapter in ToolContext.",
+                  );
+                } else {
+                  const visualTool = createVisualAnalyzeTool(llm, ctx.defaultModel);
+                  result = await visualTool.execute(
+                    step.args as unknown as Parameters<typeof visualTool.execute>[0],
+                    ctx
+                  );
+                }
               }
               break;
             default:

@@ -1,4 +1,5 @@
-export type AdapterType = "anthropic" | "openai" | "gemini";
+export type BuiltinAdapterType = "anthropic" | "openai" | "gemini";
+export type AdapterType = string;
 
 export interface ProviderModelConfig {
   /** Optional protocol override for this model. Defaults to the provider adapter. */

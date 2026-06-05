@@ -101,6 +101,58 @@ describe("CU11: visual_analyze tool", () => {
     expect(adapter.complete).toHaveBeenCalledOnce();
   });
 
+  it("should mark service-backed analysis calls with vision purpose", async () => {
+    const complete = vi.fn().mockResolvedValue({
+      message: {
+        role: "assistant",
+        content: "vision service result",
+      },
+      stop_reason: "end_turn",
+    } satisfies CompletionResponse);
+    const tool = createVisualAnalyzeTool({ complete });
+
+    const result = await tool.execute(
+      { imageData: SAMPLE_BASE64, model: "vision-model" },
+      mockCtx,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.content).toBe("vision service result");
+    expect(complete).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "vision-model" }),
+      { model: "vision-model", purpose: "vision" },
+    );
+  });
+
+  it("should mark LlmService-backed analysis calls with vision purpose", async () => {
+    const complete = vi.fn().mockResolvedValue({
+      message: {
+        role: "assistant",
+        content: "llm service result",
+      },
+      stop_reason: "end_turn",
+    } satisfies CompletionResponse);
+    const llmService = {
+      complete,
+      stream: vi.fn(),
+      buildAdapter: vi.fn(),
+      selectAdapter: vi.fn(),
+    };
+    const tool = createVisualAnalyzeTool(llmService);
+
+    const result = await tool.execute(
+      { imageData: SAMPLE_BASE64, model: "vision-model" },
+      mockCtx,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.content).toBe("llm service result");
+    expect(complete).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "vision-model" }),
+      { model: "vision-model", purpose: "vision" },
+    );
+  });
+
   it("should use default mime type when not specified", async () => {
     const adapter = createMockAdapter("analysis result");
     const tool = createVisualAnalyzeTool(adapter);

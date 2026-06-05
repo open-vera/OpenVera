@@ -8,23 +8,21 @@ import { loadConfig, syncExternalResources } from "./config/index.js";
 import {
   resolveClassifierTarget,
   resolveDefaultTarget,
-  resolveProviderModelConfig,
   resolveRoutingConfig,
 } from "./config/model-tiers.js";
 import { isConfigEmpty, runSetupWizard } from "./config/setup.js";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline";
-import { AnthropicAdapter } from "./adapters/anthropic.js";
-import { OpenAIAdapter } from "./adapters/openai.js";
-import { GeminiAdapter } from "./adapters/gemini.js";
 import type { LLMAdapter } from "./adapters/base.js";
+import { LlmService, type LlmPurpose } from "./adapters/llm-service.js";
 import { resolveModel } from "./intent/classifier.js";
 import { startRepl } from "./repl/index.js";
 import { SessionStore } from "./session/index.js";
 import { createToolRegistry } from "./tools/index.js";
 import { PromptStore, loadTemplates } from "./prompt/index.js";
+import { ContextComposer, PromptComposer } from "./composer/index.js";
 import { getModelContextLimit } from "./context/index.js";
-import { loadNestedProjectContext, loadProjectContext } from "./project-context/index.js";
+import { loadNestedProjectContext } from "./project-context/index.js";
 import {
   SUBAGENT_TOOL_NAME,
   buildSubagentToolSchema,
@@ -48,6 +46,7 @@ process.on("unhandledRejection", (reason) => {
 });
 
 let config = loadConfig();
+let llmService = new LlmService({ config });
 
 // ── First-run setup wizard ───────────────────────────────────────────────────
 // When config is empty (no API key) and stdin is a TTY, launch the interactive
@@ -57,42 +56,12 @@ if (isConfigEmpty(config) && process.stdin.isTTY) {
   const selectedProvider = await runSetupWizard(process.cwd());
   if (selectedProvider) {
     config = loadConfig(); // Reload the freshly-written config
+    llmService = new LlmService({ config });
   }
 }
 
-function buildAdapter(providerName?: string, modelName?: string): LLMAdapter {
-  const target = providerName && modelName
-    ? { provider: providerName, model: modelName }
-    : resolveDefaultTarget(config);
-  const name = providerName ?? target.provider;
-  const pc = resolveProviderModelConfig(config, { provider: name, model: modelName ?? target.model });
-  const apiKey = pc.api_key || resolveEnvKey(pc.adapter, name);
-
-  // No early exit — let the adapter fail naturally on first API call so the
-  // Ink UI can display the error in context rather than crashing at startup.
-  switch (pc.adapter) {
-    case "openai":
-      return new OpenAIAdapter(apiKey, pc.base_url, pc.headers);
-    case "gemini":
-      return new GeminiAdapter(apiKey);
-    case "anthropic":
-    default:
-      return new AnthropicAdapter(apiKey, pc.base_url, pc.headers);
-  }
-}
-
-function resolveEnvKey(adapter: string, name: string): string | undefined {
-  switch (adapter) {
-    case "openai":
-      return process.env.OPENAI_API_KEY;
-    case "gemini":
-      return process.env.GEMINI_API_KEY;
-    default:
-      return (
-        process.env.ANTHROPIC_API_KEY ??
-        process.env[`${name.toUpperCase()}_API_KEY`]
-      );
-  }
+function buildAdapter(providerName?: string, modelName?: string, purpose: LlmPurpose = "chat"): LLMAdapter {
+  return llmService.buildAdapter(providerName, modelName, { purpose });
 }
 
 const defaultTarget = resolveDefaultTarget(config);
@@ -119,7 +88,7 @@ const routingConfig = resolveRoutingConfig(config);
 if (routingConfig?.enabled) {
   try {
     const classifierTarget = resolveClassifierTarget(config, defaultTarget);
-    const classifierAdapter = buildAdapter(classifierTarget.provider, classifierTarget.model);
+    const classifierAdapter = buildAdapter(classifierTarget.provider, classifierTarget.model, "routing");
     const classifierModel = classifierTarget.model;
 
     // For REPL mode we skip pre-classification at startup; routing happens per turn
@@ -138,7 +107,7 @@ if (routingConfig?.enabled) {
         defaultProvider,
         defaultModel
       );
-      if (routedProvider) adapter = buildAdapter(routedProvider, routed);
+      if (routedProvider) adapter = buildAdapter(routedProvider, routed, "chat");
       model = routed;
       if (intent) {
         log.info(
@@ -157,7 +126,13 @@ if (process.argv[2]) {
     const { streamAgent } = await import("./agent/loop.js");
   const cwd = process.cwd();
   const sessionStore = new SessionStore({ cwd });
-  const { registry, security } = createToolRegistry({ cwd, sessionStore });
+  const { toolHost, security, loadPlugins } = createToolRegistry({
+    cwd,
+    sessionStore,
+    llmService,
+    defaultModel: model,
+  });
+  const pluginTools = await loadPlugins();
   const agentDefinitions = loadAgentDefinitions({ cwd });
 
   const promptCliConfirm = async (message: string): Promise<boolean> => {
@@ -170,36 +145,51 @@ if (process.argv[2]) {
   };
 
   const executeToolWithConfirm = async (name: string, args: Record<string, unknown>) => {
-    const result = await registry.execute(name, args, { cwd, sessionId: sessionStore.sessionId });
+    const result = await toolHost.execute(name, args, { cwd, sessionId: sessionStore.sessionId });
     if (result.needsConfirm) {
       const approved = await promptCliConfirm(result.needsConfirm.message);
       if (approved) {
         security.allowPath(result.needsConfirm.allowDir);
-        return registry.execute(result.needsConfirm.retry.name, result.needsConfirm.retry.args, { cwd, sessionId: sessionStore.sessionId });
+        return toolHost.execute(result.needsConfirm.retry.name, result.needsConfirm.retry.args, { cwd, sessionId: sessionStore.sessionId });
       }
     }
     return result;
   };
-  const tools = [...registry.getSchemas(), buildSubagentToolSchema(agentDefinitions)];
-  const resolved = promptStore.resolve({ domain: "chat", level: 0, needs_tools: true });
-  const projectContext = loadProjectContext({ cwd });
-  const loadedVeraContextPaths = new Set(projectContext.files.map((file) => file.path));
-  const system = [resolved?.system ?? "You are Vera, a helpful assistant.", projectContext.system]
+  const tools = [...toolHost.getSchemas(), buildSubagentToolSchema(agentDefinitions)];
+  const promptComposer = new PromptComposer({
+    promptStore,
+    eventBus: toolHost.eventBus,
+    capabilities: pluginTools.pluginHost.capabilities,
+  });
+  const contextComposer = new ContextComposer({
+    eventBus: toolHost.eventBus,
+    capabilities: pluginTools.pluginHost.capabilities,
+  });
+  const composedPrompt = await promptComposer.compose({
+    intent: { domain: "chat", level: 0, needs_tools: true },
+    sessionId: sessionStore.sessionId,
+  });
+  const composedContext = await contextComposer.compose({
+    cwd,
+    sessionId: sessionStore.sessionId,
+  });
+  const loadedVeraContextPaths = new Set(composedContext.projectContext?.files.map((file) => file.path) ?? []);
+  const system = [composedPrompt.system, composedContext.system]
     .map((part) => part.trim())
     .filter(Boolean)
     .join("\n\n");
   const runDir = dirname(sessionStore.filePath);
   const modelContextLimit = getModelContextLimit(model);
   const compactConfig = config.session?.compact;
-  const compressionAdapter = compactConfig?.provider
-    ? buildAdapter(compactConfig.provider, compactConfig.model)
-    : undefined;
   const answer = await streamAgent(
     process.argv[2],
     {
       adapter,
       model,
-      ...(compressionAdapter ? { compressionAdapter } : {}),
+      eventBus: toolHost.eventBus,
+      sessionId: sessionStore.sessionId,
+      llmService,
+      compressionProvider: compactConfig?.provider,
       tools,
       system,
       runDir,
@@ -225,6 +215,9 @@ if (process.argv[2]) {
             system,
             runDir,
             cwd,
+            eventBus: toolHost.eventBus,
+            llmService,
+            traceId: `subagent:${String(parsedArgs.subagent_type ?? parsedArgs.subagentType ?? "general-purpose")}`,
             parentSessionId: sessionStore.sessionId,
             onToolCall: async (childName, childArgs) => {
               const childResult = await executeToolWithConfirm(childName, childArgs as Record<string, unknown>);
@@ -255,7 +248,7 @@ if (process.argv[2]) {
     (delta) => process.stdout.write(delta)
   );
   process.stdout.write("\n");
-  log.info(`[done] ${answer.length} chars | profile=${resolved?.profileId ?? "none"}`);
+  log.info(`[done] ${answer.length} chars | profile=${composedPrompt.rendered?.profileId ?? "none"}`);
   } catch (err) {
     log.error("single-shot execution failed", { error: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
     process.stderr.write(`\nError: ${err instanceof Error ? err.message : String(err)}\n`);
@@ -269,17 +262,28 @@ if (process.argv[2]) {
 
   const cwd = process.cwd();
   const sessionStore = new SessionStore({ cwd });
-  const { registry } = createToolRegistry({ cwd });
+  const { registry, toolHost, loadPlugins } = createToolRegistry({
+    cwd,
+    llmService,
+    defaultModel: model,
+  });
+  await loadPlugins();
   await startRepl({
     cwd,
     config,
     adapter,
+    llmService,
     model,
-    tools: registry.getSchemas(),
-    buildAdapter,
+    tools: toolHost.getSchemas(),
+    buildAdapter: (providerName, modelName, options) => buildAdapter(providerName, modelName, options?.purpose ?? "chat"),
     sessionStore,
     registry,
+    toolHost,
     promptStore,
-    createToolRegistry,
+    createToolRegistry: (opts) => createToolRegistry({
+      ...opts,
+      llmService,
+      defaultModel: model,
+    }),
   }, resumeSessionId);
 }

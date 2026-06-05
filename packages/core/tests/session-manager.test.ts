@@ -95,6 +95,25 @@ describe("SessionManager — SS1 Auto-compression", () => {
     expect(result.usage).toBeDefined();
   });
 
+  it("uses LlmService compression purpose when provided", async () => {
+    const manager = new SessionManager({
+      autoCompress: { enabled: true, tokenThreshold: 10, keepRecentTurns: 2, model: "compact-model" },
+    });
+    const messages = makeMessages(20);
+    const adapter = makeMockAdapter();
+    const buildAdapter = vi.fn(() => adapter);
+
+    const result = await manager.autoCompress(
+      "s1",
+      messages,
+      { buildAdapter } as never,
+      "chat-model",
+    );
+
+    expect(result.compressed).toBe(true);
+    expect(buildAdapter).toHaveBeenCalledWith(undefined, "compact-model", { purpose: "compression" });
+  });
+
   it("persists compression state across calls", async () => {
     const manager = new SessionManager({
       autoCompress: { enabled: true, tokenThreshold: 10, keepRecentTurns: 2 },

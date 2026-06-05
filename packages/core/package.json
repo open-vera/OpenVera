@@ -57,6 +57,16 @@
       "development": "./src/context/index.ts",
       "default": "./dist/context/index.js"
     },
+    "./channel": {
+      "types": "./dist/channel/index.d.ts",
+      "development": "./src/channel/index.ts",
+      "default": "./dist/channel/index.js"
+    },
+    "./composer": {
+      "types": "./dist/composer/index.d.ts",
+      "development": "./src/composer/index.ts",
+      "default": "./dist/composer/index.js"
+    },
     "./tools": {
       "types": "./dist/tools/index.d.ts",
       "development": "./src/tools/index.ts",
@@ -107,6 +117,8 @@
   },
   "dependencies": {
     "@open-vera/logger": "workspace:*",
+    "@open-vera/plugin-runtime": "workspace:*",
+    "@open-vera/shared": "workspace:*",
     "@anthropic-ai/sdk": "^0.54.0",
     "@google/generative-ai": "^0.24.1",
     "@types/figlet": "^1.7.0",

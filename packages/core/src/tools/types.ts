@@ -86,6 +86,8 @@ export interface ToolContext {
   embeddingAdapter?: import("../rag/types.js").EmbeddingAdapter;
   /** Optional LLM adapter for visual_analyze and other AI-powered tools. */
   llmAdapter?: import("../adapters/base.js").LLMAdapter;
+  /** Optional LLM service for AI-powered tools that need purpose-aware model calls. */
+  llmService?: import("../adapters/llm-service.js").LlmService;
   /** Default model for LLM calls within tools (e.g., vision model). */
   defaultModel?: string;
   /** Optional sandbox provider for sandbox_exec / sandbox_upload / sandbox_download tools. */

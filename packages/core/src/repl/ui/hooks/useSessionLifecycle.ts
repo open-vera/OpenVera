@@ -105,8 +105,16 @@ export function useSessionLifecycle(props: SessionLifecycleProps): void {
       const bundle = ctxRef.current.createToolRegistry?.({ cwd, sessionStore });
       if (bundle) {
         ctxRef.current.registry = bundle.registry;
+        ctxRef.current.toolHost = bundle.toolHost;
         ctxRef.current.security = bundle.security;
-        ctxRef.current.tools = bundle.registry.getSchemas();
+        ctxRef.current.tools = bundle.toolHost.getSchemas();
+        void bundle.loadPlugins().then(() => {
+          if (ctxRef.current.cwd === cwd) {
+            ctxRef.current.tools = bundle.toolHost.getSchemas();
+          }
+        }).catch((err: unknown) => {
+          debugLog(`[onSwitchWorkspace] plugin load failed: ${err instanceof Error ? err.message : String(err)}`);
+        });
       }
       projectContextRef.current = null;
       loadedVeraContextPathsRef.current = new Set();

@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { RuntimeCapabilityRegistry } from "@open-vera/plugin-runtime";
 import { describe, expect, it } from "vitest";
 import { CapabilityRegistry, createProjectCapabilityInventory } from "../capability-registry.js";
 import { DoctorService } from "../doctor.js";
@@ -44,6 +45,73 @@ describe("CapabilityRegistry", () => {
     expect(registry.listByProject(project.id)).toHaveLength(15);
     expect(registry.list("flow")[0]?.status).toBe("available");
     expect(registry.list("rag")[0]?.status).toBe("unknown");
+  });
+
+  it("registers runtime plugin capability descriptors", () => {
+    const registry = new CapabilityRegistry();
+    const runtimeCapabilities = new RuntimeCapabilityRegistry();
+    runtimeCapabilities.register({
+      id: "fixture_echo",
+      kind: "tool",
+      name: "Fixture Echo",
+      ownerPluginId: "com.example.basic",
+      scope: "project",
+      factory: () => undefined,
+      metadata: { fixture: true },
+    });
+
+    registry.registerRuntimeCapabilities({ capabilities: runtimeCapabilities });
+
+    expect(registry.get("fixture_echo")).toMatchObject({
+      id: "fixture_echo",
+      kind: "tool",
+      status: "available",
+      metadata: {
+        ownerPluginId: "com.example.basic",
+        fixture: true,
+      },
+    });
+    expect(JSON.stringify(registry.get("fixture_echo"))).not.toContain("factory");
+  });
+
+  it("registers runtime plugin health without exposing factories", async () => {
+    const registry = new CapabilityRegistry();
+    const runtimeCapabilities = new RuntimeCapabilityRegistry();
+    runtimeCapabilities.register({
+      id: "healthy_runtime_tool",
+      kind: "tool",
+      ownerPluginId: "com.example.basic",
+      scope: "project",
+      factory: () => undefined,
+      healthCheck: () => ({ ok: true, message: "ready" }),
+    });
+    runtimeCapabilities.register({
+      id: "broken_runtime_tool",
+      kind: "tool",
+      ownerPluginId: "com.example.basic",
+      scope: "project",
+      healthCheck: () => {
+        throw new Error("health failed");
+      },
+    });
+
+    await registry.registerRuntimeCapabilitiesWithHealth({ capabilities: runtimeCapabilities });
+
+    expect(registry.get("healthy_runtime_tool")).toMatchObject({
+      status: "available",
+      health: {
+        ok: true,
+        message: "ready",
+      },
+    });
+    expect(registry.get("broken_runtime_tool")).toMatchObject({
+      status: "error",
+      health: {
+        ok: false,
+        message: "health failed",
+      },
+    });
+    expect(JSON.stringify(registry.list())).not.toContain("factory");
   });
 });
 

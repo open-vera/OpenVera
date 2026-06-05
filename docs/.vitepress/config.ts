@@ -183,6 +183,7 @@ const sidebarZh = [
     items: [
       { text: "平台总览", link: "/zh/platform/overview" },
       { text: "插件生命周期", link: "/zh/platform/plugin" },
+      { text: "插件实施计划", link: "/zh/platform/plugin-implementation-plan" },
       { text: "Computer Use", link: "/zh/platform/computer-use" },
       { text: "多 Agent 网络", link: "/zh/platform/multi-agent" },
       { text: "MCP 支持", link: "/zh/platform/mcp" },

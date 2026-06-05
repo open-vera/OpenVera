@@ -1,6 +1,7 @@
 // SecurityPlugin — 工具执行前的安全与权限检查
 
 import { resolve } from "node:path";
+import type { ToolGuardrail } from "./tool-host.js";
 import type { ToolLifecycleHook, ToolResult, ToolContext } from "./types.js";
 import { errorResult } from "./types.js";
 import { isInsideCwd } from "./utils/path.js";
@@ -50,7 +51,8 @@ const DANGEROUS_BASH_PATTERNS = [
   /\bgit\s+(reset\s+--hard|clean\s+-[^\s]*f|push\s+--force)/,
 ];
 
-export class SecurityPlugin implements ToolLifecycleHook {
+export class SecurityPlugin implements ToolLifecycleHook, ToolGuardrail {
+  readonly name = "builtin-security-policy";
   private config: SecurityConfig;
   private allowedPaths: Set<string> = new Set();
 
@@ -68,6 +70,14 @@ export class SecurityPlugin implements ToolLifecycleHook {
   }
 
   async onBeforeToolCall(
+    name: string,
+    args: Record<string, unknown>,
+    ctx: ToolContext
+  ): Promise<ToolResult | null> {
+    return this.evaluateToolCall(name, args, ctx);
+  }
+
+  async evaluateToolCall(
     name: string,
     args: Record<string, unknown>,
     ctx: ToolContext

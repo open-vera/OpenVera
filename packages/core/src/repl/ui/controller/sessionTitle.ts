@@ -1,4 +1,5 @@
 import type { LLMAdapter } from "../../../adapters/base.js";
+import type { LlmPurpose } from "../../../adapters/llm-service.js";
 import { generateSessionTitle } from "../../../session/index.js";
 import type { GenerateSessionTitleOptions } from "../../../session/index.js";
 
@@ -24,7 +25,7 @@ export interface MaybeGenerateAiTitleOptions {
   toolCalls: string[];
   activeAdapter: LLMAdapter;
   activeModel: string;
-  buildAdapter: (provider: string, model?: string) => LLMAdapter;
+  buildAdapter: (provider: string, model?: string, options?: { purpose?: LlmPurpose }) => LLMAdapter;
   writeAiTitle: (title: string) => void;
   generateTitle?: (opts: GenerateSessionTitleOptions) => Promise<string | null>;
 }
@@ -68,7 +69,7 @@ export function maybeGenerateAiTitle(options: MaybeGenerateAiTitleOptions): AiTi
   const toolsSummary = toolCalls.length ? `Tools used: ${[...new Set(toolCalls)].slice(0, 8).join(", ")}` : undefined;
 
   void generateTitle({
-    adapter: config?.provider ? buildAdapter(config.provider, config.model) : activeAdapter,
+    adapter: config?.provider ? buildAdapter(config.provider, config.model, { purpose: "tool" }) : activeAdapter,
     model: config?.model ?? activeModel,
     userPrompt,
     assistantText: assistantText.trim() || toolsSummary,

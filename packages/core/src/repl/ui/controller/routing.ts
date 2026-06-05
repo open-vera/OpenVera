@@ -103,7 +103,7 @@ export async function resolveTurnRouting({
   }
 
   const classifierTarget = resolveClassifierTarget({ ...ctx.config, routing: routingCfg }, defaultTarget);
-  const classifierAdapter = ctx.buildAdapter(classifierTarget.provider, classifierTarget.model);
+  const classifierAdapter = ctx.buildAdapter(classifierTarget.provider, classifierTarget.model, { purpose: "routing" });
   const classifierModel = classifierTarget.model;
   const classifierProvider = classifierTarget.provider;
 
@@ -132,7 +132,7 @@ export async function resolveTurnRouting({
     );
     const provider = routed.provider ?? defaultProvider;
     return {
-      adapter: routed.provider ? ctx.buildAdapter(routed.provider, routed.model) : ctx.adapter,
+      adapter: routed.provider ? ctx.buildAdapter(routed.provider, routed.model, { purpose: "chat" }) : ctx.adapter,
       model: routed.model,
       provider,
       intent: routed.intent,

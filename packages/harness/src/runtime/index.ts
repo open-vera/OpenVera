@@ -8,6 +8,7 @@ export * from "./timeline.js";
 export * from "./artifacts.js";
 export * from "./proposal.js";
 export * from "./planner.js";
+export * from "./services.js";
 export * from "./plan-parser.js";
 export * from "./checkpoint-store.js";
 export * from "./runtime.js";

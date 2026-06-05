@@ -1,10 +1,33 @@
-import type { LLMAdapter } from "@open-vera/core/adapters";
-import type { AgentAssignment, StepResult } from "@open-vera/core/types";
+import type { LLMAdapter, LlmPurpose, LlmRequestOptions } from "@open-vera/core/adapters";
+import type { CompletionRequest, StreamEvent, AgentAssignment, StepResult } from "@open-vera/core/types";
+import type { ToolContext, ToolResult } from "@open-vera/core/tools";
 import type { RunAssignmentOptions } from "../runtime/internal.js";
 import type { AgentRunner } from "./types.js";
 import { createLogger } from "@open-vera/logger";
 
 const log = createLogger("harness:stream-runner");
+
+export interface LlmServiceLike {
+  stream(request: CompletionRequest, options?: LlmRequestOptions): AsyncIterable<StreamEvent>;
+  buildAdapter?(provider?: string, model?: string, options?: { purpose?: LlmPurpose }): LLMAdapter;
+  complete?(request: CompletionRequest, options?: LlmRequestOptions): Promise<unknown>;
+  listModels?(): Promise<unknown[]>;
+  resolveModel?(options?: LlmRequestOptions): { provider: string; model: string };
+  selectAdapter?(options?: LlmRequestOptions): unknown;
+}
+
+export interface ToolHostLike {
+  execute(name: string, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult>;
+}
+
+export interface StreamAgentRunnerServices {
+  llm: LlmServiceLike;
+  model: string;
+  provider?: string;
+  purpose?: LlmPurpose;
+  toolHost?: ToolHostLike;
+  toolContext?: Partial<ToolContext>;
+}
 
 function buildAssignmentPrompt(assignment: AgentAssignment): string {
   const context =
@@ -34,10 +57,32 @@ function buildAssignmentPrompt(assignment: AgentAssignment): string {
  * Default agent runner — wraps core's streamAgent loop.
  */
 export class StreamAgentRunner implements AgentRunner {
-  constructor(
-    private readonly adapter: LLMAdapter,
-    private readonly model: string
-  ) {}
+  private readonly adapter: LLMAdapter;
+  private readonly model: string;
+  private readonly llmService?: LlmServiceLike;
+  private readonly provider?: string;
+  private readonly toolHost?: ToolHostLike;
+  private readonly toolContext?: Partial<ToolContext>;
+
+  constructor(adapter: LLMAdapter, model: string);
+  constructor(services: StreamAgentRunnerServices);
+  constructor(adapterOrServices: LLMAdapter | StreamAgentRunnerServices, model?: string) {
+    if (isStreamRunnerServices(adapterOrServices)) {
+      this.model = adapterOrServices.model;
+      this.llmService = adapterOrServices.llm;
+      this.provider = adapterOrServices.provider;
+      this.adapter = llmServiceAdapter(adapterOrServices.llm, {
+        provider: adapterOrServices.provider,
+        model: adapterOrServices.model,
+        purpose: adapterOrServices.purpose ?? "chat",
+      });
+      this.toolHost = adapterOrServices.toolHost;
+      this.toolContext = adapterOrServices.toolContext;
+    } else {
+      this.adapter = adapterOrServices;
+      this.model = model ?? "";
+    }
+  }
 
   async run(
     assignment: AgentAssignment,
@@ -51,6 +96,7 @@ export class StreamAgentRunner implements AgentRunner {
     const tools = bundle?.tools ?? options.tools;
     const system = bundle?.system ?? options.system;
     const executors = bundle?.executors ?? options.executors;
+    const toolHost = options.toolHost ?? this.toolHost;
 
     const prompt = buildAssignmentPrompt(assignment);
     const toolCalls: StepResult["toolCalls"] = [];
@@ -62,6 +108,12 @@ export class StreamAgentRunner implements AgentRunner {
       {
         adapter: this.adapter,
         model: this.model,
+        sessionId: `${assignment.flowId}:${assignment.stepId}`,
+        traceId: assignment.stepId,
+        ...(hasBuildAdapter(this.llmService) ? {
+          llmService: this.llmService,
+          compressionProvider: this.provider,
+        } : {}),
         tools,
         system,
         maxTurns: options.maxTurns,
@@ -69,6 +121,14 @@ export class StreamAgentRunner implements AgentRunner {
           let result: string;
           if (executors?.has(name)) {
             result = await executors.get(name)!(args);
+          } else if (toolHost) {
+            const toolResult = await toolHost.execute(name, args, {
+              cwd: assignment.scope.workdir ?? process.cwd(),
+              sessionId: `${assignment.flowId}:${assignment.stepId}`,
+              ...this.toolContext,
+              ...options.toolContext,
+            });
+            result = toolResult.content;
           } else if (options.onToolCall) {
             result = await options.onToolCall(name, args);
           } else {
@@ -110,4 +170,22 @@ export class StreamAgentRunner implements AgentRunner {
       toolCalls,
     };
   }
+}
+
+function llmServiceAdapter(llm: LlmServiceLike, requestOptions: LlmRequestOptions): LLMAdapter {
+  return {
+    complete: async () => {
+      throw new Error("StreamAgentRunner requires a streaming LLM service");
+    },
+    stream: (request) => llm.stream(request, requestOptions),
+    listModels: llm.listModels ? () => llm.listModels!() as Promise<never[]> : undefined,
+  };
+}
+
+function isStreamRunnerServices(value: LLMAdapter | StreamAgentRunnerServices): value is StreamAgentRunnerServices {
+  return typeof (value as StreamAgentRunnerServices).llm?.stream === "function";
+}
+
+function hasBuildAdapter(value: LlmServiceLike | undefined): value is LlmServiceLike & Required<Pick<LlmServiceLike, "buildAdapter">> {
+  return typeof value?.buildAdapter === "function";
 }

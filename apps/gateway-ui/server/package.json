@@ -19,6 +19,7 @@
   "dependencies": {
     "@open-vera/core": "workspace:*",
     "@open-vera/gateway": "workspace:*",
+    "@open-vera/plugin-runtime": "workspace:*",
     "cors": "^2.8.5",
     "express": "^5.2.1"
   },

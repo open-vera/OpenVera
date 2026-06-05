@@ -12,13 +12,7 @@ import type {
 } from "@open-vera/core/types";
 import { writeArtifact } from "./artifacts.js";
 import { createApprovalRecord, shouldPauseForApproval } from "./approval.js";
-import {
-  buildStepCritiqueOutputs,
-  critiquePlan,
-  critiqueStep,
-  generateRetrospective,
-  replanWithCritique,
-} from "./critique.js";
+import { buildStepCritiqueOutputs } from "./critique.js";
 import {
   checkpointFromFlow,
   createTaskFlow,
@@ -49,9 +43,9 @@ import type {
   StepCritiqueInput,
   StepExecutionBundle,
 } from "./internal.js";
-import { StreamAgentRunner } from "../agent/index.js";
 import type { AgentRunner, AgentRunnerMap } from "../agent/index.js";
-import { planFromPrompt, type PlanFromPromptOptions } from "./planner.js";
+import type { PlanFromPromptOptions } from "./planner.js";
+import { createHarnessServices, type HarnessServices } from "./services.js";
 import { CheckpointStore, makeCheckpointId } from "./checkpoint-store.js";
 import type { ResumeOptions, ForkOptions } from "./internal.js";
 import { SelfLoopRunner } from "../flow/self-loop.js";
@@ -158,15 +152,25 @@ export class HarnessRuntime {
   private readonly agentRunners: AgentRunnerMap;
   private readonly checkpointStore: import("./checkpoint-store.js").CheckpointStore | null;
   private readonly autoCheckpoint: boolean;
+  private readonly services: HarnessServices;
 
   constructor(adapter: LLMAdapter, model: string, options: RuntimeOptions) {
     this.adapter = adapter;
     this.model = model;
     this.options = options;
+    this.services = createHarnessServices({
+      adapter,
+      model,
+      llmService: options.llmService,
+      provider: options.provider,
+      toolHost: options.toolHost,
+      toolContext: options.toolContext,
+      overrides: options.services,
+    });
     this.agentRunners = options.agents ?? new Map<string, AgentRunner>();
     // Ensure a default runner exists
     if (!this.agentRunners.has("default")) {
-      this.agentRunners.set("default", new StreamAgentRunner(adapter, model));
+      this.agentRunners.set("default", this.services.runner.createDefaultRunner());
     }
     // Checkpoint store — only if checkpointsDir is provided
     if (options.checkpointsDir) {
@@ -196,10 +200,7 @@ export class HarnessRuntime {
     scope?: TaskScope,
     maxLoops?: number,
   ): Promise<FlowHandle> {
-    const plan = await planFromPrompt(goal, this.adapter, {
-      ...planOptions,
-      model: planOptions.model ?? this.model,
-    });
+    const plan = await this.services.planner.plan(goal, planOptions);
     return this.startFlow({ flowId, goal, plan, scope, maxLoops });
   }
 
@@ -333,7 +334,7 @@ export class HarnessRuntime {
     input: PlanCritiqueInput
   ): Promise<{ handle: FlowHandle; result: StepCritiqueArtifact }> {
     const startMs = Date.now();
-    const result = await critiquePlan(this.adapter, this.model, input);
+    const result = await this.services.critique.critiquePlan(input);
     log.debug("plan critique done", { confidence: result.critique.confidence, duration_ms: Date.now() - startMs });
     const artifact = await writeJsonArtifact(
       handle.store,
@@ -362,7 +363,7 @@ export class HarnessRuntime {
     input: StepCritiqueInput
   ): Promise<{ handle: FlowHandle; result: StepCritiqueArtifact }> {
     const startMs = Date.now();
-    const result = await critiqueStep(this.adapter, this.model, input);
+    const result = await this.services.critique.critiqueStep(input);
     log.debug("step critique done", { stepName: input.stepName, confidence: result.critique.confidence, duration_ms: Date.now() - startMs });
     const artifact = await writeJsonArtifact(
       handle.store,
@@ -392,13 +393,7 @@ export class HarnessRuntime {
     critique: import("@open-vera/core/types").CritiqueResult,
     existingLessons?: string
   ): Promise<{ handle: FlowHandle; result: RetrospectiveResult }> {
-    const result = await generateRetrospective(
-      this.adapter,
-      this.model,
-      stepId,
-      critique,
-      existingLessons
-    );
+    const result = await this.services.critique.retrospective(stepId, critique, existingLessons);
     const artifact = await writeJsonArtifact(
       handle.store,
       {
@@ -426,11 +421,7 @@ export class HarnessRuntime {
     input: ReplanInput
   ): Promise<{ handle: FlowHandle; plan: ExecutionPlan; diff: PlanDiff }> {
     const startMs = Date.now();
-    const { plan, diff } = await replanWithCritique(
-      this.adapter,
-      this.model,
-      input
-    );
+    const { plan, diff } = await this.services.critique.replan(input);
     log.info("replan done", { failedStepId: input.failedStepId, duration_ms: Date.now() - startMs, added: diff.added.length, removed: diff.removed.length });
     const artifact = await writeJsonArtifact(
       handle.store,

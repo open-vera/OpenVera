@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import type { Message } from "../types/message.js";
 import type { LLMAdapter } from "../adapters/base.js";
+import type { LlmService } from "../adapters/llm-service.js";
 import {
   compressMessages,
   type CompressionState,
@@ -85,7 +86,7 @@ export class SessionManager {
   async autoCompress(
     sessionId: string,
     messages: Message[],
-    adapter: LLMAdapter,
+    llm: LLMAdapter | LlmService,
     model: string,
   ): Promise<{ messages: Message[]; compressed: boolean; usage?: import("../types/index.js").Usage }> {
     const { autoCompress } = this.options;
@@ -101,7 +102,10 @@ export class SessionManager {
       model: autoCompress.model ?? model,
     };
 
-    const result = await compressMessages(messages, state, compressionOpts, adapter, model);
+    const compressionAdapter = isLlmService(llm)
+      ? llm.buildAdapter(undefined, compressionOpts.model, { purpose: "compression" })
+      : llm;
+    const result = await compressMessages(messages, state, compressionOpts, compressionAdapter, model);
 
     if (result.messages !== messages) {
       this.compressionStates.set(sessionId, result.state);
@@ -393,4 +397,8 @@ export class SessionManager {
       // File may already be deleted or inaccessible
     }
   }
+}
+
+function isLlmService(value: LLMAdapter | LlmService): value is LlmService {
+  return typeof (value as LlmService).buildAdapter === "function";
 }

@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { EventBus } from "@open-vera/plugin-runtime";
 import type { LLMAdapter } from "../src/adapters/base.js";
 import {
   buildSubagentToolSchema,
@@ -69,6 +70,42 @@ describe("subagent tool and definitions", () => {
     expect(result.content).toContain("子任务完成");
     expect(result.content).toContain("Tools used: lookup");
     expect(seenToolCalls).toEqual(["lookup"]);
+  });
+
+  it("propagates EventBus session and trace context into the child loop", async () => {
+    const eventBus = new EventBus();
+    const seen: Array<Record<string, unknown>> = [];
+    eventBus.observe("turn:start", (event) => {
+      seen.push(event.value as Record<string, unknown>);
+    });
+    const adapter: LLMAdapter = {
+      complete: vi.fn(),
+      stream: () => events([
+        { type: "text", text: "done" },
+        { type: "done", stop_reason: "end_turn" },
+      ]),
+    };
+
+    const result = await runSubagentTool({
+      args: { prompt: "检查状态", subagent_type: "explore" },
+      adapter,
+      eventBus,
+      traceId: "child-trace",
+      parentSessionId: "parent-session",
+      model: "claude-sonnet-4-6",
+      tools: [],
+      onToolCall: () => "unused",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      sessionId: "parent-session",
+      traceId: "child-trace",
+      mode: "streaming",
+      model: "claude-sonnet-4-6",
+    });
+    expect(() => JSON.stringify(seen[0])).not.toThrow();
   });
 
   it("exposes Claude Code style agent tool parameters while keeping aliases", () => {

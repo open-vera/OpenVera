@@ -2,43 +2,44 @@
 
 import { execFileSync } from "node:child_process";
 import { ToolRegistry } from "./registry.js";
+import { loadEnabledPluginTools, ToolHost, type PluginToolLoadResult } from "./tool-host.js";
 import { SecurityPlugin } from "./security.js";
 import type { SecurityConfig } from "./security.js";
 import { AnalyticsPlugin } from "./analytics.js";
 import type { SessionStore } from "../session/index.js";
 import { loadPermissionRules } from "./permission-rules.js";
-
-import { readFileTool } from "./read-file.js";
-import { writeFileTool } from "./write-file.js";
-import { editFileTool } from "./edit-file.js";
-import { listDirTool } from "./list-dir.js";
-import { globTool } from "./glob.js";
-import { bashTool } from "./bash.js";
-import { grepTool } from "./grep.js";
-import { browserTool } from "./browser.js";
-import { desktopScreenshotTool } from "./desktop-screenshot.js";
-import { desktopInputTool } from "./desktop-input.js";
-import { desktopScriptTool } from "./desktop-script.js";
-import { desktopAccessibilityTool } from "./desktop-accessibility.js";
-import { computerUseTool } from "./computer-use.js";
-import { createVisualAnalyzeTool } from "./visual-analyze.js";
-import { createMemoryWriteTool } from "./memory-write.js";
-import { createMemorySearchTool } from "./memory-search.js";
 import type { MemoryStore } from "../memory/store.js";
-import { createDataSaveTool, createDataLoadTool, createDataListTool, createDataDeleteTool } from "../storage/user-data.js";
 import type { UserDataStore } from "../storage/user-data.js";
-import { createKnowledgeSearchTool } from "./knowledge-search.js";
 import type { VectorStore, EmbeddingAdapter } from "../rag/types.js";
-import { createSandboxExecTool, createSandboxUploadTool, createSandboxDownloadTool } from "./sandbox.js";
 import type { SandboxProvider } from "../sandbox/types.js";
-import { createFileUploadTool, createFileDownloadTool, createFileListTool } from "./storage.js";
 import type { ObjectStore } from "../storage/object-store.js";
+import {
+  createBuiltinToolContributions,
+  registerBuiltinToolContributions,
+  type BuiltinToolContribution,
+  type BuiltinToolContributionOptions,
+} from "./builtin-tools.js";
 
 export { ToolRegistry } from "./registry.js";
+export { ToolHost, ToolRegistryAdapter, loadEnabledPluginTools } from "./tool-host.js";
+export {
+  createBuiltinToolContributions,
+  registerBuiltinToolContributions,
+} from "./builtin-tools.js";
 export { SecurityPlugin } from "./security.js";
 export type { SecurityConfig } from "./security.js";
 export { AnalyticsPlugin } from "./analytics.js";
 export type { ToolDef, ToolResult, ToolContext, ToolLifecycleHook, RenderHint, ToolErrorCode, ToolMiddleware, ToolGroup, ToolVersion, ToolCallRecord, ToolStats } from "./types.js";
+export type {
+  PluginToolLoadResult,
+  ToolAuditSink,
+  ToolAuditSource,
+  ToolCallEvent,
+  ToolCapabilityInput,
+  ToolGuardrail,
+  ToolHostOptions,
+} from "./tool-host.js";
+export type { BuiltinToolContribution, BuiltinToolContributionOptions } from "./builtin-tools.js";
 export { errorResult } from "./types.js";
 export { ToolStatsCollector } from "./tool-stats.js";
 export { createMemoryWriteTool } from "./memory-write.js";
@@ -60,6 +61,7 @@ export type { SandboxExecArgs, SandboxUploadArgs, SandboxDownloadArgs, SandboxTo
 export { createFileUploadTool, createFileDownloadTool, createFileListTool, createStorageTools } from "./storage.js";
 export type { FileUploadArgs, FileDownloadArgs, FileListArgs, StorageToolSet } from "./storage.js";
 import type { LLMAdapter } from "../adapters/base.js";
+import type { LlmService } from "../adapters/llm-service.js";
 
 export interface CreateToolRegistryOptions {
   cwd: string;
@@ -72,17 +74,24 @@ export interface CreateToolRegistryOptions {
   embeddingAdapter?: EmbeddingAdapter;
   /** If provided, registers visual_analyze tool. */
   llmAdapter?: LLMAdapter;
+  /** If provided, registers visual_analyze tool with purpose-aware LLM calls. */
+  llmService?: LlmService;
   /** Default model for LLM calls within tools. */
   defaultModel?: string;
   /** If provided, registers sandbox_exec / sandbox_upload / sandbox_download tools. */
   sandboxProvider?: SandboxProvider;
   /** If provided, registers file_upload / file_download / file_list tools. */
   objectStore?: ObjectStore;
+  /** If provided, registers data_save / data_load / data_list / data_delete tools. */
+  userDataStore?: UserDataStore;
 }
 
 export interface ToolRegistryBundle {
   registry: ToolRegistry;
+  toolHost: ToolHost;
   security: SecurityPlugin;
+  builtinContributions: BuiltinToolContribution[];
+  loadPlugins: () => Promise<PluginToolLoadResult>;
 }
 
 function detectWorkspaceRoot(cwd: string): string {
@@ -100,21 +109,8 @@ function detectWorkspaceRoot(cwd: string): string {
 
 export function createToolRegistry(opts: CreateToolRegistryOptions): ToolRegistryBundle {
   const registry = new ToolRegistry();
-
-  // Register built-in tools
-  registry.register(readFileTool);
-  registry.register(writeFileTool);
-  registry.register(editFileTool);
-  registry.register(listDirTool);
-  registry.register(globTool);
-  registry.register(bashTool);
-  registry.register(grepTool);
-  registry.register(browserTool);
-  registry.register(desktopScreenshotTool);
-  registry.register(desktopInputTool);
-  registry.register(desktopScriptTool);
-  registry.register(desktopAccessibilityTool);
-  registry.register(computerUseTool);
+  const toolHost = new ToolHost({ registry, adoptRegistryTools: false });
+  const builtinContributions = registerBuiltinToolContributions(toolHost, opts);
 
   // Register SecurityPlugin (runs first — short-circuits on denial)
   const permissionRules = loadPermissionRules(opts.cwd);
@@ -123,42 +119,28 @@ export function createToolRegistry(opts: CreateToolRegistryOptions): ToolRegistr
     ...opts.security,
     workdir: opts.security?.workdir ?? detectWorkspaceRoot(opts.cwd),
   });
+  toolHost.useGuardrail(security);
   registry.use(security);
 
   // Register AnalyticsPlugin (session JSONL writing)
   if (opts.sessionStore) {
-    registry.use(new AnalyticsPlugin(opts.sessionStore));
+    const analytics = new AnalyticsPlugin(opts.sessionStore);
+    registry.use(analytics);
+    toolHost.addAuditSink({
+      name: analytics.name,
+      onToolResult: async (event) => {
+        if (event.source !== "registry") {
+          await analytics.onToolResult(event);
+        }
+      },
+    });
   }
 
-  // Register memory tools (optional)
-  if (opts.memoryStore) {
-    registry.register(createMemoryWriteTool());
-    registry.register(createMemorySearchTool());
-  }
-
-  // Register knowledge search tool (optional)
-  if (opts.vectorStore && opts.embeddingAdapter) {
-    registry.register(createKnowledgeSearchTool());
-  }
-
-  // Register visual analyze tool (optional)
-  if (opts.llmAdapter) {
-    registry.register(createVisualAnalyzeTool(opts.llmAdapter, opts.defaultModel));
-  }
-
-  // Register sandbox tools (optional)
-  if (opts.sandboxProvider) {
-    registry.register(createSandboxExecTool());
-    registry.register(createSandboxUploadTool());
-    registry.register(createSandboxDownloadTool());
-  }
-
-  // Register storage tools (optional)
-  if (opts.objectStore) {
-    registry.register(createFileUploadTool());
-    registry.register(createFileDownloadTool());
-    registry.register(createFileListTool());
-  }
-
-  return { registry, security };
+  return {
+    registry,
+    toolHost,
+    security,
+    builtinContributions,
+    loadPlugins: () => loadEnabledPluginTools(toolHost, opts.cwd),
+  };
 }

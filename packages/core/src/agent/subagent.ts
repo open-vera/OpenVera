@@ -14,9 +14,10 @@ import {
 } from "node:path";
 import { RemoteRunnerError } from "../errors.js";
 import { randomUUID } from "node:crypto";
+import type { EventBus } from "@open-vera/plugin-runtime";
 import type { LLMAdapter } from "../adapters/base.js";
 import type { Tool, Usage } from "../types/index.js";
-import type { ToolHandler } from "./loop.js";
+import type { AgentLlmServiceLike, ToolHandler } from "./loop.js";
 import { streamAgent } from "./loop.js";
 import { calculateCost, SessionStore } from "../session/index.js";
 import { createBranchWorktree } from "../worktree/index.js";
@@ -176,6 +177,9 @@ export interface RunSubagentToolOptions {
   signal?: AbortSignal;
   onToolCall: ToolHandler;
   onUsage?: (usage: Usage) => void;
+  eventBus?: EventBus;
+  llmService?: AgentLlmServiceLike;
+  traceId?: string;
   cwd?: string;
   provider?: string;
   parentSessionId?: string;
@@ -267,6 +271,9 @@ export async function runSubagentTool({
   signal,
   onToolCall,
   onUsage,
+  eventBus,
+  llmService,
+  traceId,
   cwd,
   provider,
   parentSessionId,
@@ -413,6 +420,9 @@ export async function runSubagentTool({
         childStore,
         childUserUuid,
         signal,
+        eventBus,
+        llmService,
+        parentSessionId,
       });
       const remote = await remoteExec({
         task,
@@ -440,6 +450,10 @@ export async function runSubagentTool({
       prompt,
       {
         adapter,
+        eventBus,
+        llmService,
+        sessionId: childStore?.sessionId ?? parentSessionId,
+        traceId: traceId ?? `subagent:${definition.agentType}`,
         model,
         tools: childTools,
         system: [system, definition.systemPrompt, SUBAGENT_SYSTEM_SUFFIX].filter(Boolean).join("\n\n"),
@@ -740,6 +754,9 @@ function createDefaultRemoteExecutor(input: {
   childStore?: SessionStore;
   childUserUuid?: string;
   signal?: AbortSignal;
+  eventBus?: EventBus;
+  llmService?: AgentLlmServiceLike;
+  parentSessionId?: string;
 }): (opts: ResolvedRemoteExecutorContext) => Promise<{
   content: string;
   transcriptId?: string;
@@ -767,6 +784,10 @@ function createDefaultRemoteExecutor(input: {
       opts.prompt,
       {
         adapter: input.adapter,
+        eventBus: input.eventBus,
+        llmService: input.llmService,
+        sessionId: input.childStore?.sessionId ?? opts.parentSessionId ?? input.parentSessionId,
+        traceId: `subagent:remote:${opts.definition.agentType}`,
         model: opts.model,
         tools: opts.tools,
         system: opts.system,

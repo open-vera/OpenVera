@@ -58,6 +58,9 @@ export function buildToolCallHandler(params: ToolCallHandlerParams) {
         runDir,
         signal: controller.signal,
         onUsage: captureUsage,
+        eventBus: ctxRef.current.toolHost?.eventBus,
+        llmService: ctxRef.current.llmService,
+        traceId: `subagent:${String(a.subagent_type ?? a.subagentType ?? "general-purpose")}`,
         cwd: ctxRef.current.cwd,
         provider: activeProvider,
         parentSessionId: store.sessionId,
@@ -67,7 +70,7 @@ export function buildToolCallHandler(params: ToolCallHandlerParams) {
           return async (childName, childArgs) => {
             if (activeExecutors?.has(childName)) return activeExecutors.get(childName)!(childArgs);
             if (!bundle) return (await executeOnce(childName, childArgs)).content;
-            const r = await bundle.registry.execute(childName, childArgs, {
+            const r = await bundle.toolHost.execute(childName, childArgs, {
               cwd,
               sessionId: sessionStore?.sessionId ?? store.sessionId,
             });
@@ -99,9 +102,13 @@ export function buildToolCallHandler(params: ToolCallHandlerParams) {
 
 
     const registry = ctxRef.current.registry;
-    // Registry tools must always go through registry.execute so security hooks
+    const toolHost = ctxRef.current.toolHost;
+    // Registry tools must always go through ToolHost/registry execution so security hooks
     // (including needsConfirm) run. activeExecutors wraps registry tools via
     // RegistryToolProvider but drops ToolResult metadata — skip it for known tools.
+    if (registry?.has(n) && toolHost) {
+      return toolHost.execute(n, a, { cwd: ctxRef.current.cwd, sessionId: store.sessionId, onOutput });
+    }
     if (registry?.has(n)) return registry.execute(n, a, { cwd: ctxRef.current.cwd, sessionId: store.sessionId, onOutput });
 
     if (activeExecutors?.has(n)) {
@@ -109,6 +116,7 @@ export function buildToolCallHandler(params: ToolCallHandlerParams) {
       return { ok: true, content };
     }
 
+    if (toolHost) return toolHost.execute(n, a, { cwd: ctxRef.current.cwd, sessionId: store.sessionId, onOutput });
     if (registry) return registry.execute(n, a, { cwd: ctxRef.current.cwd, sessionId: store.sessionId, onOutput });
     return { ok: false, content: `Tool "${n}" is not implemented yet.`, error: { code: "UNKNOWN", message: `Tool "${n}" is not implemented yet.`, retryable: false } };
   };

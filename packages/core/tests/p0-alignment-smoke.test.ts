@@ -110,7 +110,7 @@ describe("P0 alignment smoke", () => {
     parentStore.writeStart("claude-sonnet-4-6", "anthropic");
     parentStore.writeUser("run smoke subagent");
     const adapter = makeStreamingAdapterWithWriteFileCall();
-    const tools = createToolRegistry({ cwd: repo, sessionStore: parentStore }).registry.getSchemas();
+    const tools = createToolRegistry({ cwd: repo, sessionStore: parentStore }).toolHost.getSchemas();
 
     const subagentResult = await runSubagentTool({
       args: { prompt: "write isolated file", subagent_type: "general-purpose", isolation: "try" },
@@ -129,7 +129,7 @@ describe("P0 alignment smoke", () => {
       onToolCall: async () => "(unused)",
       createToolHandlerForCwd: ({ cwd, sessionStore }) => {
         const bundle = createToolRegistry({ cwd, sessionStore });
-        return async (name, args) => (await bundle.registry.execute(name, args, {
+        return async (name, args) => (await bundle.toolHost.execute(name, args, {
           cwd,
           sessionId: sessionStore?.sessionId ?? "child",
         })).content;

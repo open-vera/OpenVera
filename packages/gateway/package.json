@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@open-vera/core": "workspace:*",
+    "@open-vera/plugin-runtime": "workspace:*",
     "@open-vera/shared": "workspace:*"
   },
   "devDependencies": {

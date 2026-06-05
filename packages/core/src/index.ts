@@ -6,6 +6,7 @@
 // in `main.ts` (run via `tsx src/main.ts`).
 export { MemoryTracker } from "./memory/index.js";
 export * from "./project-context/index.js";
+export * from "./composer/index.js";
 export type {
   MemoryFile,
   MemoryType,
