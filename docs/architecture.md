@@ -132,17 +132,17 @@ Harness reads `settings.json`'s `mcp_servers`, core defines the schema.
 
 ## 4. Boundary Issues to Address
 
-### 4.1 `core/src/index.ts` Does Too Much (Pending)
+### 4.1 `core/src/index.ts` Does Too Much (Resolved)
 
-Currently `core/src/index.ts` contains: adapter initialization, routing logic, hardcoded tools, REPL startup — this is **application entry point** responsibility, not a core library responsibility. Should be migrated to `apps/` entry files, with core exporting only library interfaces.
+`core/src/index.ts` has been cleaned up — it now contains only library re-exports (no adapter initialization, routing, hardcoded tools, or REPL startup). The executable CLI entry lives in `main.ts` (run via `tsx src/main.ts`), which has top-level side effects but is never imported as a library.
 
 ### 4.2 Whether REPL Belongs in Core (Acceptable Short-Term)
 
 REPL currently lives in core, but REPL depends on `SessionStore`, which is stateful application-level capability. Acceptable short-term (workspace.ts already encapsulates session/worktree state). Long-term, consider extracting to `apps/repl`, with core providing only a stateless agent loop.
 
-### 4.3 `harness/types.ts` vs `core/types/runtime.ts` Duplication (Pending Cleanup)
+### 4.3 `harness/types.ts` vs `core/types/runtime.ts` Duplication (Resolved)
 
-Harness has its own `ToolCallRecord` (`packages/harness/src/types.ts`), core also has one (`core/types/runtime.ts`). Should standardize on core's definition, with harness re-exporting or directly importing.
+Harness no longer defines its own `ToolCallRecord`. It now re-exports `ToolCallRecord` from `@open-vera/core/types` (the canonical runtime protocol definition). Additionally, the tool-stats `ToolCallRecord` in `core/src/tools/types.ts` was renamed to `ToolExecutionRecord` to eliminate the naming collision at the core level.
 
 ### 4.4 Memory Module Boundary (Implemented, Clear)
 

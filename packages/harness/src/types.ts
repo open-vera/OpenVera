@@ -1,4 +1,8 @@
 // Case 定义和结果类型
+// ToolCallRecord 统一定义在 core/types/runtime.ts，此处 re-export 以避免重复。
+
+import type { ToolCallRecord } from "@open-vera/core/types";
+export type { ToolCallRecord };
 
 export type EvalMethod = "exact" | "contains" | "llm_judge" | "tool_match";
 
@@ -9,12 +13,6 @@ export interface TestCase {
   eval: EvalMethod;
   criteria?: string; // llm_judge 时的评判标准
   expected_output?: string; // exact / contains 时的期望输出
-}
-
-export interface ToolCallRecord {
-  name: string;
-  arguments: Record<string, unknown>;
-  result: string;
 }
 
 export interface RunResult {

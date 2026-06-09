@@ -1,17 +1,15 @@
-// @open-vera/openvera — 自动化智能测试框架
-// 负责：加载 case、执行 agent、评估结果、生成报告
+// @open-vera/openvera — Harness 执行内核
+// 核心运行时 + 插件协议（拆分后的独立模块不再从此导出）
 
 export * from "./runner.js";
 export * from "./evaluator.js";
 export * from "./types.js";
 export * from "./runtime/index.js";
-export * from "./skill/index.js";
 export * from "./agent/index.js";
 export * from "./critic/index.js";
 export * from "./flow/index.js";
-export * from "./training/index.js";
-export * from "./benchmark/index.js";
-export * from "./dreaming/index.js";
-export * from "./proposal/index.js";
-export * from "./strategy/index.js";
-export * from "./swarm/index.js";
+export * from "./flow-config/index.js";
+export * from "./cli/index.js";
+
+// 插件协议 (供外部插件包实现)
+export * from "./plugin-runtime/index.js";

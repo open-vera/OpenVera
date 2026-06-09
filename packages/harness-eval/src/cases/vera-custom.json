@@ -1,0 +1,201 @@
+[
+  {
+    "id": "VC-001",
+    "description": "Read a file and report its line count",
+    "level": 1,
+    "prompt": "Read the file package.json and tell me how many lines it has.",
+    "expected": "lines",
+    "evalType": "contains",
+    "expectedTools": ["read_file"],
+    "tags": ["file-ops", "basic"]
+  },
+  {
+    "id": "VC-002",
+    "description": "Search for a pattern in code files",
+    "level": 1,
+    "prompt": "Find all TypeScript files that export a class named 'LocalVectorStore'.",
+    "expected": "local-vector-store",
+    "evalType": "contains",
+    "expectedTools": ["grep"],
+    "tags": ["search", "basic"]
+  },
+  {
+    "id": "VC-003",
+    "description": "Create a new file with specific content",
+    "level": 1,
+    "prompt": "Create a file called /tmp/test-output.txt with the content 'Hello from eval test'.",
+    "evalType": "contains",
+    "expectedTools": ["write_file"],
+    "tags": ["file-ops", "basic"]
+  },
+  {
+    "id": "VC-004",
+    "description": "Run a bash command and parse output",
+    "level": 1,
+    "prompt": "Run 'date +%Y-%m-%d' and tell me today's date in YYYY-MM-DD format.",
+    "evalType": "regex",
+    "expected": "\\d{4}-\\d{2}-\\d{2}",
+    "expectedTools": ["bash"],
+    "tags": ["bash", "basic"]
+  },
+  {
+    "id": "VC-005",
+    "description": "List directory contents",
+    "level": 1,
+    "prompt": "List the files in the packages/core/src/rag/ directory.",
+    "evalType": "contains",
+    "expected": "types.ts",
+    "expectedTools": ["list_dir", "glob"],
+    "tags": ["file-ops", "basic"]
+  },
+  {
+    "id": "VC-006",
+    "description": "Multi-step: find and read a specific file",
+    "level": 2,
+    "prompt": "Find the file that defines the VectorStore interface and tell me what methods it has.",
+    "expected": "initialize",
+    "evalType": "contains",
+    "expectedTools": ["grep", "read_file"],
+    "tags": ["multi-step", "code-analysis"]
+  },
+  {
+    "id": "VC-007",
+    "description": "Multi-step: search and summarize",
+    "level": 2,
+    "prompt": "Find all test files in packages/core/src/rag/tests/ and count how many test suites exist.",
+    "evalType": "contains",
+    "expected": "test",
+    "expectedTools": ["glob", "read_file"],
+    "tags": ["multi-step", "analysis"]
+  },
+  {
+    "id": "VC-008",
+    "description": "Multi-step: create and verify",
+    "level": 2,
+    "prompt": "Create a file /tmp/eval-verify.txt with content 'verification', then read it back and confirm the content matches.",
+    "evalType": "contains",
+    "expected": "verification",
+    "expectedTools": ["write_file", "read_file"],
+    "tags": ["multi-step", "file-ops"]
+  },
+  {
+    "id": "VC-009",
+    "description": "Multi-step: bash pipeline",
+    "level": 2,
+    "prompt": "Count the number of .ts files in packages/core/src/ using bash and report the count.",
+    "evalType": "regex",
+    "expected": "\\d+",
+    "expectedTools": ["bash"],
+    "tags": ["multi-step", "bash"]
+  },
+  {
+    "id": "VC-010",
+    "description": "Multi-step: search with filter",
+    "level": 2,
+    "prompt": "Find all files that import from 'better-sqlite3' and list their paths.",
+    "evalType": "contains",
+    "expected": "sqlite",
+    "expectedTools": ["grep"],
+    "tags": ["multi-step", "search"]
+  },
+  {
+    "id": "VC-011",
+    "description": "Complex: analyze code structure",
+    "level": 3,
+    "prompt": "Analyze the RAG module structure in packages/core/src/rag/. List all classes, their purposes, and how they relate to each other.",
+    "expected": "VectorStore",
+    "evalType": "contains",
+    "expectedTools": ["read_file", "grep", "list_dir"],
+    "tags": ["complex", "code-analysis"]
+  },
+  {
+    "id": "VC-012",
+    "description": "Complex: debug a failing test",
+    "level": 3,
+    "prompt": "Run the tests in packages/core/src/rag/tests/ and if any fail, explain why and suggest fixes.",
+    "evalType": "contains",
+    "expected": "pass",
+    "expectedTools": ["bash", "read_file"],
+    "tags": ["complex", "debugging"]
+  },
+  {
+    "id": "VC-013",
+    "description": "Complex: refactor with verification",
+    "level": 3,
+    "prompt": "Review the embedding-adapter.ts file. Suggest any improvements to the error handling, then verify the existing tests still pass.",
+    "evalType": "contains",
+    "expected": "test",
+    "expectedTools": ["read_file", "bash"],
+    "tags": ["complex", "refactoring"]
+  },
+  {
+    "id": "VC-014",
+    "description": "Checkpoint/resume: save and restore state",
+    "level": 2,
+    "prompt": "Save the current list of files in packages/core/src/rag/ to /tmp/rag-files-checkpoint.txt, then verify the file was created correctly.",
+    "evalType": "contains",
+    "expected": "types.ts",
+    "expectedTools": ["glob", "write_file", "read_file"],
+    "tags": ["checkpoint", "state"]
+  },
+  {
+    "id": "VC-015",
+    "description": "Memory: recall previous information",
+    "level": 2,
+    "prompt": "Search your memory for any information about the VectorStore interface, then answer what methods it defines.",
+    "expected": "initialize",
+    "evalType": "contains",
+    "expectedTools": ["memory_search"],
+    "tags": ["memory", "recall"]
+  },
+  {
+    "id": "VC-016",
+    "description": "Knowledge search: RAG retrieval",
+    "level": 2,
+    "prompt": "Search the knowledge base for information about cosine similarity and explain how it's used in the vector store.",
+    "expected": "cosine",
+    "evalType": "contains",
+    "expectedTools": ["knowledge_search"],
+    "tags": ["rag", "retrieval"]
+  },
+  {
+    "id": "VC-017",
+    "description": "Error handling: graceful failure",
+    "level": 1,
+    "prompt": "Try to read a file that doesn't exist at /nonexistent/path/file.txt and explain what happened.",
+    "expected": "not found",
+    "evalType": "contains",
+    "expectedTools": ["read_file"],
+    "tags": ["error-handling", "basic"]
+  },
+  {
+    "id": "VC-018",
+    "description": "Tool chain: complex workflow",
+    "level": 3,
+    "prompt": "Create a summary report: list all .md files in docs/, count their lines, and write the results to /tmp/docs-summary.json.",
+    "evalType": "contains",
+    "expected": "docs",
+    "expectedTools": ["glob", "bash", "write_file"],
+    "tags": ["complex", "workflow"]
+  },
+  {
+    "id": "VC-019",
+    "description": "Self-loop: iterative refinement",
+    "level": 3,
+    "prompt": "Write a function to calculate fibonacci numbers, test it, and if the tests fail, fix the function and test again until it passes.",
+    "evalType": "contains",
+    "expected": "pass",
+    "expectedTools": ["write_file", "bash"],
+    "tags": ["self-loop", "iterative"]
+  },
+  {
+    "id": "VC-020",
+    "description": "Critic: self-evaluation",
+    "level": 2,
+    "prompt": "Review the document-loader.ts implementation. Identify any potential bugs or edge cases, then verify your findings by reading the code.",
+    "evalType": "contains",
+    "expected": "chunk",
+    "expectedTools": ["read_file"],
+    "tags": ["critic", "review"]
+  }
+]

@@ -51,6 +51,8 @@ import type { ResumeOptions, ForkOptions } from "./internal.js";
 import { SelfLoopRunner } from "../flow/self-loop.js";
 import type { SelfLoopRunnerConfig, SelfLoopResult } from "../flow/self-loop.js";
 import type { CriticAgent } from "../critic/critic-agent.js";
+import { PluginRegistry } from "../plugin-runtime/registry.js";
+import type { PluginRegistryOptions } from "../plugin-runtime/registry.js";
 import { createLogger } from "@open-vera/logger";
 
 const log = createLogger("harness:runtime");
@@ -153,6 +155,7 @@ export class HarnessRuntime {
   private readonly checkpointStore: import("./checkpoint-store.js").CheckpointStore | null;
   private readonly autoCheckpoint: boolean;
   private readonly services: HarnessServices;
+  private readonly registry: PluginRegistry;
 
   constructor(adapter: LLMAdapter, model: string, options: RuntimeOptions) {
     this.adapter = adapter;
@@ -172,6 +175,10 @@ export class HarnessRuntime {
     if (!this.agentRunners.has("default")) {
       this.agentRunners.set("default", this.services.runner.createDefaultRunner());
     }
+    // Plugin registry — use provided or create a default one
+    this.registry = options.pluginRegistry ?? new PluginRegistry({
+      services: { plan: (goal) => this.services.planner.plan(goal) },
+    });
     // Checkpoint store — only if checkpointsDir is provided
     if (options.checkpointsDir) {
       this.checkpointStore = new CheckpointStore({ checkpointsDir: options.checkpointsDir });
@@ -188,6 +195,11 @@ export class HarnessRuntime {
     return runner;
   }
 
+  /** Access the plugin registry (for registering plugins or subscribing to events). */
+  getPluginRegistry(): PluginRegistry {
+    return this.registry;
+  }
+
   /**
    * Generate an ExecutionPlan from a natural-language goal and start a Flow.
    * This is the "从用户输入到完整执行" entry point — replaces the need to
@@ -200,8 +212,13 @@ export class HarnessRuntime {
     scope?: TaskScope,
     maxLoops?: number,
   ): Promise<FlowHandle> {
-    const plan = await this.services.planner.plan(goal, planOptions);
-    return this.startFlow({ flowId, goal, plan, scope, maxLoops });
+    // Hook: beforePlan — allow plugins to rewrite the goal
+    const finalGoal = (await this.registry.runHook("beforePlan", goal)) ?? goal;
+    const rawPlan = await this.services.planner.plan(finalGoal, planOptions);
+    // Hook: afterPlan — allow plugins to modify the plan
+    const plan = (await this.registry.runHook("afterPlan", rawPlan)) ?? rawPlan;
+    await this.registry.emit("plan:generated", { plan });
+    return this.startFlow({ flowId, goal: finalGoal, plan, scope, maxLoops });
   }
 
   async startFlow(input: StartFlowInput): Promise<FlowHandle> {
@@ -225,6 +242,7 @@ export class HarnessRuntime {
     flow = attachArtifacts(flow, [planArtifact]);
     flow = updateFlowState(flow, "dispatching");
 
+    await this.registry.emit("flow:start", { flowId: flow.flowId, plan: input.plan });
     return { flow, store };
   }
 
@@ -293,9 +311,16 @@ export class HarnessRuntime {
   ): Promise<StepExecutionBundle> {
     const startMs = Date.now();
     const runner = this.getRunner(assignment.assignedAgent);
-    log.info("step start", { stepId: assignment.stepId, agent: assignment.assignedAgent ?? "default" });
+    const agentName = assignment.assignedAgent ?? "default";
+    log.info("step start", { stepId: assignment.stepId, agent: agentName });
+    await this.registry.emit("agent:start", { stepId: assignment.stepId, agent: agentName });
     const result = await runner.run(assignment, options);
     log.info("step done", { stepId: assignment.stepId, duration_ms: Date.now() - startMs, toolCalls: result.toolCalls.length });
+    await this.registry.emit("agent:done", {
+      stepId: assignment.stepId,
+      agent: agentName,
+      outputs: result.toolCalls.map((tc) => tc.name),
+    });
 
     const artifact = await writeJsonArtifact(
       handle.store,
@@ -336,6 +361,10 @@ export class HarnessRuntime {
     const startMs = Date.now();
     const result = await this.services.critique.critiquePlan(input);
     log.debug("plan critique done", { confidence: result.critique.confidence, duration_ms: Date.now() - startMs });
+    await this.registry.emit("plan:challenged", {
+      score: result.critique.confidence,
+      passed: result.critique.nextAction === "complete",
+    });
     const artifact = await writeJsonArtifact(
       handle.store,
       {
@@ -365,6 +394,11 @@ export class HarnessRuntime {
     const startMs = Date.now();
     const result = await this.services.critique.critiqueStep(input);
     log.debug("step critique done", { stepName: input.stepName, confidence: result.critique.confidence, duration_ms: Date.now() - startMs });
+    await this.registry.emit("step:challenged", {
+      stepId: input.stepName,
+      score: result.critique.confidence,
+      passed: result.critique.nextAction === "complete",
+    });
     const artifact = await writeJsonArtifact(
       handle.store,
       {
@@ -491,6 +525,13 @@ export class HarnessRuntime {
 
       const dispatchedBatch: AssignmentBundle[] = [];
       for (const stepId of stepIds) {
+        // Hook: beforeStep — plugins can skip a step by returning false
+        const proceed = await this.registry.runHook("beforeStep", stepId);
+        if (proceed === false) {
+          log.info("step skipped by plugin hook", { stepId });
+          continue;
+        }
+
         const dispatched = this.dispatchStep(handle, stepId);
         handle = dispatched.handle;
 
@@ -503,6 +544,12 @@ export class HarnessRuntime {
         }
 
         options.onEvent?.({ type: "step_start", stepId });
+        await this.registry.emit("step:start", {
+          stepId,
+          agents: dispatched.assignment.assignedAgent
+            ? [dispatched.assignment.assignedAgent]
+            : ["default"],
+        });
         dispatchedBatch.push(dispatched);
       }
 
@@ -559,6 +606,10 @@ export class HarnessRuntime {
 
         if (nextAction === "complete") {
           completedSteps.push(executed.assignment.stepId);
+          await this.registry.emit("step:done", {
+            stepId: executed.assignment.stepId,
+            result: executed.result,
+          });
           // Generate retrospective to capture lessons from this step
           try {
             const retro = await this.runStepRetrospective(
@@ -608,6 +659,10 @@ export class HarnessRuntime {
 
         if (nextAction === "retry") {
           options.onEvent?.({ type: "step_retry", stepId: executed.assignment.stepId });
+          await this.registry.emit("step:rework", {
+            stepId: executed.assignment.stepId,
+            fixes: critique.result.critique.issues?.map((i: any) => i.description ?? i.issue ?? "") ?? [],
+          });
           handle = {
             ...handle,
             flow: {
@@ -897,6 +952,15 @@ export class HarnessRuntime {
     });
     // Final checkpoint on completion
     void this.autoCheckpointFlow(completed);
+    // Emit flow:complete (fire-and-forget; result is built from current state)
+    void this.registry.emit("flow:complete", {
+      flowId: handle.flow.flowId,
+      result: {
+        completedSteps: handle.flow.plan?.steps
+          .filter((s) => s.status === "done")
+          .map((s) => s.id) ?? [],
+      },
+    });
     return completed;
   }
 
@@ -913,6 +977,10 @@ export class HarnessRuntime {
     });
     // Final checkpoint on failure
     void this.autoCheckpointFlow(failed);
+    void this.registry.emit("flow:fail", {
+      flowId: handle.flow.flowId,
+      error: new Error(`Flow failed at step: ${handle.flow.activeStepId ?? "unknown"}`),
+    });
     return failed;
   }
 

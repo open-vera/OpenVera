@@ -9,13 +9,13 @@ import type {
   ProposalCategory,
   ProposalSource,
   RuntimeEvent,
+  SkillBundle,
   StepResult,
   TaskFlow,
   TaskScope,
   Tool,
 } from "@open-vera/core/types";
 import type { ToolContext } from "@open-vera/core/tools";
-import type { SkillBundle } from "../skill/index.js";
 import type { ToolHostLike } from "../agent/stream-runner.js";
 
 export interface LegacyChallengeIssue {
@@ -81,6 +81,11 @@ export interface RuntimeOptions {
   toolHost?: ToolHostLike;
   /** Baseline tool execution context merged into default-runner tool calls. */
   toolContext?: Partial<ToolContext>;
+  /**
+   * Optional PluginRegistry for event-driven extensibility.
+   * If omitted, a default registry is created internally.
+   */
+  pluginRegistry?: import("../plugin-runtime/registry.js").PluginRegistry;
 }
 
 export interface FlowHandle {

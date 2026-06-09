@@ -132,17 +132,17 @@ Harness 读取 `settings.json` 的 `mcp_servers`，core 定义模式。
 
 ## 4. 待解决的边界问题
 
-### 4.1 `core/src/index.ts` 职责过多（待处理）
+### 4.1 `core/src/index.ts` 职责过多（已解决）
 
-目前 `core/src/index.ts` 包含：适配器初始化、路由逻辑、硬编码工具、REPL 启动——这些属于**应用入口点**的职责，而非 core 库的职责。应迁移到 `apps/` 入口文件，core 仅导出库接口。
+`core/src/index.ts` 已清理完毕——现在仅包含库接口的 re-export（不再含适配器初始化、路由逻辑、硬编码工具或 REPL 启动）。可执行 CLI 入口位于 `main.ts`（通过 `tsx src/main.ts` 运行），具有顶层副作用但不会被作为库导入。
 
 ### 4.2 REPL 是否应属于 Core（短期可接受）
 
 REPL 目前位于 core，但 REPL 依赖 `SessionStore`，而后者是有状态的应用级能力。短期可接受（workspace.ts 已封装会话/worktree 状态）。长期考虑提取到 `apps/repl`，core 仅提供无状态的 agent 循环。
 
-### 4.3 `harness/types.ts` 与 `core/types/runtime.ts` 重复（待清理）
+### 4.3 `harness/types.ts` 与 `core/types/runtime.ts` 重复（已解决）
 
-Harness 有自己的 `ToolCallRecord`（`packages/harness/src/types.ts`），core 也有一个（`core/types/runtime.ts`）。应统一使用 core 的定义，harness 重新导出或直接导入。
+Harness 不再定义自己的 `ToolCallRecord`，而是从 `@open-vera/core/types` re-export（使用 core 的运行时协议规范定义）。此外，`core/src/tools/types.ts` 中原有的同名 `ToolCallRecord`（工具统计用途）已重命名为 `ToolExecutionRecord`，消除了 core 层面的命名冲突。
 
 ### 4.4 记忆模块边界（已实现，清晰）
 
