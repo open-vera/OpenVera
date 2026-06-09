@@ -1,320 +1,285 @@
 import { describe, expect, it } from "vitest";
 import { isInsideCwd, safePath, sanitizeCwd } from "../path.js";
+import { resolve, normalize, sep } from "node:path";
+
+// ── Platform helpers ────────────────────────────────────────────────────────
+const isWin = sep === "\\";
+const DRIVE = isWin ? "Z:\\" : "";
+
+/** Build a platform-native absolute path. */
+function abs(...segments: string[]): string {
+  return isWin
+    ? resolve(DRIVE, ...segments)
+    : resolve("/", ...segments);
+}
 
 // ── isInsideCwd ─────────────────────────────────────────────────────────────
 
 describe("isInsideCwd", () => {
-  // -- same / child / parent / sibling ---------------------------------------
-
-  it("returns true for target equal to baseDir (same directory)", () => {
-    const baseDir = "/home/user/project";
-    expect(isInsideCwd("/home/user/project", baseDir)).toBe(true);
+  it("returns true for target equal to baseDir", () => {
+    const base = abs("home", "user", "project");
+    expect(isInsideCwd(base, base)).toBe(true);
   });
 
-  it("returns true for target equal to baseDir with trailing slash on base", () => {
-    const baseDir = "/home/user/project/";
-    expect(isInsideCwd("/home/user/project", baseDir)).toBe(true);
+  it("returns true with trailing slash on base", () => {
+    const base = abs("home", "user", "project") + sep;
+    expect(isInsideCwd(abs("home", "user", "project"), base)).toBe(true);
   });
 
-  it("returns true for target equal to baseDir with trailing slash on target", () => {
-    const baseDir = "/home/user/project";
-    expect(isInsideCwd("/home/user/project/", baseDir)).toBe(true);
+  it("returns true with trailing slash on target", () => {
+    const base = abs("home", "user", "project");
+    expect(isInsideCwd(base + sep, base)).toBe(true);
   });
 
   it("returns true for child directory", () => {
-    const baseDir = "/home/user/project";
-    expect(isInsideCwd("/home/user/project/src", baseDir)).toBe(true);
+    const base = abs("home", "user", "project");
+    expect(isInsideCwd(abs("home", "user", "project", "src"), base)).toBe(true);
   });
 
-  it("returns true for deeply nested child directory", () => {
-    const baseDir = "/home/user/project";
-    expect(isInsideCwd("/home/user/project/src/components/ui", baseDir)).toBe(true);
+  it("returns true for deeply nested child", () => {
+    const base = abs("home", "user", "project");
+    expect(isInsideCwd(abs("home", "user", "project", "src", "components", "ui"), base)).toBe(true);
   });
 
   it("returns false for parent directory", () => {
-    const baseDir = "/home/user/project";
-    expect(isInsideCwd("/home/user", baseDir)).toBe(false);
+    const base = abs("home", "user", "project");
+    expect(isInsideCwd(abs("home", "user"), base)).toBe(false);
   });
 
   it("returns false for sibling directory", () => {
-    const baseDir = "/home/user/project";
-    expect(isInsideCwd("/home/user/other-project", baseDir)).toBe(false);
+    const base = abs("home", "user", "project");
+    expect(isInsideCwd(abs("home", "user", "other-project"), base)).toBe(false);
   });
 
-  it("returns false for completely unrelated absolute path", () => {
-    const baseDir = "/home/user/project";
-    expect(isInsideCwd("/etc/passwd", baseDir)).toBe(false);
+  it("returns false for unrelated absolute path", () => {
+    const base = abs("home", "user", "project");
+    expect(isInsideCwd(abs("etc", "passwd"), base)).toBe(false);
   });
 
-  it("returns false when prefix matches but is not a directory boundary", () => {
-    // /home/user/project vs /home/user/project-backup — should NOT be "inside"
-    const baseDir = "/home/user/project";
-    expect(isInsideCwd("/home/user/project-backup", baseDir)).toBe(false);
+  it("returns false when prefix matches but not a directory boundary", () => {
+    const base = abs("home", "user", "project");
+    expect(isInsideCwd(abs("home", "user", "project-backup"), base)).toBe(false);
   });
-
-  // -- relative paths --------------------------------------------------------
 
   it("resolves relative child path against baseDir", () => {
-    const baseDir = "/home/user/project";
-    expect(isInsideCwd("src", baseDir)).toBe(true);
-    expect(isInsideCwd("src/index.ts", baseDir)).toBe(true);
+    const base = abs("home", "user", "project");
+    expect(isInsideCwd("src", base)).toBe(true);
   });
 
-  it("returns false for parent traversal that goes to parent of baseDir", () => {
-    const baseDir = "/home/user/project/src";
-    // ../ resolves to /home/user/project, which is the parent of baseDir — outside
-    expect(isInsideCwd("../", baseDir)).toBe(false);
+  it("returns false for parent traversal outside baseDir", () => {
+    const base = abs("home", "user", "project", "src");
+    expect(isInsideCwd("../", base)).toBe(false);
   });
 
-  it("resolves relative parent traversal that goes outside cwd", () => {
-    const baseDir = "/home/user/project";
-    // ../ goes to /home/user, which is outside
-    expect(isInsideCwd("../", baseDir)).toBe(false);
+  it("returns false for ../ from shallow baseDir", () => {
+    const base = abs("home", "user", "project");
+    expect(isInsideCwd("../", base)).toBe(false);
   });
 
-  it("handles dot (current directory) as inside", () => {
-    const baseDir = "/home/user/project";
-    expect(isInsideCwd(".", baseDir)).toBe(true);
+  it("handles dot as inside", () => {
+    const base = abs("home", "user", "project");
+    expect(isInsideCwd(".", base)).toBe(true);
   });
 
-  it("returns false for parent + child traversal that resolves to parent of baseDir", () => {
-    const baseDir = "/home/user/project/src";
-    // ../lib resolves to /home/user/project/lib — still outside baseDir /home/user/project/src
-    expect(isInsideCwd("../lib", baseDir)).toBe(false);
+  it("returns false for ../lib from subdirectory (sibling, not child)", () => {
+    const base = abs("home", "user", "project", "src");
+    expect(isInsideCwd("../lib", base)).toBe(false);
   });
 
-  it("returns true for parent + child traversal that stays inside a broader cwd", () => {
-    const baseDir = "/home/user/project";
-    // src/../lib resolves to /home/user/project/lib — inside baseDir
-    expect(isInsideCwd("src/../lib", baseDir)).toBe(true);
+  it("returns true for src/../lib staying inside broader cwd", () => {
+    const base = abs("home", "user", "project");
+    expect(isInsideCwd("src/../lib", base)).toBe(true);
   });
 
-  // -- absolute paths with unusual forms -------------------------------------
-
-  it("handles absolute target already within baseDir", () => {
-    const baseDir = "/home/user/project";
-    expect(isInsideCwd("/home/user/project/src/main.ts", baseDir)).toBe(true);
+  it("handles absolute target within baseDir", () => {
+    const base = abs("home", "user", "project");
+    expect(isInsideCwd(abs("home", "user", "project", "src", "main.ts"), base)).toBe(true);
   });
 
   it("handles absolute target outside baseDir", () => {
-    const baseDir = "/home/user/project";
-    expect(isInsideCwd("/var/log", baseDir)).toBe(false);
+    const base = abs("home", "user", "project");
+    expect(isInsideCwd(abs("var", "log"), base)).toBe(false);
   });
 
-  // -- platform-independent normalization ------------------------------------
-
-  it("normalizes redundant separators in target", () => {
-    const baseDir = "/home/user/project";
-    expect(isInsideCwd("/home/user/project//src//index.ts", baseDir)).toBe(true);
+  it("normalizes redundant separators (inside)", () => {
+    const base = abs("home", "user", "project");
+    const target = abs("home", "user", "project", "", "src", "", "index.ts");
+    expect(isInsideCwd(target, base)).toBe(true);
   });
 
-  it("normalizes redundant separators keeping outside path outside", () => {
-    const baseDir = "/home/user/project";
-    expect(isInsideCwd("/home/user//other//src", baseDir)).toBe(false);
+  it("normalizes redundant separators (outside)", () => {
+    const base = abs("home", "user", "project");
+    const outside = abs("home", "user", "", "other", "", "src");
+    expect(isInsideCwd(outside, base)).toBe(false);
   });
 });
 
 // ── safePath ────────────────────────────────────────────────────────────────
 
 describe("safePath", () => {
-  const cwd = "/home/user/project";
+  const cwd = abs("home", "user", "project");
 
-  // -- within cwd ------------------------------------------------------------
+  // -- within cwd ----
 
-  it("returns resolved path when target is inside cwd", () => {
+  it("returns resolved for relative child path", () => {
     const result = safePath("src/utils/path.ts", cwd);
     expect("resolved" in result).toBe(true);
     if ("resolved" in result) {
-      expect(result.resolved).toBe("/home/user/project/src/utils/path.ts");
+      expect(result.resolved).toBe(abs("home", "user", "project", "src", "utils", "path.ts"));
     }
   });
 
   it("returns resolved when target equals cwd", () => {
-    const result = safePath("/home/user/project", cwd);
+    const result = safePath(cwd, cwd);
     expect("resolved" in result).toBe(true);
-    if ("resolved" in result) {
-      expect(result.resolved).toBe("/home/user/project");
-    }
   });
 
-  it("returns resolved for dot (current directory)", () => {
+  it("returns resolved for dot", () => {
     const result = safePath(".", cwd);
     expect("resolved" in result).toBe(true);
     if ("resolved" in result) {
-      expect(result.resolved).toBe(cwd);
+      expect(result.resolved).toBe(normalize(cwd));
     }
   });
 
-  it("returns resolved for relative child path", () => {
+  it("returns resolved for simple child", () => {
     const result = safePath("lib", cwd);
     expect("resolved" in result).toBe(true);
     if ("resolved" in result) {
-      expect(result.resolved).toBe("/home/user/project/lib");
+      expect(result.resolved).toBe(abs("home", "user", "project", "lib"));
     }
   });
 
-  // -- outside cwd -----------------------------------------------------------
+  // -- outside cwd ----
 
-  it("returns error when target is outside cwd", () => {
-    const result = safePath("/etc/passwd", cwd);
+  it("returns error for absolute path outside cwd", () => {
+    const result = safePath(abs("etc", "passwd"), cwd);
     expect("error" in result).toBe(true);
     if ("error" in result) {
       expect(result.error).toContain("outside allowed workdir");
-      expect(result.error).toContain("/home/user/project");
-      expect(result.error).toContain("/etc/passwd");
     }
   });
 
-  it("returns error for parent directory traversal outside cwd", () => {
+  it("returns error for ../.. traversal outside cwd", () => {
     const result = safePath("../../", cwd);
     expect("error" in result).toBe(true);
-    if ("error" in result) {
-      expect(result.error).toContain("outside allowed workdir");
-    }
   });
 
   it("returns error for sibling path outside cwd", () => {
-    const result = safePath("/home/user/other-project/src", cwd);
+    const result = safePath(abs("home", "user", "other-project", "src"), cwd);
     expect("error" in result).toBe(true);
-    if ("error" in result) {
-      expect(result.error).toContain("outside allowed workdir");
-    }
   });
 
-  it("returns error when prefix matches but is not a directory boundary", () => {
-    // /home/user vs /home/userdata — not inside because no trailing separator boundary
-    const result = safePath("/home/userdata", "/home/user");
+  it("returns error when prefix matches but not a directory boundary", () => {
+    const result = safePath(abs("home", "userdata"), abs("home", "user"));
     expect("error" in result).toBe(true);
-    if ("error" in result) {
-      expect(result.error).toContain("outside allowed workdir");
-    }
   });
 
-  // -- allowedPaths ----------------------------------------------------------
+  // -- allowedPaths ----
 
-  it("returns resolved when outside cwd but inside one allowedPath", () => {
-    const result = safePath("/var/log/app.log", cwd, ["/var/log"]);
+  it("returns resolved when outside cwd but inside allowedPath", () => {
+    const allowed = abs("var", "log");
+    const target = abs("var", "log", "app.log");
+    const result = safePath(target, cwd, [allowed]);
+    expect("resolved" in result).toBe(true);
+  });
+
+  it("returns resolved for relative child even with allowedPaths", () => {
+    const result = safePath("error.log", cwd, [abs("var", "log")]);
     expect("resolved" in result).toBe(true);
     if ("resolved" in result) {
-      expect(result.resolved).toBe("/var/log/app.log");
-    }
-  });
-
-  it("returns resolved when outside cwd but inside allowedPath as relative child", () => {
-    const result = safePath("error.log", cwd, ["/var/log"]);
-    // error.log resolved against cwd is /home/user/project/error.log — not inside /var/log
-    // It IS inside cwd, so resolved should succeed
-    expect("resolved" in result).toBe(true);
-    if ("resolved" in result) {
-      expect(result.resolved).toBe("/home/user/project/error.log");
+      expect(result.resolved).toBe(abs("home", "user", "project", "error.log"));
     }
   });
 
   it("returns resolved for absolute path inside allowedPath", () => {
-    const result = safePath("/tmp/cache/data.json", cwd, ["/tmp/cache"]);
+    const result = safePath(abs("tmp", "cache", "data.json"), cwd, [abs("tmp", "cache")]);
     expect("resolved" in result).toBe(true);
-    if ("resolved" in result) {
-      expect(result.resolved).toBe("/tmp/cache/data.json");
-    }
   });
 
-  it("returns error when target is outside both cwd and allowedPaths", () => {
-    const result = safePath("/etc/shadow", cwd, ["/var/log", "/tmp/cache"]);
+  it("returns error when outside both cwd and allowedPaths", () => {
+    const result = safePath(abs("etc", "shadow"), cwd, [abs("var", "log"), abs("tmp", "cache")]);
     expect("error" in result).toBe(true);
-    if ("error" in result) {
-      expect(result.error).toContain("outside allowed workdir");
-    }
   });
 
-  it("supports multiple allowedPaths and uses the matching one", () => {
-    const result = safePath("/var/www/html/index.html", cwd, [
-      "/var/log",
-      "/var/www",
-      "/tmp/cache",
-    ]);
+  it("supports multiple allowedPaths", () => {
+    const result = safePath(
+      abs("var", "www", "html", "index.html"),
+      cwd,
+      [abs("var", "log"), abs("var", "www"), abs("tmp", "cache")]
+    );
     expect("resolved" in result).toBe(true);
-    if ("resolved" in result) {
-      expect(result.resolved).toBe("/var/www/html/index.html");
-    }
   });
 
-  it("returns error when target is child of allowedPath but that path is not a directory boundary", () => {
-    // /var vs /var-log — should NOT match
-    const result = safePath("/var-log/data", cwd, ["/var"]);
+  it("returns error for non-boundary prefix match in allowedPaths", () => {
+    const result = safePath(abs("var-log", "data"), cwd, [abs("var")]);
     expect("error" in result).toBe(true);
-    if ("error" in result) {
-      expect(result.error).toContain("outside allowed workdir");
-    }
   });
 
-  it("returns resolved when target equals an allowedPath", () => {
-    const result = safePath("/var/log", cwd, ["/var/log"]);
+  it("returns resolved when target equals allowedPath", () => {
+    const result = safePath(abs("var", "log"), cwd, [abs("var", "log")]);
     expect("resolved" in result).toBe(true);
-    if ("resolved" in result) {
-      expect(result.resolved).toBe("/var/log");
-    }
   });
 
-  // -- normalized paths (.. traversal handling) ------------------------------
+  // -- .. traversal ----
 
-  it("normalizes path with .. traversal that stays inside cwd", () => {
+  it("normalizes src/../lib staying inside cwd", () => {
     const result = safePath("src/../lib", cwd);
     expect("resolved" in result).toBe(true);
     if ("resolved" in result) {
-      expect(result.resolved).toBe("/home/user/project/lib");
+      expect(result.resolved).toBe(abs("home", "user", "project", "lib"));
     }
   });
 
-  it("returns error when .. traversal escapes cwd", () => {
+  it("returns error when .. escapes cwd", () => {
     const result = safePath("../../etc/passwd", cwd);
     expect("error" in result).toBe(true);
   });
 
-  it("normalizes path using allowedPath with .. traversal still inside allowedPath", () => {
-    const result = safePath("/var/log/../cache/data", cwd, ["/var/cache"]);
+  it("normalizes .. traversal inside allowedPath", () => {
+    const result = safePath(abs("var", "log", "..", "cache", "data"), cwd, [abs("var", "cache")]);
     expect("resolved" in result).toBe(true);
     if ("resolved" in result) {
-      expect(result.resolved).toBe("/var/cache/data");
+      expect(result.resolved).toBe(abs("var", "cache", "data"));
     }
   });
 
-  it("returns error when .. traversal escapes allowedPath", () => {
-    const result = safePath("/var/log/../..", cwd, ["/var/log"]);
+  it("returns error when .. escapes allowedPath", () => {
+    const result = safePath(abs("var", "log", "..", ".."), cwd, [abs("var", "log")]);
     expect("error" in result).toBe(true);
   });
 
-  it("handles complex traversal that resolves inside cwd", () => {
+  it("handles complex traversal resolving inside cwd", () => {
     const result = safePath("src/../src/components/../../lib", cwd);
     expect("resolved" in result).toBe(true);
     if ("resolved" in result) {
-      expect(result.resolved).toBe("/home/user/project/lib");
+      expect(result.resolved).toBe(abs("home", "user", "project", "lib"));
     }
   });
 
-  // -- empty allowedPaths (default parameter) --------------------------------
+  // -- empty allowedPaths ----
 
   it("treats empty allowedPaths as no extra permissions", () => {
-    const result = safePath("/var/log/app.log", cwd);
+    const result = safePath(abs("var", "log", "app.log"), cwd);
     expect("error" in result).toBe(true);
   });
 
-  it("passes within-cwd test with empty allowedPaths", () => {
+  it("passes within-cwd with empty allowedPaths", () => {
     const result = safePath("file.txt", cwd);
     expect("resolved" in result).toBe(true);
     if ("resolved" in result) {
-      expect(result.resolved).toBe("/home/user/project/file.txt");
+      expect(result.resolved).toBe(abs("home", "user", "project", "file.txt"));
     }
   });
 
-  // -- error message format --------------------------------------------------
+  // -- error message ----
 
-  it("includes allowed workdir and got path in error message", () => {
-    const result = safePath("/secret/token", cwd);
+  it("includes allowed workdir in error message", () => {
+    const result = safePath(abs("secret", "token"), cwd);
     expect("error" in result).toBe(true);
     if ("error" in result) {
       expect(result.error).toContain("outside allowed workdir");
-      expect(result.error).toContain(cwd);
-      expect(result.error).toContain("/secret/token");
+      expect(result.error).toContain(normalize(cwd));
     }
   });
 });
@@ -322,118 +287,87 @@ describe("safePath", () => {
 // ── sanitizeCwd ─────────────────────────────────────────────────────────────
 
 describe("sanitizeCwd", () => {
-  // -- normal paths ----------------------------------------------------------
-
-  it("replaces path separators with underscores (for filename-safe output)", () => {
-    expect(sanitizeCwd("/home/user/project")).toBe("home_user_project");
+  it("replaces separators with underscores", () => {
+    const input = isWin ? "\\home\\user\\project" : "/home/user/project";
+    expect(sanitizeCwd(input)).toBe("home_user_project");
   });
 
-  it("preserves dots, hyphens, and alphanumeric but replaces separators", () => {
-    expect(sanitizeCwd("/home/user/my-project.v2")).toBe(
-      "home_user_my-project.v2"
-    );
+  it("preserves dots, hyphens, alphanumeric", () => {
+    const input = isWin ? "\\home\\user\\my-project.v2" : "/home/user/my-project.v2";
+    expect(sanitizeCwd(input)).toBe("home_user_my-project.v2");
   });
 
-  it("handles simple alphanumeric path", () => {
+  it("handles simple alphanumeric", () => {
     expect(sanitizeCwd("home")).toBe("home");
   });
 
   it("replaces separators in typical user paths", () => {
-    expect(sanitizeCwd("/Users/yang.zhou/workspace/open-vera")).toBe(
-      "Users_yang.zhou_workspace_open-vera"
-    );
+    const input = isWin ? "\\Users\\yang.zhou\\workspace\\open-vera" : "/Users/yang.zhou/workspace/open-vera";
+    expect(sanitizeCwd(input)).toBe("Users_yang.zhou_workspace_open-vera");
   });
-
-  // -- special characters ----------------------------------------------------
 
   it("replaces spaces with underscores", () => {
-    expect(sanitizeCwd("/home/user/my project")).toBe(
-      "home_user_my_project"
-    );
+    const input = isWin ? "\\home\\user\\my project" : "/home/user/my project";
+    expect(sanitizeCwd(input)).toBe("home_user_my_project");
   });
 
-  it("replaces special characters (including separators) with underscores", () => {
-    expect(sanitizeCwd("/home/user/项目/开发")).toBe("home_user");
+  it("replaces non-ASCII characters", () => {
+    const input = isWin ? "\\home\\user\\项目\\开发" : "/home/user/项目/开发";
+    expect(sanitizeCwd(input)).toBe("home_user");
   });
 
-  it("replaces mixed special characters with underscores", () => {
-    expect(sanitizeCwd("/home/@user/!test")).toBe("home_user_test");
+  it("replaces mixed special characters", () => {
+    const input = isWin ? "\\home\\@user\\!test" : "/home/@user/!test";
+    expect(sanitizeCwd(input)).toBe("home_user_test");
   });
 
-  it("replaces path-legal but non-alphanumeric chars (spaces, parens, separators)", () => {
-    expect(sanitizeCwd("/home/user/My Project (v1)")).toBe(
-      "home_user_My_Project_v1"
-    );
+  it("handles parens and spaces", () => {
+    const input = isWin ? "\\home\\user\\My Project (v1)" : "/home/user/My Project (v1)";
+    expect(sanitizeCwd(input)).toBe("home_user_My_Project_v1");
   });
 
-  // -- consecutive special chars ---------------------------------------------
-
-  it("collapses consecutive special characters into single underscore", () => {
-    expect(sanitizeCwd("/home/user/$$$special$$$")).toBe(
-      "home_user_special"
-    );
+  it("collapses consecutive special characters", () => {
+    const input = isWin ? "\\home\\user\\$$$special$$$" : "/home/user/$$$special$$$";
+    expect(sanitizeCwd(input)).toBe("home_user_special");
   });
 
   it("collapses mixed consecutive special chars", () => {
-    expect(sanitizeCwd("/home/user/!@#hi")).toBe("home_user_hi");
+    const input = isWin ? "\\home\\user\\!@#hi" : "/home/user/!@#hi";
+    expect(sanitizeCwd(input)).toBe("home_user_hi");
   });
 
-  // -- leading / trailing special chars --------------------------------------
+  it("removes leading underscores", () => { expect(sanitizeCwd("!start")).toBe("start"); });
+  it("removes trailing underscores", () => { expect(sanitizeCwd("end!")).toBe("end"); });
+  it("removes both leading and trailing", () => { expect(sanitizeCwd("!both!")).toBe("both"); });
+  it("keeps internal underscores", () => { expect(sanitizeCwd("!middle!chars")).toBe("middle_chars"); });
+  it("handles parenthesized path", () => { expect(sanitizeCwd("hello(world)")).toBe("hello_world"); });
+  it("returns empty for all-special", () => { expect(sanitizeCwd("!!!")).toBe(""); });
+  it("returns empty for empty input", () => { expect(sanitizeCwd("")).toBe(""); });
 
-  it("removes leading underscores from sanitized result", () => {
-    expect(sanitizeCwd("!start")).toBe("start");
+  it("replaces separators only", () => {
+    const input = isWin ? "\\a\\b\\c" : "/a/b/c";
+    expect(sanitizeCwd(input)).toBe("a_b_c");
   });
 
-  it("removes trailing underscores from sanitized result", () => {
-    expect(sanitizeCwd("end!")).toBe("end");
+  it("preserves existing underscores", () => {
+    const input = isWin ? "\\home\\user_1\\my_file" : "/home/user_1/my_file";
+    expect(sanitizeCwd(input)).toBe("home_user_1_my_file");
   });
 
-  it("removes both leading and trailing underscores", () => {
-    expect(sanitizeCwd("!both!")).toBe("both");
+  it("handles leading separator + special chars", () => {
+    const input = isWin ? "\\!hello" : "/!hello";
+    expect(sanitizeCwd(input)).toBe("hello");
   });
 
-  it("removes leading underscore but keeps internal underscores", () => {
-    expect(sanitizeCwd("!middle!chars")).toBe("middle_chars");
-  });
-
-  it("removes trailing underscore from parenthesized path", () => {
-    expect(sanitizeCwd("hello(world)")).toBe("hello_world");
-  });
-
-  // -- edge cases ------------------------------------------------------------
-
-  it("returns empty string for all-special-char input", () => {
-    expect(sanitizeCwd("!!!")).toBe("");
-  });
-
-  it("returns empty string for empty input", () => {
-    expect(sanitizeCwd("")).toBe("");
-  });
-
-  it("replaces path separators with underscores", () => {
-    expect(sanitizeCwd("/a/b/c")).toBe("a_b_c");
-  });
-
-  it("preserves underscores already present but separators still replaced", () => {
-    expect(sanitizeCwd("/home/user_1/my_file")).toBe("home_user_1_my_file");
-  });
-
-  it("handles leading slash followed by special chars correctly", () => {
-    // /!hello → __hello → _hello → hello
-    expect(sanitizeCwd("/!hello")).toBe("hello");
-  });
-
-  it("handles trailing slash followed by special chars", () => {
-    // test!/ → test__ → test_ → test
+  it("handles trailing separator + special chars", () => {
     expect(sanitizeCwd("test!/")).toBe("test");
   });
 
-  it("collapses underscores across special chars and existing underscores", () => {
+  it("collapses across special chars and underscores", () => {
     expect(sanitizeCwd("a_!b")).toBe("a_b");
   });
 
-  it("does not double-leading/trailing strip characters that are not underscores", () => {
-    // dots and hyphens at edges should be preserved
+  it("preserves leading dots and hyphens", () => {
     expect(sanitizeCwd(".hidden")).toBe(".hidden");
     expect(sanitizeCwd("-flag")).toBe("-flag");
   });

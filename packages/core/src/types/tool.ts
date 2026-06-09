@@ -26,3 +26,22 @@ export interface Tool {
    */
   maxResultSizeChars?: number;
 }
+
+/** Executor function for a tool call. */
+export type ToolExecutor = (
+  args: Record<string, unknown>,
+) => Promise<string> | string;
+
+/**
+ * Resolved skill bundle — the output of SkillResolver, consumed directly by
+ * the agent runner. Defined here (core types) so that runtime and plugins
+ * can reference it without depending on the skill module.
+ */
+export interface SkillBundle {
+  /** base system + each active skill's systemFragment concatenated */
+  system: string;
+  /** Merged tools from all active skills */
+  tools: Tool[];
+  /** toolName -> executor for onToolCall dispatch */
+  executors: Map<string, ToolExecutor>;
+}

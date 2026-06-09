@@ -5,10 +5,10 @@
  * (total calls, success/error counts, latency percentiles, error rate).
  */
 
-import type { ToolCallRecord, ToolStats, ToolResult } from "./types.js";
+import type { ToolExecutionRecord, ToolStats, ToolResult } from "./types.js";
 
 export class ToolStatsCollector {
-  private readonly records: ToolCallRecord[] = [];
+  private readonly records: ToolExecutionRecord[] = [];
   private readonly maxRecords: number;
 
   constructor(maxRecords = 1_000) {
@@ -49,7 +49,7 @@ export class ToolStatsCollector {
   }
 
   /** Get all recorded calls, optionally filtered. */
-  getRecords(filter?: { toolName?: string; limit?: number }): ToolCallRecord[] {
+  getRecords(filter?: { toolName?: string; limit?: number }): ToolExecutionRecord[] {
     let filtered = this.records;
     if (filter?.toolName) {
       filtered = filtered.filter((r) => r.toolName === filter.toolName);
@@ -90,7 +90,7 @@ export class ToolStatsCollector {
     return this.records.length;
   }
 
-  private computeStats(records: ToolCallRecord[]): ToolStats {
+  private computeStats(records: ToolExecutionRecord[]): ToolStats {
     if (records.length === 0) {
       return {
         totalCalls: 0,

@@ -143,7 +143,7 @@ export interface ToolGroup {
 
 // ── ToolExecutionStats ──────────────────────────────────────────────────────
 
-export interface ToolCallRecord {
+export interface ToolExecutionRecord {
   toolName: string;
   args: Record<string, unknown>;
   result: ToolResult;

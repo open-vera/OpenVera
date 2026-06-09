@@ -1,15 +1,23 @@
 // 路径工具 — cwd 边界检查、净化
 
-import { resolve, normalize } from "node:path";
+import { resolve, normalize, sep } from "node:path";
+
+/**
+ * 将平台原生路径统一为正斜杠形式再做前缀比较，
+ * 避免 Windows 反斜杠导致的边界判断失败。
+ */
+function toPosix(p: string): string {
+  return sep === "\\" ? p.replace(/\\/g, "/") : p;
+}
 
 /**
  * 检查 target 是否在 baseDir 内（含相等）。
  * 解析符号链接之前的静态路径检查。
  */
 export function isInsideCwd(target: string, baseDir: string): boolean {
-  const resolved = resolve(baseDir, target);
-  const base = normalize(baseDir).replace(/\/?$/, "/");
-  return resolved === normalize(baseDir) || (normalize(resolved) + "/").startsWith(base);
+  const resolved = toPosix(normalize(resolve(baseDir, target)));
+  const base = toPosix(normalize(baseDir)).replace(/\/?$/, "/");
+  return resolved === toPosix(normalize(baseDir)) || (resolved + "/").startsWith(base);
 }
 
 /**
@@ -21,10 +29,11 @@ export function safePath(
   allowedPaths: string[] = []
 ): { resolved: string } | { error: string } {
   const resolved = resolve(cwd, target);
-  const base = normalize(cwd).replace(/\/?$/, "/");
-  const normalResolved = normalize(resolved);
-  const inCwd = normalResolved === normalize(cwd) || (normalResolved + "/").startsWith(base);
-  const inAllowedPath = allowedPaths.some((allowedPath) => isInsideCwd(normalResolved, allowedPath));
+  const posixResolved = toPosix(normalize(resolved));
+  const posixCwd = toPosix(normalize(cwd));
+  const base = posixCwd.replace(/\/?$/, "/");
+  const inCwd = posixResolved === posixCwd || (posixResolved + "/").startsWith(base);
+  const inAllowedPath = allowedPaths.some((allowedPath) => isInsideCwd(normalize(resolved), allowedPath));
   if (!inCwd && !inAllowedPath) {
     return {
       error: `Path is outside allowed workdir.\n  Allowed: ${cwd}\n  Got:     ${resolved}`,
