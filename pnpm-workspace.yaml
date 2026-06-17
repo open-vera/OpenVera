@@ -4,3 +4,6 @@ packages:
   - apps/*/*
   # claude-code-source 使用 bun，不纳入 pnpm workspace
   - "!packages/claude-code-source"
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true

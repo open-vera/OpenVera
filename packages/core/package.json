@@ -104,7 +104,7 @@
     }
   },
   "scripts": {
-    "build": "NODE_ENV=production tsc",
+    "build": "cross-env NODE_ENV=production tsc",
     "build:watch": "tsc --watch --preserveWatchOutput",
     "dev": "tsx --tsconfig tsconfig.json src/main.ts",
     "dev:watch": "tsx watch --clear-screen=false --tsconfig tsconfig.json src/main.ts",
