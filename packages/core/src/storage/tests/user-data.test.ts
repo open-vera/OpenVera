@@ -39,7 +39,26 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await provider.close();
-  await rm(tmpDir, { recursive: true, force: true });
+  // Windows may hold file locks briefly after SQLite close — retry with back-off.
+  const isWin = process.platform === "win32";
+  if (isWin) {
+    // Wait a bit for Windows to release file handles after db.close()
+    await new Promise((r) => setTimeout(r, 300));
+    for (let attempt = 0; attempt < 8; attempt++) {
+      try {
+        await rm(tmpDir, { recursive: true, force: true });
+        break;
+      } catch {
+        if (attempt === 7) {
+          // Give up — temp dir will be cleaned up by OS eventually
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+      }
+    }
+  } else {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
 });
 
 // ── UserDataStore — Save & Load ──────────────────────────────────────────────

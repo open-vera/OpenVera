@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ProposalStore } from "../store.js";
 import { ProposalPipeline } from "../pipeline.js";
-import type { ImprovementProposal } from "../../dreaming/runner.js";
+import type { ImprovementProposal } from "@open-vera/harness-dreaming";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

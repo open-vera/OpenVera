@@ -7,3 +7,10 @@ export type {
   VerificationResult,
   RolloutResult,
 } from "./pipeline.js";
+
+export type {
+  ImprovementProposal,
+  ProposalType,
+  ProposalPriority,
+  ProposalStatus,
+} from "./types.js";

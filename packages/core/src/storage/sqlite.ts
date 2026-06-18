@@ -201,6 +201,14 @@ export class SqliteStorageProvider implements StorageProvider {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = null;
     }
+    // Checkpoint WAL before closing to release .db-shm/.db-wal locks (critical on Windows).
+    if (this.walMode) {
+      try {
+        this.db.pragma("wal_checkpoint(TRUNCATE)");
+      } catch {
+        // best-effort — DB may already be in a bad state
+      }
+    }
     this.db.close();
   }
 

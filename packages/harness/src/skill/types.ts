@@ -1,6 +1,9 @@
 // Skill 系统核心类型
 
-import type { Tool } from "@open-vera/core/types";
+import type { Tool, SkillBundle, ToolExecutor } from "@open-vera/core/types";
+
+// Re-export core types so consumers can import from skill module
+export type { Tool, SkillBundle, ToolExecutor };
 
 export type IntentDomain = "chat" | "code" | "search" | "writing" | "analysis" | "other";
 
@@ -10,10 +13,6 @@ export type SkillTrigger =
   | { type: "level"; minLevel: 0 | 1 | 2 | 3 }
   | { type: "needs_tools" }
   | { type: "explicit" };   // 只能通过 /skill <id> 显式激活
-
-export type ToolExecutor = (
-  args: Record<string, unknown>
-) => Promise<string> | string;
 
 export interface SkillTool {
   definition: Tool;
@@ -33,16 +32,6 @@ export interface Skill {
   systemFragment?: string;
   /** 本 skill 携带的工具 */
   tools?: SkillTool[];
-}
-
-/** SkillResolver 的输出，直接传给 streamAgent */
-export interface SkillBundle {
-  /** base system + 各激活 skill 的 systemFragment 拼接 */
-  system: string;
-  /** 各激活 skill 的工具合并 */
-  tools: Tool[];
-  /** toolName → executor，供 onToolCall 分发 */
-  executors: Map<string, ToolExecutor>;
 }
 
 /** intent 的最小接口，供 resolver 判断触发条件 */

@@ -1,4 +1,6 @@
-// Skill 系统入口
+// Skill 系统入口 — 核心包仅保留基础 Skill 解析/加载能力
+// 高级功能（auto-extractor, recommender, version-manager, hot-reload）
+// 已拆分至 @open-vera/harness-skill 独立包
 
 export { SkillResolver } from "./resolver.js";
 export { loadSkillFile, loadSkillDir } from "./loader.js";
@@ -14,38 +16,6 @@ export type {
 } from "./types.js";
 export type { BuiltinToolProvider } from "./loader.js";
 export type { RegistryLike } from "./registry-provider.js";
-
-// SK1-SK5: Skill Auto-Extraction, Scoring, Recommendation, Versioning, Hot-Reload
-export {
-  SkillAutoExtractor,
-  SkillAutoScorer,
-  type ExecutionTrace,
-  type SkillToolCallRecord,
-  type ExtractedSkill,
-  type ExtractorConfig,
-  type SkillExecutionRecord,
-  type SkillScore,
-  type ScorerConfig,
-} from "./auto-extractor.js";
-export {
-  SkillRecommender,
-  type TaskContext,
-  type SkillRecommendation,
-  type RecommenderConfig,
-} from "./recommender.js";
-export {
-  SkillVersionManager,
-  type SkillVersion,
-  type SkillSnapshot,
-  type SkillDiff,
-  type DiffEntry,
-} from "./version-manager.js";
-export {
-  SkillHotReloader,
-  type HotReloadEvent,
-  type HotReloadCallback,
-  type HotReloadConfig,
-} from "./hot-reload.js";
 
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";

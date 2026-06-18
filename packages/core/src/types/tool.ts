@@ -44,4 +44,6 @@ export interface SkillBundle {
   tools: Tool[];
   /** toolName -> executor for onToolCall dispatch */
   executors: Map<string, ToolExecutor>;
+  /** Explicitly activated skill ids (from /skill command) */
+  explicitIds?: string[];
 }

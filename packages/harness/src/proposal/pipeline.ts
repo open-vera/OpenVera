@@ -7,7 +7,7 @@
 
 import { ProposalStore } from "./store.js";
 import type { ProposalFilter } from "./store.js";
-import type { ImprovementProposal } from "../dreaming/runner.js";
+import type { ImprovementProposal } from "./types.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

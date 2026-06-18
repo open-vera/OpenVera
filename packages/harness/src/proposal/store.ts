@@ -7,7 +7,7 @@
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { ImprovementProposal } from "../dreaming/runner.js";
+import type { ImprovementProposal } from "./types.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
