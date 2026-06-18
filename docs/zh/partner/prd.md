@@ -1,6 +1,6 @@
 # Partner — 产品需求文档 (PRD)
 
-> 版本：v0.6 · 2026-06-19 · 状态：草案
+> 版本：v0.7 · 2026-06-19 · 状态：草案
 
 ---
 
@@ -83,8 +83,10 @@ Partner 面向**所有人**，而不仅仅是技术人员。软件必须做到�
 | 输入方式 | 说明 |
 |---------|------|
 | 键盘输入 | 标准文字输入，支持多行编辑 |
-| 语音输入 | STT 实时转文字，自然对话 |
+| 语音输入 | STT 实时转文字（**待开发**：Core/gateway 中暂无可复用的 STT 实现，需新建或集成第三方流式 STT） |
 | 文件拖入 | 拖拽文件/文件夹直接作为上下文 |
+
+> **注**：语音输入的 STT 能力为新增项，不属于现成复用范围。若 P0 排期紧张可降级为 P1。
 
 #### 3.1.3 全局搜索
 
@@ -111,7 +113,7 @@ Partner 面向**所有人**，而不仅仅是技术人员。软件必须做到�
 │  │  摘要记忆 (Summary Memory)                     │    │
 │  │  分段压缩 → 结构化摘要注入                      │    │
 │  │  (summary + decisions + findings + pending)    │    │
-│  │  实现: context/compression.ts — compressMsg()  │    │
+│  │  实现: context/compression.ts                   │    │
 │  │  空闲压缩: context/idle-compression.ts          │    │
 │  └──────────────┬───────────────────────────────┘    │
 │                 │ 定期固化到持久化存储                   │
@@ -129,7 +131,7 @@ Partner 面向**所有人**，而不仅仅是技术人员。软件必须做到�
 | 层级 | 核心模块 | 机制 |
 |------|---------|------|
 | 工作记忆 | `context/window.ts` | `trimToWindow()` — 保留原始任务锚点 + 最近 N 轮，按 turn 粒度裁剪 |
-| 摘要记忆 | `context/compression.ts` | 分段压缩，每段提取 summary/decisions/findings/pending/topics |
+| 摘要记忆 | `context/compression.ts` | 分段压缩，每段提取 summary/decisions/findings/pending/topics（语义召回入口 `findRelevantSegments()`） |
 | 空闲压缩 | `context/idle-compression.ts` | 用户空闲时自动触发压缩（默认 314s），新用户输入可中断 |
 | 工具预算 | `context/tool-budget.ts` | 控制单条工具结果体积，防止工具输出撑爆上下文 |
 | 语义检索 | `compression.ts` | `findRelevantSegments()` — 从压缩段中按相关性召回 |
@@ -151,15 +153,19 @@ Partner 面向**所有人**，而不仅仅是技术人员。软件必须做到�
 
 | 工具 | 能力 |
 |------|------|
-| 文件读写 | 读取、创建、编辑本地文件 |
-| Shell 执行 | 运行终端命令，支持超时和安全沙箱 |
-| 代码搜索 | Glob / Grep 文件搜索 |
-| 网页搜索 | 基于 AnySearch 统一搜索（见下文） |
-| 浏览器 | 基于 Agent Browser 的网页操作（可选） |
+| 文件读写 | 读取、创建、编辑本地文件（复用 Core `tools/read-file`/`write-file`/`edit-file`） |
+| Shell 执行 | 运行终端命令，支持超时和安全沙箱（复用 Core `tools/bash`） |
+| 代码搜索 | Glob / Grep 文件搜索（复用 Core `tools/glob`/`grep`） |
+| 网页搜索 | 统一搜索技能（**新建**，见下文 3.1.7，Core 当前无现成实现） |
+| 浏览器 | 基于 Core `tools/browser`（Playwright）的网页操作（可选） |
+
+> **复用边界说明**：文件/Shell/搜索/浏览器工具已在 OpenVera Core 实现，可直接复用；**网页搜索（AnySearch）为全新开发项**，Core 当前仅在权限白名单中预留 `web_search` 名称，无对应实现。
 
 #### 3.1.7 统一网页搜索
 
 不使用模型自带的 Web Search，而是通过自建搜索技能提供一致的高质量搜索体验：
+
+> **状态**：AnySearch 为**待开发项**，OpenVera Core 当前无现成实现，需作为新的 OpenVera 技能从零构建。下表为目标方案，非已有能力。
 
 **方案**：AnySearch 聚合引擎 + Tavily Search + 百度搜索
 
@@ -181,9 +187,10 @@ Partner 面向**所有人**，而不仅仅是技术人员。软件必须做到�
 #### 3.1.8 LLM 配置
 
 - 开箱即用：提供默认的推荐模型，用户只需输入 API Key 即可开始
-- 支持多 Provider（Anthropic / OpenAI）
+- 支持多 Provider（Anthropic / OpenAI / Gemini，复用 OpenVera Core 现有 adapters）
 - 进阶用户可自由切换模型
 - 仅在线 API，暂不支持离线模型
+- **成本可见性**：实时显示当前对话的 token 消耗与预估费用，避免用户产生意外账单（面向非技术用户尤为重要）
 
 ### 3.2 P1 — 增强体验
 
@@ -302,7 +309,7 @@ Partner 采用**单桌面进程 + 多 Agent 实例**的架构：
 | Markdown | markdown-it + highlight.js | 对话气泡中的渲染与代码高亮 |
 | Agent 引擎 | OpenVera Core (WASM) | 编译为 WASM，Rust 直接调用 |
 | 存储 | SQLite (via Tauri) | 本地对话/记忆持久化 |
-| LLM 连接 | OpenVera Adapters | 支持 Anthropic / OpenAI |
+| LLM 连接 | OpenVera Adapters | 支持 Anthropic / OpenAI / Gemini |
 
 **选型依据**：OpenVera 现有 gateway-ui 已使用 Vue 3 构建，团队具备 Vue 开发经验。OpenVera Core 引擎层为纯 TypeScript，与前端框架完全解耦，通过 Tauri IPC 桥接，无框架绑定。
 
@@ -315,7 +322,9 @@ Partner (Tauri App)
         └── 零进程开销，内存共享，调用延迟 < 1ms
 ```
 
-**方案**：将 OpenVera Core 编译为 WASM，由 Tauri Rust 层直接调用。相比子进程方案，省去 IPC 序列化开销，启动更快，内存占用更低。
+**首选方案**：将 OpenVera Core 编译为 WASM，由 Tauri Rust 层直接调用。相比子进程方案，省去 IPC 序列化开销，启动更快，内存占用更低。
+
+**备选方案（若 WASM 不可行）**：OpenVera Core 以 Node.js sidecar 形式由 Tauri 启动，通过 IPC（stdin/stdout 或本地 socket）桥接。代价是序列化开销与进程管理，但实现确定性高。**Phase 2 需先完成 WASM 可行性验证 spike，再二选一定案。**
 
 ### 4.5 安全设计
 
@@ -325,6 +334,8 @@ Partner (Tauri App)
 | 文件越权 | 沙箱目录限制 + 路径规范化 |
 | API Key 泄露 | 优先系统 Keychain（Win Credential Manager / macOS Keychain），回退本地文件 AES-256-GCM 加密 |
 | 恶意插件 | 四层防护：权限声明(manifest) + 安装确认弹窗 + Worker 线程沙箱隔离 + 网络 Host 白名单 |
+| IPC 滥用 | Tauri command allowlist + 参数校验 + capability 配置最小授权，仅暴露必要命令 |
+| 预览面板 XSS | 远程 HTML/URL 在隔离 webview 渲染，CSP 限制 + 禁用 Node 集成 + sandbox 属性，不与主窗口共享上下文 |
 
 **插件安全模型详细设计**：
 
@@ -338,12 +349,17 @@ Partner (Tauri App)
 
 **WASM 编译策略**：
 
+> ⚠️ **待验证项**：OpenVera Core 当前为**纯 TypeScript，无任何 WASM 构建链**（无 wasm-pack/wasm-bindgen/AssemblyScript）。下表为目标方案，非既有能力。核心逻辑层 `agent/`/`plan/` 实际依赖 `@open-vera/plugin-runtime` 等内部包，能否脱离 JS 依赖编译为 WASM**尚未验证**。
+>
+> **替代方案**：若 WASM 编译不可行，回退为"OpenVera Core 以 Node.js sidecar / JS 运行时形式由 Tauri 启动"，通过 IPC 桥接（参见 4.4 备选方案）。Phase 2 需先做 WASM 可行性 spike 再定案。
+
 | 模块 | 策略 | 原因 |
 |------|------|------|
-| `context/` `agent/` `prompt/` `plan/` `intent/` `types/` | **编译 WASM** | 纯逻辑，无 IO 依赖 |
+| `context/` `agent/` `prompt/` `plan/` `intent/` `types/` | **目标编译 WASM**（待验证） | 纯逻辑，但需确认无内部包 IO 依赖 |
 | `adapters/` (LLM SDK) | **保留 JS** | HTTP SDK 依赖，走 Tauri HTTP 调用 |
 | `storage/` (SQLite) | **保留 JS** | Native 依赖，用 Tauri SQLite 替代 |
 | `tools/` | **保留 JS** | 工具执行需 Node.js 环境 |
+| `plugin-runtime/` | **保留 JS** | Worker 沙箱依赖 Node/浏览器运行时 |
 | `repl/` | **不需要** | Partner 使用 Vue UI，无终端渲染需求 |
 
 ---
@@ -431,11 +447,39 @@ Partner (Tauri App)
 | 维度 | 要求 |
 |------|------|
 | 启动时间 | 冷启动 < 3 秒 |
-| 内存占用 | 空闲 < 150MB，运行中 < 500MB |
+| 内存占用 | 空闲 < 150MB，运行中 < 500MB（含全部 Agent 实例，超限时拒绝新实例） |
 | 包体大小 | 安装包 < 30MB (Tauri 优势) |
 | 跨平台 | Windows / macOS / Linux |
 | 离线能力 | UI 可用，Agent 需联网（除非本地模型） |
-| 自动更新 | Tauri 内置 updater |
+| 自动更新 | Tauri 内置 updater，更新后保证 SQLite schema 向后兼容 |
+| 并发上限 | 多实例并发数有上限（默认 N=3，可配置），全局 token/时间预算约束，避免与内存上限冲突 |
+| 可访问性 | 键盘导航、屏幕阅读器语义标签、可调字号，满足非技术用户与无障碍需求 |
+| 国际化 | UI 文案 i18n（中/英起步），搜索针对中文场景优化 |
+
+### 6.1 隐私与数据
+
+> 面向"所有人"，文件内容与对话会发往第三方 LLM，必须明确告知并给予控制权。
+
+- **数据流向声明**：首次启动明确告知对话/文件内容会发送至所选 LLM Provider
+- **本地优先**：所有对话、记忆、配置仅存本地 SQLite，无云同步、无遥测上报（除非用户显式开启）
+- **数据管理入口**：提供对话历史/记忆的导出（JSON/Markdown）与一键删除
+- **敏感信息**：API Key 不写入日志、不进对话上下文、不随导出泄露
+
+### 6.2 测试与质量门禁
+
+遵循 OpenVera 项目规范（见 `CLAUDE.md`）：
+
+- 新增业务逻辑必须有对应单元测试，核心模块覆盖率 ≥ 80%，整体 ≥ 70%
+- 编排层、持久化、IPC 桥接等关键路径必须有集成/E2E 测试
+- 提交前运行质量扫描（oxlint/sonarjs），不允许 error 级别发现
+- Tauri Rust 侧命令同样需测试覆盖
+
+### 6.3 可观测性
+
+- **本地日志**：分级日志（debug/info/warn/error），用户可查看与导出，用于问题排查
+- **崩溃报告**：应用崩溃捕获堆栈，本地留存，用户可选择性提交
+- **Agent 执行追踪**：每次执行记录 token 消耗、步数、耗时、工具调用，支撑 P2 自进化仪表盘
+- **会话恢复**：执行状态周期性 checkpoint，崩溃/强退后可恢复进行中的任务
 
 ---
 
@@ -449,32 +493,44 @@ Partner (Tauri App)
 - [ ] Tauri ↔ OpenVera IPC 桥接
 - [ ] 流式消息渲染
 
-### Phase 2 — 核心联通（2 周）
+### Phase 2 — 核心联通（P0，3 周）
 
-- [ ] OpenVera WASM 集成
+> 聚焦单实例 Agent 跑通，多实例编排/看板移至 Phase 4（P1）。
+
+- [ ] **WASM 可行性 spike**（先验证，决定 WASM vs Node.js sidecar）
+- [ ] OpenVera Core 集成（WASM 或 sidecar，依 spike 结果）
 - [ ] 工具执行内联卡片（折叠/展开）
 - [ ] 无限上下文引擎 — 复用 Core Context（窗口裁剪 + 分段压缩 + 空闲压缩）
 - [ ] 首次启动极简引导（推荐模型 + API Key 输入）
-- [ ] 对话自动持久化（SQLite）
+- [ ] token 消耗 / 费用实时显示
+- [ ] 对话自动持久化（SQLite + schema 版本化）
+- [ ] 文件拖入作为上下文
+- [ ] 基础测试门禁（覆盖率达标，参见第 11 节）
+
+### Phase 3 — 体验打磨（P0，2 周）
+
 - [ ] 全局搜索（历史对话内容检索）
-- [ ] 多实例编排层（任务队列 + 实例管理）
-- [ ] 任务看板 UI（待办/进行中/已完成）
-- [ ] 网关层（多实例状态聚合）
-- [ ] 左侧 Git 变更面板
-- [ ] 多模态输入（语音 + 文件拖入）
-
-### Phase 3 — 体验打磨（2 周）
-
 - [ ] 无限上下文引擎 — 长期记忆 + 语义检索
-- [ ] 右侧多标签预览面板（网页/PDF/图片/音视频/代码）
+- [ ] 右侧多标签预览面板（网页/PDF/图片/音视频/代码，含 XSS 隔离）
+- [ ] 左侧 Git 变更面板
 - [ ] 高风险操作确认
 - [ ] 系统托盘 + 通知
 - [ ] 深色/浅色主题
+- [ ] 隐私声明 + 本地数据导出/删除入口
+- [ ] 崩溃恢复（应用强退后会话/任务恢复）
 
-### Phase 4 — 打包发布（1 周）
+### Phase 4 — 多实例与增强（P1，2 周）
+
+- [ ] 多实例编排层（任务队列 + 实例管理 + 并发/资源上限）
+- [ ] 任务看板 UI（待办/进行中/已完成）
+- [ ] 网关层（多实例状态聚合）
+- [ ] 语音输入 STT（待开发，详见 3.1.2）
+- [ ] 网页搜索（AnySearch 技能，待开发）
+
+### Phase 5 — 打包发布（1 周）
 
 - [ ] 跨平台构建（Windows / macOS / Linux）
-- [ ] 自动更新
+- [ ] 自动更新（含数据迁移兼容）
 - [ ] 安装包优化
 - [ ] 文档与用户引导
 
@@ -497,25 +553,33 @@ Partner (Tauri App)
 | 11 | 输入方式 | 键盘 + 语音 + 文件拖入，作为 P0 天然支持 |
 | 12 | 目标用户 | 面向所有人，非技术人员为主要群体，开发者为早期用户 |
 | 13 | 简易性原则 | 界面不出现技术术语，开发者功能按需浮现，开箱即用 |
-| 14 | 网页搜索 | 不使用模型自带 Web Search，采用 AnySearch + Tavily/百度搜索统一方案 |
-| 15 | 无限上下文实现 | 复用 OpenVera Core Context 模块（分段压缩 + 最近全量），不重新实现 |
+| 14 | 网页搜索 | 不使用模型自带 Web Search，**目标**采用 AnySearch + Tavily/百度搜索统一方案（待开发，非现成复用） |
+| 15 | 无限上下文实现 | 复用 OpenVera Core Context 模块（分段压缩 + 最近全量），不重新实现 ✅ 已验证存在 |
 | 16 | 进程模型 | 单桌面进程（父进程）+ 多 Agent 实例，编排层自动调度 |
 | 17 | 会话模型 | 隐式会话——用户不可见，每个窗口自动映射为一个会话/实例 |
 | 18 | 任务可见性 | 网关层聚合状态 + 应用内任务看板，跨窗口查看所有任务进展 |
-| 19 | 插件安全 | 权限声明(manifest) + 安装确认 + Worker 沙箱隔离 + 网络白名单 |
+| 19 | 插件安全 | 权限声明(manifest) + 安装确认 + Worker 沙箱隔离 + 网络白名单（复用 `plugin-runtime` 包）✅ |
 | 20 | API Key 存储 | 优先系统 Keychain，回退本地文件 AES-256-GCM 加密 |
-| 21 | WASM 编译 | 纯逻辑层(context/agent/prompt/plan)编译 WASM，IO 层保留 JS 走 Tauri IPC |
 
-## 9. 开放问题
+## 9. 待验证 / 开放问题
 
-所有开放问题均已决策：
+> 以下为**尚未定案或需技术验证**的事项，不应在排期中按"已复用"对待。
+
+| # | 问题 | 当前状态 / 倾向方案 | 验证动作 |
+|---|------|--------------------|---------|
+| 1 | **WASM 编译可行性** | 倾向编译，但 Core 当前纯 TS、无构建链，逻辑层有内部包依赖 | Phase 2 做 spike；不可行则回退 Node.js sidecar + IPC |
+| 2 | **网页搜索（AnySearch）** | 待开发，Core 无实现 | Phase 2 评估 Tavily/百度 API，作为新 Skill 实现 |
+| 3 | **语音输入 STT** | 待开发，无可复用实现 | 评估第三方流式 STT；排期紧可降级 P1 |
+| 4 | **多实例资源上限** | 未定 | 定义实例并发上限、全局 token/内存预算（见 6 非功能需求） |
+| 5 | **数据 Schema 版本化** | 未定 | 定义 SQLite schema 迁移策略，保证自动更新后老数据兼容 |
+
+**已决议的历史开放问题：**
 
 | # | 问题 | 决策 |
 |---|------|------|
-| 1 | ~~插件系统的安全模型~~ | 权限声明(manifest) + 安装确认 + Worker 沙箱 + 网络白名单 |
-| 2 | ~~API Key 存储加密方案~~ | 优先系统 Keychain，回退 AES-256-GCM 文件加密 |
-| 3 | ~~WASM 编译链路~~ | 纯逻辑层编译 WASM，IO 层保留 JS 通过 Tauri IPC 桥接 |
-| 4 | ~~无限上下文的摘要压缩策略~~ | 复用 Core Context 的分段压缩 + 最近内容全量方案 |
+| A | ~~插件系统的安全模型~~ | 权限声明(manifest) + 安装确认 + Worker 沙箱 + 网络白名单（复用 `plugin-runtime`） |
+| B | ~~API Key 存储加密方案~~ | 优先系统 Keychain，回退 AES-256-GCM 文件加密 |
+| C | ~~无限上下文的摘要压缩策略~~ | 复用 Core Context 的分段压缩 + 最近内容全量方案 |
 
 ---
 
