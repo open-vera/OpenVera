@@ -89,7 +89,7 @@ describe("useModelCatalogStore", () => {
     await catalog.loadProviders("/repo");
     listLlmProviderModelsMock.mockResolvedValueOnce([]);
 
-    const pending = catalog.refreshProviderModels("/repo", "compony", true);
+    const pending = catalog.refreshProviderModels("/repo", "compony", { force: true });
     await vi.advanceTimersByTimeAsync(12_000);
     await pending;
 

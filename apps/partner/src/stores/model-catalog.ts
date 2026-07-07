@@ -4,7 +4,7 @@ import {
   listLlmProviders,
   refreshLlmProviderModels,
 } from "@/bridge/llm-catalog";
-import type { CatalogModel, CatalogProvider } from "@/types";
+import type { CatalogModel, CatalogProvider, LLMProtocol } from "@/types";
 
 const REMOTE_REFRESH_TTL_MS = 5 * 60 * 1000;
 const REMOTE_REFRESH_FAILED_TTL_MS = 2 * 60 * 1000;
@@ -88,7 +88,14 @@ export const useModelCatalogStore = defineStore("modelCatalog", {
         this.loadingProviders = false;
       }
     },
-    async ensureProviderModels(projectRoot: string | undefined, providerId: string) {
+    async ensureProviderModels(
+      projectRoot: string | undefined,
+      providerId: string,
+      options?: { protocol?: string; force?: boolean },
+    ) {
+      if (options?.force) {
+        this.invalidateProvider(providerId);
+      }
       if (this.loadingProviderIds.includes(providerId)) return;
 
       if (!this.modelsByProvider[providerId]?.length) {
@@ -108,14 +115,17 @@ export const useModelCatalogStore = defineStore("modelCatalog", {
         }
       }
 
-      void this.refreshProviderModels(projectRoot, providerId);
+      void this.refreshProviderModels(projectRoot, providerId, {
+        protocol: options?.protocol,
+        force: options?.force,
+      });
     },
     async refreshProviderModels(
       projectRoot: string | undefined,
       providerId: string,
-      force = false,
+      options?: { protocol?: string; force?: boolean },
     ) {
-      if (!force && !shouldRefreshRemote(this.remoteRefreshState[providerId])) {
+      if (!options?.force && !shouldRefreshRemote(this.remoteRefreshState[providerId])) {
         return;
       }
       if (this.refreshingProviderIds.includes(providerId)) return;
@@ -123,7 +133,9 @@ export const useModelCatalogStore = defineStore("modelCatalog", {
       this.refreshingProviderIds.push(providerId);
       try {
         const remote = await withTimeout(
-          refreshLlmProviderModels(projectRoot, providerId),
+          refreshLlmProviderModels(projectRoot, providerId, {
+            protocol: options?.protocol as LLMProtocol | undefined,
+          }),
           REMOTE_REFRESH_TIMEOUT_MS,
           "同步远程模型超时",
         );
@@ -139,6 +151,13 @@ export const useModelCatalogStore = defineStore("modelCatalog", {
           (id) => id !== providerId,
         );
       }
+    },
+    invalidateProvider(providerId: string) {
+      delete this.modelsByProvider[providerId];
+      delete this.remoteRefreshState[providerId];
+      delete this.providerErrors[providerId];
+      this.loadingProviderIds = this.loadingProviderIds.filter((id) => id !== providerId);
+      this.refreshingProviderIds = this.refreshingProviderIds.filter((id) => id !== providerId);
     },
     reset() {
       this.providers = [];

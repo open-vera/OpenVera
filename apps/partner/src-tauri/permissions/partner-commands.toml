@@ -134,6 +134,11 @@ description = "Enables the refresh_llm_provider_models command."
 commands.allow = ["refresh_llm_provider_models"]
 
 [[permission]]
+identifier = "allow-test-llm-connection"
+description = "Enables the test_llm_connection command."
+commands.allow = ["test_llm_connection"]
+
+[[permission]]
 identifier = "allow-lsp-start"
 description = "Enables the lsp_start command."
 commands.allow = ["lsp_start"]
@@ -179,6 +184,7 @@ permissions = [
   "allow-list-llm-providers",
   "allow-list-llm-provider-models",
   "allow-refresh-llm-provider-models",
+  "allow-test-llm-connection",
   "allow-lsp-start",
   "allow-lsp-stop",
   "allow-lsp-symbol-search",

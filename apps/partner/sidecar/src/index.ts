@@ -2,6 +2,7 @@ import { handleAgentAbort, handleAgentRun, inspectEffectiveLlmConfig } from "./a
 import {
   listConfiguredProviders,
   listProviderModels,
+  testProviderConnection,
 } from "./llm-catalog.js";
 import {
   parseLine,
@@ -143,9 +144,34 @@ async function handleRequest(request: RpcRequest): Promise<void> {
   }
   if (request.method === "llm.listProviderModels") {
     try {
-      const params = request.params as { projectRoot: string; providerId: string };
-      const models = await listProviderModels(params.projectRoot, params.providerId);
+      const params = request.params as {
+        projectRoot: string;
+        providerId: string;
+        protocol?: string;
+      };
+      const models = await listProviderModels(params.projectRoot, params.providerId, {
+        protocol: params.protocol,
+      });
       writeResult(request.id, { models });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      writeError(request.id, message);
+    }
+    return;
+  }
+  if (request.method === "llm.testConnection") {
+    try {
+      const params = request.params as {
+        projectRoot: string;
+        providerId: string;
+        protocol?: string;
+      };
+      const result = await testProviderConnection(
+        params.projectRoot,
+        params.providerId,
+        { protocol: params.protocol },
+      );
+      writeResult(request.id, result);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       writeError(request.id, message);

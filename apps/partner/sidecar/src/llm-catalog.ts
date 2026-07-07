@@ -22,6 +22,33 @@ function protocolForAdapter(adapter: string): string {
   return "anthropic";
 }
 
+function adapterForProtocol(protocol: string): string {
+  if (protocol === "openai-compatible") return "openai";
+  if (protocol === "gemini") return "gemini";
+  return "anthropic";
+}
+
+function withProtocolOverride(
+  config: VeraConfig,
+  providerId: string,
+  protocol?: string,
+): VeraConfig {
+  const normalized = protocol?.trim();
+  if (!normalized) return config;
+  const provider = config.providers?.[providerId];
+  if (!provider) return config;
+  return {
+    ...config,
+    providers: {
+      ...(config.providers ?? {}),
+      [providerId]: {
+        ...provider,
+        adapter: adapterForProtocol(normalized),
+      },
+    },
+  };
+}
+
 function providerHasApiKey(
   config: VeraConfig,
   providerId: string,
@@ -72,8 +99,10 @@ function configuredModelsForProvider(
 export async function listProviderModels(
   projectRoot: string,
   providerId: string,
+  options?: { protocol?: string },
 ): Promise<CatalogModel[]> {
-  const config = loadConfig(undefined, projectRoot);
+  const baseConfig = loadConfig(undefined, projectRoot);
+  const config = withProtocolOverride(baseConfig, providerId, options?.protocol);
   const provider = config.providers?.[providerId];
   if (!provider) {
     throw new Error(`Unknown provider: ${providerId}`);
@@ -103,4 +132,22 @@ export async function listProviderModels(
 
   const targetModel = service.resolveModel({ provider: providerId }).model;
   return [{ id: targetModel }];
+}
+
+export async function testProviderConnection(
+  projectRoot: string,
+  providerId: string,
+  options?: { protocol?: string },
+): Promise<{ ok: boolean; modelCount: number; message: string }> {
+  try {
+    const models = await listProviderModels(projectRoot, providerId, options);
+    return {
+      ok: true,
+      modelCount: models.length,
+      message: models.length > 0 ? "ok" : "empty",
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, modelCount: 0, message };
+  }
 }

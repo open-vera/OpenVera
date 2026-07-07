@@ -111,6 +111,7 @@ pub async fn refresh_llm_provider_models(
     sidecar: State<'_, SidecarManager>,
     project_root: Option<String>,
     provider_id: String,
+    protocol: Option<String>,
 ) -> Result<Value, String> {
     let root = project_root.unwrap_or_else(resolve_project_root);
     sidecar.call_rpc(
@@ -118,6 +119,25 @@ pub async fn refresh_llm_provider_models(
         json!({
             "projectRoot": root,
             "providerId": provider_id,
+            "protocol": protocol,
+        }),
+    )
+}
+
+#[tauri::command]
+pub async fn test_llm_connection(
+    sidecar: State<'_, SidecarManager>,
+    project_root: Option<String>,
+    provider_id: String,
+    protocol: Option<String>,
+) -> Result<Value, String> {
+    let root = project_root.unwrap_or_else(resolve_project_root);
+    sidecar.call_rpc(
+        "llm.testConnection",
+        json!({
+            "projectRoot": root,
+            "providerId": provider_id,
+            "protocol": protocol,
         }),
     )
 }

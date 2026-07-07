@@ -70,6 +70,7 @@ pub fn run() {
             commands::agent::list_llm_providers,
             commands::agent::list_llm_provider_models,
             commands::agent::refresh_llm_provider_models,
+            commands::agent::test_llm_connection,
             commands::lsp::lsp_start,
             commands::lsp::lsp_stop,
             commands::lsp::lsp_symbol_search,
