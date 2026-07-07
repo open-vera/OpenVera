@@ -1,0 +1,676 @@
+pub mod tools;
+
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use serde_json::{json, Value};
+use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager};
+
+use tools::{execute_partner_tool, PartnerToolError};
+
+#[derive(Clone)]
+pub struct SidecarLaunch {
+    pub program: String,
+    pub args: Vec<String>,
+    pub cwd: PathBuf,
+}
+
+pub struct SidecarManager {
+    child: Mutex<Option<Child>>,
+    stdin: Arc<Mutex<Option<std::process::ChildStdin>>>,
+    rpc_pending: Arc<Mutex<HashMap<String, mpsc::Sender<Value>>>>,
+    tool_approvals: Arc<Mutex<HashMap<String, mpsc::Sender<bool>>>>,
+    app: Option<AppHandle>,
+    launch: Option<SidecarLaunch>,
+}
+
+impl SidecarManager {
+    pub fn try_spawn(app: &AppHandle) -> Self {
+        match Self::spawn(app) {
+            Ok(manager) => manager,
+            Err(error) => {
+                eprintln!("[partner] sidecar unavailable: {error}");
+                Self::disconnected()
+            }
+        }
+    }
+
+    fn disconnected() -> Self {
+        Self {
+            child: Mutex::new(None),
+            stdin: Arc::new(Mutex::new(None)),
+            rpc_pending: Arc::new(Mutex::new(HashMap::new())),
+            tool_approvals: Arc::new(Mutex::new(HashMap::new())),
+            app: None,
+            launch: None,
+        }
+    }
+
+    pub fn spawn(app: &AppHandle) -> Result<Self, String> {
+        let launch = find_sidecar_entry(app)?;
+        eprintln!(
+            "[partner] spawning sidecar: {} {:?} (cwd={:?})",
+            launch.program, launch.args, launch.cwd
+        );
+
+        let (child, stdout, child_stdin) = spawn_sidecar_process(&launch)?;
+        let stdin = Arc::new(Mutex::new(child_stdin));
+
+        let rpc_pending = Arc::new(Mutex::new(HashMap::<String, mpsc::Sender<Value>>::new()));
+        let tool_approvals = Arc::new(Mutex::new(HashMap::<String, mpsc::Sender<bool>>::new()));
+        let manager = Self {
+            child: Mutex::new(Some(child)),
+            stdin: Arc::clone(&stdin),
+            rpc_pending: Arc::clone(&rpc_pending),
+            tool_approvals: Arc::clone(&tool_approvals),
+            app: Some(app.clone()),
+            launch: Some(launch),
+        };
+
+        spawn_stdout_reader(stdout, app.clone(), stdin, rpc_pending, tool_approvals);
+
+        Ok(manager)
+    }
+
+    pub fn write_json(&self, value: &Value) -> Result<(), String> {
+        let line = serde_json::to_string(value).map_err(|error| error.to_string())?;
+        self.write_line(&line)
+    }
+
+    fn ensure_connected(&self) -> Result<(), String> {
+        let guard = self.stdin.lock().map_err(|error| error.to_string())?;
+        if guard.is_none() {
+            return Err(
+                "Sidecar 未就绪。请确认已安装 Node.js（PATH 中可用 node 命令）后重启应用。"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+
+    pub fn write_line(&self, line: &str) -> Result<(), String> {
+        match self.try_write_line(line) {
+            Ok(()) => Ok(()),
+            Err(error) if is_recoverable_pipe_error(&error) => {
+                eprintln!("[partner] sidecar write failed, restarting: {error}");
+                self.restart()?;
+                self.try_write_line(line)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn try_write_line(&self, line: &str) -> Result<(), String> {
+        let mut guard = self.stdin.lock().map_err(|error| error.to_string())?;
+        let stdin = guard
+            .as_mut()
+            .ok_or_else(|| "sidecar stdin unavailable".to_string())?;
+        writeln!(stdin, "{line}").map_err(|error| error.to_string())?;
+        stdin.flush().map_err(|error| error.to_string())
+    }
+
+    fn restart(&self) -> Result<(), String> {
+        let launch = self
+            .launch
+            .clone()
+            .ok_or_else(|| "Sidecar 未就绪，请重启 Partner。".to_string())?;
+        let app = self
+            .app
+            .clone()
+            .ok_or_else(|| "Sidecar 未就绪，请重启 Partner。".to_string())?;
+
+        let (child, stdout, child_stdin) = spawn_sidecar_process(&launch)?;
+        {
+            let mut child_guard = self.child.lock().map_err(|error| error.to_string())?;
+            if let Some(mut stale_child) = child_guard.take() {
+                let _ = stale_child.kill();
+            }
+            *child_guard = Some(child);
+        }
+        {
+            let mut stdin_guard = self.stdin.lock().map_err(|error| error.to_string())?;
+            *stdin_guard = child_stdin;
+        }
+
+        spawn_stdout_reader(
+            stdout,
+            app,
+            Arc::clone(&self.stdin),
+            Arc::clone(&self.rpc_pending),
+            Arc::clone(&self.tool_approvals),
+        );
+        Ok(())
+    }
+
+    pub fn is_running(&self) -> Result<bool, String> {
+        let guard = self.child.lock().map_err(|error| error.to_string())?;
+        Ok(guard.is_some())
+    }
+
+    pub fn call_rpc(&self, method: &str, params: Value) -> Result<Value, String> {
+        self.ensure_connected()?;
+        let request_id = uuid::Uuid::new_v4().to_string();
+        let (tx, rx) = mpsc::channel();
+        self.rpc_pending
+            .lock()
+            .map_err(|error| error.to_string())?
+            .insert(request_id.clone(), tx);
+
+        let payload = json!({
+            "id": request_id,
+            "method": method,
+            "params": params,
+        });
+        if let Err(error) = self.write_json(&payload) {
+            self.rpc_pending
+                .lock()
+                .map_err(|error| error.to_string())?
+                .remove(&request_id);
+            return Err(error);
+        }
+
+        let response = rx
+            .recv_timeout(Duration::from_secs(30))
+            .map_err(|_| "sidecar rpc timed out".to_string())?;
+
+        let event_type = response
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if event_type == "error" {
+            let message = response
+                .pointer("/data/message")
+                .and_then(Value::as_str)
+                .unwrap_or("sidecar rpc failed");
+            return Err(message.to_string());
+        }
+
+        response
+            .get("data")
+            .cloned()
+            .ok_or_else(|| "sidecar rpc returned empty data".to_string())
+    }
+
+    pub fn resolve_tool_approval(&self, call_id: String, approved: bool) -> Result<(), String> {
+        let sender = self
+            .tool_approvals
+            .lock()
+            .map_err(|error| error.to_string())?
+            .remove(&call_id)
+            .ok_or_else(|| "授权请求已过期或不存在".to_string())?;
+        sender
+            .send(approved)
+            .map_err(|_| "授权请求已失效".to_string())
+    }
+}
+
+#[derive(Clone)]
+struct SidecarWriter {
+    stdin: Arc<Mutex<Option<std::process::ChildStdin>>>,
+}
+
+impl SidecarWriter {
+    fn write_json(&self, value: &Value) -> Result<(), String> {
+        let line = serde_json::to_string(value).map_err(|error| error.to_string())?;
+        let mut guard = self.stdin.lock().map_err(|error| error.to_string())?;
+        let stdin = guard
+            .as_mut()
+            .ok_or_else(|| "sidecar stdin unavailable".to_string())?;
+        writeln!(stdin, "{line}").map_err(|error| error.to_string())?;
+        stdin.flush().map_err(|error| error.to_string())
+    }
+}
+
+fn spawn_sidecar_process(
+    launch: &SidecarLaunch,
+) -> Result<(Child, ChildStdout, Option<ChildStdin>), String> {
+    let mut child = Command::new(&launch.program)
+        .args(&launch.args)
+        .current_dir(&launch.cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .env("PARTNER_PROJECT_ROOT", resolve_project_root())
+        .spawn()
+        .map_err(|error| format!("failed to spawn sidecar: {error}"))?;
+
+    let child_stdin = child.stdin.take();
+    let stdout = child.stdout.take().ok_or("sidecar stdout unavailable")?;
+    Ok((child, stdout, child_stdin))
+}
+
+fn spawn_stdout_reader(
+    stdout: ChildStdout,
+    app: AppHandle,
+    stdin: Arc<Mutex<Option<ChildStdin>>>,
+    rpc_pending: Arc<Mutex<HashMap<String, mpsc::Sender<Value>>>>,
+    tool_approvals: Arc<Mutex<HashMap<String, mpsc::Sender<bool>>>>,
+) {
+    let writer = SidecarWriter { stdin };
+    std::thread::spawn(move || {
+        read_stdout_loop(stdout, app, writer, rpc_pending, tool_approvals);
+    });
+}
+
+fn is_recoverable_pipe_error(error: &str) -> bool {
+    error.contains("Broken pipe")
+        || error.contains("os error 32")
+        || error.contains("sidecar stdin unavailable")
+}
+
+fn read_stdout_loop(
+    stdout: std::process::ChildStdout,
+    app: AppHandle,
+    writer: SidecarWriter,
+    rpc_pending: Arc<Mutex<HashMap<String, mpsc::Sender<Value>>>>,
+    tool_approvals: Arc<Mutex<HashMap<String, mpsc::Sender<bool>>>>,
+) {
+    let reader = BufReader::new(stdout);
+    for line in reader.lines() {
+        let line = match line {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("[partner] sidecar stdout closed: {error}");
+                break;
+            }
+        };
+        if let Err(error) =
+            dispatch_sidecar_line(&app, &writer, &line, &rpc_pending, &tool_approvals)
+        {
+            eprintln!("[partner] sidecar dispatch error: {error}");
+        }
+    }
+}
+
+fn dispatch_sidecar_line(
+    app: &AppHandle,
+    writer: &SidecarWriter,
+    line: &str,
+    rpc_pending: &Arc<Mutex<HashMap<String, mpsc::Sender<Value>>>>,
+    tool_approvals: &Arc<Mutex<HashMap<String, mpsc::Sender<bool>>>>,
+) -> Result<(), String> {
+    let event: Value = serde_json::from_str(line).map_err(|error| error.to_string())?;
+    let request_id = event
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let event_type = event
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    if event_type == "result" || event_type == "error" {
+        let mut handled_pending = false;
+        if let Ok(mut pending) = rpc_pending.lock() {
+            if let Some(tx) = pending.remove(&request_id) {
+                let _ = tx.send(event.clone());
+                handled_pending = true;
+            }
+        }
+        if handled_pending || event_type == "result" {
+            return Ok(());
+        }
+    }
+    let instance_id = event
+        .pointer("/data/instanceId")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    match event_type {
+        "delta" => {
+            let delta = event
+                .pointer("/data/text")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            app.emit(
+                "agent:stream:delta",
+                json!({
+                    "requestId": request_id,
+                    "instanceId": instance_id,
+                    "delta": delta,
+                }),
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        "thinking" => {
+            let text = event
+                .pointer("/data/text")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            app.emit(
+                "agent:stream:thinking",
+                json!({
+                    "requestId": request_id,
+                    "instanceId": instance_id,
+                    "text": text,
+                }),
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        "tool_call" => {
+            let call_id = event
+                .pointer("/data/callId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let name = event
+                .pointer("/data/name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let input = event
+                .pointer("/data/input")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+
+            app.emit(
+                "agent:stream:tool_call",
+                json!({
+                    "requestId": request_id,
+                    "instanceId": instance_id,
+                    "callId": call_id,
+                    "name": name,
+                    "input": input,
+                }),
+            )
+            .map_err(|error| error.to_string())?;
+
+            if event
+                .pointer("/data/handledBySidecar")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                return Ok(());
+            }
+
+            let tool_result = execute_tool_call(
+                app,
+                &request_id,
+                instance_id,
+                &call_id,
+                &name,
+                &input,
+                tool_approvals,
+            )?;
+            app.emit(
+                "agent:stream:tool_result",
+                json!({
+                    "requestId": request_id,
+                    "instanceId": instance_id,
+                    "callId": call_id,
+                    "output": tool_result.pointer("/data/output").and_then(Value::as_str).unwrap_or_default(),
+                    "isError": tool_result.pointer("/data/isError").and_then(Value::as_bool).unwrap_or(false),
+                }),
+            )
+            .map_err(|error| error.to_string())?;
+            writer.write_json(&tool_result)?;
+        }
+        "tool_result" => {
+            app.emit(
+                "agent:stream:tool_result",
+                json!({
+                    "requestId": request_id,
+                    "instanceId": instance_id,
+                    "callId": event.pointer("/data/callId").and_then(Value::as_str).unwrap_or_default(),
+                    "output": event.pointer("/data/output").and_then(Value::as_str).unwrap_or_default(),
+                    "isError": event.pointer("/data/isError").and_then(Value::as_bool).unwrap_or(false),
+                }),
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        "usage" => {
+            app.emit(
+                "agent:stream:usage",
+                json!({
+                    "requestId": request_id,
+                    "instanceId": instance_id,
+                    "usage": event.pointer("/data/usage").cloned(),
+                }),
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        "done" => {
+            app.emit(
+                "agent:stream:done",
+                json!({
+                    "requestId": request_id,
+                    "instanceId": instance_id,
+                    "text": event.pointer("/data/text").and_then(Value::as_str),
+                    "usage": event.pointer("/data/usage").cloned(),
+                }),
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        "error" => {
+            app.emit(
+                "agent:stream:error",
+                json!({
+                    "requestId": request_id,
+                    "instanceId": instance_id,
+                    "message": event
+                        .pointer("/data/message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown error"),
+                }),
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        "ready" => {
+            app.emit(
+                "agent:stream:ready",
+                json!({
+                    "requestId": request_id,
+                    "instanceId": instance_id,
+                }),
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        other => {
+            eprintln!("[partner] ignored sidecar event: {other}");
+        }
+    }
+
+    Ok(())
+}
+
+fn tool_result_message(request_id: &str, call_id: &str, output: String, is_error: bool) -> Value {
+    json!({
+        "id": request_id,
+        "type": "tool_result",
+        "data": {
+            "callId": call_id,
+            "output": output,
+            "isError": is_error,
+        }
+    })
+}
+
+fn execute_tool_call(
+    app: &AppHandle,
+    request_id: &str,
+    instance_id: &str,
+    call_id: &str,
+    name: &str,
+    input: &Value,
+    tool_approvals: &Arc<Mutex<HashMap<String, mpsc::Sender<bool>>>>,
+) -> Result<Value, String> {
+    match execute_partner_tool(name, input, false) {
+        Ok(output) => Ok(tool_result_message(request_id, call_id, output, false)),
+        Err(PartnerToolError::Failed(message)) => {
+            Ok(tool_result_message(request_id, call_id, message, true))
+        }
+        Err(PartnerToolError::ApprovalRequired(approval)) => {
+            let (tx, rx) = mpsc::channel();
+            tool_approvals
+                .lock()
+                .map_err(|error| error.to_string())?
+                .insert(call_id.to_string(), tx);
+
+            app.emit(
+                "agent:tool_approval_required",
+                json!({
+                    "requestId": request_id,
+                    "instanceId": instance_id,
+                    "callId": call_id,
+                    "name": name,
+                    "input": input,
+                    "reason": approval.reason,
+                    "cmd": approval.cmd,
+                    "args": approval.args,
+                    "cwd": approval.cwd,
+                }),
+            )
+            .map_err(|error| error.to_string())?;
+
+            let approved = rx.recv_timeout(Duration::from_secs(300));
+            let _ = tool_approvals
+                .lock()
+                .map_err(|error| error.to_string())?
+                .remove(call_id);
+            let approved = match approved {
+                Ok(value) => value,
+                Err(_) => {
+                    return Ok(tool_result_message(
+                        request_id,
+                        call_id,
+                        "用户未在 5 分钟内完成命令授权".to_string(),
+                        true,
+                    ));
+                }
+            };
+
+            if !approved {
+                return Ok(tool_result_message(
+                    request_id,
+                    call_id,
+                    "用户拒绝授权执行该命令".to_string(),
+                    true,
+                ));
+            }
+
+            match execute_partner_tool(name, input, true) {
+                Ok(output) => Ok(tool_result_message(request_id, call_id, output, false)),
+                Err(PartnerToolError::Failed(message)) => {
+                    Ok(tool_result_message(request_id, call_id, message, true))
+                }
+                Err(PartnerToolError::ApprovalRequired(approval)) => Ok(tool_result_message(
+                    request_id,
+                    call_id,
+                    approval.reason,
+                    true,
+                )),
+            }
+        }
+    }
+}
+
+fn find_repo_root() -> Result<PathBuf, String> {
+    if let Ok(cwd) = std::env::current_dir() {
+        for ancestor in cwd.ancestors() {
+            if ancestor.join("pnpm-workspace.yaml").exists() {
+                return Ok(ancestor.to_path_buf());
+            }
+        }
+    }
+    Err("monorepo root not found".to_string())
+}
+
+pub fn find_sidecar_entry(app: &AppHandle) -> Result<SidecarLaunch, String> {
+    if let Ok(script) = std::env::var("PARTNER_SIDECAR_SCRIPT") {
+        let path = PathBuf::from(&script);
+        let cwd = path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        return Ok(SidecarLaunch {
+            program: resolve_node_program(),
+            args: vec![script],
+            cwd,
+        });
+    }
+
+    for rel in ["sidecar/partner-sidecar.cjs", "sidecar/index.js"] {
+        if let Ok(path) = app.path().resolve(rel, BaseDirectory::Resource) {
+            if path.exists() {
+                let cwd = path
+                    .parent()
+                    .map(Path::to_path_buf)
+                    .unwrap_or_else(|| PathBuf::from("."));
+                return Ok(SidecarLaunch {
+                    program: resolve_node_program(),
+                    args: vec![path.to_string_lossy().to_string()],
+                    cwd,
+                });
+            }
+        }
+    }
+
+    if let Ok(repo_root) = find_repo_root() {
+        let dist = repo_root.join("apps/partner/sidecar/dist/index.js");
+        if dist.exists() {
+            return Ok(SidecarLaunch {
+                program: resolve_node_program(),
+                args: vec![dist.to_string_lossy().to_string()],
+                cwd: repo_root.join("apps/partner/sidecar"),
+            });
+        }
+
+        let bundle = repo_root.join("apps/partner/sidecar/dist/partner-sidecar.cjs");
+        if bundle.exists() {
+            return Ok(SidecarLaunch {
+                program: resolve_node_program(),
+                args: vec![bundle.to_string_lossy().to_string()],
+                cwd: repo_root.join("apps/partner/sidecar"),
+            });
+        }
+
+        return Ok(SidecarLaunch {
+            program: "pnpm".to_string(),
+            args: vec![
+                "--filter".to_string(),
+                "@vera/partner-sidecar".to_string(),
+                "dev".to_string(),
+            ],
+            cwd: repo_root,
+        });
+    }
+
+    Err("sidecar entry not found (no bundled resource or monorepo dev path)".to_string())
+}
+
+fn resolve_node_program() -> String {
+    std::env::var("PARTNER_NODE").unwrap_or_else(|_| "node".to_string())
+}
+
+pub fn resolve_project_root() -> String {
+    if let Ok(root) = std::env::var("PARTNER_PROJECT_ROOT") {
+        return root;
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        for ancestor in cwd.ancestors() {
+            if ancestor.join(".vera/settings.json").exists() {
+                return ancestor.to_string_lossy().to_string();
+            }
+            if ancestor.join("pnpm-workspace.yaml").exists() {
+                return ancestor.to_string_lossy().to_string();
+            }
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let home_path = PathBuf::from(&home);
+        if home_path.join(".vera/settings.json").exists() {
+            return home;
+        }
+        let open_vera = home_path.join("workspace/open-vera");
+        if open_vera.join(".vera/settings.json").exists() {
+            return open_vera.to_string_lossy().to_string();
+        }
+    }
+    std::env::var("HOME").unwrap_or_else(|_| ".".to_string())
+}

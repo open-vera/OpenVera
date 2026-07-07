@@ -1,0 +1,23 @@
+{
+  "name": "@vera/partner-sidecar",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && esbuild src/index.ts --bundle --platform=node --format=cjs --external:chromium-bidi/* --external:fsevents --external:*.node --outfile=dist/partner-sidecar.cjs",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@open-vera/core": "workspace:*",
+    "@open-vera/openvera": "workspace:*",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.19.4",
+    "typescript": "^5.9.3"
+  }
+}
