@@ -11,8 +11,10 @@ import {
   type AgentAbortParams,
   type AgentRunParams,
   type RpcRequest,
+  type ToolApprovalMessage,
   type ToolResultMessage,
 } from "./protocol.js";
+import { resolveToolApproval } from "./tool-approval.js";
 
 const pendingTools = new Map<
   string,
@@ -52,6 +54,10 @@ function resolveToolResult(message: ToolResultMessage): void {
     return;
   }
   pending.resolve(message.data.output);
+}
+
+function handleToolApproval(message: ToolApprovalMessage): void {
+  resolveToolApproval(message.data.callId, message.data.approved);
 }
 
 async function handleRequest(request: RpcRequest): Promise<void> {
@@ -200,6 +206,11 @@ async function main(): Promise<void> {
 
     if ("type" in parsed && parsed.type === "tool_result") {
       resolveToolResult(parsed);
+      continue;
+    }
+
+    if ("type" in parsed && parsed.type === "tool_approval") {
+      handleToolApproval(parsed);
       continue;
     }
 

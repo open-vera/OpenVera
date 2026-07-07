@@ -197,15 +197,25 @@ impl SidecarManager {
     }
 
     pub fn resolve_tool_approval(&self, call_id: String, approved: bool) -> Result<(), String> {
-        let sender = self
+        let notified_via_channel = self
             .tool_approvals
             .lock()
             .map_err(|error| error.to_string())?
             .remove(&call_id)
-            .ok_or_else(|| "授权请求已过期或不存在".to_string())?;
-        sender
-            .send(approved)
-            .map_err(|_| "授权请求已失效".to_string())
+            .map(|sender| sender.send(approved).is_ok())
+            .unwrap_or(false);
+
+        if notified_via_channel {
+            return Ok(());
+        }
+
+        self.write_json(&json!({
+            "type": "tool_approval",
+            "data": {
+                "callId": call_id,
+                "approved": approved,
+            }
+        }))
     }
 }
 
@@ -420,6 +430,45 @@ fn dispatch_sidecar_line(
                     "callId": event.pointer("/data/callId").and_then(Value::as_str).unwrap_or_default(),
                     "output": event.pointer("/data/output").and_then(Value::as_str).unwrap_or_default(),
                     "isError": event.pointer("/data/isError").and_then(Value::as_bool).unwrap_or(false),
+                }),
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        "tool_approval_required" => {
+            let call_id = event
+                .pointer("/data/callId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let name = event
+                .pointer("/data/name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let input = event
+                .pointer("/data/input")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            let reason = event
+                .pointer("/data/reason")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let allow_dir = event
+                .pointer("/data/allowDir")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+
+            app.emit(
+                "agent:tool_approval_required",
+                json!({
+                    "requestId": request_id,
+                    "instanceId": instance_id,
+                    "callId": call_id,
+                    "name": name,
+                    "input": input,
+                    "reason": reason,
+                    "allowDir": allow_dir,
                 }),
             )
             .map_err(|error| error.to_string())?;

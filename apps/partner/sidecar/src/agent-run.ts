@@ -11,16 +11,18 @@ import { loadConfig, resolveConfigLocation } from "@open-vera/core/config";
 import {
   resolveClassifierTarget,
   resolveDefaultTarget,
+  resolveModelReference,
   resolveProviderModelConfig,
   resolveRoutingConfig,
 } from "@open-vera/core/config";
 import type { VeraConfig } from "@open-vera/core/config";
 import type { PlanEvent } from "@open-vera/core/plan";
 import type { Message, Usage } from "@open-vera/core/types";
-import { createToolRegistry, type ToolHost, type ToolResult } from "@open-vera/core/tools";
+import { createToolRegistry, type SecurityPlugin, type ToolHost, type ToolResult } from "@open-vera/core/tools";
 import { runInteractiveTurn } from "@open-vera/openvera";
 import type { AgentRunParams, PartnerLlmConfig, StreamEvent } from "./protocol.js";
 import { writeEvent } from "./protocol.js";
+import { waitForToolApproval } from "./tool-approval.js";
 
 const SYSTEM_PROMPT =
   "You are Partner, a helpful AI assistant running on the user's desktop. " +
@@ -42,6 +44,7 @@ interface LlmEnvironment {
 interface PartnerToolRuntime {
   toolHost: ToolHost;
   tools: import("@open-vera/core/types").Tool[];
+  security: SecurityPlugin;
 }
 
 interface SessionState {
@@ -102,29 +105,31 @@ function buildAdapter(
   llmConfig?: PartnerLlmConfig,
 ): LlmEnvironment | undefined {
   if (llmConfig?.apiKey && llmConfig.model) {
+    const fileConfig = loadConfig(undefined, projectRoot);
     const adapter = adapterTypeForProtocol(llmConfig.protocol);
     const provider = llmConfig.provider || "partner";
+    const target = resolveModelReference(fileConfig, llmConfig.model);
+    const model =
+      target.provider === provider ? target.model : llmConfig.model;
+    const configuredProvider = fileConfig.providers?.[provider];
+    const baseUrl = llmConfig.apiBaseUrl || configuredProvider?.base_url;
+    const providers = { ...(fileConfig.providers ?? {}) };
+    providers[provider] = {
+      ...(configuredProvider ?? {}),
+      adapter,
+      api_key: llmConfig.apiKey,
+      ...(baseUrl ? { base_url: baseUrl } : {}),
+    };
     const config: VeraConfig = {
-      providers: {
-        [provider]: {
-          adapter,
-          api_key: llmConfig.apiKey,
-          ...(llmConfig.apiBaseUrl ? { base_url: llmConfig.apiBaseUrl } : {}),
-        },
-      },
-      models: {
-        [llmConfig.model]: {
-          provider,
-          model: llmConfig.model,
-        },
-      },
+      ...fileConfig,
+      providers,
       default_provider: provider,
       default_model: llmConfig.model,
     };
     const service = new LlmService({ config, apiKeyOverride: llmConfig.apiKey });
     return {
-      adapter: service.buildAdapter(provider, llmConfig.model),
-      model: llmConfig.model,
+      adapter: service.buildAdapter(provider, model),
+      model,
       service,
       provider,
     };
@@ -149,7 +154,7 @@ async function createPartnerToolRuntime(
   projectRoot: string,
   llm: LlmEnvironment,
 ): Promise<PartnerToolRuntime> {
-  const { toolHost, loadPlugins } = createToolRegistry({
+  const { toolHost, loadPlugins, security } = createToolRegistry({
     cwd: projectRoot,
     llmService: llm.service,
     defaultModel: llm.model,
@@ -161,6 +166,7 @@ async function createPartnerToolRuntime(
   return {
     toolHost,
     tools: toolHost.getSchemas(),
+    security,
   };
 }
 
@@ -173,7 +179,12 @@ function formatToolResult(result: ToolResult): string {
 function resolvePartnerClassifier(
   projectRoot: string,
   llm: LlmEnvironment,
+  llmConfig?: PartnerLlmConfig,
 ): { adapter: LLMAdapter; model: string } {
+  if (llmConfig?.apiKey && llmConfig.model) {
+    return { adapter: llm.adapter, model: llm.model };
+  }
+
   const config = loadConfig(undefined, projectRoot);
   const routing = resolveRoutingConfig(config);
   if (routing?.enabled) {
@@ -325,8 +336,11 @@ function loadConfigForInspection(path: string, exists: boolean): VeraConfig {
   return JSON.parse(readFileSync(path, "utf-8")) as VeraConfig;
 }
 
-function adapterTypeForProtocol(protocol: string): "anthropic" | "openai" | "gemini" {
+function adapterTypeForProtocol(
+  protocol: string,
+): "anthropic" | "openai" | "openai-responses" | "gemini" {
   if (protocol === "openai-compatible") return "openai";
+  if (protocol === "openai-responses") return "openai-responses";
   if (protocol === "gemini") return "gemini";
   return "anthropic";
 }
@@ -490,13 +504,65 @@ export async function handleAgentRun(
           handledBySidecar: true,
         },
       });
-      const toolResult = await toolRuntime.toolHost.execute(name, toolInput, {
+
+      const toolCtx = {
         cwd: resolvedRoot,
         sessionId,
         signal: abortController.signal,
         llmService: built.service,
         defaultModel: built.model,
-      });
+      };
+
+      let toolResult = await toolRuntime.toolHost.execute(name, toolInput, toolCtx);
+      while (toolResult.needsConfirm) {
+        const confirm = toolResult.needsConfirm;
+        const approvalCallId = randomUUID();
+        appendRunLog(resolvedRoot, {
+          requestId,
+          sessionId,
+          instanceId,
+          event: "tool_approval_required",
+          callId: approvalCallId,
+          toolCallId: callId,
+          toolName: name,
+          allowDir: confirm.allowDir,
+          message: confirm.message,
+        });
+        writeEvent({
+          id: requestId,
+          type: "tool_approval_required",
+          data: {
+            instanceId,
+            callId: approvalCallId,
+            name,
+            input: toolInput,
+            reason: confirm.message,
+            allowDir: confirm.allowDir,
+          },
+        });
+
+        const approved = await waitForToolApproval(approvalCallId);
+        if (!approved) {
+          toolResult = {
+            ok: false,
+            content: "用户拒绝授权访问该路径",
+            error: {
+              code: "PERMISSION_DENIED",
+              message: "用户拒绝授权访问该路径",
+              retryable: false,
+            },
+          };
+          break;
+        }
+
+        toolRuntime.security.allowPath(confirm.allowDir);
+        toolResult = await toolRuntime.toolHost.execute(
+          confirm.retry.name,
+          confirm.retry.args,
+          toolCtx,
+        );
+      }
+
       const output = formatToolResult(toolResult);
       appendRunLog(resolvedRoot, {
         requestId,
@@ -606,7 +672,7 @@ export async function handleAgentRun(
       signal: abortController.signal,
       llmService: built.service,
       compressionProvider: built.provider,
-      classifier: resolvePartnerClassifier(resolvedRoot, built),
+      classifier: resolvePartnerClassifier(resolvedRoot, built, llmConfig),
       runMode: agentMode ?? "agent",
       onUsage,
       onToolCall: executeToolCall,

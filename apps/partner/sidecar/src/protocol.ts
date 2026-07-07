@@ -44,10 +44,19 @@ export type StreamEventType =
   | "delta"
   | "thinking"
   | "tool_call"
+  | "tool_approval_required"
   | "tool_result"
   | "usage"
   | "done"
   | "error";
+
+export interface ToolApprovalMessage {
+  type: "tool_approval";
+  data: {
+    callId: string;
+    approved: boolean;
+  };
+}
 
 export interface StreamEvent {
   id: string;
@@ -63,6 +72,8 @@ export interface StreamEvent {
     isError?: boolean;
     usage?: Usage;
     message?: string;
+    reason?: string;
+    allowDir?: string;
   };
 }
 
@@ -115,8 +126,10 @@ export function writeError(id: string, message: string): void {
   writeJsonLine({ id, type: "error", data: { message } });
 }
 
-export function parseLine(line: string): RpcRequest | ToolResultMessage | null {
+export function parseLine(
+  line: string,
+): RpcRequest | ToolResultMessage | ToolApprovalMessage | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
-  return JSON.parse(trimmed) as RpcRequest | ToolResultMessage;
+  return JSON.parse(trimmed) as RpcRequest | ToolResultMessage | ToolApprovalMessage;
 }
