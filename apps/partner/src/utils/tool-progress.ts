@@ -223,8 +223,8 @@ export function groupToolProgress(steps: ToolProgressStep[]): ToolProgressGroup[
 
 export function compactToolProgress(
   groups: ToolProgressGroup[],
-  maxGroups = 2,
-  maxStepsPerGroup = 2,
+  maxGroups = 1,
+  maxStepsPerGroup = 3,
 ): ToolProgressGroup[] {
   return groups.slice(-maxGroups).map((group) => ({
     ...group,

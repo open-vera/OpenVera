@@ -121,20 +121,19 @@ describe("tool progress summaries", () => {
     expect(step.detail).toBe("运行命令：git diff -- src/App.vue");
   });
 
-  it("keeps the latest two groups and latest two steps when compacted", () => {
+  it("keeps only the latest group and latest three steps when compacted", () => {
     const groups = groupToolProgress([
       summarizeToolCall(toolCall("t1", "read_file", { path: "a.ts" }), "zh-CN"),
       summarizeToolCall(toolCall("t2", "execute_shell", { command: "one" }), "zh-CN"),
       summarizeToolCall(toolCall("t3", "execute_shell", { command: "two" }), "zh-CN"),
       summarizeToolCall(toolCall("t4", "execute_shell", { command: "three" }), "zh-CN"),
-      summarizeToolCall(toolCall("t5", "rg", { pattern: "PreviewPanel" }), "zh-CN"),
+      summarizeToolCall(toolCall("t5", "execute_shell", { command: "four" }), "zh-CN"),
     ]);
 
     const compacted = compactToolProgress(groups);
 
-    expect(compacted).toHaveLength(2);
+    expect(compacted).toHaveLength(1);
     expect(compacted[0]?.title).toBe("执行命令");
-    expect(compacted[0]?.steps.map((step) => step.id)).toEqual(["t3", "t4"]);
-    expect(compacted[1]?.title).toBe("搜索代码与符号");
+    expect(compacted[0]?.steps.map((step) => step.id)).toEqual(["t3", "t4", "t5"]);
   });
 });

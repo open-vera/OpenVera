@@ -56,8 +56,19 @@ function entryUpdatedAt(tab: ChatTab, fallback: number): number {
   return lastMessage(tab)?.timestamp ?? fallback;
 }
 
+function currentWindowSnapshot(): PartnerWindowSnapshot {
+  return {
+    windowId: session.current.windowId,
+    chat: chat.exportSnapshot(),
+    preview: previewStore.exportSnapshot(),
+    layout: { leftWidth: 240, previewWidth: 420 },
+    updatedAt: Date.now(),
+  };
+}
+
 function buildEntries(snapshot: unknown): HistoryEntry[] {
   const normalized = normalizePartnerSessions(snapshot);
+  normalized.windows[session.current.windowId] = currentWindowSnapshot();
   const taskEntries = Object.values(normalized.tasks)
     .map((task) => ({
       key: `task:${task.taskId}`,
@@ -69,9 +80,8 @@ function buildEntries(snapshot: unknown): HistoryEntry[] {
       taskSnapshot: task,
     }))
     .sort((a, b) => b.updatedAt - a.updatedAt);
-  if (taskEntries.length > 0) return taskEntries;
 
-  return Object.values(normalized.windows)
+  const windowEntries = Object.values(normalized.windows)
     .flatMap((windowSnapshot) =>
       windowSnapshot.chat.tabs
         .filter((tab) => tab.kind === "chat")
@@ -86,6 +96,8 @@ function buildEntries(snapshot: unknown): HistoryEntry[] {
         })),
     )
     .sort((a, b) => b.updatedAt - a.updatedAt);
+
+  return [...taskEntries, ...windowEntries].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 async function refreshHistory() {
@@ -128,11 +140,13 @@ async function toggleOpen() {
 
 function selectEntry(entry: HistoryEntry) {
   if (entry.taskSnapshot) {
-    chat.restoreSnapshot(entry.taskSnapshot.chat);
+    chat.openSnapshotTab(entry.taskSnapshot.chat, entry.tabId);
     previewStore.restoreSnapshot(entry.taskSnapshot.preview);
-  } else if (entry.windowSnapshot && entry.windowId !== session.current.windowId) {
-    chat.restoreSnapshot(entry.windowSnapshot.chat);
-    previewStore.restoreSnapshot(entry.windowSnapshot.preview);
+  } else if (entry.windowSnapshot) {
+    chat.openSnapshotTab(entry.windowSnapshot.chat, entry.tabId);
+    if (entry.windowId !== session.current.windowId) {
+      previewStore.restoreSnapshot(entry.windowSnapshot.preview);
+    }
   }
   chat.selectTab(entry.tabId);
   open.value = false;

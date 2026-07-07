@@ -21,6 +21,7 @@ const attachments = ref<ChatAttachment[]>([]);
 const fileInput = ref<HTMLInputElement | null>(null);
 const isReadingFiles = ref(false);
 const attachmentError = ref("");
+const isComposing = ref(false);
 
 async function addFiles(files: Iterable<File>) {
   const selected = Array.from(files);
@@ -75,6 +76,12 @@ function onSubmit() {
 function onAbort() {
   emit("abort");
 }
+
+function onEnter(event: KeyboardEvent) {
+  if (event.isComposing || isComposing.value) return;
+  event.preventDefault();
+  onSubmit();
+}
 </script>
 
 <template>
@@ -106,7 +113,9 @@ function onAbort() {
         :disabled="disabled"
         placeholder="告诉 Partner 要做什么"
         rows="3"
-        @keydown.enter.exact.prevent="onSubmit"
+        @compositionstart="isComposing = true"
+        @compositionend="isComposing = false"
+        @keydown.enter.exact="onEnter"
         @paste="onPaste"
       />
       <div class="composer-toolbar">

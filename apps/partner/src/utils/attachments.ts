@@ -3,6 +3,12 @@ import type { ChatAttachment, ChatAttachmentKind } from "@/types";
 const MAX_INLINE_TEXT_CHARS = 120_000;
 const MAX_INLINE_DATA_URL_BYTES = 1_500_000;
 
+export interface OpenFileContext {
+  activeFilePath?: string | null;
+  openFilePaths?: string[];
+  projectRoot?: string;
+}
+
 const TEXT_EXTENSIONS = new Set([
   "css",
   "csv",
@@ -66,6 +72,38 @@ function fenceLanguage(attachment: ChatAttachment): string {
   return extensionFor(attachment.name).replace(/[^a-z0-9-]/g, "");
 }
 
+function uniquePaths(paths: string[]): string[] {
+  return Array.from(new Set(paths.map((path) => path.trim()).filter(Boolean)));
+}
+
+function displayPath(path: string, projectRoot?: string): string {
+  if (!projectRoot) return path;
+  const normalizedRoot = projectRoot.endsWith("/") ? projectRoot : `${projectRoot}/`;
+  return path.startsWith(normalizedRoot) ? path.slice(normalizedRoot.length) : path;
+}
+
+function formatOpenFileContext(context?: OpenFileContext): string | null {
+  const openFilePaths = uniquePaths(context?.openFilePaths ?? []);
+  const activeFilePath = context?.activeFilePath?.trim();
+  const paths = uniquePaths([
+    ...(activeFilePath ? [activeFilePath] : []),
+    ...openFilePaths,
+  ]);
+  if (!paths.length) return null;
+
+  const activeLine = activeFilePath
+    ? `Active file: ${displayPath(activeFilePath, context?.projectRoot)}`
+    : null;
+  const openLines = paths.map((path) => `- ${displayPath(path, context?.projectRoot)}`);
+
+  return [
+    "The following files are already open in the workspace. Their contents are not inlined; use these paths as context hints when relevant:",
+    activeLine,
+    "Open files:",
+    ...openLines,
+  ].filter((line): line is string => Boolean(line)).join("\n");
+}
+
 export async function createChatAttachment(file: File): Promise<ChatAttachment> {
   const kind = inferKind(file);
   const base = {
@@ -104,9 +142,14 @@ export function attachmentLabel(attachment: ChatAttachment): string {
   return `${attachment.name} (${formatBytes(attachment.size)})`;
 }
 
-export function buildAgentMessageContent(text: string, attachments: ChatAttachment[]): string {
+export function buildAgentMessageContent(
+  text: string,
+  attachments: ChatAttachment[],
+  openFileContext?: OpenFileContext,
+): string {
   const trimmed = text.trim();
-  if (!attachments.length) return trimmed;
+  const contextBlock = formatOpenFileContext(openFileContext);
+  if (!attachments.length && !contextBlock) return trimmed;
 
   const blocks = attachments.map((attachment, index) => {
     const header = [
@@ -133,7 +176,10 @@ export function buildAgentMessageContent(text: string, attachments: ChatAttachme
 
   return [
     trimmed || "请查看附件内容。",
-    "The user attached the following files. Use them as context for the request:",
+    contextBlock,
+    attachments.length
+      ? "The user attached the following files. Use them as context for the request:"
+      : null,
     ...blocks,
-  ].join("\n\n");
+  ].filter((block): block is string => Boolean(block)).join("\n\n");
 }

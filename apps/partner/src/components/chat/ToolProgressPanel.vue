@@ -29,6 +29,12 @@ const visibleGroups = computed(() => {
   return props.running ? compactToolProgress(groups.value) : [];
 });
 const totalSteps = computed(() => progressSteps.value.length);
+const visibleStepCount = computed(() =>
+  visibleGroups.value.reduce((count, group) => count + group.steps.length, 0),
+);
+const hiddenStepCount = computed(() =>
+  expanded.value ? 0 : Math.max(0, totalSteps.value - visibleStepCount.value),
+);
 const resultByCallId = computed(() => {
   const items = new Map<string, ToolResult>();
   for (const result of props.toolResults ?? []) {
@@ -125,6 +131,9 @@ watch(
     </button>
 
     <div v-if="visibleGroups.length" class="progress-groups">
+      <div v-if="hiddenStepCount > 0" class="progress-ellipsis" aria-label="Earlier steps omitted">
+        ...
+      </div>
       <section
         v-for="group in visibleGroups"
         :key="`${group.category}:${group.steps[0]?.id}`"
@@ -252,6 +261,13 @@ watch(
   flex-direction: column;
   gap: 10px;
   padding: 0;
+}
+
+.progress-ellipsis {
+  color: var(--text-muted);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1;
 }
 
 .progress-group {

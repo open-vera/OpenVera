@@ -36,6 +36,24 @@ describe("attachment utilities", () => {
     expect(message).toContain("Content not inlined");
   });
 
+  it("adds open file paths as lightweight agent context", () => {
+    const message = buildAgentMessageContent("Explain this", [], {
+      activeFilePath: "/workspace/project/src/App.vue",
+      openFilePaths: [
+        "/workspace/project/src/App.vue",
+        "/workspace/project/src/stores/chat.ts",
+      ],
+      projectRoot: "/workspace/project",
+    });
+
+    expect(message).toContain("Explain this");
+    expect(message).toContain("Active file: src/App.vue");
+    expect(message).toContain("- src/App.vue");
+    expect(message).toContain("- src/stores/chat.ts");
+    expect(message).toContain("Their contents are not inlined");
+    expect(message).not.toContain("/workspace/project/src/App.vue");
+  });
+
   it("formats attachment labels with readable sizes", () => {
     const attachment: ChatAttachment = {
       id: "a1",
