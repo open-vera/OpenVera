@@ -1,32 +1,81 @@
+export interface AgentRunDiagnostics {
+  taskId?: string;
+  requestId?: string;
+  sessionId?: string;
+  instanceId?: string;
+}
+
+export class AgentRunError extends Error {
+  readonly diagnostics: AgentRunDiagnostics;
+
+  constructor(message: string, diagnostics: AgentRunDiagnostics = {}) {
+    super(message);
+    this.name = "AgentRunError";
+    this.diagnostics = diagnostics;
+  }
+}
+
+export function extractAgentRunDiagnostics(error: unknown): AgentRunDiagnostics | null {
+  if (error instanceof AgentRunError) {
+    return error.diagnostics;
+  }
+  return null;
+}
+
+export function formatAgentRunDiagnostics(diagnostics: AgentRunDiagnostics): string {
+  const payload = Object.fromEntries(
+    Object.entries(diagnostics).filter(
+      (entry): entry is [string, string] =>
+        typeof entry[1] === "string" && entry[1].trim().length > 0,
+    ),
+  );
+  if (Object.keys(payload).length === 0) return "";
+  return JSON.stringify(payload);
+}
+
+export function appendAgentRunDiagnostics(
+  message: string,
+  diagnostics: AgentRunDiagnostics,
+): string {
+  const json = formatAgentRunDiagnostics(diagnostics);
+  if (!json) return message;
+  return `${message}\n\n诊断信息：\n${json}`;
+}
+
 export function formatErrorMessage(
   error: unknown,
   fallback = "Agent 运行失败",
 ): string {
+  let message: string;
   if (typeof error === "string" && error.trim().length > 0) {
     if (isSidecarPipeError(error)) {
-      return "Partner 后台服务刚刚断开，已尝试自动重启。请再发送一次。";
+      message = "Partner 后台服务刚刚断开，已尝试自动重启。请再发送一次。";
+    } else if (isApiKeyScenarioMismatch(error)) {
+      message = formatApiKeyScenarioMismatch(error);
+    } else if (isCacheControlLimitError(error)) {
+      message = formatCacheControlLimitError(error);
+    } else {
+      message = error;
     }
-    if (isApiKeyScenarioMismatch(error)) {
-      return formatApiKeyScenarioMismatch(error);
-    }
-    if (isCacheControlLimitError(error)) {
-      return formatCacheControlLimitError(error);
-    }
-    return error;
-  }
-  if (error instanceof Error && error.message.trim().length > 0) {
+  } else if (error instanceof Error && error.message.trim().length > 0) {
     if (isSidecarPipeError(error.message)) {
-      return "Partner 后台服务刚刚断开，已尝试自动重启。请再发送一次。";
+      message = "Partner 后台服务刚刚断开，已尝试自动重启。请再发送一次。";
+    } else if (isApiKeyScenarioMismatch(error.message)) {
+      message = formatApiKeyScenarioMismatch(error.message);
+    } else if (isCacheControlLimitError(error.message)) {
+      message = formatCacheControlLimitError(error.message);
+    } else {
+      message = error.message;
     }
-    if (isApiKeyScenarioMismatch(error.message)) {
-      return formatApiKeyScenarioMismatch(error.message);
-    }
-    if (isCacheControlLimitError(error.message)) {
-      return formatCacheControlLimitError(error.message);
-    }
-    return error.message;
+  } else {
+    message = fallback;
   }
-  return fallback;
+
+  const diagnostics = extractAgentRunDiagnostics(error);
+  if (diagnostics) {
+    return appendAgentRunDiagnostics(message, diagnostics);
+  }
+  return message;
 }
 
 function isSidecarPipeError(message: string): boolean {

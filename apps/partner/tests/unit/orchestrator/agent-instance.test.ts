@@ -55,6 +55,13 @@ describe("AgentInstanceRunner", () => {
     onError?.({ message: "403 {\"error\":\"API key scenario mismatch\"}" });
 
     await expect(run).rejects.toThrow("API key scenario mismatch");
+    await expect(run).rejects.toMatchObject({
+      diagnostics: expect.objectContaining({
+        sessionId: "session-1",
+        requestId: expect.any(String),
+        instanceId: runner.id,
+      }),
+    });
     expect(runner.status).toBe("error");
     expect(abortAgentMock).not.toHaveBeenCalled();
   });

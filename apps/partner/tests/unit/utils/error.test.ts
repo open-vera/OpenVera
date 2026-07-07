@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { formatErrorMessage } from "@/utils/error";
+import {
+  AgentRunError,
+  appendAgentRunDiagnostics,
+  formatAgentRunDiagnostics,
+  formatErrorMessage,
+} from "@/utils/error";
 
 describe("formatErrorMessage", () => {
   it("returns string errors from Tauri invoke", () => {
@@ -30,5 +35,40 @@ describe("formatErrorMessage", () => {
 
     expect(message).toContain("最多允许 4 个 cache_control");
     expect(message).toContain("请重试本次消息");
+  });
+
+  it("appends agent run diagnostics when available", () => {
+    const message = formatErrorMessage(
+      new AgentRunError("network failed", {
+        taskId: "task-1",
+        requestId: "req-1",
+        sessionId: "sess-1",
+        instanceId: "inst-1",
+      }),
+    );
+
+    expect(message).toContain("network failed");
+    expect(message).toContain("诊断信息：");
+    expect(message).toContain(
+      '"taskId":"task-1","requestId":"req-1","sessionId":"sess-1","instanceId":"inst-1"',
+    );
+  });
+
+  it("formats diagnostics as compact json", () => {
+    expect(
+      formatAgentRunDiagnostics({
+        taskId: "task-1",
+        requestId: "req-1",
+      }),
+    ).toBe('{"taskId":"task-1","requestId":"req-1"}');
+  });
+
+  it("appends diagnostics block without empty fields", () => {
+    expect(
+      appendAgentRunDiagnostics("failed", {
+        requestId: "req-1",
+        sessionId: "sess-1",
+      }),
+    ).toBe('failed\n\n诊断信息：\n{"requestId":"req-1","sessionId":"sess-1"}');
   });
 });

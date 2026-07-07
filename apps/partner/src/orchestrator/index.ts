@@ -6,7 +6,7 @@ import { useSettingsStore } from "@/stores/settings";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type { ChatAttachment, ToolCall } from "@/types";
 import { buildAgentMessageContent } from "@/utils/attachments.js";
-import { formatErrorMessage } from "@/utils/error.js";
+import { formatErrorMessage, extractAgentRunDiagnostics } from "@/utils/error.js";
 import { appendPartnerRunLogEntry } from "@/utils/run-log.js";
 import { upsertPartnerTaskSnapshot } from "@/utils/partner-sessions.js";
 import { AgentInstanceRunner } from "./agent-instance.js";
@@ -245,6 +245,15 @@ export class Orchestrator {
       );
     } catch (error) {
       const message = formatErrorMessage(error);
+      const diagnostics = extractAgentRunDiagnostics(error);
+      appendProgressStep({
+        id: crypto.randomUUID(),
+        name: "agent_error",
+        input: {
+          message,
+          ...(diagnostics ?? {}),
+        },
+      });
       chat.markMessageError(assistantId, message, chatTabId);
     } finally {
       chat.finalizeMessage(assistantId, chatTabId);

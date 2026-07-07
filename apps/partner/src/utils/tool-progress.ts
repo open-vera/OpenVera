@@ -144,8 +144,22 @@ function describeDetail(
   }
   if (name === "agent_error") {
     const message = asString(input.message);
-    if (!message) return locale === "en-US" ? "Agent run failed" : "Agent 执行失败";
-    return message.split("\n").find((line) => line.trim()) ?? message;
+    const diagnosticJson = [
+      asString(input.taskId) ? `taskId=${input.taskId}` : null,
+      asString(input.requestId) ? `requestId=${input.requestId}` : null,
+      asString(input.sessionId) ? `sessionId=${input.sessionId}` : null,
+      asString(input.instanceId) ? `instanceId=${input.instanceId}` : null,
+    ].filter(Boolean).join(", ");
+    if (!message) {
+      return diagnosticJson || (locale === "en-US" ? "Agent run failed" : "Agent 执行失败");
+    }
+    const headline = message.split("\n").find((line) => line.trim()) ?? message;
+    if (diagnosticJson) {
+      return locale === "en-US"
+        ? `${headline} (${diagnosticJson})`
+        : `${headline}（${diagnosticJson}）`;
+    }
+    return headline;
   }
   if (name === "tool_approval_required") {
     const command = inputCommand(input);

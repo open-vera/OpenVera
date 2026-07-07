@@ -9,6 +9,7 @@ import type {
   ToolCall,
   ToolResult,
 } from "@/types";
+import { AgentRunError, type AgentRunDiagnostics } from "@/utils/error.js";
 
 export interface AgentRunCallbacks {
   onReady?: () => void;
@@ -45,6 +46,17 @@ export class AgentInstanceRunner {
     this.status = "running";
     this.abortRequested = false;
     const requestId = crypto.randomUUID();
+    const diagnostics = (): AgentRunDiagnostics => ({
+      ...(taskId ? { taskId } : {}),
+      requestId,
+      sessionId: this.sessionId,
+      instanceId: this.id,
+    });
+    const toRunError = (error: unknown): AgentRunError => {
+      if (error instanceof AgentRunError) return error;
+      const message = error instanceof Error ? error.message : String(error);
+      return new AgentRunError(message, diagnostics());
+    };
     let idleTimeout: ReturnType<typeof setTimeout> | null = null;
     let rejectIdleTimeout: ((error: Error) => void) | null = null;
     let rejectStreamError: ((error: Error) => void) | null = null;
@@ -59,7 +71,10 @@ export class AgentInstanceRunner {
         this.abortRequested = true;
         void abortAgent(this.sessionId);
         rejectIdleTimeout?.(
-          new Error("模型响应超时：45 秒内没有收到任何运行事件，请检查网络、API Key 或模型服务状态。"),
+          new AgentRunError(
+            "模型响应超时：45 秒内没有收到任何运行事件，请检查网络、API Key 或模型服务状态。",
+            diagnostics(),
+          ),
         );
       }, MODEL_IDLE_TIMEOUT_MS);
     };
@@ -83,7 +98,7 @@ export class AgentInstanceRunner {
       },
       onError: (payload) => {
         resetIdleTimeout();
-        rejectStreamError?.(new Error(payload.message));
+        rejectStreamError?.(new AgentRunError(payload.message, diagnostics()));
       },
       onToolCall: callbacks.onToolCall
         ? (toolCall) => {
@@ -140,7 +155,7 @@ export class AgentInstanceRunner {
       return result;
     } catch (error) {
       this.status = this.abortRequested ? "idle" : "error";
-      throw error;
+      throw toRunError(error);
     } finally {
       clearIdleTimeout();
       this.cleanupStream?.();
