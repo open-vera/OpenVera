@@ -36,7 +36,7 @@ describe("AgentInstanceRunner", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    await vi.advanceTimersByTimeAsync(90_000);
+    await vi.advanceTimersByTimeAsync(45_000);
     await rejection;
     expect(abortAgentMock).toHaveBeenCalledWith("session-1");
   });
@@ -109,7 +109,7 @@ describe("AgentInstanceRunner", () => {
       input: { cmd: "find" },
       reason: "命令 `find` 不在白名单中，需要用户确认",
     });
-    await vi.advanceTimersByTimeAsync(90_000);
+    await vi.advanceTimersByTimeAsync(45_000);
 
     expect(onToolApprovalRequired).toHaveBeenCalled();
     expect(abortAgentMock).not.toHaveBeenCalled();
