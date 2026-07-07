@@ -38,7 +38,7 @@ describe("runInteractiveTurn", () => {
       needs_tools: false,
       needs_planning: false,
       domain: "chat",
-      reason: "greeting",
+      reason: "simple answer",
     };
     classifyIntentMock.mockResolvedValue(intent);
     shouldPlanMock.mockReturnValue(false);
@@ -50,7 +50,7 @@ describe("runInteractiveTurn", () => {
     const onDelta = vi.fn();
 
     const result = await runInteractiveTurn({
-      message: "hello",
+      message: "tell me a joke",
       adapter,
       model: "model",
       tools: [],
@@ -68,6 +68,38 @@ describe("runInteractiveTurn", () => {
     expect(onRouting).toHaveBeenCalledWith({ intent, executionMode: "direct_stream" });
     expect(onDelta).toHaveBeenCalledWith("hi");
     expect(createHarnessPlanExecutorMock).not.toHaveBeenCalled();
+  });
+
+  it("uses a deterministic fast path for simple greetings", async () => {
+    const { runInteractiveTurn } = await import("../src/runtime/interactive-turn.js");
+    streamAgentMock.mockResolvedValue("hello there");
+    const onRouting = vi.fn();
+
+    const result = await runInteractiveTurn({
+      message: "Hey boy",
+      adapter,
+      model: "model",
+      tools: [],
+      system: "system",
+      signal: new AbortController().signal,
+      onDelta: vi.fn(),
+      onToolCall: vi.fn(async () => toolResult),
+      onRouting,
+    });
+
+    expect(classifyIntentMock).not.toHaveBeenCalled();
+    expect(createHarnessPlanExecutorMock).not.toHaveBeenCalled();
+    expect(result.routing).toEqual({
+      executionMode: "direct_stream",
+      intent: {
+        level: 0,
+        needs_tools: false,
+        needs_planning: false,
+        domain: "chat",
+        reason: "simple greeting",
+      },
+    });
+    expect(onRouting).toHaveBeenCalledWith(result.routing);
   });
 
   it("routes planning turns through the Harness plan executor", async () => {
@@ -106,5 +138,40 @@ describe("runInteractiveTurn", () => {
     expect(planExecutor).toHaveBeenCalled();
     expect(streamAgentMock).not.toHaveBeenCalled();
     expect(onPlanEvent).toHaveBeenCalledWith({ type: "plan_done" });
+  });
+
+  it("falls back to direct streaming when intent classification returns invalid JSON", async () => {
+    const { runInteractiveTurn } = await import("../src/runtime/interactive-turn.js");
+    classifyIntentMock.mockRejectedValue(new SyntaxError("Unexpected token 'b'"));
+    shouldPlanMock.mockReturnValue(false);
+    streamAgentMock.mockResolvedValue("fixed");
+    const onRouting = vi.fn();
+
+    const result = await runInteractiveTurn({
+      message: "改下 ci\n#!/bin/bash\nset -euo pipefail",
+      adapter,
+      model: "model",
+      tools: [],
+      system: "system",
+      signal: new AbortController().signal,
+      onDelta: vi.fn(),
+      onToolCall: vi.fn(async () => toolResult),
+      onRouting,
+    });
+
+    expect(result.text).toBe("fixed");
+    expect(result.routing).toEqual({
+      executionMode: "direct_stream",
+      intent: {
+        level: 2,
+        needs_tools: true,
+        needs_planning: false,
+        domain: "code",
+        reason: "classification failed fallback",
+      },
+    });
+    expect(onRouting).toHaveBeenCalledWith(result.routing);
+    expect(streamAgentMock).toHaveBeenCalled();
+    expect(createHarnessPlanExecutorMock).not.toHaveBeenCalled();
   });
 });

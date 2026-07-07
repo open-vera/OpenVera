@@ -40,6 +40,50 @@ export interface InteractiveTurnResult {
   routing: InteractiveTurnRouting;
 }
 
+const SIMPLE_CHAT_PATTERN =
+  /^(hi|hello|hey|hey\s+boy|你好|您好|嗨|哈喽|hello[!.！。]*|hi[!.！。]*|hey[!.！。]*)$/i;
+
+function classifySimpleChat(message: string): IntentResult | null {
+  const normalized = message.trim();
+  if (!SIMPLE_CHAT_PATTERN.test(normalized)) return null;
+  return {
+    level: 0,
+    needs_tools: false,
+    needs_planning: false,
+    domain: "chat",
+    reason: "simple greeting",
+  };
+}
+
+function fallbackIntentForClassificationError(message: string): IntentResult {
+  const looksLikeCode = /```|#!\/|;\s*\n|function\s+|class\s+|import\s+|export\s+|const\s+|let\s+|var\s+/.test(message);
+  return {
+    level: 2,
+    needs_tools: true,
+    needs_planning: false,
+    domain: looksLikeCode ? "code" : "other",
+    reason: "classification failed fallback",
+  };
+}
+
+async function classifyInteractiveIntent(
+  options: InteractiveTurnOptions,
+  classifier: { adapter: LLMAdapter; model: string },
+): Promise<IntentResult> {
+  const simple = classifySimpleChat(options.message);
+  if (simple) return simple;
+  try {
+    return await classifyIntent(
+      options.message,
+      classifier.adapter,
+      classifier.model,
+      options.onUsage,
+    );
+  } catch {
+    return fallbackIntentForClassificationError(options.message);
+  }
+}
+
 /**
  * Shared interactive turn runner for hosts that need REPL-like behavior.
  *
@@ -53,12 +97,7 @@ export async function runInteractiveTurn(
     adapter: options.adapter,
     model: options.model,
   };
-  const intent = await classifyIntent(
-    options.message,
-    classifier.adapter,
-    classifier.model,
-    options.onUsage,
-  );
+  const intent = await classifyInteractiveIntent(options, classifier);
   const executionMode: InteractiveTurnMode = shouldPlan(intent)
     ? "harness_plan"
     : "direct_stream";
