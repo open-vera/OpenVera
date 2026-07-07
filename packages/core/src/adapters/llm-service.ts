@@ -12,8 +12,10 @@ import type {
 import type { ModelInfo } from "../types/model.js";
 import { AnthropicAdapter } from "./anthropic.js";
 import type { LLMAdapter } from "./base.js";
+import { normalizeBaseUrlForAdapter } from "./base-url.js";
 import { GeminiAdapter } from "./gemini.js";
 import { OpenAIAdapter } from "./openai.js";
+import { OpenAIResponsesAdapter } from "./openai-responses.js";
 
 export type LlmPurpose = "chat" | "routing" | "compression" | "vision" | "tool";
 
@@ -203,7 +205,11 @@ export class LlmService {
     if (!factory) {
       throw new UnknownLlmAdapterError(options.adapterType, options.provider);
     }
-    return factory(options);
+    const baseUrl = normalizeBaseUrlForAdapter(options.adapterType, options.baseUrl);
+    return factory({
+      ...options,
+      ...(baseUrl ? { baseUrl } : {}),
+    });
   }
 
   private resolveAdapterFactory(adapterType: string): LlmAdapterFactory | undefined {
@@ -218,6 +224,7 @@ export function resolveEnvKey(adapter: string, name: string): string | undefined
   if (providerKey) return providerKey;
   switch (adapter) {
     case "openai":
+    case "openai-responses":
       return process.env.OPENAI_API_KEY;
     case "gemini":
       return process.env.GEMINI_API_KEY;
@@ -230,6 +237,7 @@ export function envVarFor(adapter: string, provider?: string): string {
   if (provider) return `${provider.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY`;
   switch (adapter) {
     case "openai":
+    case "openai-responses":
       return "OPENAI_API_KEY";
     case "gemini":
       return "GEMINI_API_KEY";
@@ -247,6 +255,8 @@ export class UnknownLlmAdapterError extends Error {
 
 const builtinAdapterFactories: Record<string, LlmAdapterFactory> = {
   openai: ({ apiKey, baseUrl, headers }) => new OpenAIAdapter(apiKey, baseUrl, headers),
+  "openai-responses": ({ apiKey, baseUrl, headers }) =>
+    new OpenAIResponsesAdapter(apiKey, baseUrl, headers),
   gemini: ({ apiKey }) => new GeminiAdapter(apiKey),
   anthropic: ({ apiKey, baseUrl, headers }) => new AnthropicAdapter(apiKey, baseUrl, headers),
 };

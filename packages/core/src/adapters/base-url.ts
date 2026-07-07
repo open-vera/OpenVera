@@ -20,3 +20,16 @@ export function normalizeAnthropicBaseUrl(baseUrl?: string): string | undefined 
   if (trimmed.endsWith("/v1")) return trimmed.slice(0, -3);
   return trimmed;
 }
+
+export function normalizeBaseUrlForAdapter(
+  adapterType: string,
+  baseUrl?: string,
+): string | undefined {
+  if (adapterType === "openai" || adapterType === "openai-responses") {
+    return normalizeOpenAiBaseUrl(baseUrl);
+  }
+  if (adapterType === "anthropic") {
+    return normalizeAnthropicBaseUrl(baseUrl);
+  }
+  return baseUrl?.trim() || undefined;
+}

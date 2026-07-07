@@ -138,6 +138,15 @@ describe("OpenAIAdapter", () => {
         defaultHeaders: headers,
       });
     });
+
+    it("should append /v1 for OpenAI-compatible gateways without a version path", () => {
+      new OpenAIAdapter("sk-123", "https://gateway.example.com");
+      expect(MockOpenAI).toHaveBeenCalledWith({
+        apiKey: "sk-123",
+        baseURL: "https://gateway.example.com/v1",
+        defaultHeaders: undefined,
+      });
+    });
   });
 
   // ── complete() ───────────────────────────────────────────────────────────
