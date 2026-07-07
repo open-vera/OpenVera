@@ -33,9 +33,19 @@ export class Orchestrator {
     this.abortRequested = false;
     const chatTabId = chat.ensureActiveChatTab();
     const displayText = text.trim() || "请查看附件内容。";
-    const agentText = buildAgentMessageContent(text, attachments);
     const workspace = useWorkspaceStore();
     const resolvedRoot = projectRoot ?? (workspace.rootPath || undefined);
+    const preview = usePreviewStore();
+    const activePreviewTab = preview.tabs.find((tab) => tab.id === preview.activeTabId);
+    const openFilePaths = preview.tabs
+      .map((tab) => tab.filePath)
+      .filter((path): path is string => Boolean(path));
+    const agentText = buildAgentMessageContent(text, attachments, {
+      activeFilePath: activePreviewTab?.filePath ?? null,
+      openFilePaths,
+      projectRoot: resolvedRoot,
+    });
+    const taskId = crypto.randomUUID();
 
     chat.append({
       id: crypto.randomUUID(),
@@ -45,11 +55,11 @@ export class Orchestrator {
       attachments,
       timestamp: Date.now(),
     }, chatTabId);
-    this.appendUserRunLog("user_message", displayText, agentText, chatTabId, resolvedRoot, attachments);
+    this.appendUserRunLog("user_message", displayText, agentText, chatTabId, resolvedRoot, attachments, taskId);
 
     if (chat.isAgentRunning) {
       this.taskQueue.enqueue({
-        id: crypto.randomUUID(),
+        id: taskId,
         title: displayText,
         text: agentText,
         attachments,
@@ -65,11 +75,12 @@ export class Orchestrator {
         chatTabId,
         resolvedRoot,
         attachments,
+        taskId,
       );
       return;
     }
 
-    await this.runMessage(agentText, chatTabId, resolvedRoot, displayText);
+    await this.runMessage(agentText, chatTabId, resolvedRoot, displayText, taskId);
   }
 
   private appendUserRunLog(
@@ -79,6 +90,7 @@ export class Orchestrator {
     chatTabId: string,
     projectRoot: string | undefined,
     attachments: ChatAttachment[],
+    taskId?: string,
   ): void {
     if (!projectRoot) return;
     const session = useSessionStore();
@@ -97,7 +109,8 @@ export class Orchestrator {
         size: attachment.size,
       })),
       queueSize: this.taskQueue.size(),
-    }).catch((error) => {
+      ...(taskId ? { taskId } : {}),
+    }, taskId).catch((error) => {
       console.warn("[RunLog] failed to append user message:", error);
     });
   }
@@ -107,11 +120,11 @@ export class Orchestrator {
     chatTabId: string,
     projectRoot?: string,
     taskTitle = text,
+    taskId: string = crypto.randomUUID(),
   ): Promise<void> {
     const chat = useChatStore();
     const session = useSessionStore();
     const preview = usePreviewStore();
-    const taskId = crypto.randomUUID();
     const taskCreatedAt = Date.now();
 
     session.touch();
@@ -134,6 +147,7 @@ export class Orchestrator {
     const assistantId = crypto.randomUUID();
     const progressId = crypto.randomUUID();
     const priorMessages = [...chat.messagesForTab(chatTabId)];
+    chat.setActiveTaskId(taskId, chatTabId);
     chat.setAgentRunning(true, chatTabId);
     chat.append({
       id: progressId,
@@ -224,6 +238,7 @@ export class Orchestrator {
         },
         resolvedRoot,
         llmConfig,
+        taskId,
       );
     } catch (error) {
       const message = formatErrorMessage(error);
@@ -231,6 +246,7 @@ export class Orchestrator {
     } finally {
       chat.finalizeMessage(assistantId, chatTabId);
       chat.setAgentRunning(false, chatTabId);
+      chat.setActiveTaskId(null, chatTabId);
       await session.persist();
       await this.persistTaskHistory(
         taskId,
@@ -286,7 +302,7 @@ export class Orchestrator {
   private async runNextQueuedTask(): Promise<void> {
     const nextTask = this.taskQueue.dequeue();
     if (!nextTask?.text || !nextTask.chatTabId) return;
-    await this.runMessage(nextTask.text, nextTask.chatTabId, nextTask.projectRoot, nextTask.title);
+    await this.runMessage(nextTask.text, nextTask.chatTabId, nextTask.projectRoot, nextTask.title, nextTask.id);
   }
 
   abort(): void {

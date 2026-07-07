@@ -13,6 +13,7 @@ export interface AgentRunParams {
   history?: Message[];
   projectRoot: string;
   llmConfig?: PartnerLlmConfig;
+  taskId?: string;
 }
 
 export interface PartnerLlmConfig {
@@ -76,18 +77,41 @@ export interface RpcError {
   data?: { message?: string };
 }
 
+let stdoutAvailable = true;
+
+process.stdout.on("error", (error: NodeJS.ErrnoException) => {
+  if (error.code === "EPIPE") {
+    stdoutAvailable = false;
+    process.stderr.write("[partner-sidecar] stdout pipe closed; suppressing further IPC writes\n");
+    return;
+  }
+  throw error;
+});
+
+function writeJsonLine(value: unknown): void {
+  if (!stdoutAvailable) return;
+  try {
+    process.stdout.write(`${JSON.stringify(value)}\n`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EPIPE") {
+      stdoutAvailable = false;
+      process.stderr.write("[partner-sidecar] stdout pipe closed during write\n");
+      return;
+    }
+    throw error;
+  }
+}
+
 export function writeEvent(event: StreamEvent): void {
-  process.stdout.write(`${JSON.stringify(event)}\n`);
+  writeJsonLine(event);
 }
 
 export function writeResult(id: string, data: Record<string, unknown>): void {
-  process.stdout.write(`${JSON.stringify({ id, type: "result", data })}\n`);
+  writeJsonLine({ id, type: "result", data });
 }
 
 export function writeError(id: string, message: string): void {
-  process.stdout.write(
-    `${JSON.stringify({ id, type: "error", data: { message } })}\n`,
-  );
+  writeJsonLine({ id, type: "error", data: { message } });
 }
 
 export function parseLine(line: string): RpcRequest | ToolResultMessage | null {

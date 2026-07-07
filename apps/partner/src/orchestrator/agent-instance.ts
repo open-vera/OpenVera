@@ -38,6 +38,7 @@ export class AgentInstanceRunner {
     callbacks: AgentRunCallbacks,
     projectRoot?: string,
     llmConfig?: LLMRuntimeConfig | null,
+    taskId?: string,
   ): Promise<{ text: string; usage?: TokenUsage }> {
     this.status = "running";
     this.abortRequested = false;
@@ -125,6 +126,7 @@ export class AgentInstanceRunner {
         history,
         projectRoot,
         llmConfig: llmConfig ?? undefined,
+        taskId,
       });
       const result = await Promise.race([
         runStarted.then(() => completion),

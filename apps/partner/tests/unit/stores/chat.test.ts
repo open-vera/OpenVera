@@ -218,6 +218,86 @@ describe("useChatStore", () => {
     expect(snapshot?.tabs[0]?.messages[0]?.content).toBe("first tab");
   });
 
+  it("opens a snapshot tab without replacing existing tabs", () => {
+    const chat = useChatStore();
+    const firstTabId = chat.ensureActiveChatTab();
+    chat.append({
+      id: "first",
+      role: "user",
+      content: "still open",
+      timestamp: 1,
+    }, firstTabId);
+
+    const openedTabId = chat.openSnapshotTab({
+      version: 1,
+      activeTabId: "history-tab",
+      tabs: [
+        {
+          id: "history-tab",
+          title: "历史任务",
+          kind: "chat",
+          messages: [
+            {
+              id: "history-message",
+              role: "assistant",
+              content: "restored history",
+              timestamp: 2,
+            },
+          ],
+          isAgentRunning: true,
+          currentTokenCount: 0,
+          estimatedCost: 0,
+        },
+      ],
+    });
+
+    expect(openedTabId).toBe("history-tab");
+    expect(chat.tabs.map((tab) => tab.id)).toContain(firstTabId);
+    expect(chat.tabs.map((tab) => tab.id)).toContain("history-tab");
+    expect(chat.messages[0]?.content).toBe("restored history");
+
+    chat.selectTab(firstTabId);
+    expect(chat.messages[0]?.content).toBe("still open");
+  });
+
+  it("selects an already-open snapshot tab without overwriting it", () => {
+    const chat = useChatStore();
+    const tabId = chat.ensureActiveChatTab();
+    chat.append({
+      id: "local-message",
+      role: "user",
+      content: "local content",
+      timestamp: 1,
+    }, tabId);
+
+    const openedTabId = chat.openSnapshotTab({
+      version: 1,
+      activeTabId: tabId,
+      tabs: [
+        {
+          id: tabId,
+          title: "旧历史",
+          kind: "chat",
+          messages: [
+            {
+              id: "old-message",
+              role: "assistant",
+              content: "old history",
+              timestamp: 2,
+            },
+          ],
+          isAgentRunning: false,
+          currentTokenCount: 0,
+          estimatedCost: 0,
+        },
+      ],
+    });
+
+    expect(openedTabId).toBe(tabId);
+    expect(chat.tabs).toHaveLength(1);
+    expect(chat.messages[0]?.content).toBe("local content");
+  });
+
   it("normalizes running state when restoring snapshots", () => {
     const chat = useChatStore();
 

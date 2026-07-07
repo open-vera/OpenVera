@@ -10,6 +10,7 @@ export interface AgentRunParams {
   history: Message[];
   projectRoot?: string;
   llmConfig?: LLMRuntimeConfig;
+  taskId?: string;
 }
 
 export interface AgentRunResult {
@@ -28,7 +29,7 @@ function toHistory(messages: Message[]) {
 }
 
 export async function invokeAgentRun(params: AgentRunParams): Promise<void> {
-  const { requestId, instanceId, sessionId, message, history, projectRoot, llmConfig } =
+  const { requestId, instanceId, sessionId, message, history, projectRoot, llmConfig, taskId } =
     params;
   await invoke("agent_run", {
     requestId,
@@ -38,6 +39,7 @@ export async function invokeAgentRun(params: AgentRunParams): Promise<void> {
     history: toHistory(history),
     projectRoot,
     llmConfig,
+    taskId,
   });
 }
 

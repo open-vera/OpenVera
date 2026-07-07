@@ -5,9 +5,20 @@ export interface PartnerRunLogEntry {
   [key: string]: unknown;
 }
 
-export function buildPartnerRunLogPath(rootPath: string, date = new Date()): string {
+function sanitizeRunLogSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120);
+}
+
+export function buildPartnerRunLogPath(
+  rootPath: string,
+  date = new Date(),
+  taskId?: string | null,
+): string {
   const normalizedRoot = rootPath.replace(/\/$/, "");
   const day = date.toISOString().slice(0, 10);
+  if (taskId) {
+    return `${normalizedRoot}/.vera/partner-runs/${day}/${sanitizeRunLogSegment(taskId)}.jsonl`;
+  }
   return `${normalizedRoot}/.vera/partner-runs/${day}.jsonl`;
 }
 
@@ -21,9 +32,10 @@ export function formatPartnerRunLogEntry(entry: PartnerRunLogEntry, date = new D
 export async function appendPartnerRunLogEntry(
   rootPath: string,
   entry: PartnerRunLogEntry,
+  taskId?: string | null,
 ): Promise<void> {
   await appendFile(
-    buildPartnerRunLogPath(rootPath),
+    buildPartnerRunLogPath(rootPath, new Date(), taskId),
     formatPartnerRunLogEntry(entry),
   );
 }

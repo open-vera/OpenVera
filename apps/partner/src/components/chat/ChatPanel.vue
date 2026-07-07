@@ -207,7 +207,10 @@ async function openRunLog() {
     preview.openCodeFile("partner-run-log.txt", "尚未选择工作区，无法定位运行日志。\n");
     return;
   }
-  const path = buildPartnerRunLogPath(workspace.rootPath);
+  const taskId = activeTab.value?.kind === "chat"
+    ? activeTab.value.activeTaskId ?? activeTab.value.lastTaskId
+    : null;
+  const path = buildPartnerRunLogPath(workspace.rootPath, new Date(), taskId);
   try {
     const content = await readFile(path);
     preview.openCodeFile(path, content);
@@ -459,8 +462,6 @@ watch(
   min-height: 0;
   padding: 16px 16px 10px;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--text-muted) 36%, transparent) transparent;
   transition:
     padding 280ms cubic-bezier(0.2, 0.8, 0.2, 1),
     opacity 160ms ease;
@@ -476,23 +477,6 @@ watch(
   background: color-mix(in srgb, var(--surface) 66%, transparent);
   font-size: 12px;
   line-height: 1.6;
-}
-
-.messages::-webkit-scrollbar {
-  width: 6px;
-}
-
-.messages::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.messages::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--text-muted) 36%, transparent);
-}
-
-.messages::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--text-muted) 52%, transparent);
 }
 
 .chat-workspace.is-empty .messages {

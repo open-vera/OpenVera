@@ -14,6 +14,14 @@ describe("run log utilities", () => {
     );
   });
 
+  it("builds a task-scoped partner run log path", () => {
+    const date = new Date("2026-07-07T08:30:00.000Z");
+
+    expect(buildPartnerRunLogPath("/workspace/project/", date, "task:1")).toBe(
+      "/workspace/project/.vera/partner-runs/2026-07-07/task_1.jsonl",
+    );
+  });
+
   it("formats a visible placeholder when the log is not ready", () => {
     const message = formatRunLogPlaceholder(
       "/workspace/project/.vera/partner-runs/2026-07-07.jsonl",

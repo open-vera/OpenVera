@@ -59,6 +59,8 @@ export interface ChatTab {
   kind: "chat" | "settings";
   messages: Message[];
   isAgentRunning: boolean;
+  activeTaskId?: string | null;
+  lastTaskId?: string | null;
   lastError?: ChatErrorNotice | null;
   currentTokenCount: number;
   estimatedCost: number;

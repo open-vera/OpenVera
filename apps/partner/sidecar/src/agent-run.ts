@@ -59,6 +59,11 @@ interface RuntimeConfigSummary {
 }
 
 const sessions = new Map<string, SessionState>();
+const requestTaskIds = new Map<string, string>();
+
+function safeLogPathSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120);
+}
 
 function appendRunLog(
   projectRoot: string,
@@ -66,11 +71,20 @@ function appendRunLog(
 ): void {
   try {
     const dir = join(projectRoot, ".vera", "partner-runs");
-    mkdirSync(dir, { recursive: true });
     const date = new Date().toISOString().slice(0, 10);
+    const taskId =
+      typeof record.taskId === "string"
+        ? record.taskId
+        : typeof record.requestId === "string"
+          ? requestTaskIds.get(record.requestId)
+          : undefined;
+    const targetDir = taskId ? join(dir, date) : dir;
+    mkdirSync(targetDir, { recursive: true });
     appendFileSync(
-      join(dir, `${date}.jsonl`),
-      `${JSON.stringify({ timestamp: new Date().toISOString(), ...record })}\n`,
+      taskId
+        ? join(targetDir, `${safeLogPathSegment(taskId)}.jsonl`)
+        : join(targetDir, `${date}.jsonl`),
+      `${JSON.stringify({ timestamp: new Date().toISOString(), ...(taskId ? { taskId } : {}), ...record })}\n`,
       "utf-8",
     );
   } catch (error) {
@@ -345,7 +359,10 @@ export async function handleAgentRun(
   params: AgentRunParams,
   _bridgeTool: ToolBridge,
 ): Promise<void> {
-  const { sessionId, instanceId, message, history = [], projectRoot, llmConfig } = params;
+  const { sessionId, instanceId, message, history = [], projectRoot, llmConfig, taskId } = params;
+  if (taskId) {
+    requestTaskIds.set(requestId, taskId);
+  }
   const resolvedRoot = resolveAgentProjectRoot(projectRoot);
   const runtimeSummary = runtimeConfigSummary(resolvedRoot, llmConfig);
   appendRunLog(resolvedRoot, {
@@ -669,6 +686,7 @@ export async function handleAgentRun(
     if (session.abortController === abortController) {
       session.abortController = null;
     }
+    requestTaskIds.delete(requestId);
   }
 }
 

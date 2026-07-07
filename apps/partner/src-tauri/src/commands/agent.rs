@@ -39,6 +39,7 @@ pub async fn agent_run(
     history: Vec<HistoryMessage>,
     project_root: Option<String>,
     llm_config: Option<LlmRuntimeConfig>,
+    task_id: Option<String>,
 ) -> Result<AgentRunResponse, String> {
     let root = project_root.unwrap_or_else(resolve_project_root);
     let payload = serde_json::json!({
@@ -51,6 +52,7 @@ pub async fn agent_run(
             "history": history,
             "projectRoot": root,
             "llmConfig": llm_config,
+            "taskId": task_id,
         }
     });
     sidecar.write_json(&payload)?;

@@ -60,6 +60,8 @@ function normalizeChatTab(tab: ChatTab): ChatTab {
     kind: "chat",
     messages: tab.messages.map(normalizeMessage),
     isAgentRunning: false,
+    activeTaskId: null,
+    lastTaskId: tab.lastTaskId ?? tab.activeTaskId ?? null,
   };
 }
 
@@ -273,6 +275,16 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  function setActiveTaskId(taskId: string | null, tabId?: string) {
+    const resolvedTabId = tabId ?? ensureActiveChatTab();
+    const tab = tabs.value.find((item) => item.id === resolvedTabId && item.kind === "chat");
+    if (!tab) return;
+    tab.activeTaskId = taskId;
+    if (taskId) {
+      tab.lastTaskId = taskId;
+    }
+  }
+
   function abort(tabId?: string) {
     setAgentRunning(false, tabId);
   }
@@ -327,6 +339,23 @@ export const useChatStore = defineStore("chat", () => {
     return true;
   }
 
+  function openSnapshotTab(snapshot: unknown, tabId?: string): string | null {
+    const parsed = parseSnapshot(snapshot);
+    if (!parsed) return null;
+    const sourceTab =
+      (tabId ? parsed.tabs.find((tab) => tab.id === tabId) : null) ??
+      parsed.tabs.find((tab) => tab.id === parsed.activeTabId) ??
+      parsed.tabs[0];
+    if (!sourceTab) return null;
+
+    const existing = tabs.value.find((tab) => tab.id === sourceTab.id);
+    if (!existing) {
+      tabs.value.push(normalizeChatTab(sourceTab));
+    }
+    activeTabId.value = sourceTab.id;
+    return sourceTab.id;
+  }
+
   return {
     tabs,
     activeTabId,
@@ -353,11 +382,13 @@ export const useChatStore = defineStore("chat", () => {
     clearLastError,
     messagesForTab,
     setAgentRunning,
+    setActiveTaskId,
     abort,
     clear,
     resetToDefault,
     exportSnapshot,
     exportTabSnapshot,
     restoreSnapshot,
+    openSnapshotTab,
   };
 });
