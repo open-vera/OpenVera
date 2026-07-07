@@ -359,7 +359,7 @@ export async function handleAgentRun(
   params: AgentRunParams,
   _bridgeTool: ToolBridge,
 ): Promise<void> {
-  const { sessionId, instanceId, message, history = [], projectRoot, llmConfig, taskId } = params;
+  const { sessionId, instanceId, message, history = [], projectRoot, llmConfig, taskId, agentMode } = params;
   if (taskId) {
     requestTaskIds.set(requestId, taskId);
   }
@@ -607,6 +607,7 @@ export async function handleAgentRun(
       llmService: built.service,
       compressionProvider: built.provider,
       classifier: resolvePartnerClassifier(resolvedRoot, built),
+      runMode: agentMode ?? "agent",
       onUsage,
       onToolCall: executeToolCall,
       onPlanEvent: onHarnessEvent,

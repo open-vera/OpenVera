@@ -14,6 +14,7 @@ export interface AgentRunParams {
   projectRoot: string;
   llmConfig?: PartnerLlmConfig;
   taskId?: string;
+  agentMode?: "agent" | "chat" | "plan";
 }
 
 export interface PartnerLlmConfig {

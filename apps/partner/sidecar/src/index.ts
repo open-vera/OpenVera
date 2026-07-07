@@ -1,10 +1,8 @@
+import { handleAgentAbort, handleAgentRun, inspectEffectiveLlmConfig } from "./agent-run.js";
 import {
-  handleAgentAbort,
-  handleAgentRun,
-  inspectEffectiveLlmConfig,
-} from "./agent-run.js";
-import { handleLspStart, handleLspStop } from "./lsp/handler.js";
-import { handleSymbolSearch } from "./lsp/symbol-search.js";
+  listConfiguredProviders,
+  listProviderModels,
+} from "./llm-catalog.js";
 import {
   parseLine,
   writeError,
@@ -97,6 +95,7 @@ async function handleRequest(request: RpcRequest): Promise<void> {
   }
   if (request.method === "lsp.start") {
     try {
+      const { handleLspStart } = await import("./lsp/handler.js");
       const result = await handleLspStart(
         request.params as { languageId: string; workspaceRoot: string },
       );
@@ -108,12 +107,14 @@ async function handleRequest(request: RpcRequest): Promise<void> {
     return;
   }
   if (request.method === "lsp.stop") {
+    const { handleLspStop } = await import("./lsp/handler.js");
     handleLspStop(request.params as { serverId: string });
     writeResult(request.id, { ok: true });
     return;
   }
   if (request.method === "lsp.symbolSearch") {
     try {
+      const { handleSymbolSearch } = await import("./lsp/symbol-search.js");
       const result = await handleSymbolSearch(
         request.params as {
           workspaceRoot: string;
@@ -122,6 +123,29 @@ async function handleRequest(request: RpcRequest): Promise<void> {
         },
       );
       writeResult(request.id, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      writeError(request.id, message);
+    }
+    return;
+  }
+  if (request.method === "llm.listProviders") {
+    try {
+      const params = request.params as { projectRoot: string };
+      writeResult(request.id, {
+        providers: listConfiguredProviders(params.projectRoot),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      writeError(request.id, message);
+    }
+    return;
+  }
+  if (request.method === "llm.listProviderModels") {
+    try {
+      const params = request.params as { projectRoot: string; providerId: string };
+      const models = await listProviderModels(params.projectRoot, params.providerId);
+      writeResult(request.id, { models });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       writeError(request.id, message);

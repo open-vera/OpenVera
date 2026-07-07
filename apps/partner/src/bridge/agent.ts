@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { EffectiveLlmConfig, LLMRuntimeConfig, Message, TokenUsage } from "@/types";
+import type { AgentRunMode, EffectiveLlmConfig, LLMRuntimeConfig, Message, TokenUsage } from "@/types";
 import { onAgentDone, onAgentError } from "./events.js";
 
 export interface AgentRunParams {
@@ -11,6 +11,7 @@ export interface AgentRunParams {
   projectRoot?: string;
   llmConfig?: LLMRuntimeConfig;
   taskId?: string;
+  agentMode?: AgentRunMode;
 }
 
 export interface AgentRunResult {
@@ -29,7 +30,7 @@ function toHistory(messages: Message[]) {
 }
 
 export async function invokeAgentRun(params: AgentRunParams): Promise<void> {
-  const { requestId, instanceId, sessionId, message, history, projectRoot, llmConfig, taskId } =
+  const { requestId, instanceId, sessionId, message, history, projectRoot, llmConfig, taskId, agentMode } =
     params;
   await invoke("agent_run", {
     requestId,
@@ -40,6 +41,7 @@ export async function invokeAgentRun(params: AgentRunParams): Promise<void> {
     projectRoot,
     llmConfig,
     taskId,
+    agentMode,
   });
 }
 

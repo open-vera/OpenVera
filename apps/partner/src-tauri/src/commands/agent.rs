@@ -40,6 +40,7 @@ pub async fn agent_run(
     project_root: Option<String>,
     llm_config: Option<LlmRuntimeConfig>,
     task_id: Option<String>,
+    agent_mode: Option<String>,
 ) -> Result<AgentRunResponse, String> {
     let root = project_root.unwrap_or_else(resolve_project_root);
     let payload = serde_json::json!({
@@ -53,6 +54,7 @@ pub async fn agent_run(
             "projectRoot": root,
             "llmConfig": llm_config,
             "taskId": task_id,
+            "agentMode": agent_mode,
         }
     });
     sidecar.write_json(&payload)?;
@@ -87,6 +89,37 @@ pub async fn agent_tool_approval(
 #[tauri::command]
 pub fn sidecar_status(sidecar: State<'_, SidecarManager>) -> Result<bool, String> {
     sidecar.is_running()
+}
+
+#[tauri::command]
+pub fn list_llm_providers(project_root: Option<String>) -> Result<Value, String> {
+    let root = project_root.unwrap_or_else(resolve_project_root);
+    list_configured_providers(&root)
+}
+
+#[tauri::command]
+pub fn list_llm_provider_models(
+    project_root: Option<String>,
+    provider_id: String,
+) -> Result<Value, String> {
+    let root = project_root.unwrap_or_else(resolve_project_root);
+    list_configured_provider_models(&root, &provider_id)
+}
+
+#[tauri::command]
+pub async fn refresh_llm_provider_models(
+    sidecar: State<'_, SidecarManager>,
+    project_root: Option<String>,
+    provider_id: String,
+) -> Result<Value, String> {
+    let root = project_root.unwrap_or_else(resolve_project_root);
+    sidecar.call_rpc(
+        "llm.listProviderModels",
+        json!({
+            "projectRoot": root,
+            "providerId": provider_id,
+        }),
+    )
 }
 
 #[tauri::command]
@@ -187,6 +220,133 @@ pub async fn save_vera_llm_config(
     .map_err(|error| error.to_string())?;
 
     inspect_vera_config(&root, false)
+}
+
+fn load_vera_config(root: &str) -> Result<Value, String> {
+    let location = resolve_config_location(root);
+    if !location.exists {
+        return Ok(json!({}));
+    }
+    let raw = fs::read_to_string(&location.path).map_err(|error| error.to_string())?;
+    serde_json::from_str::<Value>(&raw).map_err(|error| error.to_string())
+}
+
+fn protocol_for_adapter(adapter: &str) -> &str {
+    match adapter {
+        "openai" => "openai-compatible",
+        "gemini" => "gemini",
+        _ => "anthropic",
+    }
+}
+
+fn provider_has_api_key(config: &Value, provider_id: &str, adapter: &str) -> bool {
+    let configured_key = config
+        .pointer(&format!("/providers/{provider_id}/api_key"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if configured_key.is_some() {
+        return true;
+    }
+    resolve_env_key(adapter, provider_id).is_some()
+}
+
+fn list_configured_providers(root: &str) -> Result<Value, String> {
+    let config = load_vera_config(root)?;
+    let default_provider = resolve_default_provider(&config);
+    let Some(providers) = config.get("providers").and_then(Value::as_object) else {
+        return Ok(json!({ "providers": [] }));
+    };
+
+    let mut entries: Vec<Value> = providers
+        .iter()
+        .filter_map(|(id, provider_config)| {
+            let adapter = provider_config
+                .get("adapter")
+                .and_then(Value::as_str)
+                .unwrap_or("anthropic");
+            let has_api_key = provider_has_api_key(&config, id, adapter);
+            if !has_api_key {
+                return None;
+            }
+            Some(json!({
+                "id": id,
+                "adapter": adapter,
+                "protocol": protocol_for_adapter(adapter),
+                "apiBaseUrl": provider_config.get("base_url").and_then(Value::as_str).unwrap_or(""),
+                "hasApiKey": true,
+                "isDefault": id == &default_provider,
+            }))
+        })
+        .collect();
+
+    entries.sort_by(|left, right| {
+        let left_default = left.get("isDefault").and_then(Value::as_bool) == Some(true);
+        let right_default = right.get("isDefault").and_then(Value::as_bool) == Some(true);
+        if left_default != right_default {
+            return left_default.cmp(&right_default).reverse();
+        }
+        left.get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .cmp(right.get("id").and_then(Value::as_str).unwrap_or_default())
+    });
+
+    Ok(json!({ "providers": entries }))
+}
+
+fn list_configured_provider_models(root: &str, provider_id: &str) -> Result<Value, String> {
+    let config = load_vera_config(root)?;
+    let mut models: Vec<Value> = Vec::new();
+
+    match config.get("models") {
+        Some(Value::Array(items)) => {
+            let default_provider = resolve_default_provider(&config);
+            if default_provider == provider_id {
+                for item in items {
+                    let Some(alias) = item.as_str() else {
+                        continue;
+                    };
+                    models.push(json!({
+                        "id": alias,
+                        "displayName": alias,
+                        "source": "config",
+                    }));
+                }
+            }
+        }
+        Some(Value::Object(items)) => {
+            for (alias, model_config) in items {
+                if model_config.get("provider").and_then(Value::as_str) != Some(provider_id) {
+                    continue;
+                }
+                let upstream = model_config
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .unwrap_or(alias);
+                models.push(json!({
+                    "id": alias,
+                    "displayName": alias,
+                    "upstreamId": if upstream == alias.as_str() {
+                        Value::Null
+                    } else {
+                        Value::String(upstream.to_string())
+                    },
+                    "source": "config",
+                }));
+            }
+        }
+        _ => {}
+    }
+
+    models.sort_by(|left, right| {
+        left.get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .cmp(right.get("id").and_then(Value::as_str).unwrap_or_default())
+    });
+
+    Ok(json!({ "models": models }))
 }
 
 fn inspect_vera_config(root: &str, reveal: bool) -> Result<Value, String> {

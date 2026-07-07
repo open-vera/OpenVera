@@ -119,6 +119,21 @@ description = "Enables the save_vera_llm_config command."
 commands.allow = ["save_vera_llm_config"]
 
 [[permission]]
+identifier = "allow-list-llm-providers"
+description = "Enables the list_llm_providers command."
+commands.allow = ["list_llm_providers"]
+
+[[permission]]
+identifier = "allow-list-llm-provider-models"
+description = "Enables the list_llm_provider_models command."
+commands.allow = ["list_llm_provider_models"]
+
+[[permission]]
+identifier = "allow-refresh-llm-provider-models"
+description = "Enables the refresh_llm_provider_models command."
+commands.allow = ["refresh_llm_provider_models"]
+
+[[permission]]
 identifier = "allow-lsp-start"
 description = "Enables the lsp_start command."
 commands.allow = ["lsp_start"]
@@ -161,6 +176,9 @@ permissions = [
   "allow-sidecar-status",
   "allow-inspect-llm-config",
   "allow-save-vera-llm-config",
+  "allow-list-llm-providers",
+  "allow-list-llm-provider-models",
+  "allow-refresh-llm-provider-models",
   "allow-lsp-start",
   "allow-lsp-stop",
   "allow-lsp-symbol-search",
