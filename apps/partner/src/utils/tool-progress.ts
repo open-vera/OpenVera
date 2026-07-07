@@ -142,6 +142,22 @@ function describeDetail(
   if (name === "agent_thinking") {
     return locale === "en-US" ? "Thinking" : "思考中";
   }
+  if (name === "agent_intent") {
+    const domain = asString(input.domain);
+    const domainLabel = domain
+      ? locale === "en-US"
+        ? domain
+        : ({ code: "代码", chat: "对话", other: "通用" }[domain] ?? domain)
+      : null;
+    const planned = input.executionMode === "harness_plan";
+    const modeLabel =
+      locale === "en-US" ? (planned ? "plan" : "direct") : planned ? "规划执行" : "直接执行";
+    const prefix = locale === "en-US" ? "Intent" : "意图识别";
+    if (locale === "en-US") {
+      return domainLabel ? `${prefix}: ${domainLabel} · ${modeLabel}` : `${prefix}: ${modeLabel}`;
+    }
+    return domainLabel ? `${prefix}：${domainLabel} · ${modeLabel}` : `${prefix}：${modeLabel}`;
+  }
   if (name === "agent_error") {
     const message = asString(input.message);
     const diagnosticJson = [

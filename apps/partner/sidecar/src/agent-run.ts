@@ -686,6 +686,24 @@ export async function handleAgentRun(
           intent,
           executionMode,
         });
+        writeEvent({
+          id: requestId,
+          type: "tool_call",
+          data: {
+            instanceId,
+            callId: randomUUID(),
+            name: "agent_intent",
+            input: {
+              level: intent.level,
+              domain: intent.domain,
+              needsTools: intent.needs_tools,
+              needsPlanning: intent.needs_planning,
+              reason: intent.reason,
+              executionMode,
+            },
+            handledBySidecar: true,
+          },
+        });
       },
       onDelta: (delta) => {
         if (!firstDeltaLogged) {

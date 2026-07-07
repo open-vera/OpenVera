@@ -48,12 +48,13 @@ export class Orchestrator {
     const taskId = crypto.randomUUID();
 
     chat.append({
-      id: crypto.randomUUID(),
+      id: taskId,
       role: "user",
       content: displayText,
       agentContent: agentText,
       attachments,
       timestamp: Date.now(),
+      ...(chat.isAgentRunning ? { queueStatus: "queued" as const } : {}),
     }, chatTabId);
     this.appendUserRunLog("user_message", displayText, agentText, chatTabId, resolvedRoot, attachments, taskId);
 
@@ -68,6 +69,7 @@ export class Orchestrator {
         steps: [],
         createdAt: Date.now(),
       });
+      this.syncQueuedMessageStatus(chatTabId);
       this.appendUserRunLog(
         "user_message_queued",
         displayText,
@@ -127,6 +129,7 @@ export class Orchestrator {
     const preview = usePreviewStore();
     const taskCreatedAt = Date.now();
 
+    chat.clearMessageQueueStatus(taskId, chatTabId);
     session.touch();
 
     if (!this.activeInstance) {
@@ -270,7 +273,8 @@ export class Orchestrator {
         preview,
         session.current.windowId,
       );
-      if (!this.abortRequested) {
+      if (!this.abortRequested || this.taskQueueSize() > 0) {
+        this.abortRequested = false;
         await this.runNextQueuedTask();
       }
     }
@@ -312,16 +316,45 @@ export class Orchestrator {
   }
 
   private async runNextQueuedTask(): Promise<void> {
+    this.syncQueuedMessageStatus();
     const nextTask = this.taskQueue.dequeue();
     if (!nextTask?.text || !nextTask.chatTabId) return;
     await this.runMessage(nextTask.text, nextTask.chatTabId, nextTask.projectRoot, nextTask.title, nextTask.id);
   }
 
-  abort(): void {
+  private syncQueuedMessageStatus(tabId?: string): void {
+    const chat = useChatStore();
+    const nextTaskId = this.taskQueue.peek()?.id ?? null;
+    const tabs = tabId ? [tabId] : chat.tabs.filter((tab) => tab.kind === "chat").map((tab) => tab.id);
+    for (const currentTabId of tabs) {
+      for (const message of chat.messagesForTab(currentTabId)) {
+        if (message.queueStatus === "queued" || message.queueStatus === "next") {
+          message.queueStatus = message.id === nextTaskId ? "next" : "queued";
+        }
+      }
+    }
+  }
+
+  promoteQueuedTask(taskId: string): void {
+    if (!this.taskQueue.promote(taskId)) return;
+    this.syncQueuedMessageStatus();
+  }
+
+  runQueuedTaskNow(taskId: string): void {
+    if (!this.taskQueue.promote(taskId)) return;
+    this.syncQueuedMessageStatus();
+    this.abort();
+  }
+
+  abort(options: { discardQueue?: boolean } = {}): void {
     this.abortRequested = true;
-    this.taskQueue.clear();
     this.activeInstance?.abort();
-    useChatStore().abort();
+    const chat = useChatStore();
+    if (options.discardQueue) {
+      this.taskQueue.clear();
+      chat.clearAllQueuedMessages();
+    }
+    chat.abort();
   }
 
   gatewayStatus() {

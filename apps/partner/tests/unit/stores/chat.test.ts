@@ -260,7 +260,45 @@ describe("useChatStore", () => {
     expect(chat.messages[0]?.content).toBe("still open");
   });
 
-  it("selects an already-open snapshot tab without overwriting it", () => {
+  it("selects the already-open tab when the snapshot is the same conversation", () => {
+    const chat = useChatStore();
+    const tabId = chat.ensureActiveChatTab();
+    chat.append({
+      id: "shared-message",
+      role: "user",
+      content: "local content",
+      timestamp: 1,
+    }, tabId);
+
+    const openedTabId = chat.openSnapshotTab({
+      version: 1,
+      activeTabId: tabId,
+      tabs: [
+        {
+          id: tabId,
+          title: "旧历史",
+          kind: "chat",
+          messages: [
+            {
+              id: "shared-message",
+              role: "user",
+              content: "local content",
+              timestamp: 1,
+            },
+          ],
+          isAgentRunning: false,
+          currentTokenCount: 0,
+          estimatedCost: 0,
+        },
+      ],
+    });
+
+    expect(openedTabId).toBe(tabId);
+    expect(chat.tabs).toHaveLength(1);
+    expect(chat.messages[0]?.content).toBe("local content");
+  });
+
+  it("opens a colliding-id snapshot of a different conversation as a new tab", () => {
     const chat = useChatStore();
     const tabId = chat.ensureActiveChatTab();
     chat.append({
@@ -293,8 +331,13 @@ describe("useChatStore", () => {
       ],
     });
 
-    expect(openedTabId).toBe(tabId);
-    expect(chat.tabs).toHaveLength(1);
+    expect(openedTabId).not.toBeNull();
+    expect(openedTabId).not.toBe(tabId);
+    expect(chat.tabs).toHaveLength(2);
+    expect(chat.activeTabId).toBe(openedTabId);
+    expect(chat.messages[0]?.content).toBe("old history");
+
+    chat.selectTab(tabId);
     expect(chat.messages[0]?.content).toBe("local content");
   });
 
@@ -327,5 +370,45 @@ describe("useChatStore", () => {
 
     expect(chat.isAgentRunning).toBe(false);
     expect(chat.messages[0]?.isStreaming).toBe(false);
+  });
+
+  it("clears queued status when a queued message starts processing", () => {
+    const chat = useChatStore();
+    const tabId = chat.ensureActiveChatTab();
+    chat.append({
+      id: "task-1",
+      role: "user",
+      content: "queued message",
+      timestamp: Date.now(),
+      queueStatus: "queued",
+    }, tabId);
+
+    chat.clearMessageQueueStatus("task-1", tabId);
+
+    expect(chat.messages[0]?.queueStatus).toBeUndefined();
+  });
+
+  it("clears all queued messages when aborting the queue", () => {
+    const chat = useChatStore();
+    const tabId = chat.ensureActiveChatTab();
+    chat.append({
+      id: "task-1",
+      role: "user",
+      content: "first",
+      timestamp: Date.now(),
+      queueStatus: "queued",
+    }, tabId);
+    chat.append({
+      id: "task-2",
+      role: "user",
+      content: "second",
+      timestamp: Date.now(),
+      queueStatus: "queued",
+    }, tabId);
+
+    chat.clearAllQueuedMessages();
+
+    expect(chat.messages[0]?.queueStatus).toBeUndefined();
+    expect(chat.messages[1]?.queueStatus).toBeUndefined();
   });
 });

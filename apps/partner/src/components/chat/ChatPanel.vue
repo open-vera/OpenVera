@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch, type ComponentPublicInstance } from "vue";
 import { readFile } from "@/bridge";
 import { useChatStore } from "@/stores/chat";
 import { getOrchestrator } from "@/orchestrator";
@@ -10,11 +10,11 @@ import { useWorkspaceStore } from "@/stores/workspace";
 import type { ChatAttachment, Message, ToolCall, ToolResult } from "@/types";
 import { buildPartnerRunLogPath, formatRunLogPlaceholder } from "@/utils/run-log";
 import { formatChatTime, shouldShowChatTime } from "@/utils/chat-time";
-import { collapseRunningDisplayItems } from "@/utils/running-display";
 import { isVisibleToolProgressStep, summarizeToolCall } from "@/utils/tool-progress";
 import MessageBubble from "./MessageBubble.vue";
 import InputBar from "./InputBar.vue";
 import ToolProgressPanel from "./ToolProgressPanel.vue";
+import SessionSearchDialog from "./SessionSearchDialog.vue";
 import SessionHistoryMenu from "./SessionHistoryMenu.vue";
 import SettingsPanel from "@/components/settings/SettingsPanel.vue";
 
@@ -27,6 +27,7 @@ const orchestrator = getOrchestrator();
 const messagesRef = ref<HTMLElement | null>(null);
 const inputBarRef = ref<InstanceType<typeof InputBar> | null>(null);
 const shouldStickToBottom = ref(true);
+const itemElements = new Map<string, HTMLElement>();
 
 type ChatDisplayItem =
   | { type: "time"; key: string; label: string }
@@ -35,12 +36,11 @@ type ChatDisplayItem =
   | {
       type: "tool-progress";
       key: string;
+      messageIds: string[];
       timestamp: number;
       toolCalls: ToolCall[];
       toolResults: ToolResult[];
     };
-
-const MAX_RUNNING_DISPLAY_ITEMS = 5;
 
 function hasVisibleToolProgress(toolCalls: ToolCall[]): boolean {
   return toolCalls
@@ -77,12 +77,14 @@ const allDisplayItems = computed<ChatDisplayItem[]>(() => {
         activeToolGroup = {
           type: "tool-progress",
           key: `tools:${message.id}`,
+          messageIds: [],
           timestamp: message.timestamp,
           toolCalls: [],
           toolResults: [],
         };
         items.push(activeToolGroup);
       }
+      activeToolGroup.messageIds.push(message.id);
       activeToolGroup.toolCalls.push(...message.toolCalls);
       activeToolGroup.toolResults.push(...(message.toolResults ?? []));
       lastVisibleTimestamp = message.timestamp;
@@ -104,14 +106,9 @@ const allDisplayItems = computed<ChatDisplayItem[]>(() => {
 const displayItems = computed<ChatDisplayItem[]>(() => {
   if (!isAgentRunning.value) return allDisplayItems.value;
 
-  const runningItems = allDisplayItems.value.filter(
+  return allDisplayItems.value.filter(
     (item) => item.type !== "tool-progress" || hasVisibleToolProgress(item.toolCalls),
   );
-
-  return collapseRunningDisplayItems(
-    runningItems,
-    MAX_RUNNING_DISPLAY_ITEMS,
-  ) as ChatDisplayItem[];
 });
 const activeToolProgressKey = computed(() => {
   for (let index = displayItems.value.length - 1; index >= 0; index -= 1) {
@@ -185,13 +182,21 @@ function selectTab(tabId: string) {
 function closeTab(tabId: string) {
   const tab = tabs.value.find((item) => item.id === tabId);
   if (tab?.isAgentRunning) {
-    orchestrator.abort();
+    orchestrator.abort({ discardQueue: true });
   }
   chat.closeTab(tabId);
 }
 
 function abortActiveRun() {
   orchestrator.abort();
+}
+
+function promoteQueuedMessage(messageId: string) {
+  orchestrator.promoteQueuedTask(messageId);
+}
+
+function runQueuedMessageNow(messageId: string) {
+  orchestrator.runQueuedTaskNow(messageId);
 }
 
 function tabTitle(tab: { kind: string; title: string }) {
@@ -201,6 +206,37 @@ function tabTitle(tab: { kind: string; title: string }) {
 function focusInputBar() {
   void nextTick(() => {
     inputBarRef.value?.focus();
+  });
+}
+
+function setItemElement(key: string, element: Element | ComponentPublicInstance | null) {
+  if (element instanceof HTMLElement) {
+    itemElements.set(key, element);
+  } else {
+    itemElements.delete(key);
+  }
+}
+
+function itemKeyForMessageId(messageId: string): string {
+  const message = messages.value.find((item) => item.id === messageId);
+  if (!message) return messageId;
+  if (message.role !== "tool") return message.id;
+  return displayItems.value.find(
+    (item) => item.type === "tool-progress" && item.messageIds.includes(messageId),
+  )?.key ?? `tools:${message.id}`;
+}
+
+function jumpToMessage(messageId: string) {
+  shouldStickToBottom.value = false;
+  void nextTick(() => {
+    requestAnimationFrame(() => {
+      const element = itemElements.get(itemKeyForMessageId(messageId));
+      element?.scrollIntoView({ behavior: "smooth", block: "center" });
+      element?.classList.add("search-jump-highlight");
+      window.setTimeout(() => {
+        element?.classList.remove("search-jump-highlight");
+      }, 1400);
+    });
   });
 }
 
@@ -260,6 +296,7 @@ onMounted(() => {
 watch(
   () => activeTab.value?.id,
   () => {
+    itemElements.clear();
     shouldStickToBottom.value = true;
     scheduleScrollToBottom(true);
     focusInputBar();
@@ -311,6 +348,7 @@ watch(
           <span>{{ uiText.newChat }}</span>
         </button>
       </div>
+      <SessionSearchDialog @select="jumpToMessage" />
       <SessionHistoryMenu />
     </nav>
 
@@ -328,16 +366,28 @@ watch(
             <span class="thinking-dot" aria-hidden="true" />
             {{ item.label }}
           </div>
-          <MessageBubble
+          <div
             v-else-if="item.type === 'message'"
-            :message="item.message"
-          />
-          <ToolProgressPanel
+            :ref="(element) => setItemElement(item.key, element)"
+            class="message-anchor"
+          >
+            <MessageBubble
+              :message="item.message"
+              @promote-queued="promoteQueuedMessage"
+              @run-queued-now="runQueuedMessageNow"
+            />
+          </div>
+          <div
             v-else
-            :tool-calls="item.toolCalls"
-            :tool-results="item.toolResults"
-            :running="isAgentRunning && item.key === activeToolProgressKey"
-          />
+            :ref="(element) => setItemElement(item.key, element)"
+            class="message-anchor"
+          >
+            <ToolProgressPanel
+              :tool-calls="item.toolCalls"
+              :tool-results="item.toolResults"
+              :running="isAgentRunning && item.key === activeToolProgressKey"
+            />
+          </div>
         </template>
       </div>
 
@@ -545,6 +595,19 @@ watch(
   gap: 8px;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+.message-anchor {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.message-anchor.search-jump-highlight :deep(.bubble),
+.message-anchor.search-jump-highlight :deep(.tool-progress) {
+  outline: 2px solid color-mix(in srgb, var(--accent) 64%, transparent);
+  outline-offset: 4px;
+  border-radius: 12px;
 }
 
 .thinking-dot {

@@ -11,6 +11,15 @@ export class TaskQueue {
     return this.queue.shift();
   }
 
+  promote(taskId: string): boolean {
+    const index = this.queue.findIndex((task) => task.id === taskId);
+    if (index <= 0) return index === 0;
+    const [task] = this.queue.splice(index, 1);
+    if (!task) return false;
+    this.queue.unshift(task);
+    return true;
+  }
+
   peek(): Task | undefined {
     return this.queue[0];
   }

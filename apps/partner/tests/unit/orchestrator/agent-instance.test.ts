@@ -122,4 +122,30 @@ describe("AgentInstanceRunner", () => {
     expect(abortAgentMock).not.toHaveBeenCalled();
     runner.abort();
   });
+
+  it("keeps stream listeners alive after manual abort so completion can settle", async () => {
+    const { AgentInstanceRunner } = await import("@/orchestrator/agent-instance");
+    const cleanup = vi.fn();
+    const runner = new AgentInstanceRunner("session-1");
+    let emitDone: ((payload: { text?: string }) => void) | undefined;
+    subscribeAgentStreamMock.mockImplementation(async (options: { onDone?: typeof emitDone }) => {
+      void options;
+      return cleanup;
+    });
+    waitForAgentCompletionMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          emitDone = resolve;
+        }),
+    );
+
+    const run = runner.run("hello", [], { onDelta: vi.fn() }, "/workspace");
+    await Promise.resolve();
+    runner.abort();
+    emitDone?.({ text: "" });
+
+    await expect(run).resolves.toEqual({ text: "" });
+    expect(abortAgentMock).toHaveBeenCalledWith("session-1");
+    expect(cleanup).toHaveBeenCalled();
+  });
 });

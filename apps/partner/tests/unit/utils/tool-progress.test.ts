@@ -47,6 +47,7 @@ describe("tool progress summaries", () => {
       "agent_config",
       "agent_wait_model",
       "agent_model_ready",
+      "agent_intent",
       "agent_thinking",
       "agent_error",
     ]
@@ -54,7 +55,36 @@ describe("tool progress summaries", () => {
       .filter(isVisibleToolProgressStep)
       .map((step) => step.rawName);
 
-    expect(visibleNames).toEqual(["agent_thinking", "agent_error"]);
+    expect(visibleNames).toEqual(["agent_intent", "agent_thinking", "agent_error"]);
+  });
+
+  it("summarizes intent classification with domain and execution mode", () => {
+    const direct = summarizeToolCall(
+      toolCall("t1", "agent_intent", {
+        level: 2,
+        domain: "code",
+        executionMode: "direct_stream",
+        reason: "User wants a script",
+      }),
+      "zh-CN",
+    );
+    expect(direct.title).toBe("推进任务");
+    expect(direct.detail).toBe("意图识别：代码 · 直接执行");
+
+    const planned = summarizeToolCall(
+      toolCall("t2", "agent_intent", { domain: "other", executionMode: "harness_plan" }),
+      "zh-CN",
+    );
+    expect(planned.detail).toBe("意图识别：通用 · 规划执行");
+
+    const english = summarizeToolCall(
+      toolCall("t3", "agent_intent", { domain: "code", executionMode: "direct_stream" }),
+      "en-US",
+    );
+    expect(english.detail).toBe("Intent: code · direct");
+
+    const noDomain = summarizeToolCall(toolCall("t4", "agent_intent", {}), "zh-CN");
+    expect(noDomain.detail).toBe("意图识别：直接执行");
   });
 
   it("summarizes agent errors as failed progress", () => {

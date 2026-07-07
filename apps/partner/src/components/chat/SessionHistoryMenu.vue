@@ -139,16 +139,17 @@ async function toggleOpen() {
 }
 
 function selectEntry(entry: HistoryEntry) {
+  let openedTabId: string | null = null;
   if (entry.taskSnapshot) {
-    chat.openSnapshotTab(entry.taskSnapshot.chat, entry.tabId);
+    openedTabId = chat.openSnapshotTab(entry.taskSnapshot.chat, entry.tabId);
     previewStore.restoreSnapshot(entry.taskSnapshot.preview);
   } else if (entry.windowSnapshot) {
-    chat.openSnapshotTab(entry.windowSnapshot.chat, entry.tabId);
+    openedTabId = chat.openSnapshotTab(entry.windowSnapshot.chat, entry.tabId);
     if (entry.windowId !== session.current.windowId) {
       previewStore.restoreSnapshot(entry.windowSnapshot.preview);
     }
   }
-  chat.selectTab(entry.tabId);
+  chat.selectTab(openedTabId ?? entry.tabId);
   open.value = false;
 }
 

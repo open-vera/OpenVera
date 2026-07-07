@@ -51,6 +51,7 @@ function normalizeMessage(message: Message): Message {
   return {
     ...message,
     isStreaming: false,
+    queueStatus: undefined,
   };
 }
 
@@ -248,6 +249,32 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  function clearMessageQueueStatus(messageId: string, tabId?: string) {
+    const resolvedTabId = tabId ?? ensureActiveChatTab();
+    const message = messagesForTab(resolvedTabId).find((item) => item.id === messageId);
+    if (message?.queueStatus) {
+      delete message.queueStatus;
+    }
+  }
+
+  function clearQueuedMessages(tabId?: string) {
+    const resolvedTabId = tabId ?? ensureActiveChatTab();
+    const tab = tabs.value.find((item) => item.id === resolvedTabId && item.kind === "chat");
+    if (!tab) return;
+    for (const message of tab.messages) {
+      if (message.queueStatus === "queued" || message.queueStatus === "next") {
+        delete message.queueStatus;
+      }
+    }
+  }
+
+  function clearAllQueuedMessages() {
+    for (const tab of tabs.value) {
+      if (tab.kind !== "chat") continue;
+      clearQueuedMessages(tab.id);
+    }
+  }
+
   function setLastError(message: string, tabId?: string) {
     const resolvedTabId = tabId ?? ensureActiveChatTab();
     const tab = tabs.value.find((item) => item.id === resolvedTabId && item.kind === "chat");
@@ -339,6 +366,15 @@ export const useChatStore = defineStore("chat", () => {
     return true;
   }
 
+  // 默认 tab 的 id 是固定常量，不同窗口/历史会话之间会撞 id。
+  // 只有首条消息一致才视为同一段对话，否则历史恢复要另开新 tab。
+  function isSameConversation(a: ChatTab, b: ChatTab): boolean {
+    const aFirst = a.messages[0]?.id;
+    const bFirst = b.messages[0]?.id;
+    if (!aFirst || !bFirst) return !aFirst && !bFirst;
+    return aFirst === bFirst;
+  }
+
   function openSnapshotTab(snapshot: unknown, tabId?: string): string | null {
     const parsed = parseSnapshot(snapshot);
     if (!parsed) return null;
@@ -349,9 +385,18 @@ export const useChatStore = defineStore("chat", () => {
     if (!sourceTab) return null;
 
     const existing = tabs.value.find((tab) => tab.id === sourceTab.id);
-    if (!existing) {
-      tabs.value.push(normalizeChatTab(sourceTab));
+    if (existing) {
+      if (existing.kind === "chat" && isSameConversation(existing, sourceTab)) {
+        activeTabId.value = existing.id;
+        return existing.id;
+      }
+      const restored = { ...normalizeChatTab(sourceTab), id: crypto.randomUUID() };
+      tabs.value.push(restored);
+      activeTabId.value = restored.id;
+      return restored.id;
     }
+
+    tabs.value.push(normalizeChatTab(sourceTab));
     activeTabId.value = sourceTab.id;
     return sourceTab.id;
   }
@@ -378,6 +423,9 @@ export const useChatStore = defineStore("chat", () => {
     updateStreaming,
     finalizeMessage,
     markMessageError,
+    clearMessageQueueStatus,
+    clearQueuedMessages,
+    clearAllQueuedMessages,
     setLastError,
     clearLastError,
     messagesForTab,

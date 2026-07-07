@@ -128,7 +128,8 @@ function toggleResultExpand(stepId: string): void {
 
 function onResultClick(stepId: string, event: MouseEvent): void {
   const target = event.target as HTMLElement | null;
-  if (target?.closest("a, button")) return;
+  if (target?.closest("a")) return;
+  if (isResultExpanded(stepId) && target?.closest(".tool-result-content")) return;
   const selection = window.getSelection()?.toString().trim();
   if (selection) return;
   toggleResultExpand(stepId);
@@ -218,7 +219,6 @@ watch(
                       ? undefined
                       : { maxHeight: `${RESULT_COLLAPSED_MAX_HEIGHT}px` }
                   "
-                  @click.stop
                 >
                   <pre
                     v-if="isTerminalOutput(step)"
@@ -231,7 +231,11 @@ watch(
                 </div>
               </button>
             </span>
-            <span v-else class="approval-card">
+            <span
+              v-else
+              class="approval-card"
+              :class="{ pending: approvalState(step) === 'pending' }"
+            >
               <span class="approval-title">{{ step.detail }}</span>
               <span v-if="approvalCommand(step)" class="approval-command">
                 {{ approvalCommand(step) }}
@@ -524,6 +528,16 @@ watch(
   border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
   border-radius: 10px;
   background: color-mix(in srgb, var(--accent) 8%, var(--surface-elevated));
+}
+
+.approval-card.pending {
+  position: sticky;
+  bottom: 10px;
+  z-index: 3;
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent);
+  backdrop-filter: blur(8px);
 }
 
 .approval-title {

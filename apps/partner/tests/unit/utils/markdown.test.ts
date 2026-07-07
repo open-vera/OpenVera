@@ -32,4 +32,14 @@ describe("renderMarkdown", () => {
     expect(html).toContain("---");
     expect(html).toContain("key: value");
   });
+
+  it("adds syntax token classes for shell code fences", () => {
+    const html = renderMarkdown('```bash\n#!/bin/bash\nBASE_URL="https://example.test"\necho "$BASE_URL"\n```');
+
+    expect(html).toContain("code-block language-bash");
+    expect(html).toContain("token-comment");
+    expect(html).toContain("token-variable");
+    expect(html).toContain("token-string");
+    expect(html).toContain("token-keyword");
+  });
 });

@@ -166,8 +166,5 @@ export class AgentInstanceRunner {
   abort(): void {
     this.abortRequested = true;
     void abortAgent(this.sessionId);
-    this.cleanupStream?.();
-    this.cleanupStream = null;
-    this.status = "idle";
   }
 }

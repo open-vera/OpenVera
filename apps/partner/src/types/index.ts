@@ -52,6 +52,7 @@ export interface Message {
   isStreaming?: boolean;
   isError?: boolean;
   tokenCount?: number;
+  queueStatus?: "queued" | "next";
 }
 
 export interface ChatTab {

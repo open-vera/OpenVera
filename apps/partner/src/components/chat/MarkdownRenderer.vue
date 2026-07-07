@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { renderMarkdown } from "@/utils/markdown";
 
 const props = defineProps<{
@@ -7,10 +7,88 @@ const props = defineProps<{
 }>();
 
 const rendered = computed(() => renderMarkdown(props.content));
+const rendererRef = ref<HTMLElement | null>(null);
+const CODE_BLOCK_MAX_HEIGHT = 800;
+
+function setupCodeBlockOverflow() {
+  const root = rendererRef.value;
+  if (!root) return;
+  for (const shell of root.querySelectorAll<HTMLElement>(".code-block-shell")) {
+    const pre = shell.querySelector<HTMLElement>("pre");
+    if (!pre) continue;
+    shell.classList.remove("is-collapsible", "is-expanded");
+    if (pre.scrollHeight > CODE_BLOCK_MAX_HEIGHT) {
+      shell.classList.add("is-collapsible");
+    }
+  }
+}
+
+watch(
+  rendered,
+  () => {
+    void nextTick(() => {
+      requestAnimationFrame(setupCodeBlockOverflow);
+    });
+  },
+  { immediate: true },
+);
+
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
+}
+
+function markCopyState(button: HTMLButtonElement, label: string) {
+  button.textContent = label;
+  window.setTimeout(() => {
+    button.textContent = "复制";
+  }, 1200);
+}
+
+async function onMarkdownClick(event: MouseEvent) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const toggle = target.closest<HTMLButtonElement>(".code-expand-button");
+  if (toggle) {
+    event.preventDefault();
+    event.stopPropagation();
+    const shell = toggle.closest<HTMLElement>(".code-block-shell");
+    if (!shell) return;
+    const expanded = shell.classList.toggle("is-expanded");
+    toggle.textContent = expanded ? "收起" : "展开";
+    return;
+  }
+
+  const button = target.closest<HTMLButtonElement>(".code-copy-button");
+  if (!button) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  const encoded = button.dataset.code;
+  if (!encoded) return;
+  try {
+    await copyText(decodeURIComponent(encoded));
+    markCopyState(button, "已复制");
+  } catch (error) {
+    markCopyState(button, "失败");
+    console.warn("[MarkdownRenderer] failed to copy code block:", error);
+  }
+}
 </script>
 
 <template>
-  <div class="markdown-renderer" v-html="rendered" />
+  <div ref="rendererRef" class="markdown-renderer" @click="onMarkdownClick" v-html="rendered" />
 </template>
 
 <style scoped>
@@ -65,9 +143,124 @@ const rendered = computed(() => renderMarkdown(props.content));
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   border-radius: 8px;
-  background: var(--surface-elevated);
+  background: color-mix(in srgb, var(--surface-elevated) 82%, #10141b);
   overflow-x: auto;
   white-space: pre;
+}
+
+.markdown-renderer :deep(.code-block-shell) {
+  position: relative;
+  margin: 0 0 10px;
+}
+
+.markdown-renderer :deep(.code-block-shell pre) {
+  margin-bottom: 0;
+  padding-top: 30px;
+}
+
+.markdown-renderer :deep(.code-block-shell.is-collapsible:not(.is-expanded) pre) {
+  max-height: 800px;
+  overflow: hidden;
+}
+
+.markdown-renderer :deep(.code-block-shell.is-expanded pre) {
+  max-height: none;
+}
+
+.markdown-renderer :deep(.code-copy-button) {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 1;
+  height: 24px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 6px;
+  padding: 0 8px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 22px;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.markdown-renderer :deep(.code-block-shell:hover .code-copy-button),
+.markdown-renderer :deep(.code-copy-button:focus-visible) {
+  opacity: 1;
+}
+
+.markdown-renderer :deep(.code-copy-button:hover) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.markdown-renderer :deep(.code-language) {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  z-index: 1;
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 20px;
+  pointer-events: none;
+}
+
+.markdown-renderer :deep(.code-fade) {
+  display: none;
+}
+
+.markdown-renderer :deep(.code-block-shell.is-collapsible .code-fade) {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  left: 1px;
+  display: flex;
+  justify-content: center;
+  padding: 34px 12px 10px;
+  border-radius: 0 0 8px 8px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--surface-elevated) 84%, #10141b) 54%,
+    color-mix(in srgb, var(--surface-elevated) 92%, #10141b)
+  );
+  pointer-events: none;
+}
+
+.markdown-renderer :deep(.code-block-shell.is-expanded .code-fade) {
+  position: static;
+  padding: 8px 12px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  background: color-mix(in srgb, var(--surface-elevated) 82%, #10141b);
+}
+
+.markdown-renderer :deep(.code-block-shell.is-expanded pre) {
+  border-radius: 8px 8px 0 0;
+}
+
+.markdown-renderer :deep(.code-expand-button) {
+  height: 26px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+  border-radius: 999px;
+  padding: 0 12px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.markdown-renderer :deep(.code-expand-button:hover) {
+  background: var(--surface-hover);
 }
 
 .markdown-renderer :deep(code) {
@@ -85,6 +278,37 @@ const rendered = computed(() => renderMarkdown(props.content));
   padding: 0;
   color: inherit;
   background: transparent;
+}
+
+.markdown-renderer :deep(.code-block code) {
+  color: color-mix(in srgb, var(--text) 88%, #d8e2ff);
+}
+
+.markdown-renderer :deep(.token-comment) {
+  color: #7f8da3;
+  font-style: italic;
+}
+
+.markdown-renderer :deep(.token-keyword) {
+  color: #8ab4ff;
+  font-weight: 650;
+}
+
+.markdown-renderer :deep(.token-string) {
+  color: #9bd88f;
+}
+
+.markdown-renderer :deep(.token-variable) {
+  color: #ffd166;
+}
+
+.markdown-renderer :deep(.token-property) {
+  color: #8bd3ff;
+}
+
+.markdown-renderer :deep(.token-number),
+.markdown-renderer :deep(.token-literal) {
+  color: #f7a8c4;
 }
 
 .markdown-renderer :deep(a) {
