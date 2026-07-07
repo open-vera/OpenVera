@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { inspectLlmConfig, readFile } from "@/bridge";
+import {
+  listLlmProviderModels,
+  refreshLlmProviderModels,
+  testLlmConnection,
+} from "@/bridge/llm-catalog";
 import { usePreviewStore } from "@/stores/preview";
 import { useSettingsStore } from "@/stores/settings";
 import { useWorkspaceStore } from "@/stores/workspace";
-import type { AppLocale, EffectiveLlmConfig, LLMProviderId, LLMProtocol } from "@/types";
+import type { AppLocale, CatalogModel, EffectiveLlmConfig, LLMProviderId, LLMProtocol } from "@/types";
+import { LLM_PROTOCOL_OPTIONS } from "@/utils/llm-protocol";
 
 const settings = useSettingsStore();
 const workspace = useWorkspaceStore();
@@ -18,9 +24,15 @@ const inspectError = ref("");
 const revealEffectiveKey = ref(false);
 const isReady = ref(false);
 const isSavingConfig = ref(false);
+const isTestingConnection = ref(false);
+const showModelList = ref(false);
+const isLoadingModels = ref(false);
+const modelList = ref<CatalogModel[]>([]);
+const modelListError = ref("");
 let saveTimer: number | undefined;
 
 const INSPECT_TIMEOUT_MS = 5_000;
+const REMOTE_MODEL_TIMEOUT_MS = 12_000;
 
 const baseProviderOptions: Array<{ value: LLMProviderId; label: string }> = [
   { value: "anthropic", label: "Anthropic" },
@@ -37,11 +49,7 @@ const providerOptions = computed(() => {
   ];
 });
 
-const protocolOptions: Array<{ value: LLMProtocol; label: string }> = [
-  { value: "anthropic", label: "Anthropic" },
-  { value: "openai-compatible", label: "OpenAI Compatible" },
-  { value: "gemini", label: "Gemini" },
-];
+const protocolOptions = LLM_PROTOCOL_OPTIONS;
 
 const localeOptions: Array<{ value: AppLocale; label: string }> = [
   { value: "zh", label: "中文" },
@@ -89,6 +97,23 @@ const copy = computed(() => {
       projectRoot: "Project Root",
       adapter: "Adapter",
       notAvailable: "N/A",
+      testConnection: "Test Connection",
+      viewModels: "View Models",
+      testingConnection: "Testing connection...",
+      testSuccess: (count: number) =>
+        count > 0
+          ? `Connection OK. ${count} model(s) available.`
+          : "Connection OK, but no models were returned.",
+      testFailed: "Connection failed",
+      testTimeout: "Connection test timed out. Check network or API base URL.",
+      modelListTitle: "Available Models",
+      modelListHint: "Configured models load instantly; remote models sync from the provider API.",
+      loadingModels: "Loading model list...",
+      modelListTimeout: "Remote model sync timed out. Showing configured models only.",
+      modelListEmpty: "No models found for this provider.",
+      modelSourceConfig: "config",
+      modelSourceRemote: "remote",
+      hideModels: "Hide",
     };
   }
   return {
@@ -128,12 +153,41 @@ const copy = computed(() => {
     projectRoot: "项目根目录",
     adapter: "适配器",
     notAvailable: "无",
+    testConnection: "测试连接",
+    viewModels: "查看模型列表",
+    testingConnection: "正在测试连接…",
+    testSuccess: (count: number) =>
+      count > 0 ? `连接成功，发现 ${count} 个模型。` : "连接成功，但未返回模型列表。",
+    testFailed: "连接失败",
+    testTimeout: "连接测试超时，请检查网络或 API Base URL。",
+    modelListTitle: "可用模型",
+    modelListHint: "本地配置模型即时显示；远程模型通过供应商 API 同步。",
+    loadingModels: "正在加载模型列表…",
+    modelListTimeout: "远程模型同步超时，仅显示本地配置模型。",
+    modelListEmpty: "未找到可用模型。",
+    modelSourceConfig: "配置",
+    modelSourceRemote: "远程",
+    hideModels: "收起",
   };
 });
 
 function clearStatus() {
   status.value = "";
   error.value = "";
+}
+
+function mergeModels(configured: CatalogModel[], remote: CatalogModel[]): CatalogModel[] {
+  if (!remote.length) return configured;
+  const seen = new Set(remote.map((model) => model.id));
+  const extras = configured.filter((model) => !seen.has(model.id));
+  return [...remote, ...extras];
+}
+
+async function flushPendingSettings() {
+  if (apiKey.value.trim()) {
+    await saveApiKeyIfNeeded();
+  }
+  await settings.save(workspace.rootPath || undefined);
 }
 
 async function ensureLoaded() {
@@ -230,6 +284,81 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
   });
 }
 
+async function testConnection() {
+  clearStatus();
+  isTestingConnection.value = true;
+  try {
+    await flushPendingSettings();
+    const result = await withTimeout(
+      testLlmConnection(workspace.rootPath || undefined, settings.provider.id, {
+        protocol: settings.provider.protocol,
+      }),
+      REMOTE_MODEL_TIMEOUT_MS,
+      copy.value.testTimeout,
+    );
+    if (result.ok) {
+      status.value = copy.value.testSuccess(result.modelCount);
+      await refreshEffectiveConfig();
+      return;
+    }
+    error.value = result.message || copy.value.testFailed;
+  } catch (testError) {
+    error.value = testError instanceof Error ? testError.message : String(testError);
+  } finally {
+    isTestingConnection.value = false;
+  }
+}
+
+async function loadModelList() {
+  modelListError.value = "";
+  isLoadingModels.value = true;
+  modelList.value = [];
+  try {
+    await flushPendingSettings();
+    const configured = await listLlmProviderModels(
+      workspace.rootPath || undefined,
+      settings.provider.id,
+    );
+    modelList.value = configured.map((model) => ({ ...model, source: "config" as const }));
+    try {
+      const remote = await withTimeout(
+        refreshLlmProviderModels(workspace.rootPath || undefined, settings.provider.id, {
+          protocol: settings.provider.protocol,
+        }),
+        REMOTE_MODEL_TIMEOUT_MS,
+        copy.value.modelListTimeout,
+      );
+      if (remote.length) {
+        modelList.value = mergeModels(modelList.value, remote);
+      }
+    } catch (remoteError) {
+      if (!modelList.value.length) {
+        modelListError.value =
+          remoteError instanceof Error ? remoteError.message : String(remoteError);
+      }
+    }
+  } catch (loadError) {
+    modelListError.value = loadError instanceof Error ? loadError.message : String(loadError);
+  } finally {
+    isLoadingModels.value = false;
+  }
+}
+
+async function toggleModelList() {
+  if (showModelList.value) {
+    showModelList.value = false;
+    return;
+  }
+  clearStatus();
+  showModelList.value = true;
+  await loadModelList();
+}
+
+function selectModel(model: CatalogModel) {
+  settings.provider.model = model.id;
+  status.value = copy.value.saved;
+}
+
 async function saveApiKeyIfNeeded() {
   clearStatus();
   const nextKey = apiKey.value.trim();
@@ -284,6 +413,14 @@ onBeforeUnmount(() => {
     window.clearTimeout(saveTimer);
   }
 });
+
+watch(
+  () => settings.provider.protocol,
+  async () => {
+    if (!showModelList.value) return;
+    await loadModelList();
+  },
+);
 
 watch(
   () => [
@@ -405,6 +542,53 @@ watch(
       </label>
     </div>
 
+    <div class="settings-actions">
+      <button
+        type="button"
+        class="action-button"
+        :disabled="isTestingConnection || isSavingConfig"
+        @click="testConnection"
+      >
+        {{ isTestingConnection ? copy.testingConnection : copy.testConnection }}
+      </button>
+      <button
+        type="button"
+        class="action-button secondary"
+        :disabled="isLoadingModels || isSavingConfig"
+        @click="toggleModelList"
+      >
+        {{ showModelList ? copy.hideModels : copy.viewModels }}
+      </button>
+    </div>
+
+    <section v-if="showModelList" class="model-list-card">
+      <div class="model-list-header">
+        <span>
+          <strong>{{ copy.modelListTitle }}</strong>
+          <small>{{ copy.modelListHint }}</small>
+        </span>
+        <button type="button" class="link-button" :disabled="isLoadingModels" @click="loadModelList">
+          {{ copy.refresh }}
+        </button>
+      </div>
+      <p v-if="isLoadingModels" class="status">{{ copy.loadingModels }}</p>
+      <p v-else-if="modelListError" class="status error">{{ modelListError }}</p>
+      <p v-else-if="!modelList.length" class="status">{{ copy.modelListEmpty }}</p>
+      <ul v-else class="model-list">
+        <li v-for="model in modelList" :key="model.id">
+          <button type="button" class="model-item" @click="selectModel(model)">
+            <span class="model-id">{{ model.id }}</span>
+            <span v-if="model.displayName && model.displayName !== model.id" class="model-alias">
+              {{ model.displayName }}
+            </span>
+            <span v-if="model.source" class="model-source">
+              {{ model.source === "config" ? copy.modelSourceConfig : copy.modelSourceRemote }}
+            </span>
+          </button>
+        </li>
+      </ul>
+    </section>
+
     <p v-if="status" class="status">{{ status }}</p>
     <p v-if="error" class="status error">{{ error }}</p>
 
@@ -513,6 +697,124 @@ watch(
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface-elevated);
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: min(100%, 780px);
+  margin-top: 12px;
+}
+
+.action-button {
+  min-height: 32px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+  border-radius: 6px;
+  padding: 0 14px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-elevated));
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.action-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+  color: var(--accent);
+}
+
+.action-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.action-button.secondary {
+  background: var(--surface-elevated);
+}
+
+.model-list-card {
+  width: min(100%, 780px);
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-elevated);
+}
+
+.model-list-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.model-list-header span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.model-list-header strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.model-list-header small {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.model-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.model-item:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
+
+.model-id {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.model-alias,
+.model-source {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.model-source {
+  margin-left: auto;
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: color-mix(in srgb, var(--border) 60%, transparent);
 }
 
 .effective-card {

@@ -9,6 +9,7 @@ import {
   createChatAttachments,
 } from "@/utils/attachments";
 import { modelDisplayLabel, providerDisplayLabel } from "@/utils/model-presets";
+import { LLM_PROTOCOL_OPTIONS, protocolLabel } from "@/utils/llm-protocol";
 
 const emit = defineEmits<{
   submit: [payload: { text: string; attachments: ChatAttachment[] }];
@@ -52,6 +53,8 @@ const modeOptions: Array<{
   { value: "plan", icon: "📋", label: "Plan", hint: "规划模式，适合复杂任务" },
 ];
 
+const protocolOptions = LLM_PROTOCOL_OPTIONS;
+
 const activeMode = computed(() =>
   modeOptions.find((option) => option.value === settings.agentMode) ?? modeOptions[0],
 );
@@ -65,6 +68,8 @@ const modelLabel = computed(() => {
   );
   return modelDisplayLabel(settings.provider.id, settings.provider.model, current);
 });
+
+const activeProtocolLabel = computed(() => protocolLabel(settings.provider.protocol));
 
 const providerRows = computed(() => modelCatalog.availableProviders);
 
@@ -131,6 +136,21 @@ async function selectMode(mode: AgentRunMode) {
   settings.setAgentMode(mode);
   await settings.save(workspace.rootPath || undefined);
   closeMenus();
+}
+
+async function selectProtocol(protocol: LLMProtocol) {
+  if (settings.provider.protocol === protocol) return;
+  settings.setProtocol(protocol);
+  await settings.save(workspace.rootPath || undefined);
+  modelCatalog.invalidateProvider(settings.provider.id);
+  if (modelMenuOpen.value) {
+    expandedProviderId.value = settings.provider.id;
+    await modelCatalog.ensureProviderModels(
+      workspace.rootPath || undefined,
+      settings.provider.id,
+      { protocol },
+    );
+  }
 }
 
 async function selectModel(provider: CatalogProvider, model: CatalogModel) {
@@ -344,7 +364,7 @@ onBeforeUnmount(() => {
             class="model menu-trigger"
             :class="{ active: modelMenuOpen }"
             :disabled="disabled || isSavingModel"
-            :title="`${providerDisplayLabel(settings.provider.id)} · ${settings.provider.model}`"
+            :title="`${providerDisplayLabel(settings.provider.id)} · ${settings.provider.model} · ${activeProtocolLabel}`"
             @click="openModelMenu"
           >
             {{ modelLabel }}
@@ -380,6 +400,22 @@ onBeforeUnmount(() => {
             data-input-bar-menu
           >
             <p class="menu-title">模型</p>
+            <div class="protocol-section">
+              <p class="menu-subtitle">协议</p>
+              <div class="protocol-options">
+                <button
+                  v-for="option in protocolOptions"
+                  :key="option.value"
+                  type="button"
+                  class="protocol-option"
+                  :class="{ selected: settings.provider.protocol === option.value }"
+                  :disabled="isSavingModel"
+                  @click="selectProtocol(option.value)"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
+            </div>
             <p v-if="modelCatalog.loadingProviders && !providerRows.length" class="menu-status">
               加载供应商…
             </p>
@@ -692,6 +728,55 @@ onBeforeUnmount(() => {
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.protocol-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 6px;
+  padding: 0 4px 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+
+.menu-subtitle {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.protocol-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.protocol-option {
+  min-height: 26px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: 999px;
+  padding: 0 10px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.protocol-option:hover:not(:disabled) {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+}
+
+.protocol-option.selected {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+}
+
+.protocol-option:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .menu-status,
