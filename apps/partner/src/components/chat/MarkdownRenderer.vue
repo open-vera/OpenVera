@@ -19,6 +19,7 @@ const rendered = computed(() => renderMarkdown(props.content));
   font-size: 14px;
   line-height: 1.65;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .markdown-renderer :deep(*) {
@@ -35,12 +36,21 @@ const rendered = computed(() => renderMarkdown(props.content));
 
 .markdown-renderer :deep(ul),
 .markdown-renderer :deep(ol) {
-  margin: 0 0 10px;
-  padding-left: 22px;
+  margin: 0 0 12px;
+  padding-left: 24px;
 }
 
 .markdown-renderer :deep(li + li) {
-  margin-top: 4px;
+  margin-top: 5px;
+}
+
+.markdown-renderer :deep(li > p) {
+  margin-bottom: 6px;
+}
+
+.markdown-renderer :deep(li::marker) {
+  color: var(--accent);
+  font-weight: 700;
 }
 
 .markdown-renderer :deep(blockquote) {
@@ -53,22 +63,27 @@ const rendered = computed(() => renderMarkdown(props.content));
 .markdown-renderer :deep(pre) {
   margin: 0 0 10px;
   padding: 10px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   border-radius: 8px;
   background: var(--surface-elevated);
   overflow-x: auto;
+  white-space: pre;
 }
 
 .markdown-renderer :deep(code) {
+  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   border-radius: 4px;
-  padding: 1px 4px;
-  background: var(--surface-elevated);
+  padding: 1px 5px;
+  background: color-mix(in srgb, var(--surface-elevated) 86%, transparent);
+  color: color-mix(in srgb, var(--text) 94%, var(--accent));
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.92em;
 }
 
 .markdown-renderer :deep(pre code) {
+  border: none;
   padding: 0;
+  color: inherit;
   background: transparent;
 }
 
@@ -84,15 +99,27 @@ const rendered = computed(() => renderMarkdown(props.content));
 .markdown-renderer :deep(table) {
   display: block;
   width: 100%;
-  margin: 0 0 10px;
-  border-collapse: collapse;
+  margin: 2px 0 12px;
+  border-collapse: separate;
+  border-spacing: 0;
   overflow-x: auto;
 }
 
 .markdown-renderer :deep(th),
 .markdown-renderer :deep(td) {
   border: 1px solid var(--border);
-  padding: 6px 8px;
+  padding: 7px 9px;
+  vertical-align: top;
+}
+
+.markdown-renderer :deep(th) {
+  background: color-mix(in srgb, var(--surface-elevated) 78%, var(--surface));
+  color: var(--text);
+  font-weight: 650;
+}
+
+.markdown-renderer :deep(td) {
+  color: color-mix(in srgb, var(--text) 92%, var(--text-muted));
 }
 
 .markdown-renderer :deep(hr) {

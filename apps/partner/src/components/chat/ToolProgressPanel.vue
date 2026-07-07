@@ -5,9 +5,11 @@ import type { ToolCall, ToolResult } from "@/types";
 import {
   compactToolProgress,
   groupToolProgress,
+  isVisibleToolProgressStep,
   summarizeToolCall,
   type ToolProgressStep,
 } from "@/utils/tool-progress";
+import MarkdownRenderer from "./MarkdownRenderer.vue";
 
 const props = defineProps<{
   toolCalls: ToolCall[];
@@ -22,13 +24,14 @@ const locale = computed(() => navigator.language);
 const steps = computed(() =>
   props.toolCalls.map((toolCall) => summarizeToolCall(toolCall, locale.value)),
 );
-const progressSteps = computed(() => steps.value.filter((step) => step.category !== "error"));
+const progressSteps = computed(() => steps.value.filter(isVisibleToolProgressStep));
 const groups = computed(() => groupToolProgress(progressSteps.value));
 const visibleGroups = computed(() => {
   if (expanded.value) return groups.value;
   return props.running ? compactToolProgress(groups.value) : [];
 });
 const totalSteps = computed(() => progressSteps.value.length);
+const hasVisibleSteps = computed(() => totalSteps.value > 0);
 const visibleStepCount = computed(() =>
   visibleGroups.value.reduce((count, group) => count + group.steps.length, 0),
 );
@@ -124,7 +127,7 @@ watch(
 </script>
 
 <template>
-  <section class="tool-progress" :class="{ completed: !running, expanded }">
+  <section v-if="hasVisibleSteps" class="tool-progress" :class="{ completed: !running, expanded }">
     <button type="button" class="tool-progress-header" @click="expanded = !expanded">
       <span class="header-title">{{ headerText }}</span>
       <span class="header-meta">{{ toggleText }}</span>
@@ -152,7 +155,7 @@ watch(
                 :class="{ error: toolResult(step)?.isError }"
               >
                 <span class="tool-result-label">{{ resultLabel(toolResult(step)!) }}</span>
-                <pre>{{ resultPreview(toolResult(step)!) }}</pre>
+                <MarkdownRenderer :content="resultPreview(toolResult(step)!)" />
               </span>
             </span>
             <span v-else class="approval-card">
@@ -238,13 +241,12 @@ watch(
   position: sticky;
   top: 8px;
   z-index: 2;
-  padding: 6px 10px;
-  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface-elevated) 88%, transparent);
-  box-shadow:
-    0 8px 20px rgba(0, 0, 0, 0.22),
-    inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
+  margin-bottom: 10px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14);
   backdrop-filter: blur(8px);
 }
 
@@ -277,7 +279,7 @@ watch(
 .progress-groups {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   padding: 0;
 }
 
@@ -370,14 +372,13 @@ watch(
   font-size: 11px;
 }
 
-.tool-result pre {
-  max-height: 260px;
-  margin: 0;
-  color: var(--text);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+.tool-result :deep(.markdown-renderer) {
   font-size: 12px;
-  line-height: 1.45;
-  white-space: pre-wrap;
+  line-height: 1.55;
+}
+
+.tool-result :deep(pre) {
+  max-height: 260px;
   overflow: auto;
 }
 

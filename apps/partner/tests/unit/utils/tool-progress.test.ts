@@ -3,6 +3,7 @@ import type { ToolCall } from "@/types";
 import {
   compactToolProgress,
   groupToolProgress,
+  isVisibleToolProgressStep,
   summarizeToolCall,
 } from "@/utils/tool-progress";
 
@@ -38,6 +39,22 @@ describe("tool progress summaries", () => {
     expect(summarizeToolCall(toolCall("t4", "agent_model_ready", {}), "zh-CN").title).toBe(
       "推进任务",
     );
+  });
+
+  it("hides only internal startup steps while keeping thinking visible", () => {
+    const visibleNames = [
+      "agent_start",
+      "agent_config",
+      "agent_wait_model",
+      "agent_model_ready",
+      "agent_thinking",
+      "agent_error",
+    ]
+      .map((name) => summarizeToolCall(toolCall(name, name, { message: "失败" }), "zh-CN"))
+      .filter(isVisibleToolProgressStep)
+      .map((step) => step.rawName);
+
+    expect(visibleNames).toEqual(["agent_thinking", "agent_error"]);
   });
 
   it("summarizes agent errors as failed progress", () => {

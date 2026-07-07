@@ -202,6 +202,16 @@ export function summarizeToolCall(
   };
 }
 
+export function isVisibleToolProgressStep(step: ToolProgressStep): boolean {
+  if (step.category === "error") return true;
+  return ![
+    "agent_start",
+    "agent_config",
+    "agent_wait_model",
+    "agent_model_ready",
+  ].includes(step.rawName);
+}
+
 export function groupToolProgress(steps: ToolProgressStep[]): ToolProgressGroup[] {
   const groups: ToolProgressGroup[] = [];
 
