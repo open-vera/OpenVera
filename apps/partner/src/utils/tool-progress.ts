@@ -128,23 +128,19 @@ function describeDetail(
   locale: ToolProgressLocale,
 ): string {
   if (name === "agent_start") {
-    return locale === "en-US" ? "Started processing the request" : "开始处理请求";
+    return locale === "en-US" ? "Starting" : "开始处理";
   }
   if (name === "agent_config") {
-    return locale === "en-US" ? "Reading Vera runtime config" : "读取 Vera 运行配置";
+    return locale === "en-US" ? "Reading config" : "读取配置";
   }
   if (name === "agent_wait_model") {
-    return locale === "en-US" ? "Waiting for model response" : "等待模型响应";
+    return locale === "en-US" ? "Connecting to model" : "连接模型";
   }
   if (name === "agent_model_ready") {
-    return locale === "en-US"
-      ? "Model stream connected; waiting for first response"
-      : "模型连接已建立，等待首个响应";
+    return locale === "en-US" ? "Waiting for response" : "等待模型响应";
   }
   if (name === "agent_thinking") {
-    return locale === "en-US"
-      ? "Analyzing context and next steps"
-      : "分析上下文与下一步";
+    return locale === "en-US" ? "Thinking" : "思考中";
   }
   if (name === "agent_error") {
     const message = asString(input.message);

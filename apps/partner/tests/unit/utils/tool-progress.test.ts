@@ -26,15 +26,15 @@ describe("tool progress summaries", () => {
     const step = summarizeToolCall(toolCall("t1", "agent_start", {}), "zh-CN");
 
     expect(step.title).toBe("推进任务");
-    expect(step.detail).toBe("开始处理请求");
+    expect(step.detail).toBe("开始处理");
     expect(summarizeToolCall(toolCall("t2", "agent_config", {}), "zh-CN").detail).toBe(
-      "读取 Vera 运行配置",
+      "读取配置",
     );
     expect(summarizeToolCall(toolCall("t3", "agent_wait_model", {}), "zh-CN").detail).toBe(
-      "等待模型响应",
+      "连接模型",
     );
     expect(summarizeToolCall(toolCall("t4", "agent_model_ready", {}), "zh-CN").detail).toBe(
-      "模型连接已建立，等待首个响应",
+      "等待模型响应",
     );
     expect(summarizeToolCall(toolCall("t4", "agent_model_ready", {}), "zh-CN").title).toBe(
       "推进任务",
