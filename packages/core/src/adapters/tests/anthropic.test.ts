@@ -774,6 +774,31 @@ describe("AnthropicAdapter", () => {
       // Should not throw; the empty array will result in empty content
       expect(mockCreate).toHaveBeenCalled();
     });
+
+    it("should keep cache_control blocks within Anthropic limits", async () => {
+      mockCreate.mockResolvedValueOnce(makeTextResponse());
+
+      const adapter = new AnthropicAdapter("k");
+      await adapter.complete({
+        model: "m",
+        system: "system prompt",
+        messages: Array.from({ length: 12 }, (_, index) => ({
+          role: index % 2 === 0 ? "user" as const : "assistant" as const,
+          content: `message ${index}`,
+        })),
+      });
+
+      const callArgs = mockCreate.mock.calls[0][0] as {
+        system?: Array<Record<string, unknown>>;
+        messages: Array<{ content: Array<Record<string, unknown>> }>;
+      };
+      const systemCacheBlocks = callArgs.system?.filter((block) => block.cache_control).length ?? 0;
+      const messageCacheBlocks = callArgs.messages.flatMap((message) =>
+        message.content.filter((block) => block.cache_control),
+      ).length;
+
+      expect(systemCacheBlocks + messageCacheBlocks).toBeLessThanOrEqual(4);
+    });
   });
 
   // ── toAnthropicTools (coverage via complete) ──────────────────────────────

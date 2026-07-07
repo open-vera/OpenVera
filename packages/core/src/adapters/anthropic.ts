@@ -11,6 +11,7 @@ import type { ModelInfo } from "../types/model.js";
 import { createLogger } from "@open-vera/logger";
 
 const log = createLogger("adapter:anthropic");
+const MAX_CACHE_CONTROL_BLOCKS = 4;
 
 export class AnthropicAdapter implements LLMAdapter {
   private client: Anthropic;
@@ -32,7 +33,10 @@ export class AnthropicAdapter implements LLMAdapter {
         system: request.system
           ? [{ type: "text" as const, text: request.system, cache_control: { type: "ephemeral" as const } } as any]
           : undefined,
-        messages: this.toAnthropicMessages(request.messages),
+        messages: this.toAnthropicMessages(
+          request.messages,
+          request.system ? MAX_CACHE_CONTROL_BLOCKS - 1 : MAX_CACHE_CONTROL_BLOCKS,
+        ),
         tools: this.toAnthropicTools(request),
       }, { signal: request.signal });
       const durationMs = Date.now() - startMs;
@@ -56,7 +60,10 @@ export class AnthropicAdapter implements LLMAdapter {
       model: request.model,
       max_tokens: request.max_tokens ?? 8096,
       system: request.system,
-      messages: this.toAnthropicMessages(request.messages),
+      messages: this.toAnthropicMessages(
+        request.messages,
+        request.system ? MAX_CACHE_CONTROL_BLOCKS - 1 : MAX_CACHE_CONTROL_BLOCKS,
+      ),
       tools: this.toAnthropicTools(request),
       ...(request.thinking_budget
         ? { thinking: { type: "enabled" as const, budget_tokens: request.thinking_budget } }
@@ -125,19 +132,30 @@ export class AnthropicAdapter implements LLMAdapter {
     }));
   }
 
-  private toAnthropicMessages(messages: Message[]): Anthropic.MessageParam[] {
+  private toAnthropicMessages(
+    messages: Message[],
+    maxCacheControlBlocks = MAX_CACHE_CONTROL_BLOCKS,
+  ): Anthropic.MessageParam[] {
     const result: Anthropic.MessageParam[] = [];
+    const cacheableMessageIndexes = messages
+      .map((msg, index) => ({ msg, index }))
+      .filter(({ msg }) => msg.role !== "system")
+      .filter(({ index }) => {
+        const msg = messages[index];
+        return !(msg?.role === "user" && index === messages.length - 1);
+      })
+      .slice(-Math.max(0, maxCacheControlBlocks))
+      .map(({ index }) => index);
+    const cacheableIndexes = new Set(cacheableMessageIndexes);
+
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i];
       if (msg.role === "system") continue;
 
-      // Enable Anthropic prompt caching on all messages except the last
-      // user message, which varies each turn. The API requires at least
-      // 2 non-cache_control content blocks at the end of the messages array
-      // (the last user + assistant pair), so we cache everything before that.
-      const isLast = i === messages.length - 1;
-      const isLastUser = msg.role === "user" && isLast;
-      const enableCache = !isLastUser;
+      // Anthropic allows at most 4 cache_control blocks per request.
+      // Keep caching on the most recent stable context only; the final
+      // user message varies every turn and must remain uncached.
+      const enableCache = cacheableIndexes.has(i);
 
       if (msg.role === "tool") {
         result.push({
