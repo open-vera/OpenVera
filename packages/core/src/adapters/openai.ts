@@ -174,11 +174,19 @@ export class OpenAIAdapter implements LLMAdapter {
       result.push({
         role: "user",
         content: msg.content
-          .filter((p) => p.type === "text")
-          .map((p) => ({
-            type: "text" as const,
-            text: (p as { text: string }).text,
-          })),
+          .filter((p) => p.type === "text" || p.type === "image_url")
+          .map((p) => {
+            if (p.type === "image_url") {
+              return {
+                type: "image_url" as const,
+                image_url: p.image_url,
+              };
+            }
+            return {
+              type: "text" as const,
+              text: p.text,
+            };
+          }),
       });
     }
 

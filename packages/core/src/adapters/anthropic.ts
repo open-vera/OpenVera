@@ -13,6 +13,22 @@ import { createLogger } from "@open-vera/logger";
 const log = createLogger("adapter:anthropic");
 const MAX_CACHE_CONTROL_BLOCKS = 4;
 
+function parseToolInput(argumentsJson: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(argumentsJson) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+function parseDataImageUrl(url: string): { mediaType: string; data: string } | null {
+  const match = url.match(/^data:([^;,]+);base64,(.+)$/);
+  if (!match) return null;
+  return { mediaType: match[1] ?? "image/png", data: match[2] ?? "" };
+}
+
 export class AnthropicAdapter implements LLMAdapter {
   private client: Anthropic;
 
@@ -181,13 +197,27 @@ export class AnthropicAdapter implements LLMAdapter {
           (part): Anthropic.ContentBlockParam[] => {
             if (part.type === "text")
               return [{ type: "text", text: part.text }];
+            if (part.type === "image_url") {
+              const image = parseDataImageUrl(part.image_url.url);
+              if (!image) return [];
+              return [
+                {
+                  type: "image",
+                  source: {
+                    type: "base64",
+                    media_type: image.mediaType,
+                    data: image.data,
+                  },
+                } as Anthropic.ContentBlockParam,
+              ];
+            }
             if (part.type === "tool_call") {
               return [
                 {
                   type: "tool_use",
                   id: part.id,
                   name: part.name,
-                  input: JSON.parse(part.arguments),
+                  input: parseToolInput(part.arguments),
                 },
               ];
             }

@@ -837,6 +837,30 @@ describe("OpenAIAdapter", () => {
       expect(call.messages[0].content).toBe("");
     });
 
+    it("should preserve image_url parts for user messages", async () => {
+      mockCreate.mockResolvedValueOnce(makeChatCompletion());
+
+      const adapter = new OpenAIAdapter("k");
+      await adapter.complete({
+        model: "m",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image_url", image_url: { url: "data:image/png;base64,abc123" } },
+              { type: "text", text: "describe this image" },
+            ],
+          },
+        ],
+      });
+
+      const call = mockCreate.mock.calls[0][0] as { messages: Array<Record<string, unknown>> };
+      expect(call.messages[0].content).toEqual([
+        { type: "image_url", image_url: { url: "data:image/png;base64,abc123" } },
+        { type: "text", text: "describe this image" },
+      ]);
+    });
+
     it("should convert assistant message with tool calls", async () => {
       mockCreate.mockResolvedValueOnce(makeChatCompletion());
 

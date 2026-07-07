@@ -303,6 +303,53 @@ describe("AnthropicAdapter", () => {
       expect(res.usage?.cache_creation_input_tokens).toBe(100);
       expect(res.usage?.cache_read_input_tokens).toBe(200);
     });
+
+    it("should not throw when serializing malformed tool call arguments from history", async () => {
+      mockCreate.mockResolvedValueOnce(makeTextResponse());
+
+      const adapter = new AnthropicAdapter("k");
+      await adapter.complete({
+        model: "m",
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_call",
+                id: "toolu_bad",
+                name: "desktop_screenshot",
+                arguments: "{",
+              },
+            ],
+          },
+          {
+            role: "tool",
+            tool_call_id: "toolu_bad",
+            content: "[Error: could not parse tool arguments]",
+          },
+          { role: "user", content: "continue" },
+        ],
+      });
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: expect.arrayContaining([
+            expect.objectContaining({
+              role: "assistant",
+              content: expect.arrayContaining([
+                expect.objectContaining({
+                  type: "tool_use",
+                  id: "toolu_bad",
+                  name: "desktop_screenshot",
+                  input: {},
+                }),
+              ]),
+            }),
+          ]),
+        }),
+        expect.anything(),
+      );
+    });
   });
 
   // ── stream() ─────────────────────────────────────────────────────────────
@@ -773,6 +820,43 @@ describe("AnthropicAdapter", () => {
 
       // Should not throw; the empty array will result in empty content
       expect(mockCreate).toHaveBeenCalled();
+    });
+
+    it("should convert image_url content to Anthropic image blocks", async () => {
+      mockCreate.mockResolvedValueOnce(makeTextResponse());
+
+      const adapter = new AnthropicAdapter("k");
+      await adapter.complete({
+        model: "m",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image_url",
+                image_url: { url: "data:image/png;base64,abc123" },
+              },
+              { type: "text", text: "describe this image" },
+            ],
+          },
+        ],
+      });
+
+      const callArgs = mockCreate.mock.calls[0][0] as {
+        messages: Array<{ content: Array<Record<string, unknown>> }>;
+      };
+      expect(callArgs.messages[0]!.content[0]).toEqual({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: "abc123",
+        },
+      });
+      expect(callArgs.messages[0]!.content[1]).toEqual({
+        type: "text",
+        text: "describe this image",
+      });
     });
 
     it("should keep cache_control blocks within Anthropic limits", async () => {
