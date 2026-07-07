@@ -10,6 +10,7 @@ import { useWorkspaceStore } from "@/stores/workspace";
 import type { ChatAttachment, Message, ToolCall, ToolResult } from "@/types";
 import { buildPartnerRunLogPath, formatRunLogPlaceholder } from "@/utils/run-log";
 import { formatChatTime, shouldShowChatTime } from "@/utils/chat-time";
+import { collapseRunningDisplayItems } from "@/utils/running-display";
 import { isVisibleToolProgressStep, summarizeToolCall } from "@/utils/tool-progress";
 import MessageBubble from "./MessageBubble.vue";
 import InputBar from "./InputBar.vue";
@@ -24,11 +25,11 @@ const workspace = useWorkspaceStore();
 const { activeTab, messages, isAgentRunning, lastError, tabs } = storeToRefs(chat);
 const orchestrator = getOrchestrator();
 const messagesRef = ref<HTMLElement | null>(null);
+const inputBarRef = ref<InstanceType<typeof InputBar> | null>(null);
 const shouldStickToBottom = ref(true);
 
 type ChatDisplayItem =
   | { type: "time"; key: string; label: string }
-  | { type: "ellipsis"; key: string; label: string }
   | { type: "thinking"; key: string; label: string }
   | { type: "message"; key: string; message: Message }
   | {
@@ -106,28 +107,11 @@ const displayItems = computed<ChatDisplayItem[]>(() => {
   const runningItems = allDisplayItems.value.filter(
     (item) => item.type !== "tool-progress" || hasVisibleToolProgress(item.toolCalls),
   );
-  const nonTimeItems = runningItems.filter((item) => item.type !== "time");
-  if (nonTimeItems.length === 0) {
-    return [{ type: "thinking", key: "running-thinking", label: "思考中..." }];
-  }
 
-  const visibleIndexes = runningItems
-    .map((item, index) => ({ item, index }))
-    .filter(({ item }) => item.type !== "time")
-    .slice(-MAX_RUNNING_DISPLAY_ITEMS)
-    .map(({ index }) => index);
-
-  const firstVisibleIndex = visibleIndexes[0] ?? 0;
-  if (firstVisibleIndex <= 0) return allDisplayItems.value;
-
-  return [
-    {
-      type: "ellipsis",
-      key: "running-history-ellipsis",
-      label: "...",
-    },
-    ...runningItems.slice(firstVisibleIndex),
-  ];
+  return collapseRunningDisplayItems(
+    runningItems,
+    MAX_RUNNING_DISPLAY_ITEMS,
+  ) as ChatDisplayItem[];
 });
 const activeToolProgressKey = computed(() => {
   for (let index = displayItems.value.length - 1; index >= 0; index -= 1) {
@@ -190,10 +174,12 @@ function canCloseTab(tabId: string): boolean {
 
 function createNewChat() {
   chat.createChatTab();
+  focusInputBar();
 }
 
 function selectTab(tabId: string) {
   chat.selectTab(tabId);
+  focusInputBar();
 }
 
 function closeTab(tabId: string) {
@@ -210,6 +196,12 @@ function abortActiveRun() {
 
 function tabTitle(tab: { kind: string; title: string }) {
   return tab.kind === "settings" ? uiText.value.settings : tab.title;
+}
+
+function focusInputBar() {
+  void nextTick(() => {
+    inputBarRef.value?.focus();
+  });
 }
 
 function isNearBottom(element: HTMLElement): boolean {
@@ -262,6 +254,7 @@ async function openRunLog() {
 onMounted(() => {
   chat.ensureDefaultChatTab();
   scheduleScrollToBottom(true);
+  focusInputBar();
 });
 
 watch(
@@ -269,6 +262,7 @@ watch(
   () => {
     shouldStickToBottom.value = true;
     scheduleScrollToBottom(true);
+    focusInputBar();
   },
 );
 
@@ -287,34 +281,36 @@ watch(
 <template>
   <section class="chat-panel" data-shortcut-scope="center">
     <nav class="center-tabs" :aria-label="uiText.workspaceLabel">
-      <button
-        v-for="tab in tabs"
-        :key="tab.id"
-        type="button"
-        class="center-tab"
-        :class="{ active: tab.id === activeTab?.id }"
-        @click="selectTab(tab.id)"
-      >
-        <span class="tab-title">{{ tabTitle(tab) }}</span>
-        <span v-if="tab.isAgentRunning" class="running-dot" :aria-label="uiText.running" />
-        <span
-          v-if="canCloseTab(tab.id)"
-          class="tab-close"
-          @click.stop="closeTab(tab.id)"
+      <div class="center-tabs-scroll">
+        <button
+          v-for="tab in tabs"
+          :key="tab.id"
+          type="button"
+          class="center-tab"
+          :class="{ active: tab.id === activeTab?.id }"
+          @click="selectTab(tab.id)"
         >
-          ×
-        </span>
-      </button>
-      <button
-        type="button"
-        class="new-chat"
-        :title="uiText.newChatTitle"
-        :aria-label="uiText.newChatTitle"
-        @click="createNewChat"
-      >
-        <span aria-hidden="true">+</span>
-        <span>{{ uiText.newChat }}</span>
-      </button>
+          <span class="tab-title">{{ tabTitle(tab) }}</span>
+          <span v-if="tab.isAgentRunning" class="running-dot" :aria-label="uiText.running" />
+          <span
+            v-if="canCloseTab(tab.id)"
+            class="tab-close"
+            @click.stop="closeTab(tab.id)"
+          >
+            ×
+          </span>
+        </button>
+        <button
+          type="button"
+          class="new-chat"
+          :title="uiText.newChatTitle"
+          :aria-label="uiText.newChatTitle"
+          @click="createNewChat"
+        >
+          <span aria-hidden="true">+</span>
+          <span>{{ uiText.newChat }}</span>
+        </button>
+      </div>
       <SessionHistoryMenu />
     </nav>
 
@@ -326,9 +322,6 @@ watch(
       <div ref="messagesRef" class="messages" @scroll="onMessagesScroll">
         <template v-for="item in displayItems" :key="item.key">
           <div v-if="item.type === 'time'" class="time-separator">
-            {{ item.label }}
-          </div>
-          <div v-else-if="item.type === 'ellipsis'" class="running-ellipsis">
             {{ item.label }}
           </div>
           <div v-else-if="item.type === 'thinking'" class="running-thinking">
@@ -374,7 +367,7 @@ watch(
             {{ uiText.logs }}
           </button>
         </div>
-        <InputBar :running="isAgentRunning" @submit="onSubmit" @abort="abortActiveRun" />
+        <InputBar ref="inputBarRef" :running="isAgentRunning" @submit="onSubmit" @abort="abortActiveRun" />
       </div>
     </div>
   </section>
@@ -391,16 +384,35 @@ watch(
 
 .center-tabs {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   flex-shrink: 0;
+  min-width: 0;
   height: 40px;
   padding: 0;
   background: var(--surface);
+}
+
+.center-tabs-scroll {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
   overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.center-tabs-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 .center-tabs :deep(.session-history) {
-  margin-left: auto;
+  position: sticky;
+  right: 0;
+  z-index: 5;
+  flex-shrink: 0;
+  background: var(--surface);
+  box-shadow: -10px 0 14px color-mix(in srgb, var(--surface) 88%, transparent);
 }
 
 .center-tab,
@@ -472,9 +484,9 @@ watch(
 .new-chat {
   gap: 6px;
   justify-content: center;
-  width: auto;
   flex-shrink: 0;
   padding: 0 12px;
+  background: var(--surface);
   font-size: 12px;
 }
 
@@ -502,6 +514,7 @@ watch(
 }
 
 .messages {
+  --chat-assistant-width: min(92%, 900px);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -523,14 +536,6 @@ watch(
   background: color-mix(in srgb, var(--surface) 66%, transparent);
   font-size: 12px;
   line-height: 1.6;
-}
-
-.running-ellipsis {
-  align-self: flex-start;
-  color: var(--text-muted);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  line-height: 1;
 }
 
 .running-thinking {

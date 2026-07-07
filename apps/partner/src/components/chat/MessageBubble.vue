@@ -49,8 +49,8 @@ defineProps<{
 
 .bubble.assistant {
   align-self: flex-start;
-  width: min(92%, 900px);
-  max-width: min(92%, 900px);
+  width: var(--chat-assistant-width, min(92%, 900px));
+  max-width: var(--chat-assistant-width, min(92%, 900px));
   padding: 0;
   background: transparent;
   border: none;
