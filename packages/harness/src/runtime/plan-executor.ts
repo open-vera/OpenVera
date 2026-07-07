@@ -6,6 +6,8 @@ import { critiqueStep } from "./critique.js";
 import { assertTransition } from "./flow-state.js";
 import { planFromPrompt } from "./planner.js";
 
+const MAX_INTERACTIVE_REPLANS = 1;
+
 function stepsToDefs(steps: Array<{ id: string; action: string }>): PlanStepDef[] {
   return steps.map((step) => ({ id: step.id, description: step.action }));
 }
@@ -44,6 +46,7 @@ export function createHarnessPlanExecutor(
 
     let history: Message[] = [...(ctx.history ?? [])];
     let index = 0;
+    let replanCount = 0;
 
     while (index < steps.length) {
       if (ctx.signal.aborted) return;
@@ -132,7 +135,8 @@ export function createHarnessPlanExecutor(
         // Critique is advisory in interactive mode; keep the run moving.
       }
 
-      if (nextAction === "replan") {
+      if (nextAction === "replan" && replanCount < MAX_INTERACTIVE_REPLANS) {
+        replanCount++;
         assertTransition(flowState, "replanning");
         flowState = "replanning";
 
@@ -152,6 +156,8 @@ export function createHarnessPlanExecutor(
         } catch {
           // Replan failure should not discard progress already made.
         }
+      } else if (nextAction === "replan") {
+        nextAction = "complete";
       }
 
       if (!ctx.onContextUpdate) {
