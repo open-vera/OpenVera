@@ -615,12 +615,14 @@ watch(
 }
 
 .error-copy span {
-  display: -webkit-box;
-  overflow: hidden;
+  display: block;
+  max-height: 180px;
+  overflow: auto;
   color: color-mix(in srgb, var(--text) 86%, transparent);
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .error-actions {
