@@ -8,12 +8,17 @@ import {
   type LLMAdapter,
 } from "@open-vera/core/adapters";
 import { loadConfig, resolveConfigLocation } from "@open-vera/core/config";
-import { resolveDefaultTarget, resolveProviderModelConfig } from "@open-vera/core/config";
+import {
+  resolveClassifierTarget,
+  resolveDefaultTarget,
+  resolveProviderModelConfig,
+  resolveRoutingConfig,
+} from "@open-vera/core/config";
 import type { VeraConfig } from "@open-vera/core/config";
 import type { PlanEvent } from "@open-vera/core/plan";
 import type { Message, Usage } from "@open-vera/core/types";
 import { createToolRegistry, type ToolHost, type ToolResult } from "@open-vera/core/tools";
-import { createHarnessPlanExecutor } from "@open-vera/openvera";
+import { runInteractiveTurn } from "@open-vera/openvera";
 import type { AgentRunParams, PartnerLlmConfig, StreamEvent } from "./protocol.js";
 import { writeEvent } from "./protocol.js";
 
@@ -149,6 +154,27 @@ function formatToolResult(result: ToolResult): string {
   if (result.ok) return result.content;
   const reason = result.error?.message ?? result.content;
   return `Tool failed: ${reason}\n\n${result.content}`;
+}
+
+function resolvePartnerClassifier(
+  projectRoot: string,
+  llm: LlmEnvironment,
+): { adapter: LLMAdapter; model: string } {
+  const config = loadConfig(undefined, projectRoot);
+  const routing = resolveRoutingConfig(config);
+  if (routing?.enabled) {
+    const classifierTarget = resolveClassifierTarget(config, resolveDefaultTarget(config));
+    return {
+      adapter: llm.service.buildAdapter(
+        classifierTarget.provider,
+        classifierTarget.model,
+        { purpose: "routing" },
+      ),
+      model: classifierTarget.model,
+    };
+  }
+
+  return { adapter: llm.adapter, model: llm.model };
 }
 
 function runtimeConfigSummary(
@@ -552,25 +578,51 @@ export async function handleAgentRun(
       }
     };
 
-    const harnessPlanExecutor = createHarnessPlanExecutor(built.adapter, built.model);
-    await harnessPlanExecutor(
+    const turnResult = await runInteractiveTurn({
       message,
-      {
-        adapter: built.adapter,
-        model: built.model,
-        history: history as Message[],
-        tools: toolRuntime.tools,
-        maxTurns: 12,
-        system: SYSTEM_PROMPT,
-        signal: abortController.signal,
-        llmService: built.service,
-        compressionProvider: built.provider,
-        onToolCall: executeToolCall,
-      },
-      onHarnessEvent,
+      adapter: built.adapter,
+      model: built.model,
+      history: history as Message[],
+      tools: toolRuntime.tools,
+      maxTurns: 12,
+      system: SYSTEM_PROMPT,
+      signal: abortController.signal,
+      llmService: built.service,
+      compressionProvider: built.provider,
+      classifier: resolvePartnerClassifier(resolvedRoot, built),
       onUsage,
-    );
+      onToolCall: executeToolCall,
+      onPlanEvent: onHarnessEvent,
+      onRouting: ({ intent, executionMode }) => {
+        appendRunLog(resolvedRoot, {
+          requestId,
+          sessionId,
+          instanceId,
+          event: "intent_classified",
+          intent,
+          executionMode,
+        });
+      },
+      onDelta: (delta) => {
+        if (!firstDeltaLogged) {
+          firstDeltaLogged = true;
+          appendRunLog(resolvedRoot, {
+            requestId,
+            sessionId,
+            instanceId,
+            event: "first_delta",
+            deltaPreview: previewText(delta, 120),
+          });
+        }
+        writeEvent({
+          id: requestId,
+          type: "delta",
+          data: { instanceId, text: delta },
+        });
+      },
+    });
 
+    finalText = turnResult.text;
     if (harnessError) {
       throw new Error(harnessError);
     }

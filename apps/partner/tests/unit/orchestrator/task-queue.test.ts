@@ -21,4 +21,25 @@ describe("TaskQueue", () => {
     expect(queue.dequeue()?.id).toBe("t1");
     expect(queue.peek()?.id).toBe("t2");
   });
+
+  it("clears queued tasks when a run is aborted", () => {
+    const queue = new TaskQueue();
+    queue.enqueue({
+      id: "t1",
+      title: "First",
+      steps: [],
+      createdAt: Date.now(),
+    });
+    queue.enqueue({
+      id: "t2",
+      title: "Second",
+      steps: [],
+      createdAt: Date.now(),
+    });
+
+    queue.clear();
+
+    expect(queue.size()).toBe(0);
+    expect(queue.dequeue()).toBeUndefined();
+  });
 });

@@ -18,4 +18,8 @@ export class TaskQueue {
   size(): number {
     return this.queue.length;
   }
+
+  clear(): void {
+    this.queue.length = 0;
+  }
 }

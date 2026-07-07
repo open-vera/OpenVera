@@ -122,6 +122,7 @@ const uiText = computed(() => {
       running: "Running",
       agentRunning: "Agent running; new messages will queue",
       currentStep: "Running",
+      stop: "Stop",
       logs: "Logs",
       errorTitle: "Run failed",
       dismiss: "Dismiss",
@@ -135,6 +136,7 @@ const uiText = computed(() => {
     running: "运行中",
     agentRunning: "Agent 运行中，可继续输入",
     currentStep: "运行中",
+    stop: "停止",
     logs: "日志",
     errorTitle: "运行失败",
     dismiss: "关闭",
@@ -143,7 +145,7 @@ const uiText = computed(() => {
 
 function canCloseTab(tabId: string): boolean {
   const tab = tabs.value.find((item) => item.id === tabId);
-  if (!tab || tab.isAgentRunning) return false;
+  if (!tab) return false;
   return tab.kind === "settings" || chatTabCount.value > 1;
 }
 
@@ -156,7 +158,15 @@ function selectTab(tabId: string) {
 }
 
 function closeTab(tabId: string) {
+  const tab = tabs.value.find((item) => item.id === tabId);
+  if (tab?.isAgentRunning) {
+    orchestrator.abort();
+  }
   chat.closeTab(tabId);
+}
+
+function abortActiveRun() {
+  orchestrator.abort();
 }
 
 function tabTitle(tab: { kind: string; title: string }) {
@@ -308,11 +318,14 @@ watch(
           <span class="live-dot" aria-hidden="true" />
           <span class="live-label">{{ uiText.currentStep }}</span>
           <span class="live-detail">{{ runningStatus || uiText.agentRunning }}</span>
+          <button type="button" class="live-stop-button" @click="abortActiveRun">
+            {{ uiText.stop }}
+          </button>
           <button type="button" class="live-log-button" @click="openRunLog">
             {{ uiText.logs }}
           </button>
         </div>
-        <InputBar @submit="onSubmit" />
+        <InputBar :running="isAgentRunning" @submit="onSubmit" @abort="abortActiveRun" />
       </div>
     </div>
   </section>
@@ -606,6 +619,7 @@ watch(
   white-space: nowrap;
 }
 
+.live-stop-button,
 .live-log-button {
   flex-shrink: 0;
   height: 20px;
@@ -617,6 +631,15 @@ watch(
   font: inherit;
   font-size: 11px;
   cursor: pointer;
+}
+
+.live-stop-button {
+  color: color-mix(in srgb, #ff8f8f 82%, var(--text-muted));
+}
+
+.live-stop-button:hover {
+  color: #ffd2d2;
+  background: color-mix(in srgb, #ff6b6b 18%, var(--surface-hover));
 }
 
 .live-log-button:hover {

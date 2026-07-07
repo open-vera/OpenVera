@@ -8,10 +8,12 @@ import {
 
 const emit = defineEmits<{
   submit: [payload: { text: string; attachments: ChatAttachment[] }];
+  abort: [];
 }>();
 
 defineProps<{
   disabled?: boolean;
+  running?: boolean;
 }>();
 
 const text = ref("");
@@ -68,6 +70,10 @@ function onSubmit() {
   });
   text.value = "";
   attachments.value = [];
+}
+
+function onAbort() {
+  emit("abort");
 }
 </script>
 
@@ -131,12 +137,13 @@ function onSubmit() {
             </svg>
           </button>
           <button
-            type="submit"
+            :type="running ? 'button' : 'submit'"
             class="send-button"
-            :disabled="disabled || isReadingFiles || (!text.trim() && !attachments.length)"
-            title="发送"
+            :disabled="disabled || isReadingFiles || (!running && !text.trim() && !attachments.length)"
+            :title="running ? '停止当前任务' : '发送'"
+            @click="running ? onAbort() : undefined"
           >
-            <svg v-if="disabled" viewBox="0 0 24 24" aria-hidden="true">
+            <svg v-if="running" viewBox="0 0 24 24" aria-hidden="true">
               <rect x="7" y="7" width="10" height="10" rx="2" />
             </svg>
             <svg v-else viewBox="0 0 24 24" aria-hidden="true">

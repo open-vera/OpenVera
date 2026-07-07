@@ -17,6 +17,7 @@ export class Orchestrator {
   private readonly gateway: Gateway;
   private readonly taskQueue: TaskQueue;
   private activeInstance: AgentInstanceRunner | null = null;
+  private abortRequested = false;
 
   constructor(maxInstances = 3) {
     this.gateway = new Gateway(maxInstances);
@@ -29,6 +30,7 @@ export class Orchestrator {
     attachments: ChatAttachment[] = [],
   ): Promise<void> {
     const chat = useChatStore();
+    this.abortRequested = false;
     const chatTabId = chat.ensureActiveChatTab();
     const displayText = text.trim() || "请查看附件内容。";
     const agentText = buildAgentMessageContent(text, attachments);
@@ -240,7 +242,9 @@ export class Orchestrator {
         preview,
         session.current.windowId,
       );
-      await this.runNextQueuedTask();
+      if (!this.abortRequested) {
+        await this.runNextQueuedTask();
+      }
     }
   }
 
@@ -286,6 +290,8 @@ export class Orchestrator {
   }
 
   abort(): void {
+    this.abortRequested = true;
+    this.taskQueue.clear();
     this.activeInstance?.abort();
     useChatStore().abort();
   }
