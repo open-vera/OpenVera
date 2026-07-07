@@ -5,6 +5,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import {
   gitStatus,
   listDir,
+  executeShell,
   lspSymbolSearch,
   readFile,
   replaceContent,
@@ -25,6 +26,7 @@ import FileIcon from "./FileIcon.vue";
 import FileTreeNode from "./FileTreeNode.vue";
 import type { TreeEntry } from "./file-tree-types";
 import GitChanges from "./GitChanges.vue";
+import type { GitSummary } from "./GitChanges.vue";
 
 type LeftView = "files" | "search" | "git";
 type SearchResult = LspSymbolSearchEntry & {
@@ -34,6 +36,13 @@ type SearchResult = LspSymbolSearchEntry & {
 
 const entries = ref<TreeEntry[]>([]);
 const gitChanges = ref<GitChange[]>([]);
+const gitSummary = ref<GitSummary>({
+  branch: "",
+  upstream: "",
+  ahead: 0,
+  behind: 0,
+  rebasing: false,
+});
 const searchQuery = ref("");
 const replaceQuery = ref("");
 const includeQuery = ref("");
@@ -134,11 +143,99 @@ function toTreeEntries(parent: string, items: DirEntry[]): TreeEntry[] {
 
 async function refreshGitStatus(path = workspace.rootPath) {
   if (!path) return;
+  gitSummary.value = { ...gitSummary.value, loading: true, error: "" };
   try {
-    gitChanges.value = await gitStatus(path);
+    const [changes, branchResult, upstreamResult, rebaseResult] = await Promise.all([
+      gitStatus(path),
+      executeShell("git", ["branch", "--show-current"], path),
+      executeShell("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], path),
+      executeShell("git", ["rev-parse", "--git-path", "rebase-merge"], path),
+    ]);
+    const upstream = upstreamResult.exitCode === 0 ? upstreamResult.stdout.trim() : "";
+    let ahead = 0;
+    let behind = 0;
+    if (upstream) {
+      const counts = await executeShell("git", ["rev-list", "--left-right", "--count", `${upstream}...HEAD`], path);
+      if (counts.exitCode === 0) {
+        const [behindText, aheadText] = counts.stdout.trim().split(/\s+/);
+        behind = Number(behindText) || 0;
+        ahead = Number(aheadText) || 0;
+      }
+    }
+    let rebasing = false;
+    if (rebaseResult.exitCode === 0 && rebaseResult.stdout.trim()) {
+      const check = await executeShell("ls", [rebaseResult.stdout.trim()], path);
+      rebasing = check.exitCode === 0;
+    }
+    gitChanges.value = changes;
+    gitSummary.value = {
+      branch: branchResult.stdout.trim() || "HEAD",
+      upstream,
+      ahead,
+      behind,
+      rebasing,
+      loading: false,
+      actionRunning: false,
+    };
   } catch {
     gitChanges.value = [];
+    gitSummary.value = { ...gitSummary.value, loading: false, actionRunning: false, error: "Git 状态读取失败" };
   }
+}
+
+async function runGitAction(args: string[]) {
+  if (!workspace.rootPath) return;
+  gitSummary.value = { ...gitSummary.value, actionRunning: true, error: "" };
+  try {
+    const result = await executeShell("git", args, workspace.rootPath, undefined, true);
+    if (result.exitCode !== 0) {
+      gitSummary.value = {
+        ...gitSummary.value,
+        actionRunning: false,
+        error: result.stderr || result.stdout || `git ${args.join(" ")} 执行失败`,
+      };
+      await refreshGitStatus(workspace.rootPath);
+      return;
+    }
+    await refreshGitStatus(workspace.rootPath);
+  } catch (error) {
+    gitSummary.value = {
+      ...gitSummary.value,
+      actionRunning: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function openGitDiff(change: GitChange) {
+  if (!workspace.rootPath) return;
+  const path = change.path;
+  try {
+    const unstaged = await executeShell("git", ["diff", "--", path], workspace.rootPath);
+    let content = unstaged.stdout;
+    if (!content.trim()) {
+      const staged = await executeShell("git", ["diff", "--cached", "--", path], workspace.rootPath);
+      content = staged.stdout;
+    }
+    if (!content.trim() && change.status.includes("?")) {
+      const fileContent = await readFile(`${workspace.rootPath}/${path}`);
+      content = [
+        `diff --git a/${path} b/${path}`,
+        "new file mode 100644",
+        "index 0000000..0000000",
+        "--- /dev/null",
+        `+++ b/${path}`,
+        ...fileContent.split("\n").map((line) => `+${line}`),
+      ].join("\n");
+    }
+    preview.openDiffFile(path, content.trim() ? content : `# No diff available for ${path}\n`);
+  } catch (error) {
+    preview.openDiffFile(path, `# Failed to load git diff\n\n${error instanceof Error ? error.message : String(error)}\n`);
+  }
+}
+
+async function fetchGit() {
+  await runGitAction(["fetch", "--prune"]);
 }
 
 async function runSearch() {
@@ -616,7 +713,16 @@ watch([searchQuery, includeQuery, excludeQuery], () => {
         <span>Git 变更</span>
         <span class="count">{{ gitChanges.length }}</span>
       </div>
-      <GitChanges :changes="gitChanges" />
+      <GitChanges
+        :changes="gitChanges"
+        :summary="gitSummary"
+        @refresh="refreshGitStatus()"
+        @fetch="fetchGit"
+        @pull-rebase="runGitAction(['pull', '--rebase'])"
+        @rebase-continue="runGitAction(['rebase', '--continue'])"
+        @rebase-abort="runGitAction(['rebase', '--abort'])"
+        @open-diff="openGitDiff"
+      />
     </section>
   </aside>
 </template>

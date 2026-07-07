@@ -38,6 +38,7 @@ function normalizeTab(value: unknown): PreviewTab | null {
     ...(typeof value.content === "string" ? { content: value.content } : {}),
     ...(typeof value.savedContent === "string" ? { savedContent: value.savedContent } : {}),
     ...(typeof value.isDirty === "boolean" ? { isDirty: value.isDirty } : {}),
+    ...(typeof value.readOnly === "boolean" ? { readOnly: value.readOnly } : {}),
     ...(typeof value.languageId === "string" ? { languageId: value.languageId } : {}),
   } as PreviewTab;
 }
@@ -93,6 +94,21 @@ export const usePreviewStore = defineStore("preview", {
         savedContent: content,
         isDirty: false,
         languageId: detectLanguageFromPath(filePath),
+      });
+    },
+    openDiffFile(filePath: string, content: string) {
+      const title = `${filePath.split("/").pop() ?? filePath}.diff`;
+      this.openTab({
+        id: `diff:${filePath}`,
+        title,
+        kind: "code",
+        source: `git-diff:${filePath}`,
+        filePath: `${filePath}.diff`,
+        content,
+        savedContent: content,
+        isDirty: false,
+        readOnly: true,
+        languageId: "plaintext",
       });
     },
     updateCodeFileContent(filePath: string, content: string) {

@@ -59,7 +59,7 @@ function closeTab(id: string) {
 async function refreshOpenCodeTabsFromDisk() {
   if (isRefreshingFiles) return;
   const cleanCodeTabs = tabs.value.filter(
-    (tab) => tab.kind === "code" && tab.filePath && !tab.isDirty,
+    (tab) => tab.kind === "code" && tab.filePath && !tab.isDirty && !tab.readOnly,
   );
   if (cleanCodeTabs.length === 0) return;
 
@@ -152,6 +152,7 @@ watch(
         :workspace-root="rootPath"
         :language-id="activeTab.languageId"
         :enable-lsp="preview.lspEnabled"
+        :read-only="activeTab.readOnly"
         @change="preview.updateCodeFileContent(activeTab.filePath, $event)"
         @saved="preview.markCodeFileSaved(activeTab.filePath, $event)"
       />

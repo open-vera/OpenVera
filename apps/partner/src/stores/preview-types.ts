@@ -9,6 +9,7 @@ export type PreviewTab = {
   content?: string;
   savedContent?: string;
   isDirty?: boolean;
+  readOnly?: boolean;
   languageId?: PreviewLanguageId;
 };
 

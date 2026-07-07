@@ -33,6 +33,7 @@ const props = defineProps<{
   workspaceRoot: string;
   languageId?: PreviewLanguageId;
   enableLsp?: boolean;
+  readOnly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -72,6 +73,7 @@ function pathToFileUri(path: string): string {
 const isDirty = computed(() => currentContent.value !== savedContent.value);
 
 async function saveCurrentFile(): Promise<void> {
+  if (props.readOnly) return;
   if (!isDirty.value || isSaving.value) return;
   isSaving.value = true;
   saveError.value = "";
@@ -200,6 +202,8 @@ function buildExtensions(language: PreviewLanguageId): Extension[] {
       },
     })),
     EditorView.lineWrapping,
+    EditorState.readOnly.of(Boolean(props.readOnly)),
+    EditorView.editable.of(!props.readOnly),
     EditorView.domEventHandlers({
       contextmenu: (event) => {
         showContextMenu(event, language);

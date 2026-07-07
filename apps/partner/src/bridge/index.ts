@@ -33,6 +33,13 @@ interface RawPathInfo {
   is_file?: boolean;
 }
 
+interface RawShellOutput {
+  stdout: string;
+  stderr: string;
+  exitCode?: number;
+  exit_code?: number;
+}
+
 export interface PathInfo {
   path: string;
   isDir: boolean;
@@ -141,13 +148,18 @@ export async function executeShell(
   timeoutMs?: number,
   confirmed = false,
 ): Promise<ShellOutput> {
-  return invoke<ShellOutput>("execute_shell", {
+  const output = await invoke<RawShellOutput>("execute_shell", {
     cmd,
     args,
     cwd,
     timeoutMs,
     confirmed,
   });
+  return {
+    stdout: output.stdout,
+    stderr: output.stderr,
+    exitCode: output.exitCode ?? output.exit_code ?? -1,
+  };
 }
 
 export async function storeSecret(

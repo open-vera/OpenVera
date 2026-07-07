@@ -50,6 +50,22 @@ describe("usePreviewStore", () => {
     expect(preview.tabs[0]?.isDirty).toBe(false);
   });
 
+  it("opens git diffs as read-only code tabs", () => {
+    const preview = usePreviewStore();
+
+    preview.openDiffFile("src/App.vue", "diff --git a/src/App.vue b/src/App.vue\n");
+
+    expect(preview.activeTabId).toBe("diff:src/App.vue");
+    expect(preview.tabs[0]).toMatchObject({
+      title: "App.vue.diff",
+      kind: "code",
+      source: "git-diff:src/App.vue",
+      filePath: "src/App.vue.diff",
+      readOnly: true,
+      isDirty: false,
+    });
+  });
+
   it("does not overwrite dirty files during disk refresh", () => {
     const preview = usePreviewStore();
     preview.openCodeFile("/workspace/app.ts", "old\n");
