@@ -58,3 +58,6 @@ docs/agent-changes/
 # references
 docs/.vitepress/cache/
 docs/.vitepress/dist/
+
+# Sidecar debug screenshots
+apps/partner/sidecar/*.png
