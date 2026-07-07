@@ -174,4 +174,64 @@ describe("runInteractiveTurn", () => {
     expect(streamAgentMock).toHaveBeenCalled();
     expect(createHarnessPlanExecutorMock).not.toHaveBeenCalled();
   });
+
+  it("forces chat mode without tools", async () => {
+    const { runInteractiveTurn } = await import("../src/runtime/interactive-turn.js");
+    streamAgentMock.mockImplementation(async (_message, _options, onDelta) => {
+      onDelta("hello");
+      return "hello";
+    });
+    const onRouting = vi.fn();
+
+    const result = await runInteractiveTurn({
+      message: "explain this repo",
+      adapter,
+      model: "model",
+      tools: [{ name: "read_file", description: "read", parameters: { type: "object", properties: {} } }],
+      system: "system",
+      signal: new AbortController().signal,
+      runMode: "chat",
+      onDelta: vi.fn(),
+      onToolCall: vi.fn(async () => toolResult),
+      onRouting,
+    });
+
+    expect(result.routing.executionMode).toBe("direct_stream");
+    expect(result.routing.intent.reason).toBe("forced chat mode");
+    expect(streamAgentMock).toHaveBeenCalledWith(
+      "explain this repo",
+      expect.objectContaining({ tools: [] }),
+      expect.any(Function),
+    );
+    expect(classifyIntentMock).not.toHaveBeenCalled();
+  });
+
+  it("forces plan mode without classification", async () => {
+    const { runInteractiveTurn } = await import("../src/runtime/interactive-turn.js");
+    const planExecutor = vi.fn(async (_message, _options, onEvent) => {
+      onEvent({ type: "step_text", delta: "planned" });
+    });
+    createHarnessPlanExecutorMock.mockReturnValue(planExecutor);
+    shouldPlanMock.mockReturnValue(true);
+    const onRouting = vi.fn();
+
+    const result = await runInteractiveTurn({
+      message: "refactor the auth module",
+      adapter,
+      model: "model",
+      tools: [],
+      system: "system",
+      signal: new AbortController().signal,
+      runMode: "plan",
+      onDelta: vi.fn(),
+      onToolCall: vi.fn(async () => toolResult),
+      onRouting,
+    });
+
+    expect(result.text).toBe("planned");
+    expect(result.routing.executionMode).toBe("harness_plan");
+    expect(result.routing.intent.reason).toBe("forced plan mode");
+    expect(classifyIntentMock).not.toHaveBeenCalled();
+    expect(planExecutor).toHaveBeenCalled();
+  });
 });

@@ -7,6 +7,7 @@ import type { ToolResult } from "@open-vera/core/tools";
 import { createHarnessPlanExecutor } from "./plan-executor.js";
 
 export type InteractiveTurnMode = "direct_stream" | "harness_plan";
+export type InteractiveRunMode = "agent" | "chat" | "plan";
 
 export interface InteractiveTurnRouting {
   intent: IntentResult;
@@ -33,6 +34,7 @@ export interface InteractiveTurnOptions {
   onToolCall: (name: string, args: Record<string, unknown>) => Promise<ToolResult>;
   onPlanEvent?: (event: PlanEvent) => void;
   onRouting?: (routing: InteractiveTurnRouting) => void;
+  runMode?: InteractiveRunMode;
 }
 
 export interface InteractiveTurnResult {
@@ -66,10 +68,34 @@ function fallbackIntentForClassificationError(message: string): IntentResult {
   };
 }
 
+function forcedIntentForRunMode(runMode: InteractiveRunMode): IntentResult | null {
+  if (runMode === "chat") {
+    return {
+      level: 0,
+      needs_tools: false,
+      needs_planning: false,
+      domain: "chat",
+      reason: "forced chat mode",
+    };
+  }
+  if (runMode === "plan") {
+    return {
+      level: 3,
+      needs_tools: true,
+      needs_planning: true,
+      domain: "code",
+      reason: "forced plan mode",
+    };
+  }
+  return null;
+}
+
 async function classifyInteractiveIntent(
   options: InteractiveTurnOptions,
   classifier: { adapter: LLMAdapter; model: string },
 ): Promise<IntentResult> {
+  const forced = options.runMode ? forcedIntentForRunMode(options.runMode) : null;
+  if (forced) return forced;
   const simple = classifySimpleChat(options.message);
   if (simple) return simple;
   try {
@@ -103,6 +129,7 @@ export async function runInteractiveTurn(
     : "direct_stream";
   const routing = { intent, executionMode };
   options.onRouting?.(routing);
+  const tools = options.runMode === "chat" ? [] : options.tools;
 
   let text = "";
   if (executionMode === "harness_plan") {
@@ -114,7 +141,7 @@ export async function runInteractiveTurn(
         adapter: options.adapter,
         model: options.model,
         history: options.history,
-        tools: options.tools,
+        tools,
         maxTurns: options.maxTurns,
         system: options.system,
         signal: options.signal,
@@ -142,7 +169,7 @@ export async function runInteractiveTurn(
       adapter: options.adapter,
       model: options.model,
       history: options.history,
-      tools: options.tools,
+      tools,
       maxTurns: options.maxTurns,
       system: options.system,
       signal: options.signal,
