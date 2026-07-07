@@ -4,6 +4,7 @@ import {
   saveVeraLlmConfig,
 } from "@/bridge";
 import type {
+  AgentRunMode,
   AppLocale,
   EffectiveLlmConfig,
   LLMProvider,
@@ -28,6 +29,7 @@ interface PersistedUiSettings {
   maxInstances?: number;
   locale?: AppLocale;
   firstLaunchComplete?: boolean;
+  agentMode?: AgentRunMode;
 }
 
 function readStoredUiSettings(): PersistedUiSettings | null {
@@ -90,6 +92,7 @@ function providerFromEffective(config: EffectiveLlmConfig): LLMProvider {
 export const useSettingsStore = defineStore("settings", {
   state: () => ({
     provider: { ...DEFAULT_PROVIDER },
+    agentMode: "agent" as AgentRunMode,
     theme: "system" as "dark" | "light" | "system",
     maxInstances: 3,
     locale: "zh" as AppLocale,
@@ -105,6 +108,9 @@ export const useSettingsStore = defineStore("settings", {
       if (storedUi?.locale) this.locale = storedUi.locale;
       if (typeof storedUi?.firstLaunchComplete === "boolean") {
         this.firstLaunchComplete = storedUi.firstLaunchComplete;
+      }
+      if (storedUi?.agentMode) {
+        this.agentMode = storedUi.agentMode;
       }
 
       const effective = await inspectLlmConfig(projectRoot, null, false);
@@ -122,6 +128,29 @@ export const useSettingsStore = defineStore("settings", {
     setLocale(locale: AppLocale) {
       this.locale = locale;
     },
+    setAgentMode(mode: AgentRunMode) {
+      this.agentMode = mode;
+    },
+    selectModel(providerId: LLMProviderId, model: string) {
+      if (this.provider.id !== providerId) {
+        this.provider = providerDefaults(providerId);
+      }
+      this.provider.model = model;
+    },
+    applyProviderModel(params: {
+      providerId: LLMProviderId;
+      protocol: LLMProtocol;
+      apiBaseUrl: string;
+      model: string;
+    }) {
+      this.provider = {
+        id: params.providerId,
+        protocol: params.protocol,
+        apiBaseUrl: params.apiBaseUrl,
+        model: params.model,
+        apiKeyRef: `llm:${params.providerId}:api-key`,
+      };
+    },
     async refreshApiKeyStatus() {
       const effective = await inspectLlmConfig(undefined, null, false);
       this.hasApiKey = effective.apiKeyAvailable;
@@ -134,6 +163,7 @@ export const useSettingsStore = defineStore("settings", {
           maxInstances: this.maxInstances,
           locale: this.locale,
           firstLaunchComplete: this.firstLaunchComplete,
+          agentMode: this.agentMode,
         }),
       );
       const effective = await saveVeraLlmConfig({
@@ -157,8 +187,16 @@ export const useSettingsStore = defineStore("settings", {
       });
       this.hasApiKey = effective.apiKeyAvailable;
     },
-    async runtimeLlmConfig(): Promise<LLMRuntimeConfig | null> {
-      return null;
+    async runtimeLlmConfig(projectRoot?: string): Promise<LLMRuntimeConfig | null> {
+      const effective = await inspectLlmConfig(projectRoot, null, true);
+      if (!effective.apiKeyValue) return null;
+      return {
+        provider: this.provider.id,
+        protocol: this.provider.protocol,
+        apiBaseUrl: this.provider.apiBaseUrl || effective.apiBaseUrl,
+        model: this.provider.model,
+        apiKey: effective.apiKeyValue,
+      };
     },
   },
 });

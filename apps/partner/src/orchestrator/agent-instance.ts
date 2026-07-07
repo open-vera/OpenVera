@@ -1,6 +1,7 @@
 import { abortAgent, invokeAgentRun, waitForAgentCompletion } from "@/bridge/agent";
 import { subscribeAgentStream } from "@/bridge/events";
 import type {
+  AgentRunMode,
   LLMRuntimeConfig,
   Message,
   TokenUsage,
@@ -18,7 +19,7 @@ export interface AgentRunCallbacks {
   onThinking?: () => void;
 }
 
-const MODEL_IDLE_TIMEOUT_MS = 90_000;
+const MODEL_IDLE_TIMEOUT_MS = 45_000;
 
 export class AgentInstanceRunner {
   readonly id: string;
@@ -39,6 +40,7 @@ export class AgentInstanceRunner {
     projectRoot?: string,
     llmConfig?: LLMRuntimeConfig | null,
     taskId?: string,
+    agentMode?: AgentRunMode,
   ): Promise<{ text: string; usage?: TokenUsage }> {
     this.status = "running";
     this.abortRequested = false;
@@ -57,7 +59,7 @@ export class AgentInstanceRunner {
         this.abortRequested = true;
         void abortAgent(this.sessionId);
         rejectIdleTimeout?.(
-          new Error("模型响应超时：90 秒内没有收到任何运行事件，请检查网络、API Key 或模型服务状态。"),
+          new Error("模型响应超时：45 秒内没有收到任何运行事件，请检查网络、API Key 或模型服务状态。"),
         );
       }, MODEL_IDLE_TIMEOUT_MS);
     };
@@ -127,6 +129,7 @@ export class AgentInstanceRunner {
         projectRoot,
         llmConfig: llmConfig ?? undefined,
         taskId,
+        agentMode,
       });
       const result = await Promise.race([
         runStarted.then(() => completion),

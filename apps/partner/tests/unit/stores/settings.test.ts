@@ -135,4 +135,71 @@ describe("useSettingsStore", () => {
 
     expect(localValues.get("partner:ui-settings")).toContain('"locale":"en"');
   });
+
+  it("persists agent mode preference", async () => {
+    const settings = useSettingsStore();
+
+    settings.setAgentMode("plan");
+    await settings.save();
+
+    expect(localValues.get("partner:ui-settings")).toContain('"agentMode":"plan"');
+  });
+
+  it("builds runtime llm config from effective secrets", async () => {
+    inspectLlmConfigMock.mockResolvedValueOnce({
+      source: "vera-config",
+      sourceLabel: "Vera config",
+      projectRoot: "/repo",
+      provider: "anthropic",
+      adapter: "anthropic",
+      protocol: "anthropic",
+      model: "claude-sonnet",
+      apiBaseUrl: "https://api.anthropic.com",
+      apiKeyAvailable: true,
+      apiKeySource: "vera-config",
+      apiKeySourceLabel: "Vera config api_key",
+      apiKeyValue: "secret-key",
+      configExists: true,
+    });
+    const settings = useSettingsStore();
+    settings.provider.model = "claude-opus-4-6";
+
+    const runtime = await settings.runtimeLlmConfig("/repo");
+
+    expect(runtime).toEqual({
+      provider: "anthropic",
+      protocol: "anthropic",
+      apiBaseUrl: "https://api.anthropic.com",
+      model: "claude-opus-4-6",
+      apiKey: "secret-key",
+    });
+  });
+
+  it("switches provider and model together", () => {
+    const settings = useSettingsStore();
+
+    settings.selectModel("openai", "gpt-4o");
+
+    expect(settings.provider.id).toBe("openai");
+    expect(settings.provider.model).toBe("gpt-4o");
+    expect(settings.provider.protocol).toBe("openai-compatible");
+  });
+
+  it("applies provider model from catalog selection", () => {
+    const settings = useSettingsStore();
+
+    settings.applyProviderModel({
+      providerId: "compony",
+      protocol: "anthropic",
+      apiBaseUrl: "https://gateway.example.com",
+      model: "deepseek-v4-pro",
+    });
+
+    expect(settings.provider).toMatchObject({
+      id: "compony",
+      protocol: "anthropic",
+      apiBaseUrl: "https://gateway.example.com",
+      model: "deepseek-v4-pro",
+    });
+  });
 });

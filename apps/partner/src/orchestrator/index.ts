@@ -198,7 +198,8 @@ export class Orchestrator {
         name: "agent_config",
         input: {},
       });
-      const llmConfig = await useSettingsStore().runtimeLlmConfig();
+      const settings = useSettingsStore();
+      const llmConfig = await settings.runtimeLlmConfig(resolvedRoot);
       appendProgressStep({
         id: crypto.randomUUID(),
         name: "agent_wait_model",
@@ -239,6 +240,7 @@ export class Orchestrator {
         resolvedRoot,
         llmConfig,
         taskId,
+        settings.agentMode,
       );
     } catch (error) {
       const message = formatErrorMessage(error);

@@ -11,6 +11,7 @@ import { registerPartnerShortcuts } from "@/shortcuts/partner-shortcuts";
 import { useChatStore } from "@/stores/chat";
 import { usePreviewStore } from "@/stores/preview";
 import { useSessionStore } from "@/stores/session";
+import { useModelCatalogStore } from "@/stores/model-catalog";
 import { useSettingsStore } from "@/stores/settings";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type { LayoutSnapshot } from "@/types";
@@ -23,6 +24,7 @@ const preview = usePreviewStore();
 const chat = useChatStore();
 const session = useSessionStore();
 const settings = useSettingsStore();
+const modelCatalog = useModelCatalogStore();
 const workspace = useWorkspaceStore();
 const { activeTabId } = storeToRefs(preview);
 const { rootPath } = storeToRefs(workspace);
@@ -211,6 +213,13 @@ function startResize(target: "left" | "preview", event: PointerEvent) {
 onMounted(async () => {
   restoreLayout();
   await settings.load();
+  await modelCatalog.loadProviders(workspace.rootPath || undefined);
+  if (settings.provider.id) {
+    void modelCatalog.ensureProviderModels(
+      workspace.rootPath || undefined,
+      settings.provider.id,
+    );
+  }
   unregisterShortcuts = registerPartnerShortcuts();
   unregisterAppEvents = await registerPartnerAppEvents({
     onOpenSettings: () => {
@@ -233,7 +242,9 @@ watch(
   rootPath,
   (projectRoot) => {
     if (!projectRoot) return;
+    modelCatalog.reset();
     void settings.load(projectRoot);
+    void modelCatalog.loadProviders(projectRoot, true);
     void restoreSessions(projectRoot);
   },
 );

@@ -82,6 +82,23 @@ export interface LayoutSnapshot {
 export type LLMProviderId = string;
 export type LLMProtocol = "anthropic" | "openai-compatible" | "gemini";
 export type AppLocale = "zh" | "en";
+export type AgentRunMode = "agent" | "chat" | "plan";
+
+export interface CatalogProvider {
+  id: string;
+  adapter: string;
+  protocol: string;
+  apiBaseUrl: string;
+  hasApiKey: boolean;
+  isDefault: boolean;
+}
+
+export interface CatalogModel {
+  id: string;
+  displayName?: string;
+  upstreamId?: string;
+  source?: "config" | "remote";
+}
 
 export interface LLMProvider {
   id: LLMProviderId;
