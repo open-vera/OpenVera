@@ -19,6 +19,9 @@ const props = defineProps<{
 
 const expanded = ref(false);
 const approvalStates = ref<Record<string, "pending" | "approved" | "denied" | "error">>({});
+const expandedResultIds = ref<Set<string>>(new Set());
+
+const RESULT_COLLAPSED_MAX_HEIGHT = 220;
 
 const locale = computed(() => navigator.language);
 const steps = computed(() =>
@@ -86,6 +89,10 @@ function approvalReason(step: ToolProgressStep): string {
   return rawString(step.rawInput, "reason");
 }
 
+function approvalAllowDir(step: ToolProgressStep): string {
+  return rawString(step.rawInput, "allowDir");
+}
+
 function approvalState(step: ToolProgressStep) {
   return approvalStates.value[approvalCallId(step)] ?? "pending";
 }
@@ -94,10 +101,45 @@ function toolResult(step: ToolProgressStep): ToolResult | undefined {
   return resultByCallId.value.get(step.id);
 }
 
-function resultPreview(result: ToolResult): string {
+function resultText(result: ToolResult): string {
   const text = result.output.trim();
   if (!text) return result.isError ? "命令执行失败，无输出" : "命令执行成功，无输出";
-  return text.length > 4_000 ? `${text.slice(0, 4_000)}\n…` : text;
+  return text;
+}
+
+function isTerminalOutput(step: ToolProgressStep): boolean {
+  const name = step.rawName.toLowerCase();
+  return name === "bash" || name.includes("shell") || name.includes("exec");
+}
+
+function isResultExpanded(stepId: string): boolean {
+  return expandedResultIds.value.has(stepId);
+}
+
+function toggleResultExpand(stepId: string): void {
+  const next = new Set(expandedResultIds.value);
+  if (next.has(stepId)) {
+    next.delete(stepId);
+  } else {
+    next.add(stepId);
+  }
+  expandedResultIds.value = next;
+}
+
+function onResultClick(stepId: string, event: MouseEvent): void {
+  const target = event.target as HTMLElement | null;
+  if (target?.closest("a, button")) return;
+  const selection = window.getSelection()?.toString().trim();
+  if (selection) return;
+  toggleResultExpand(stepId);
+}
+
+function resultExpandHint(stepId: string, result: ToolResult): string | null {
+  if (isResultExpanded(stepId)) {
+    return isZh.value ? "点击收起" : "Click to collapse";
+  }
+  if (resultText(result).length < 240) return null;
+  return isZh.value ? "点击展开全部" : "Click to expand";
 }
 
 function resultLabel(result: ToolResult): string {
@@ -121,6 +163,7 @@ watch(
   (running) => {
     if (!running) {
       expanded.value = false;
+      expandedResultIds.value = new Set();
     }
   },
 );
@@ -149,19 +192,52 @@ watch(
             <span class="step-dot" aria-hidden="true" />
             <span v-if="!isApprovalStep(step)" class="step-body">
               <span class="step-detail">{{ step.detail }}</span>
-              <span
+              <button
                 v-if="expanded && toolResult(step)"
+                type="button"
                 class="tool-result"
-                :class="{ error: toolResult(step)?.isError }"
+                :class="{
+                  error: toolResult(step)?.isError,
+                  'result-expanded': isResultExpanded(step.id),
+                }"
+                @click="onResultClick(step.id, $event)"
               >
-                <span class="tool-result-label">{{ resultLabel(toolResult(step)!) }}</span>
-                <MarkdownRenderer :content="resultPreview(toolResult(step)!)" />
-              </span>
+                <span class="tool-result-label">
+                  {{ resultLabel(toolResult(step)!) }}
+                  <span
+                    v-if="resultExpandHint(step.id, toolResult(step)!)"
+                    class="tool-result-hint"
+                  >
+                    {{ resultExpandHint(step.id, toolResult(step)!) }}
+                  </span>
+                </span>
+                <div
+                  class="tool-result-content"
+                  :style="
+                    isResultExpanded(step.id)
+                      ? undefined
+                      : { maxHeight: `${RESULT_COLLAPSED_MAX_HEIGHT}px` }
+                  "
+                  @click.stop
+                >
+                  <pre
+                    v-if="isTerminalOutput(step)"
+                    class="tool-result-output"
+                  >{{ resultText(toolResult(step)!) }}</pre>
+                  <MarkdownRenderer
+                    v-else
+                    :content="resultText(toolResult(step)!)"
+                  />
+                </div>
+              </button>
             </span>
             <span v-else class="approval-card">
               <span class="approval-title">{{ step.detail }}</span>
               <span v-if="approvalCommand(step)" class="approval-command">
                 {{ approvalCommand(step) }}
+              </span>
+              <span v-else-if="approvalAllowDir(step)" class="approval-command">
+                {{ approvalAllowDir(step) }}
               </span>
               <span v-if="approvalReason(step)" class="approval-reason">
                 {{ approvalReason(step) }}
@@ -361,6 +437,16 @@ watch(
   border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface-elevated) 76%, transparent);
+  text-align: left;
+  cursor: pointer;
+}
+
+.tool-result:hover {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+}
+
+.tool-result.result-expanded {
+  cursor: default;
 }
 
 .tool-result.error {
@@ -369,8 +455,53 @@ watch(
 }
 
 .tool-result-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   color: var(--text-muted);
   font-size: 11px;
+}
+
+.tool-result-hint {
+  color: var(--accent);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.tool-result-content {
+  min-width: 0;
+  overflow: auto;
+  position: relative;
+}
+
+.tool-result:not(.result-expanded) .tool-result-content::after {
+  content: "";
+  position: sticky;
+  bottom: 0;
+  display: block;
+  height: 18px;
+  margin-top: -18px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--surface-elevated) 88%, transparent)
+  );
+  pointer-events: none;
+}
+
+.tool-result.result-expanded .tool-result-content {
+  max-height: min(70vh, 960px);
+}
+
+.tool-result-output {
+  margin: 0;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-wrap: normal;
 }
 
 .tool-result :deep(.markdown-renderer) {
@@ -379,8 +510,9 @@ watch(
 }
 
 .tool-result :deep(pre) {
-  max-height: 260px;
-  overflow: auto;
+  margin: 0;
+  max-height: none;
+  overflow: visible;
 }
 
 .approval-card {

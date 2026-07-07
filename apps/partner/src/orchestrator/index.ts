@@ -225,6 +225,7 @@ export class Orchestrator {
                 cmd: approval.cmd,
                 args: approval.args,
                 cwd: approval.cwd,
+                allowDir: approval.allowDir,
               },
             });
           },

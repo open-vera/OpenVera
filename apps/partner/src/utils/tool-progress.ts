@@ -150,10 +150,16 @@ function describeDetail(
   if (name === "tool_approval_required") {
     const command = inputCommand(input);
     const reason = asString(input.reason);
+    const allowDir = asString(input.allowDir);
     if (command) {
       return locale === "en-US"
         ? `Approval required to run: ${command}`
         : `需要授权执行命令：${command}`;
+    }
+    if (allowDir) {
+      return locale === "en-US"
+        ? `Approval required to access: ${allowDir}`
+        : `需要授权访问目录：${allowDir}`;
     }
     return reason ?? (locale === "en-US" ? "Tool approval required" : "需要用户授权");
   }

@@ -162,8 +162,7 @@ async function selectModel(provider: CatalogProvider, model: CatalogModel) {
   try {
     settings.applyProviderModel({
       providerId: provider.id,
-      protocol: provider.protocol as LLMProtocol,
-      apiBaseUrl: provider.apiBaseUrl,
+      apiBaseUrl: provider.apiBaseUrl || settings.provider.apiBaseUrl,
       model: model.id,
     });
     await settings.save(workspace.rootPath || undefined);

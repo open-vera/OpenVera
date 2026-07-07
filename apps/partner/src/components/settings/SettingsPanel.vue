@@ -171,6 +171,20 @@ const copy = computed(() => {
   };
 });
 
+const apiBaseHint = computed(() => {
+  if (settings.provider.protocol === "openai-compatible") {
+    return settings.locale === "en"
+      ? "OpenAI Chat Completions gateways may omit /v1; Partner adds it automatically."
+      : "OpenAI Chat Completions 网关可只填域名，缺少 /v1 时会自动补上。";
+  }
+  if (settings.provider.protocol === "openai-responses") {
+    return settings.locale === "en"
+      ? "Responses API uses /v1/responses. Most Claude-compatible gateways need OpenAI Chat Completions instead."
+      : "Responses API 走 /v1/responses。多数 Claude 兼容网关应选「OpenAI Chat Completions」。";
+  }
+  return copy.value.apiBaseHint;
+});
+
 function clearStatus() {
   status.value = "";
   error.value = "";
@@ -493,7 +507,7 @@ watch(
       <label class="setting-row">
         <span class="setting-label">
           <strong>API Base URL</strong>
-          <small>{{ copy.apiBaseHint }}</small>
+          <small>{{ apiBaseHint }}</small>
         </span>
         <input
           v-model.trim="settings.provider.apiBaseUrl"

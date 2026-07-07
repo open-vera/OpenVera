@@ -44,8 +44,9 @@ defineEmits<{
         <span v-if="summary.upstream" class="upstream">{{ summary.upstream }}</span>
         <button
           type="button"
-          class="icon-action"
+          class="icon-action branch-refresh"
           title="刷新 Git 状态"
+          aria-label="刷新 Git 状态"
           :disabled="summary.loading || summary.actionRunning"
           @click="$emit('refresh')"
         >
@@ -55,22 +56,37 @@ defineEmits<{
       <div class="sync-row">
         <span class="sync-count">↓ {{ summary.behind }}</span>
         <span class="sync-count">↑ {{ summary.ahead }}</span>
-        <button
-          type="button"
-          class="git-action"
-          :disabled="summary.actionRunning || !summary.upstream"
-          @click="$emit('fetch')"
-        >
-          Fetch
-        </button>
-        <button
-          type="button"
-          class="git-action"
-          :disabled="summary.actionRunning || !summary.upstream"
-          @click="$emit('pullRebase')"
-        >
-          Pull rebase
-        </button>
+        <div class="sync-actions">
+          <button
+            type="button"
+            class="icon-action"
+            title="Fetch 远程更新"
+            aria-label="Fetch 远程更新"
+            :disabled="summary.actionRunning || !summary.upstream"
+            @click="$emit('fetch')"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3v11" />
+              <path d="M8 11l4 4 4-4" />
+              <path d="M5 21h14" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="icon-action"
+            title="Pull rebase"
+            aria-label="Pull rebase"
+            :disabled="summary.actionRunning || !summary.upstream"
+            @click="$emit('pullRebase')"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 7h7a4 4 0 0 1 0 8H9" />
+              <path d="M9 11l-3-3 3-3" />
+              <path d="M12 21V10" />
+              <path d="M8 17l4 4 4-4" />
+            </svg>
+          </button>
+        </div>
       </div>
       <div v-if="summary.rebasing" class="rebase-row">
         <span>Rebase 进行中</span>
@@ -158,6 +174,13 @@ defineEmits<{
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+.sync-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
 .icon-action,
 .git-action {
   border: 1px solid var(--border);
@@ -170,6 +193,25 @@ defineEmits<{
 }
 
 .icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
+
+.icon-action svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.branch-refresh {
   margin-left: auto;
 }
 

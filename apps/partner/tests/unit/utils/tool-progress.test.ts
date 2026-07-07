@@ -83,6 +83,19 @@ describe("tool progress summaries", () => {
     expect(step.detail).toBe('需要授权执行命令：find . -name "deploy pre.yml"');
   });
 
+  it("summarizes path approval requests", () => {
+    const step = summarizeToolCall(
+      toolCall("t2", "tool_approval_required", {
+        allowDir: "/Users/me/.vera",
+        reason: 'Agent wants to access a path outside the working directory:\n  /Users/me/.vera/settings.json',
+      }),
+      "zh-CN",
+    );
+
+    expect(step.category).toBe("approval");
+    expect(step.detail).toBe("需要授权访问目录：/Users/me/.vera");
+  });
+
   it("keeps error steps separate from normal progress groups", () => {
     const groups = groupToolProgress(
       [

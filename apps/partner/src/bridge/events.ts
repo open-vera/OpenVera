@@ -199,6 +199,7 @@ export function onAgentToolApprovalRequired(
       cmd?: string;
       args?: string[];
       cwd?: string;
+      allowDir?: string;
     }
   >("agent:tool_approval_required", (event) => {
     if (
@@ -215,6 +216,7 @@ export function onAgentToolApprovalRequired(
       cmd: event.payload.cmd,
       args: event.payload.args,
       cwd: event.payload.cwd,
+      allowDir: event.payload.allowDir,
     });
   });
 }
