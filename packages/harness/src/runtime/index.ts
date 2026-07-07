@@ -12,5 +12,6 @@ export * from "./services.js";
 export * from "./plan-parser.js";
 export * from "./checkpoint-store.js";
 export * from "./runtime.js";
+export * from "./plan-executor.js";
 export * from "./failure-attributor.js";
 export * from "./output-truncator.js";

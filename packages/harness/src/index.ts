@@ -9,7 +9,6 @@ export * from "./agent/index.js";
 export * from "./critic/index.js";
 export * from "./flow/index.js";
 export * from "./flow-config/index.js";
-export * from "./cli/index.js";
 
 // 插件协议 (供外部插件包实现)
 export * from "./plugin-runtime/index.js";
