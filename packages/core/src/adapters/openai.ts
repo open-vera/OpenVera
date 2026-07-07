@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { LLMAdapter } from "./base.js";
+import { normalizeOpenAiBaseUrl } from "./base-url.js";
 import type {
   CompletionRequest,
   CompletionResponse,
@@ -16,7 +17,11 @@ export class OpenAIAdapter implements LLMAdapter {
   private client: OpenAI;
 
   constructor(apiKey?: string, baseUrl?: string, headers?: Record<string, string>) {
-    this.client = new OpenAI({ apiKey, baseURL: baseUrl, defaultHeaders: headers });
+    this.client = new OpenAI({
+      apiKey,
+      baseURL: normalizeOpenAiBaseUrl(baseUrl),
+      defaultHeaders: headers,
+    });
   }
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {

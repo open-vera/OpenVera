@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { LLMAdapter } from "./base.js";
+import { normalizeAnthropicBaseUrl } from "./base-url.js";
 import type {
   CompletionRequest,
   CompletionResponse,
@@ -35,7 +36,7 @@ export class AnthropicAdapter implements LLMAdapter {
   constructor(apiKey?: string, baseUrl?: string, headers?: Record<string, string>) {
     this.client = new Anthropic({
       apiKey,
-      baseURL: baseUrl || undefined,
+      baseURL: normalizeAnthropicBaseUrl(baseUrl),
       defaultHeaders: headers,
     });
   }
