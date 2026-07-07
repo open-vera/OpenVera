@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import type { Message } from "@/types";
 import { useSettingsStore } from "@/stores/settings";
 import { attachmentLabel } from "@/utils/attachments";
+import { copyTextToClipboard } from "@/utils/clipboard";
 import MarkdownRenderer from "./MarkdownRenderer.vue";
 
-defineProps<{
+const props = defineProps<{
   message: Message;
 }>();
 
@@ -15,11 +16,47 @@ defineEmits<{
 }>();
 
 const settings = useSettingsStore();
+const copyState = ref<"idle" | "copied" | "failed">("idle");
+let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
+
 const queueLabel = computed(() =>
   settings.locale === "en"
     ? { next: "next", queued: "queued", promote: "prioritize", runNow: "run now" }
     : { next: "下一条", queued: "排队中", promote: "优先", runNow: "现在执行" },
 );
+
+const copyButtonLabel = computed(() => {
+  if (copyState.value === "copied") {
+    return settings.locale === "en" ? "Copied" : "已复制";
+  }
+  if (copyState.value === "failed") {
+    return settings.locale === "en" ? "Failed" : "失败";
+  }
+  return settings.locale === "en" ? "Copy" : "复制";
+});
+
+const canCopyAssistantMessage = computed(
+  () => props.message.role === "assistant" && props.message.content.trim().length > 0,
+);
+
+async function copyAssistantMessage(): Promise<void> {
+  if (!canCopyAssistantMessage.value) return;
+  if (copyResetTimer) {
+    clearTimeout(copyResetTimer);
+    copyResetTimer = null;
+  }
+  try {
+    await copyTextToClipboard(props.message.content);
+    copyState.value = "copied";
+  } catch (error) {
+    copyState.value = "failed";
+    console.warn("[MessageBubble] failed to copy assistant message:", error);
+  }
+  copyResetTimer = setTimeout(() => {
+    copyState.value = "idle";
+    copyResetTimer = null;
+  }, 1200);
+}
 </script>
 
 <template>
@@ -27,7 +64,20 @@ const queueLabel = computed(() =>
     class="bubble"
     :class="[message.role, { error: message.isError, queued: message.queueStatus === 'queued' }]"
   >
-    <div v-if="message.role === 'assistant'" class="content markdown-content">
+    <div
+      v-if="message.role === 'assistant'"
+      class="content markdown-content message-shell"
+      :class="{ 'has-copy': canCopyAssistantMessage }"
+    >
+      <button
+        v-if="canCopyAssistantMessage"
+        type="button"
+        class="message-copy-button"
+        :aria-label="copyButtonLabel"
+        @click="copyAssistantMessage"
+      >
+        {{ copyButtonLabel }}
+      </button>
       <div v-if="message.isError" class="error-heading">运行失败</div>
       <MarkdownRenderer :content="message.content || '…'" />
     </div>
@@ -158,6 +208,51 @@ const queueLabel = computed(() =>
 
 .markdown-content {
   white-space: normal;
+}
+
+.message-shell {
+  position: relative;
+}
+
+.message-shell.has-copy {
+  padding-top: 2px;
+  padding-right: 2px;
+}
+
+.message-copy-button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  height: 24px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 6px;
+  padding: 0 8px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 22px;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.message-shell:hover .message-copy-button,
+.message-copy-button:focus-visible {
+  opacity: 1;
+}
+
+.message-copy-button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.bubble.assistant.error .message-copy-button {
+  background: color-mix(in srgb, var(--surface-elevated) 90%, transparent);
 }
 
 .markdown-content :deep(hr) {

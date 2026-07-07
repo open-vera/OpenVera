@@ -3,9 +3,11 @@ import { storeToRefs } from "pinia";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { readFile } from "@/bridge";
 import CodeEditor from "./CodeEditor.vue";
+import DiffMergeEditor from "./DiffMergeEditor.vue";
 import PreviewTab from "./PreviewTab.vue";
 import { usePreviewStore } from "@/stores/preview";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { isDiffPreview } from "@/preview/diff";
 
 const preview = usePreviewStore();
 const workspace = useWorkspaceStore();
@@ -144,8 +146,18 @@ watch(
     </div>
 
     <div class="content">
+      <DiffMergeEditor
+        v-if="
+          activeTab?.kind === 'code' &&
+          activeTab.filePath &&
+          activeTab.content != null &&
+          isDiffPreview(activeTab.source, activeTab.filePath)
+        "
+        :file-path="activeTab.filePath"
+        :content="activeTab.content"
+      />
       <CodeEditor
-        v-if="activeTab?.kind === 'code' && activeTab.filePath && activeTab.content != null"
+        v-else-if="activeTab?.kind === 'code' && activeTab.filePath && activeTab.content != null"
         :file-path="activeTab.filePath"
         :content="activeTab.content"
         :saved-content="activeTab.savedContent"

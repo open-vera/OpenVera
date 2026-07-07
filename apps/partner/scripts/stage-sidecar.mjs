@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, rmSync } from "node:fs";
+import { chmodSync, copyFileSync, cpSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,6 +22,13 @@ rmSync(wsDest, { recursive: true, force: true });
 mkdirSync(dirname(wsDest), { recursive: true });
 cpSync(wsDir, wsDest, { recursive: true });
 console.log(`[stage-sidecar] copied ${wsDir} -> ${wsDest}`);
+
+const nodeSource = process.env.PARTNER_NODE_SOURCE ?? process.execPath;
+const nodeDest = join(destDir, "node");
+copyFileSync(nodeSource, nodeDest);
+chmodSync(nodeDest, 0o755);
+const nodeSizeMb = (statSync(nodeDest).size / (1024 * 1024)).toFixed(1);
+console.log(`[stage-sidecar] copied node ${nodeSource} -> ${nodeDest} (${nodeSizeMb} MB)`);
 
 cpSync(icon, iconDest);
 console.log(`[stage-sidecar] copied ${icon} -> ${iconDest}`);

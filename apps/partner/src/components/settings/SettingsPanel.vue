@@ -18,6 +18,7 @@ const preview = usePreviewStore();
 const apiKey = ref("");
 const status = ref("");
 const error = ref("");
+const connectionTestFeedback = ref<{ type: "success" | "error"; message: string } | null>(null);
 const effectiveConfig = ref<EffectiveLlmConfig | null>(null);
 const isInspecting = ref(false);
 const inspectError = ref("");
@@ -299,7 +300,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
 }
 
 async function testConnection() {
-  clearStatus();
+  connectionTestFeedback.value = null;
   isTestingConnection.value = true;
   try {
     await flushPendingSettings();
@@ -311,13 +312,22 @@ async function testConnection() {
       copy.value.testTimeout,
     );
     if (result.ok) {
-      status.value = copy.value.testSuccess(result.modelCount);
+      connectionTestFeedback.value = {
+        type: "success",
+        message: copy.value.testSuccess(result.modelCount),
+      };
       await refreshEffectiveConfig();
       return;
     }
-    error.value = result.message || copy.value.testFailed;
+    connectionTestFeedback.value = {
+      type: "error",
+      message: result.message || copy.value.testFailed,
+    };
   } catch (testError) {
-    error.value = testError instanceof Error ? testError.message : String(testError);
+    connectionTestFeedback.value = {
+      type: "error",
+      message: testError instanceof Error ? testError.message : String(testError),
+    };
   } finally {
     isTestingConnection.value = false;
   }
@@ -575,6 +585,18 @@ watch(
       </button>
     </div>
 
+    <p
+      v-if="connectionTestFeedback"
+      class="connection-feedback"
+      :class="connectionTestFeedback.type"
+      role="status"
+    >
+      {{ connectionTestFeedback.message }}
+    </p>
+
+    <p v-if="status" class="status">{{ status }}</p>
+    <p v-if="error" class="status error">{{ error }}</p>
+
     <section v-if="showModelList" class="model-list-card">
       <div class="model-list-header">
         <span>
@@ -602,9 +624,6 @@ watch(
         </li>
       </ul>
     </section>
-
-    <p v-if="status" class="status">{{ status }}</p>
-    <p v-if="error" class="status error">{{ error }}</p>
 
     <section class="effective-card">
       <div class="effective-header">
@@ -999,6 +1018,27 @@ select:focus {
   margin: 8px 0 0;
   color: var(--accent);
   font-size: 12px;
+}
+
+.connection-feedback {
+  max-width: 680px;
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.connection-feedback.success {
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--text);
+}
+
+.connection-feedback.error {
+  border: 1px solid color-mix(in srgb, #ff6b6b 50%, var(--border));
+  background: color-mix(in srgb, #ff6b6b 10%, var(--surface));
+  color: #f28b82;
 }
 
 .status.error {

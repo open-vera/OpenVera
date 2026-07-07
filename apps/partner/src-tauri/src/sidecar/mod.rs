@@ -638,7 +638,7 @@ pub fn find_sidecar_entry(app: &AppHandle) -> Result<SidecarLaunch, String> {
             .map(Path::to_path_buf)
             .unwrap_or_else(|| PathBuf::from("."));
         return Ok(SidecarLaunch {
-            program: resolve_node_program(),
+            program: resolve_node_program(app),
             args: vec![script],
             cwd,
         });
@@ -656,7 +656,7 @@ pub fn find_sidecar_entry(app: &AppHandle) -> Result<SidecarLaunch, String> {
                     .map(Path::to_path_buf)
                     .unwrap_or_else(|| PathBuf::from("."));
                 return Ok(SidecarLaunch {
-                    program: resolve_node_program(),
+                    program: resolve_node_program(app),
                     args: vec![path.to_string_lossy().to_string()],
                     cwd,
                 });
@@ -668,7 +668,7 @@ pub fn find_sidecar_entry(app: &AppHandle) -> Result<SidecarLaunch, String> {
         let dist = repo_root.join("apps/partner/sidecar/dist/index.js");
         if dist.exists() {
             return Ok(SidecarLaunch {
-                program: resolve_node_program(),
+                program: resolve_node_program(app),
                 args: vec![dist.to_string_lossy().to_string()],
                 cwd: repo_root.join("apps/partner/sidecar"),
             });
@@ -677,7 +677,7 @@ pub fn find_sidecar_entry(app: &AppHandle) -> Result<SidecarLaunch, String> {
         let bundle = repo_root.join("apps/partner/sidecar/dist/partner-sidecar.mjs");
         if bundle.exists() {
             return Ok(SidecarLaunch {
-                program: resolve_node_program(),
+                program: resolve_node_program(app),
                 args: vec![bundle.to_string_lossy().to_string()],
                 cwd: repo_root.join("apps/partner/sidecar"),
             });
@@ -686,7 +686,7 @@ pub fn find_sidecar_entry(app: &AppHandle) -> Result<SidecarLaunch, String> {
         let legacy_bundle = repo_root.join("apps/partner/sidecar/dist/partner-sidecar.cjs");
         if legacy_bundle.exists() {
             return Ok(SidecarLaunch {
-                program: resolve_node_program(),
+                program: resolve_node_program(app),
                 args: vec![legacy_bundle.to_string_lossy().to_string()],
                 cwd: repo_root.join("apps/partner/sidecar"),
             });
@@ -706,8 +706,45 @@ pub fn find_sidecar_entry(app: &AppHandle) -> Result<SidecarLaunch, String> {
     Err("sidecar entry not found (no bundled resource or monorepo dev path)".to_string())
 }
 
-fn resolve_node_program() -> String {
-    std::env::var("PARTNER_NODE").unwrap_or_else(|_| "node".to_string())
+fn resolve_node_program(app: &AppHandle) -> String {
+    if let Ok(node) = std::env::var("PARTNER_NODE") {
+        return node;
+    }
+
+    for rel in ["sidecar/node", "sidecar/bin/node"] {
+        if let Ok(path) = app.path().resolve(rel, BaseDirectory::Resource) {
+            if path.is_file() {
+                return path.to_string_lossy().to_string();
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        for candidate in ["/opt/homebrew/bin/node", "/usr/local/bin/node"] {
+            let path = PathBuf::from(candidate);
+            if path.is_file() {
+                return candidate.to_string();
+            }
+        }
+
+        if let Ok(home) = std::env::var("HOME") {
+            let nvm_root = PathBuf::from(home).join(".nvm/versions/node");
+            if let Ok(entries) = std::fs::read_dir(&nvm_root) {
+                let mut versions: Vec<PathBuf> = entries
+                    .filter_map(Result::ok)
+                    .map(|entry| entry.path().join("bin/node"))
+                    .filter(|path| path.is_file())
+                    .collect();
+                versions.sort();
+                if let Some(path) = versions.pop() {
+                    return path.to_string_lossy().to_string();
+                }
+            }
+        }
+    }
+
+    "node".to_string()
 }
 
 pub fn resolve_project_root() -> String {
