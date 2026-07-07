@@ -202,4 +202,18 @@ describe("useSettingsStore", () => {
       model: "deepseek-v4-pro",
     });
   });
+
+  it("keeps the current protocol when applyProviderModel omits it", () => {
+    const settings = useSettingsStore();
+    settings.provider.protocol = "openai-compatible";
+
+    settings.applyProviderModel({
+      providerId: "compony",
+      apiBaseUrl: "https://gateway.example.com",
+      model: "deepseek-v4-flash",
+    });
+
+    expect(settings.provider.protocol).toBe("openai-compatible");
+    expect(settings.provider.model).toBe("deepseek-v4-flash");
+  });
 });

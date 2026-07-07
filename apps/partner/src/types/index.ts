@@ -12,6 +12,7 @@ export interface ToolApprovalRequest {
   cmd?: string;
   args?: string[];
   cwd?: string;
+  allowDir?: string;
 }
 
 export interface ToolResult {
@@ -80,7 +81,7 @@ export interface LayoutSnapshot {
 }
 
 export type LLMProviderId = string;
-export type LLMProtocol = "anthropic" | "openai-compatible" | "gemini";
+export type LLMProtocol = "anthropic" | "openai-compatible" | "openai-responses" | "gemini";
 export type AppLocale = "zh" | "en";
 export type AgentRunMode = "agent" | "chat" | "plan";
 

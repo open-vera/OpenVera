@@ -254,6 +254,7 @@ fn load_vera_config(root: &str) -> Result<Value, String> {
 fn protocol_for_adapter(adapter: &str) -> &str {
     match adapter {
         "openai" => "openai-compatible",
+        "openai-responses" => "openai-responses",
         "gemini" => "gemini",
         _ => "anthropic",
     }
@@ -579,6 +580,7 @@ fn provider_config_for(config: &Value, provider: &str, model: &str) -> Value {
 fn adapter_for_protocol(protocol: &str) -> &str {
     match protocol {
         "openai-compatible" => "openai",
+        "openai-responses" => "openai-responses",
         "gemini" => "gemini",
         _ => "anthropic",
     }
@@ -599,7 +601,7 @@ fn env_var_for(adapter: &str, provider: &str) -> String {
         return provider_key;
     }
     match adapter {
-        "openai" => "OPENAI_API_KEY".to_string(),
+        "openai" | "openai-responses" => "OPENAI_API_KEY".to_string(),
         "gemini" => "GEMINI_API_KEY".to_string(),
         _ => "ANTHROPIC_API_KEY".to_string(),
     }
@@ -618,7 +620,7 @@ fn resolve_env_key(adapter: &str, provider: &str) -> Option<String> {
         }
     }
     let fallback = match adapter {
-        "openai" => "OPENAI_API_KEY",
+        "openai" | "openai-responses" => "OPENAI_API_KEY",
         "gemini" => "GEMINI_API_KEY",
         _ => "ANTHROPIC_API_KEY",
     };

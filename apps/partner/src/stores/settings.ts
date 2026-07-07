@@ -72,6 +72,9 @@ function providerDefaults(id: LLMProviderId): LLMProvider {
 }
 
 function protocolFromEffective(config: EffectiveLlmConfig): LLMProtocol {
+  if (config.protocol === "openai-responses" || config.adapter === "openai-responses") {
+    return "openai-responses";
+  }
   if (config.protocol === "openai" || config.adapter === "openai") return "openai-compatible";
   if (config.protocol === "gemini" || config.adapter === "gemini") return "gemini";
   return "anthropic";
@@ -139,13 +142,13 @@ export const useSettingsStore = defineStore("settings", {
     },
     applyProviderModel(params: {
       providerId: LLMProviderId;
-      protocol: LLMProtocol;
+      protocol?: LLMProtocol;
       apiBaseUrl: string;
       model: string;
     }) {
       this.provider = {
         id: params.providerId,
-        protocol: params.protocol,
+        protocol: params.protocol ?? this.provider.protocol,
         apiBaseUrl: params.apiBaseUrl,
         model: params.model,
         apiKeyRef: `llm:${params.providerId}:api-key`,
