@@ -28,6 +28,7 @@ const shouldStickToBottom = ref(true);
 
 type ChatDisplayItem =
   | { type: "time"; key: string; label: string }
+  | { type: "ellipsis"; key: string; label: string }
   | { type: "message"; key: string; message: Message }
   | {
       type: "tool-progress";
@@ -37,7 +38,9 @@ type ChatDisplayItem =
       toolResults: ToolResult[];
     };
 
-const displayItems = computed<ChatDisplayItem[]>(() => {
+const MAX_RUNNING_DISPLAY_ITEMS = 5;
+
+const allDisplayItems = computed<ChatDisplayItem[]>(() => {
   const items: ChatDisplayItem[] = [];
   let activeToolGroup: Extract<ChatDisplayItem, { type: "tool-progress" }> | null = null;
   let lastVisibleTimestamp: number | null = null;
@@ -89,6 +92,27 @@ const displayItems = computed<ChatDisplayItem[]>(() => {
   }
 
   return items;
+});
+const displayItems = computed<ChatDisplayItem[]>(() => {
+  if (!isAgentRunning.value) return allDisplayItems.value;
+
+  const visibleIndexes = allDisplayItems.value
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.type !== "time")
+    .slice(-MAX_RUNNING_DISPLAY_ITEMS)
+    .map(({ index }) => index);
+
+  const firstVisibleIndex = visibleIndexes[0] ?? 0;
+  if (firstVisibleIndex <= 0) return allDisplayItems.value;
+
+  return [
+    {
+      type: "ellipsis",
+      key: "running-history-ellipsis",
+      label: "...",
+    },
+    ...allDisplayItems.value.slice(firstVisibleIndex),
+  ];
 });
 const activeToolProgressKey = computed(() => {
   for (let index = displayItems.value.length - 1; index >= 0; index -= 1) {
@@ -289,6 +313,9 @@ watch(
           <div v-if="item.type === 'time'" class="time-separator">
             {{ item.label }}
           </div>
+          <div v-else-if="item.type === 'ellipsis'" class="running-ellipsis">
+            {{ item.label }}
+          </div>
           <MessageBubble
             v-else-if="item.type === 'message'"
             :message="item.message"
@@ -477,6 +504,14 @@ watch(
   background: color-mix(in srgb, var(--surface) 66%, transparent);
   font-size: 12px;
   line-height: 1.6;
+}
+
+.running-ellipsis {
+  align-self: flex-start;
+  color: var(--text-muted);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
 }
 
 .chat-workspace.is-empty .messages {

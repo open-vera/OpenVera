@@ -1,61 +1,18 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
 import type { Message } from "@/types";
 import { attachmentLabel } from "@/utils/attachments";
 import MarkdownRenderer from "./MarkdownRenderer.vue";
 
-const props = defineProps<{
+defineProps<{
   message: Message;
 }>();
-
-const expanded = ref(false);
-const assistantLines = computed(() => props.message.content.split(/\n+/).filter((line) => line.trim()));
-const shouldCollapseAssistant = computed(() =>
-  props.message.role === "assistant" &&
-  !props.message.isError &&
-  props.message.isStreaming &&
-  assistantLines.value.length > 1,
-);
-const isAssistantCollapsed = computed(() => shouldCollapseAssistant.value && !expanded.value);
-const renderedAssistantContent = computed(() => {
-  if (!isAssistantCollapsed.value) return props.message.content || "…";
-  const lines = assistantLines.value;
-  if (props.message.isStreaming) {
-    const latest = lines.at(-1);
-    return latest || props.message.content || "…";
-  }
-  return props.message.content || "…";
-});
-const collapsedLabel = computed(() => {
-  return "已折叠运行过程，只显示最新内容";
-});
-const toggleText = computed(() => (expanded.value ? "收起" : "展开全部"));
-
-watch(
-  () => props.message.id,
-  () => {
-    expanded.value = false;
-  },
-);
 </script>
 
 <template>
   <article class="bubble" :class="[message.role, { error: message.isError }]">
     <div v-if="message.role === 'assistant'" class="content markdown-content">
       <div v-if="message.isError" class="error-heading">运行失败</div>
-      <div v-if="isAssistantCollapsed" class="assistant-collapse-note">
-        <span>...</span>
-        <span>{{ collapsedLabel }}</span>
-      </div>
-      <MarkdownRenderer v-if="renderedAssistantContent" :content="renderedAssistantContent" />
-      <button
-        v-if="shouldCollapseAssistant"
-        type="button"
-        class="assistant-toggle"
-        @click="expanded = !expanded"
-      >
-        {{ toggleText }}
-      </button>
+      <MarkdownRenderer :content="message.content || '…'" />
     </div>
     <div v-else class="content">
       {{ message.content || "…" }}
@@ -131,35 +88,6 @@ watch(
   margin-bottom: 8px;
   color: #ff8a8a;
   font-weight: 700;
-}
-
-.assistant-collapse-note {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.assistant-collapse-note span:first-child {
-  font-weight: 700;
-  letter-spacing: 0.08em;
-}
-
-.assistant-toggle {
-  margin-top: 6px;
-  border: none;
-  padding: 0;
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.assistant-toggle:hover {
-  text-decoration: underline;
 }
 
 .message-attachments {

@@ -124,14 +124,14 @@ watch(
 </script>
 
 <template>
-  <section class="tool-progress" :class="{ completed: !running }">
+  <section class="tool-progress" :class="{ completed: !running, expanded }">
     <button type="button" class="tool-progress-header" @click="expanded = !expanded">
       <span class="header-title">{{ headerText }}</span>
       <span class="header-meta">{{ toggleText }}</span>
     </button>
 
     <div v-if="visibleGroups.length" class="progress-groups">
-      <div v-if="hiddenStepCount > 0" class="progress-ellipsis" aria-label="Earlier steps omitted">
+      <div v-if="expanded && hiddenStepCount > 0" class="progress-ellipsis" aria-label="Earlier steps omitted">
         ...
       </div>
       <section
@@ -140,7 +140,7 @@ watch(
         class="progress-group"
         :class="`category-${group.category}`"
       >
-        <div class="group-title">{{ group.title }}</div>
+        <div v-if="expanded" class="group-title">{{ group.title }}</div>
         <ol class="step-list">
           <li v-for="step in group.steps" :key="step.id" class="step-item">
             <span class="step-dot" aria-hidden="true" />
@@ -232,6 +232,24 @@ watch(
 
 .completed .tool-progress-header:hover {
   opacity: 1;
+}
+
+.tool-progress.expanded .tool-progress-header {
+  position: sticky;
+  top: 8px;
+  z-index: 2;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-elevated) 88%, transparent);
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.tool-progress.expanded .tool-progress-header:hover {
+  background: color-mix(in srgb, var(--surface-hover) 88%, transparent);
 }
 
 .header-title {
