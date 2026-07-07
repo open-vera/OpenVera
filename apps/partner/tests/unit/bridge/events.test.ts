@@ -129,6 +129,35 @@ describe("subscribeAgentStream", () => {
     });
   });
 
+  it("forwards sidecar-handled tool calls without leaking protocol flags to UI", async () => {
+    const { subscribeAgentStream } = await import("@/bridge/events");
+    const onToolCall = vi.fn();
+
+    await subscribeAgentStream({
+      requestId: "req-1",
+      instanceId: "inst-1",
+      onDelta: vi.fn(),
+      onToolCall,
+    });
+
+    listeners.get("agent:stream:tool_call")?.({
+      payload: {
+        requestId: "req-1",
+        instanceId: "inst-1",
+        callId: "call-1",
+        name: "browser",
+        input: { action: "open", url: "https://example.com" },
+        handledBySidecar: true,
+      },
+    });
+
+    expect(onToolCall).toHaveBeenCalledWith({
+      id: "call-1",
+      name: "browser",
+      input: { action: "open", url: "https://example.com" },
+    });
+  });
+
   it("forwards tool results for the active run", async () => {
     const { subscribeAgentStream } = await import("@/bridge/events");
     const onToolResult = vi.fn();

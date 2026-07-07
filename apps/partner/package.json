@@ -10,7 +10,7 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build:sidecar": "pnpm --filter @open-vera/core build && pnpm --filter @vera/partner-sidecar build && node scripts/stage-sidecar.mjs",
+    "build:sidecar": "pnpm --filter @open-vera/core build && pnpm --filter @open-vera/openvera build && pnpm --filter @vera/partner-sidecar build && node scripts/stage-sidecar.mjs",
     "tauri": "tauri",
     "tauri:dev": "pnpm run build:sidecar && tauri dev",
     "tauri:build": "tauri build --bundles app && node scripts/fix-macos-icon.mjs"

@@ -595,7 +595,11 @@ pub fn find_sidecar_entry(app: &AppHandle) -> Result<SidecarLaunch, String> {
         });
     }
 
-    for rel in ["sidecar/partner-sidecar.cjs", "sidecar/index.js"] {
+    for rel in [
+        "sidecar/partner-sidecar.mjs",
+        "sidecar/partner-sidecar.cjs",
+        "sidecar/index.js",
+    ] {
         if let Ok(path) = app.path().resolve(rel, BaseDirectory::Resource) {
             if path.exists() {
                 let cwd = path
@@ -621,11 +625,20 @@ pub fn find_sidecar_entry(app: &AppHandle) -> Result<SidecarLaunch, String> {
             });
         }
 
-        let bundle = repo_root.join("apps/partner/sidecar/dist/partner-sidecar.cjs");
+        let bundle = repo_root.join("apps/partner/sidecar/dist/partner-sidecar.mjs");
         if bundle.exists() {
             return Ok(SidecarLaunch {
                 program: resolve_node_program(),
                 args: vec![bundle.to_string_lossy().to_string()],
+                cwd: repo_root.join("apps/partner/sidecar"),
+            });
+        }
+
+        let legacy_bundle = repo_root.join("apps/partner/sidecar/dist/partner-sidecar.cjs");
+        if legacy_bundle.exists() {
+            return Ok(SidecarLaunch {
+                program: resolve_node_program(),
+                args: vec![legacy_bundle.to_string_lossy().to_string()],
                 cwd: repo_root.join("apps/partner/sidecar"),
             });
         }

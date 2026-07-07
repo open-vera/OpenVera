@@ -130,7 +130,7 @@ async function createPartnerToolRuntime(
   projectRoot: string,
   llm: LlmEnvironment,
 ): Promise<PartnerToolRuntime> {
-  const { toolHost } = createToolRegistry({
+  const { toolHost, loadPlugins } = createToolRegistry({
     cwd: projectRoot,
     llmService: llm.service,
     defaultModel: llm.model,
@@ -138,6 +138,7 @@ async function createPartnerToolRuntime(
       workdir: projectRoot,
     },
   });
+  await loadPlugins();
   return {
     toolHost,
     tools: toolHost.getSchemas(),

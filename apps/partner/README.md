@@ -19,15 +19,15 @@ OpenVera AI Agent 桌面端应用（Tauri 2 + Vue 3）。
 Vue Orchestrator
   → invoke('agent_run')
   → Rust SidecarManager (stdin/stdout JSON Lines)
-  → Node sidecar (@open-vera/core streamAgent)
+  → Node sidecar (@open-vera/openvera Harness plan executor)
        ├─ LLM 调用（adapters）
-       └─ onToolCall → Rust 执行 read_file/list_dir/... → tool_result
+       └─ onToolCall → Core ToolHost / builtin tools / plugins → tool_result
   → emit('agent:stream:*') → ChatStore 流式更新
 ```
 
 Sidecar 位于 `apps/partner/sidecar/`，开发时 Tauri 启动会自动 spawn。
 
-**Release 安装包**：`pnpm tauri build` 会将 sidecar 打包进 `.app` 的 `Resources/sidecar/`（esbuild 单文件 bundle）。运行时需要本机 **Node.js 在 PATH 中**（`node` 命令可用）。若 sidecar 启动失败，应用仍可正常打开，但 Agent / LSP 功能不可用。
+**Release 安装包**：`pnpm tauri build` 会将 ESM sidecar bundle 打包进 `.app` 的 `Resources/sidecar/partner-sidecar.mjs`。运行时需要本机 **Node.js 在 PATH 中**（`node` 命令可用）。若 sidecar 启动失败，应用仍可正常打开，但 Agent / LSP 功能不可用。
 
 ## 开发
 
