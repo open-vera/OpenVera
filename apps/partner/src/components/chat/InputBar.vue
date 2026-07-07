@@ -22,6 +22,41 @@ const fileInput = ref<HTMLInputElement | null>(null);
 const isReadingFiles = ref(false);
 const attachmentError = ref("");
 const isComposing = ref(false);
+const lastCompositionEndAt = ref(0);
+
+interface InputDebugEntry {
+  type: string;
+  timestamp: string;
+  key?: string;
+  code?: string;
+  keyCode?: number;
+  isComposing?: boolean;
+  composingState: boolean;
+  textLength: number;
+  note?: string;
+}
+
+function appendInputDebug(entry: InputDebugEntry) {
+  const target = window as typeof window & { __partnerInputDebug?: InputDebugEntry[] };
+  const next = [...(target.__partnerInputDebug ?? []), entry].slice(-80);
+  target.__partnerInputDebug = next;
+  window.localStorage.setItem("partner:input-debug", JSON.stringify(next));
+  console.debug("[PartnerInput]", entry);
+}
+
+function debugInputEvent(type: string, event?: KeyboardEvent | CompositionEvent, note?: string) {
+  appendInputDebug({
+    type,
+    timestamp: new Date().toISOString(),
+    key: event instanceof KeyboardEvent ? event.key : undefined,
+    code: event instanceof KeyboardEvent ? event.code : undefined,
+    keyCode: event instanceof KeyboardEvent ? event.keyCode : undefined,
+    isComposing: event instanceof KeyboardEvent ? event.isComposing : undefined,
+    composingState: isComposing.value,
+    textLength: text.value.length,
+    note,
+  });
+}
 
 async function addFiles(files: Iterable<File>) {
   const selected = Array.from(files);
@@ -65,6 +100,7 @@ function removeAttachment(id: string) {
 function onSubmit() {
   const value = text.value.trim();
   if (!value && !attachments.value.length) return;
+  debugInputEvent("submit", undefined, "emit submit");
   emit("submit", {
     text: value,
     attachments: attachments.value,
@@ -77,8 +113,27 @@ function onAbort() {
   emit("abort");
 }
 
+function onCompositionStart(event: CompositionEvent) {
+  isComposing.value = true;
+  debugInputEvent("compositionstart", event);
+}
+
+function onCompositionEnd(event: CompositionEvent) {
+  lastCompositionEndAt.value = Date.now();
+  isComposing.value = false;
+  debugInputEvent("compositionend", event);
+}
+
 function onEnter(event: KeyboardEvent) {
-  if (event.isComposing || isComposing.value) return;
+  const justEndedComposition = Date.now() - lastCompositionEndAt.value < 80;
+  const composingByKeyCode = event.keyCode === 229;
+  debugInputEvent("keydown.enter", event, JSON.stringify({
+    justEndedComposition,
+    composingByKeyCode,
+  }));
+  if (event.isComposing || isComposing.value || justEndedComposition || composingByKeyCode) {
+    return;
+  }
   event.preventDefault();
   onSubmit();
 }
@@ -113,8 +168,8 @@ function onEnter(event: KeyboardEvent) {
         :disabled="disabled"
         placeholder="告诉 Partner 要做什么"
         rows="3"
-        @compositionstart="isComposing = true"
-        @compositionend="isComposing = false"
+        @compositionstart="onCompositionStart"
+        @compositionend="onCompositionEnd"
         @keydown.enter.exact="onEnter"
         @paste="onPaste"
       />
