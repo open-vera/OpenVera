@@ -13,9 +13,7 @@ dist/
 !.env.example
 
 # Local config (may contain keys)
-.vera/settings.json
-.vera/worktrees/
-.vera/flows/iterations/
+.vera/
 .qwen/
 .gemini/
 .cubesandbox/
