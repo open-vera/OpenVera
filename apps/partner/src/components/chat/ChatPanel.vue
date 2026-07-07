@@ -10,7 +10,7 @@ import { useWorkspaceStore } from "@/stores/workspace";
 import type { ChatAttachment, Message, ToolCall, ToolResult } from "@/types";
 import { buildPartnerRunLogPath, formatRunLogPlaceholder } from "@/utils/run-log";
 import { formatChatTime, shouldShowChatTime } from "@/utils/chat-time";
-import { summarizeToolCall } from "@/utils/tool-progress";
+import { isVisibleToolProgressStep, summarizeToolCall } from "@/utils/tool-progress";
 import MessageBubble from "./MessageBubble.vue";
 import InputBar from "./InputBar.vue";
 import ToolProgressPanel from "./ToolProgressPanel.vue";
@@ -29,6 +29,7 @@ const shouldStickToBottom = ref(true);
 type ChatDisplayItem =
   | { type: "time"; key: string; label: string }
   | { type: "ellipsis"; key: string; label: string }
+  | { type: "thinking"; key: string; label: string }
   | { type: "message"; key: string; message: Message }
   | {
       type: "tool-progress";
@@ -39,6 +40,12 @@ type ChatDisplayItem =
     };
 
 const MAX_RUNNING_DISPLAY_ITEMS = 5;
+
+function hasVisibleToolProgress(toolCalls: ToolCall[]): boolean {
+  return toolCalls
+    .map((toolCall) => summarizeToolCall(toolCall, settings.locale === "zh" ? "zh-CN" : "en-US"))
+    .some(isVisibleToolProgressStep);
+}
 
 const allDisplayItems = computed<ChatDisplayItem[]>(() => {
   const items: ChatDisplayItem[] = [];
@@ -96,7 +103,15 @@ const allDisplayItems = computed<ChatDisplayItem[]>(() => {
 const displayItems = computed<ChatDisplayItem[]>(() => {
   if (!isAgentRunning.value) return allDisplayItems.value;
 
-  const visibleIndexes = allDisplayItems.value
+  const runningItems = allDisplayItems.value.filter(
+    (item) => item.type !== "tool-progress" || hasVisibleToolProgress(item.toolCalls),
+  );
+  const nonTimeItems = runningItems.filter((item) => item.type !== "time");
+  if (nonTimeItems.length === 0) {
+    return [{ type: "thinking", key: "running-thinking", label: "思考中..." }];
+  }
+
+  const visibleIndexes = runningItems
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => item.type !== "time")
     .slice(-MAX_RUNNING_DISPLAY_ITEMS)
@@ -111,7 +126,7 @@ const displayItems = computed<ChatDisplayItem[]>(() => {
       key: "running-history-ellipsis",
       label: "...",
     },
-    ...allDisplayItems.value.slice(firstVisibleIndex),
+    ...runningItems.slice(firstVisibleIndex),
   ];
 });
 const activeToolProgressKey = computed(() => {
@@ -316,6 +331,10 @@ watch(
           <div v-else-if="item.type === 'ellipsis'" class="running-ellipsis">
             {{ item.label }}
           </div>
+          <div v-else-if="item.type === 'thinking'" class="running-thinking">
+            <span class="thinking-dot" aria-hidden="true" />
+            {{ item.label }}
+          </div>
           <MessageBubble
             v-else-if="item.type === 'message'"
             :message="item.message"
@@ -512,6 +531,36 @@ watch(
   font-weight: 700;
   letter-spacing: 0.08em;
   line-height: 1;
+}
+
+.running-thinking {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.thinking-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 42%, transparent);
+  animation: thinking-pulse 1.3s ease-in-out infinite;
+}
+
+@keyframes thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .chat-workspace.is-empty .messages {
