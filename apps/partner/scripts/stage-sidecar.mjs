@@ -1,4 +1,12 @@
-import { chmodSync, copyFileSync, cpSync, mkdirSync, rmSync, statSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  cpSync,
+  mkdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,12 +31,25 @@ mkdirSync(dirname(wsDest), { recursive: true });
 cpSync(wsDir, wsDest, { recursive: true });
 console.log(`[stage-sidecar] copied ${wsDir} -> ${wsDest}`);
 
-const nodeSource = process.env.PARTNER_NODE_SOURCE ?? process.execPath;
+const bundleNode = process.env.PARTNER_BUNDLE_NODE !== "0";
 const nodeDest = join(destDir, "node");
-copyFileSync(nodeSource, nodeDest);
-chmodSync(nodeDest, 0o755);
-const nodeSizeMb = (statSync(nodeDest).size / (1024 * 1024)).toFixed(1);
-console.log(`[stage-sidecar] copied node ${nodeSource} -> ${nodeDest} (${nodeSizeMb} MB)`);
+rmSync(nodeDest, { force: true });
+
+if (bundleNode) {
+  const nodeSource = process.env.PARTNER_NODE_SOURCE ?? process.execPath;
+  copyFileSync(nodeSource, nodeDest);
+  chmodSync(nodeDest, 0o755);
+  const nodeSizeMb = (statSync(nodeDest).size / (1024 * 1024)).toFixed(1);
+  console.log(`[stage-sidecar] copied node ${nodeSource} -> ${nodeDest} (${nodeSizeMb} MB)`);
+} else {
+  console.log("[stage-sidecar] skipped bundled node (system-node variant)");
+}
+
+writeFileSync(
+  join(destDir, "runtime.json"),
+  `${JSON.stringify({ nodeMode: bundleNode ? "bundled" : "system" }, null, 2)}\n`,
+);
+console.log(`[stage-sidecar] wrote runtime.json (nodeMode=${bundleNode ? "bundled" : "system"})`);
 
 cpSync(icon, iconDest);
 console.log(`[stage-sidecar] copied ${icon} -> ${iconDest}`);

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::State;
 
-use crate::sidecar::{resolve_project_root, SidecarManager};
+use crate::sidecar::{resolve_project_root, SidecarInfo, SidecarManager};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryMessage {
@@ -87,8 +87,8 @@ pub async fn agent_tool_approval(
 }
 
 #[tauri::command]
-pub fn sidecar_status(sidecar: State<'_, SidecarManager>) -> Result<bool, String> {
-    sidecar.is_running()
+pub fn sidecar_status(sidecar: State<'_, SidecarManager>) -> Result<SidecarInfo, String> {
+    sidecar.info()
 }
 
 #[tauri::command]

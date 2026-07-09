@@ -27,7 +27,15 @@ Vue Orchestrator
 
 Sidecar 位于 `apps/partner/sidecar/`，开发时 Tauri 启动会自动 spawn。
 
-**Release 安装包**：`pnpm tauri build` 会将 ESM sidecar bundle 与 **Node.js 运行时**一并打包进 `.app` 的 `Resources/sidecar/`（`partner-sidecar.mjs` + `node` + `node_modules/ws`）。从 Finder 启动时不再依赖系统 PATH 中的 `node`。若 sidecar 启动失败，应用仍可正常打开，但 Agent / LSP 功能不可用。
+**Release 安装包**提供两个 macOS 变体：
+
+| 变体 | 命令 | 产物 | 说明 |
+|---|---|---|---|
+| 内置 Node（默认） | `pnpm partner:build:bundled` | `release/macos/Partner.app` | 自带 Node.js，约 130MB，开箱即用 |
+| 系统 Node | `pnpm partner:build:system` | `release/macos/Partner-SystemNode.app` | 体积小，需本机已安装 Node.js 20+；未安装时会弹窗引导下载 |
+| 两个都打 | `pnpm partner:build:all` | 以上两个 `.app` | |
+
+Sidecar bundle 位于 `.app/Contents/Resources/sidecar/`（`partner-sidecar.mjs` + `node_modules/ws` + 可选 `node`）。若 sidecar 启动失败，应用仍可打开，但 Agent / LSP 功能不可用。
 
 ## 开发
 
@@ -75,7 +83,10 @@ apps/partner/
 | `pnpm dev` | Vite 开发服务器 |
 | `pnpm tauri dev` | Tauri 桌面开发 |
 | `pnpm build` | 前端生产构建 |
-| `pnpm tauri build` | 打包桌面安装包（含 sidecar bundle） |
+| `pnpm tauri build` | 打包内置 Node 版（同 `tauri:build:bundled`） |
+| `pnpm tauri:build:bundled` | 打包 `Partner.app`（内置 Node） |
+| `pnpm tauri:build:system` | 打包 `Partner-SystemNode.app`（系统 Node） |
+| `pnpm tauri:build:all` | 连续打两个变体 |
 | `pnpm test` | Vitest 单元测试 |
 | `pnpm typecheck` | TypeScript 类型检查 |
 

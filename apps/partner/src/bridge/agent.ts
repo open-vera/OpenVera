@@ -102,8 +102,19 @@ export async function approveAgentTool(callId: string, approved: boolean): Promi
   await invoke("agent_tool_approval", { callId, approved });
 }
 
+export interface SidecarInfo {
+  running: boolean;
+  error?: string;
+  needsNodeInstall?: boolean;
+}
+
+export async function getSidecarInfo(): Promise<SidecarInfo> {
+  return invoke<SidecarInfo>("sidecar_status");
+}
+
 export async function getSidecarStatus(): Promise<boolean> {
-  return invoke<boolean>("sidecar_status");
+  const info = await getSidecarInfo();
+  return info.running;
 }
 
 export async function inspectLlmConfig(

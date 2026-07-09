@@ -8,6 +8,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager};
 
@@ -20,6 +21,15 @@ pub struct SidecarLaunch {
     pub cwd: PathBuf,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SidecarInfo {
+    pub running: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub needs_node_install: bool,
+}
+
 pub struct SidecarManager {
     child: Mutex<Option<Child>>,
     stdin: Arc<Mutex<Option<std::process::ChildStdin>>>,
@@ -27,6 +37,8 @@ pub struct SidecarManager {
     tool_approvals: Arc<Mutex<HashMap<String, mpsc::Sender<bool>>>>,
     app: Option<AppHandle>,
     launch: Option<SidecarLaunch>,
+    startup_error: Option<String>,
+    needs_node_install: bool,
 }
 
 impl SidecarManager {
@@ -34,20 +46,19 @@ impl SidecarManager {
         match Self::spawn(app) {
             Ok(manager) => manager,
             Err(error) => {
+                let needs_node_install = error.contains("未检测到 Node.js");
                 eprintln!("[partner] sidecar unavailable: {error}");
-                Self::disconnected()
+                Self {
+                    child: Mutex::new(None),
+                    stdin: Arc::new(Mutex::new(None)),
+                    rpc_pending: Arc::new(Mutex::new(HashMap::new())),
+                    tool_approvals: Arc::new(Mutex::new(HashMap::new())),
+                    app: None,
+                    launch: None,
+                    startup_error: Some(error),
+                    needs_node_install,
+                }
             }
-        }
-    }
-
-    fn disconnected() -> Self {
-        Self {
-            child: Mutex::new(None),
-            stdin: Arc::new(Mutex::new(None)),
-            rpc_pending: Arc::new(Mutex::new(HashMap::new())),
-            tool_approvals: Arc::new(Mutex::new(HashMap::new())),
-            app: None,
-            launch: None,
         }
     }
 
@@ -70,6 +81,8 @@ impl SidecarManager {
             tool_approvals: Arc::clone(&tool_approvals),
             app: Some(app.clone()),
             launch: Some(launch),
+            startup_error: None,
+            needs_node_install: false,
         };
 
         spawn_stdout_reader(stdout, app.clone(), stdin, rpc_pending, tool_approvals);
@@ -85,10 +98,10 @@ impl SidecarManager {
     fn ensure_connected(&self) -> Result<(), String> {
         let guard = self.stdin.lock().map_err(|error| error.to_string())?;
         if guard.is_none() {
-            return Err(
-                "Sidecar 未就绪。请确认已安装 Node.js（PATH 中可用 node 命令）后重启应用。"
-                    .to_string(),
-            );
+            if let Some(error) = &self.startup_error {
+                return Err(error.clone());
+            }
+            return Err("Sidecar 未就绪，请重启 Partner。".to_string());
         }
         Ok(())
     }
@@ -150,6 +163,19 @@ impl SidecarManager {
     pub fn is_running(&self) -> Result<bool, String> {
         let guard = self.child.lock().map_err(|error| error.to_string())?;
         Ok(guard.is_some())
+    }
+
+    pub fn info(&self) -> Result<SidecarInfo, String> {
+        let running = self.is_running()?;
+        Ok(SidecarInfo {
+            running,
+            error: if running {
+                None
+            } else {
+                self.startup_error.clone()
+            },
+            needs_node_install: !running && self.needs_node_install,
+        })
     }
 
     pub fn call_rpc(&self, method: &str, params: Value) -> Result<Value, String> {
@@ -247,7 +273,15 @@ fn spawn_sidecar_process(
         .stderr(Stdio::inherit())
         .env("PARTNER_PROJECT_ROOT", resolve_project_root())
         .spawn()
-        .map_err(|error| format!("failed to spawn sidecar: {error}"))?;
+        .map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                if launch.program == "node" {
+                    return NODE_NOT_FOUND_MESSAGE.to_string();
+                }
+                return format!("Sidecar 运行时未找到：{}", launch.program);
+            }
+            format!("failed to spawn sidecar: {error}")
+        })?;
 
     let child_stdin = child.stdin.take();
     let stdout = child.stdout.take().ok_or("sidecar stdout unavailable")?;
@@ -631,6 +665,8 @@ fn find_repo_root() -> Result<PathBuf, String> {
 }
 
 pub fn find_sidecar_entry(app: &AppHandle) -> Result<SidecarLaunch, String> {
+    let program = resolve_node_program(app)?;
+
     if let Ok(script) = std::env::var("PARTNER_SIDECAR_SCRIPT") {
         let path = PathBuf::from(&script);
         let cwd = path
@@ -638,7 +674,7 @@ pub fn find_sidecar_entry(app: &AppHandle) -> Result<SidecarLaunch, String> {
             .map(Path::to_path_buf)
             .unwrap_or_else(|| PathBuf::from("."));
         return Ok(SidecarLaunch {
-            program: resolve_node_program(app),
+            program,
             args: vec![script],
             cwd,
         });
@@ -656,7 +692,7 @@ pub fn find_sidecar_entry(app: &AppHandle) -> Result<SidecarLaunch, String> {
                     .map(Path::to_path_buf)
                     .unwrap_or_else(|| PathBuf::from("."));
                 return Ok(SidecarLaunch {
-                    program: resolve_node_program(app),
+                    program,
                     args: vec![path.to_string_lossy().to_string()],
                     cwd,
                 });
@@ -668,7 +704,7 @@ pub fn find_sidecar_entry(app: &AppHandle) -> Result<SidecarLaunch, String> {
         let dist = repo_root.join("apps/partner/sidecar/dist/index.js");
         if dist.exists() {
             return Ok(SidecarLaunch {
-                program: resolve_node_program(app),
+                program: resolve_node_program(app)?,
                 args: vec![dist.to_string_lossy().to_string()],
                 cwd: repo_root.join("apps/partner/sidecar"),
             });
@@ -677,7 +713,7 @@ pub fn find_sidecar_entry(app: &AppHandle) -> Result<SidecarLaunch, String> {
         let bundle = repo_root.join("apps/partner/sidecar/dist/partner-sidecar.mjs");
         if bundle.exists() {
             return Ok(SidecarLaunch {
-                program: resolve_node_program(app),
+                program: resolve_node_program(app)?,
                 args: vec![bundle.to_string_lossy().to_string()],
                 cwd: repo_root.join("apps/partner/sidecar"),
             });
@@ -686,7 +722,7 @@ pub fn find_sidecar_entry(app: &AppHandle) -> Result<SidecarLaunch, String> {
         let legacy_bundle = repo_root.join("apps/partner/sidecar/dist/partner-sidecar.cjs");
         if legacy_bundle.exists() {
             return Ok(SidecarLaunch {
-                program: resolve_node_program(app),
+                program: resolve_node_program(app)?,
                 args: vec![legacy_bundle.to_string_lossy().to_string()],
                 cwd: repo_root.join("apps/partner/sidecar"),
             });
@@ -706,27 +742,40 @@ pub fn find_sidecar_entry(app: &AppHandle) -> Result<SidecarLaunch, String> {
     Err("sidecar entry not found (no bundled resource or monorepo dev path)".to_string())
 }
 
-fn resolve_node_program(app: &AppHandle) -> String {
-    if let Ok(node) = std::env::var("PARTNER_NODE") {
-        return node;
-    }
+const NODE_NOT_FOUND_MESSAGE: &str =
+    "未检测到 Node.js。请安装 Node.js 20 或更高版本后重启 Partner。\n下载地址：https://nodejs.org/";
 
+const BUNDLED_NODE_MISSING_MESSAGE: &str =
+    "内置 Node.js 运行时缺失或无法启动。请重新安装 Partner，或改用 Partner-SystemNode 版本。";
+
+fn read_sidecar_node_mode(app: &AppHandle) -> Option<String> {
+    let path = app.path().resolve("sidecar/runtime.json", BaseDirectory::Resource).ok()?;
+    let raw = std::fs::read_to_string(path).ok()?;
+    let value = serde_json::from_str::<Value>(&raw).ok()?;
+    value
+        .get("nodeMode")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+fn bundled_node_path(app: &AppHandle) -> Option<PathBuf> {
     for rel in ["sidecar/node", "sidecar/bin/node"] {
         if let Ok(path) = app.path().resolve(rel, BaseDirectory::Resource) {
             if path.is_file() {
-                return path.to_string_lossy().to_string();
+                return Some(path);
             }
         }
     }
+    None
+}
+
+fn system_node_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
 
     #[cfg(target_os = "macos")]
     {
-        for candidate in ["/opt/homebrew/bin/node", "/usr/local/bin/node"] {
-            let path = PathBuf::from(candidate);
-            if path.is_file() {
-                return candidate.to_string();
-            }
-        }
+        candidates.push(PathBuf::from("/opt/homebrew/bin/node"));
+        candidates.push(PathBuf::from("/usr/local/bin/node"));
 
         if let Ok(home) = std::env::var("HOME") {
             let nvm_root = PathBuf::from(home).join(".nvm/versions/node");
@@ -737,14 +786,39 @@ fn resolve_node_program(app: &AppHandle) -> String {
                     .filter(|path| path.is_file())
                     .collect();
                 versions.sort();
-                if let Some(path) = versions.pop() {
-                    return path.to_string_lossy().to_string();
-                }
+                candidates.extend(versions);
             }
         }
     }
 
-    "node".to_string()
+    candidates.push(PathBuf::from("node"));
+    candidates
+}
+
+fn resolve_node_program(app: &AppHandle) -> Result<String, String> {
+    if let Ok(node) = std::env::var("PARTNER_NODE") {
+        if node == "node" || Path::new(&node).is_file() {
+            return Ok(node);
+        }
+    }
+
+    if let Some(path) = bundled_node_path(app) {
+        return Ok(path.to_string_lossy().to_string());
+    }
+
+    for candidate in system_node_candidates() {
+        if candidate == Path::new("node") {
+            continue;
+        }
+        if candidate.is_file() {
+            return Ok(candidate.to_string_lossy().to_string());
+        }
+    }
+
+    match read_sidecar_node_mode(app).as_deref() {
+        Some("bundled") => Err(BUNDLED_NODE_MISSING_MESSAGE.to_string()),
+        _ => Err(NODE_NOT_FOUND_MESSAGE.to_string()),
+    }
 }
 
 pub fn resolve_project_root() -> String {

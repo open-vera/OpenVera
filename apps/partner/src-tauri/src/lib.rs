@@ -39,6 +39,17 @@ pub fn run() {
         })
         .setup(|app| {
             let sidecar = SidecarManager::try_spawn(&app.handle());
+            if let Ok(info) = sidecar.info() {
+                if !info.running {
+                    let _ = app.emit(
+                        "sidecar:unavailable",
+                        serde_json::json!({
+                            "error": info.error,
+                            "needsNodeInstall": info.needs_node_install,
+                        }),
+                    );
+                }
+            }
             app.manage(sidecar);
             Ok(())
         })

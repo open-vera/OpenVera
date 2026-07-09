@@ -6,7 +6,9 @@ import LeftPanel from "@/components/left/LeftPanel.vue";
 import ChatPanel from "@/components/chat/ChatPanel.vue";
 import PreviewPanel from "@/components/preview/PreviewPanel.vue";
 import { loadPartnerSessions, savePartnerSessions } from "@/bridge";
+import { getSidecarInfo, type SidecarInfo } from "@/bridge/agent";
 import { registerPartnerAppEvents } from "@/bridge/events";
+import SidecarUnavailableDialog from "@/components/SidecarUnavailableDialog.vue";
 import { registerPartnerShortcuts } from "@/shortcuts/partner-shortcuts";
 import { useChatStore } from "@/stores/chat";
 import { usePreviewStore } from "@/stores/preview";
@@ -28,6 +30,7 @@ const modelCatalog = useModelCatalogStore();
 const workspace = useWorkspaceStore();
 const { activeTabId } = storeToRefs(preview);
 const { rootPath } = storeToRefs(workspace);
+const sidecarDialog = ref<SidecarInfo | null>(null);
 
 const LAYOUT_STORAGE_KEY_PREFIX = "partner:layout";
 const DEFAULT_LEFT_WIDTH = 240;
@@ -210,9 +213,20 @@ function startResize(target: "left" | "preview", event: PointerEvent) {
   window.addEventListener("pointerup", stopResize, { once: true });
 }
 
+function showSidecarUnavailable(info: SidecarInfo) {
+  if (info.running) return;
+  sidecarDialog.value = info;
+}
+
 onMounted(async () => {
   restoreLayout();
   await settings.load();
+  try {
+    const sidecarInfo = await getSidecarInfo();
+    showSidecarUnavailable(sidecarInfo);
+  } catch (error) {
+    console.warn("[App] failed to query sidecar status:", error);
+  }
   await modelCatalog.loadProviders(workspace.rootPath || undefined);
   if (settings.provider.id) {
     void modelCatalog.ensureProviderModels(
@@ -225,6 +239,7 @@ onMounted(async () => {
     onOpenSettings: () => {
       chat.openSettingsTab();
     },
+    onSidecarUnavailable: showSidecarUnavailable,
   });
 });
 
@@ -264,6 +279,12 @@ watch(
 
 <template>
   <div class="app-shell">
+    <SidecarUnavailableDialog
+      :visible="Boolean(sidecarDialog)"
+      :error="sidecarDialog?.error"
+      :needs-node-install="sidecarDialog?.needsNodeInstall"
+      @dismiss="sidecarDialog = null"
+    />
     <div
       class="main-layout"
       :class="{ 'has-preview': activeTabId, resizing: resizing }"

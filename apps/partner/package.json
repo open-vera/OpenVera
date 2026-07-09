@@ -12,8 +12,11 @@
     "test:watch": "vitest",
     "build:sidecar": "pnpm --filter @open-vera/core build && pnpm --filter @open-vera/openvera build && pnpm --filter @vera/partner-sidecar build && node scripts/stage-sidecar.mjs",
     "tauri": "tauri",
-    "tauri:dev": "pnpm run build:sidecar && tauri dev",
-    "tauri:build": "tauri build --bundles app && node scripts/fix-macos-icon.mjs"
+    "tauri:dev": "PARTNER_BUNDLE_NODE=0 pnpm run build:sidecar && tauri dev",
+    "tauri:build": "pnpm run tauri:build:bundled",
+    "tauri:build:bundled": "PARTNER_BUNDLE_NODE=1 pnpm run build:sidecar && PARTNER_BUNDLE_NODE=1 tauri build --bundles app && node scripts/fix-macos-icon.mjs && node scripts/post-build-release.mjs bundled",
+    "tauri:build:system": "PARTNER_BUNDLE_NODE=0 pnpm run build:sidecar && PARTNER_BUNDLE_NODE=0 tauri build --bundles app && node scripts/fix-macos-icon.mjs && node scripts/post-build-release.mjs system",
+    "tauri:build:all": "pnpm run tauri:build:bundled && pnpm run tauri:build:system"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",

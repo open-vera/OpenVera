@@ -28,6 +28,7 @@ interface DroppedPathInfo {
 
 export interface PartnerAppEventHandlers {
   onOpenSettings: () => void;
+  onSidecarUnavailable?: (info: { running: boolean; error?: string; needsNodeInstall?: boolean }) => void;
 }
 
 async function getPathInfo(path: string): Promise<DroppedPathInfo> {
@@ -77,6 +78,13 @@ export function registerPartnerAppEvents(
 ): Promise<() => void> {
   return Promise.all([
     listen("app:open-settings", handlers.onOpenSettings),
+    listen<{ error?: string; needsNodeInstall?: boolean }>("sidecar:unavailable", (event) => {
+      handlers.onSidecarUnavailable?.({
+        running: false,
+        error: event.payload.error,
+        needsNodeInstall: event.payload.needsNodeInstall,
+      });
+    }),
     listen<DragDropPayload>(TauriEvent.DRAG_DROP, (event) => {
       const paths = event.payload.paths?.filter(Boolean) ?? [];
       if (paths.length === 0) return;
