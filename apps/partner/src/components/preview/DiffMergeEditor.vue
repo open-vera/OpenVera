@@ -104,7 +104,7 @@ watch(
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: #1f2023;
+  background: var(--bg);
 }
 
 .toolbar {
@@ -114,7 +114,7 @@ watch(
   gap: 8px;
   min-height: 30px;
   padding: 0 16px;
-  background: #1f2023;
+  background: var(--bg);
 }
 
 .path {
@@ -134,13 +134,13 @@ watch(
 }
 
 .side-label.removed {
-  background: color-mix(in srgb, #ff6b6b 13%, transparent);
-  color: #ffaaa6;
+  background: color-mix(in srgb, var(--danger) 13%, transparent);
+  color: var(--danger-muted);
 }
 
 .side-label.added {
-  background: color-mix(in srgb, #50d66b 13%, transparent);
-  color: #9be9a8;
+  background: color-mix(in srgb, var(--success) 13%, transparent);
+  color: var(--success);
 }
 
 .merge-host {
@@ -152,7 +152,7 @@ watch(
 .merge-host :deep(.cm-mergeView) {
   height: 100%;
   overflow: auto;
-  background: #1f2023;
+  background: var(--bg);
 }
 
 .merge-host :deep(.cm-mergeViewEditors) {
@@ -168,18 +168,18 @@ watch(
 }
 
 .merge-host :deep(.cm-changedLine) {
-  background: color-mix(in srgb, #3f6fb5 15%, transparent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
 }
 
 .merge-host :deep(.cm-deletedLine) {
-  background: color-mix(in srgb, #ff6b6b 14%, transparent);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
 }
 
 .merge-host :deep(.cm-insertedLine) {
-  background: color-mix(in srgb, #50d66b 13%, transparent);
+  background: color-mix(in srgb, var(--success) 13%, transparent);
 }
 
 .merge-host :deep(.cm-changedText) {
-  background: color-mix(in srgb, #ffd166 24%, transparent);
+  background: color-mix(in srgb, var(--attention) 24%, transparent);
 }
 </style>

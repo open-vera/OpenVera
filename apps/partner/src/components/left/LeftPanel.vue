@@ -735,7 +735,7 @@ watch([searchQuery, includeQuery, excludeQuery], () => {
   height: 100%;
   padding: 0;
   border-right: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--bg);
   overflow: hidden;
   user-select: none;
 }
@@ -746,8 +746,9 @@ watch([searchQuery, includeQuery, excludeQuery], () => {
   justify-content: center;
   gap: 10px;
   flex-shrink: 0;
-  height: 40px;
+  height: 48px;
   padding: 0 8px;
+  border-bottom: 1px solid var(--border);
 }
 
 .activity-button {
@@ -935,7 +936,7 @@ ul {
 }
 
 .error {
-  color: #f28b82;
+  color: var(--danger-muted);
 }
 
 .view-title {
@@ -1045,7 +1046,7 @@ ul {
   padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 3px;
-  background: var(--bg);
+  background: var(--surface-inset);
 }
 
 .search-box:focus-within {
@@ -1105,7 +1106,7 @@ ul {
   border: 1px solid var(--border);
   border-radius: 3px;
   padding: 0 8px;
-  background: var(--bg);
+  background: var(--surface-inset);
   color: var(--text);
   font: inherit;
   font-size: 12px;

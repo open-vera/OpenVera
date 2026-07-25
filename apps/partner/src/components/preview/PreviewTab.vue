@@ -34,25 +34,66 @@ const emit = defineEmits<{
   gap: 8px;
   flex: 0 0 auto;
   min-width: max-content;
-  height: 40px;
-  padding: 0 10px 0 12px;
+  height: 48px;
+  padding: 0 12px;
   border: none;
   border-radius: 0;
   background: transparent;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
 }
 
 .tab:hover {
-  background: color-mix(in srgb, var(--surface-hover) 72%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--surface-hover-solid, var(--surface-hover)) 78%,
+    transparent
+  );
   color: var(--text);
 }
 
+.tab:hover::before {
+  content: "";
+  position: absolute;
+  right: 8px;
+  bottom: 0;
+  left: 8px;
+  z-index: 1;
+  height: 2px;
+  background: color-mix(in srgb, var(--text-muted) 55%, transparent);
+}
+
 .tab.active {
-  background: var(--surface-elevated);
-  color: inherit;
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tab.active:hover {
+  background: color-mix(
+    in srgb,
+    var(--surface-hover-solid, var(--surface-hover)) 55%,
+    transparent
+  );
+}
+
+.tab.active:hover::before {
+  display: none;
+}
+
+.tab.active::after {
+  content: "";
+  position: absolute;
+  right: 8px;
+  bottom: 0;
+  left: 8px;
+  z-index: 1;
+  height: 2px;
+  border-radius: 0;
+  background: var(--tab-indicator, var(--accent));
 }
 
 .title {

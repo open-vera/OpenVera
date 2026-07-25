@@ -122,15 +122,15 @@ async function copyAssistantMessage(): Promise<void> {
 .bubble {
   max-width: min(86%, 860px);
   padding: 10px 13px;
-  border-radius: 14px;
+  border-radius: 6px;
   font-size: 14px;
   line-height: 1.5;
 }
 
 .bubble.user {
   align-self: flex-end;
-  background: color-mix(in srgb, var(--surface-hover) 78%, var(--bg));
-  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
   color: var(--text);
 }
 
@@ -188,9 +188,9 @@ async function copyAssistantMessage(): Promise<void> {
 
 .bubble.assistant.error {
   padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, #ff6b6b 58%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--danger) 58%, var(--border));
   border-radius: 14px;
-  background: color-mix(in srgb, #ff6b6b 10%, var(--surface-elevated));
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface-elevated));
 }
 
 .bubble.tool {
@@ -261,7 +261,7 @@ async function copyAssistantMessage(): Promise<void> {
 
 .error-heading {
   margin-bottom: 8px;
-  color: #ff8a8a;
+  color: var(--danger-muted);
   font-weight: 700;
 }
 

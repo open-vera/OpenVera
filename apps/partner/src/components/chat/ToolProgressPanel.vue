@@ -344,7 +344,7 @@ watch(
 }
 
 .has-error .header-title {
-  color: #ff8a8a;
+  color: var(--danger-muted);
 }
 
 .header-meta {
@@ -383,7 +383,7 @@ watch(
 }
 
 .category-error .group-title {
-  color: #ff8a8a;
+  color: var(--danger-muted);
 }
 
 .step-list {
@@ -411,11 +411,11 @@ watch(
 }
 
 .category-error .step-dot {
-  background: #ff6b6b;
+  background: var(--danger);
 }
 
 .category-error .step-detail {
-  color: color-mix(in srgb, #ffb3b3 86%, var(--text));
+  color: color-mix(in srgb, var(--danger-muted) 86%, var(--text));
 }
 
 .step-detail {
@@ -454,8 +454,8 @@ watch(
 }
 
 .tool-result.error {
-  border-color: color-mix(in srgb, #ff6b6b 48%, var(--border));
-  background: color-mix(in srgb, #ff6b6b 8%, var(--surface-elevated));
+  border-color: color-mix(in srgb, var(--danger) 48%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface-elevated));
 }
 
 .tool-result-label {
@@ -591,7 +591,7 @@ watch(
 }
 
 .approval-status.error {
-  color: #ff8a8a;
+  color: var(--danger-muted);
 }
 
 </style>

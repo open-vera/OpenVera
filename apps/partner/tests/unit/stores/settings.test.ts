@@ -54,6 +54,24 @@ describe("useSettingsStore", () => {
       apiKeySourceLabel: params.apiKey ? "Vera config api_key" : "Not found",
       configExists: true,
     }));
+    vi.stubGlobal("document", {
+      documentElement: {
+        dataset: {} as DOMStringMap,
+        style: {
+          colorScheme: "",
+          props: {} as Record<string, string>,
+          setProperty(name: string, value: string) {
+            this.props[name] = value;
+          },
+          getPropertyValue(name: string) {
+            return this.props[name] ?? "";
+          },
+          removeProperty(name: string) {
+            delete this.props[name];
+          },
+        },
+      },
+    });
     vi.stubGlobal("window", {
       localStorage: {
         getItem: (key: string) => localValues.get(key) ?? null,
@@ -64,6 +82,16 @@ describe("useSettingsStore", () => {
           localValues.delete(key);
         },
       },
+      matchMedia: (query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }),
     });
   });
 
@@ -134,6 +162,32 @@ describe("useSettingsStore", () => {
     await settings.save();
 
     expect(localValues.get("partner:ui-settings")).toContain('"locale":"en"');
+  });
+
+  it("persists theme preference and migrates legacy dark", async () => {
+    const settings = useSettingsStore();
+
+    settings.setTheme("midnight");
+    await settings.save();
+    expect(localValues.get("partner:ui-settings")).toContain('"theme":"midnight"');
+    expect((document.documentElement.dataset as DOMStringMap).theme).toBe("midnight");
+
+    localValues.set("partner:ui-settings", JSON.stringify({ theme: "dark" }));
+    await settings.load();
+    expect(settings.theme).toBe("github-dark");
+    expect((document.documentElement.dataset as DOMStringMap).theme).toBe("github-dark");
+  });
+
+  it("persists wallpaper mode and applies book texture", async () => {
+    const settings = useSettingsStore();
+
+    settings.setTheme("book");
+    settings.setWallpaperMode("theme");
+    await settings.save();
+
+    expect(localValues.get("partner:ui-settings")).toContain('"theme":"book"');
+    expect(localValues.get("partner:ui-settings")).toContain('"wallpaperMode":"theme"');
+    expect((document.documentElement.dataset as DOMStringMap).wallpaper).toBe("on");
   });
 
   it("persists agent mode preference", async () => {

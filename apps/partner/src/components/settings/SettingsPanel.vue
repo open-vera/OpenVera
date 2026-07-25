@@ -6,9 +6,26 @@ import {
   refreshLlmProviderModels,
   testLlmConnection,
 } from "@/bridge/llm-catalog";
+import PartnerSelect, {
+  type PartnerSelectGroup,
+  type PartnerSelectOption,
+} from "@/components/ui/PartnerSelect.vue";
 import { usePreviewStore } from "@/stores/preview";
 import { useSettingsStore } from "@/stores/settings";
 import { useWorkspaceStore } from "@/stores/workspace";
+import {
+  BUILTIN_WALLPAPER_ORDER,
+  BUILTIN_WALLPAPERS,
+  isBuiltinWallpaperId,
+  MAX_WALLPAPER_BLUR,
+  MAX_WALLPAPER_OPACITY,
+  MIN_WALLPAPER_BLUR,
+  MIN_WALLPAPER_OPACITY,
+  THEME_OPTIONS,
+  type AppThemeId,
+  type CustomPaletteId,
+  type WallpaperMode,
+} from "@/theme";
 import type { AppLocale, CatalogModel, EffectiveLlmConfig, LLMProviderId, LLMProtocol } from "@/types";
 import { LLM_PROTOCOL_OPTIONS } from "@/utils/llm-protocol";
 
@@ -16,6 +33,9 @@ const settings = useSettingsStore();
 const workspace = useWorkspaceStore();
 const preview = usePreviewStore();
 const apiKey = ref("");
+const apiKeyFocused = ref(false);
+const revealApiKey = ref(false);
+const loadedApiKey = ref<string | null>(null);
 const status = ref("");
 const error = ref("");
 const connectionTestFeedback = ref<{ type: "success" | "error"; message: string } | null>(null);
@@ -23,6 +43,15 @@ const effectiveConfig = ref<EffectiveLlmConfig | null>(null);
 const isInspecting = ref(false);
 const inspectError = ref("");
 const revealEffectiveKey = ref(false);
+
+const API_KEY_MASK = "••••••••••••••••";
+
+const apiKeyDisplay = computed(() => {
+  if (apiKey.value) return apiKey.value;
+  if (revealApiKey.value && loadedApiKey.value) return loadedApiKey.value;
+  if (settings.hasApiKey && !apiKeyFocused.value) return API_KEY_MASK;
+  return "";
+});
 const isReady = ref(false);
 const isSavingConfig = ref(false);
 const isTestingConnection = ref(false);
@@ -30,10 +59,16 @@ const showModelList = ref(false);
 const isLoadingModels = ref(false);
 const modelList = ref<CatalogModel[]>([]);
 const modelListError = ref("");
+const wallpaperInput = ref<HTMLInputElement | null>(null);
+const wallpaperBusy = ref(false);
+/** Local slider value; blur filter is applied after debounce. */
+const wallpaperBlurDraft = ref(settings.wallpaperBlur);
 let saveTimer: number | undefined;
+let blurApplyTimer: number | undefined;
 
 const INSPECT_TIMEOUT_MS = 5_000;
 const REMOTE_MODEL_TIMEOUT_MS = 12_000;
+const WALLPAPER_BLUR_DEBOUNCE_MS = 120;
 
 const baseProviderOptions: Array<{ value: LLMProviderId; label: string }> = [
   { value: "anthropic", label: "Anthropic" },
@@ -57,6 +92,108 @@ const localeOptions: Array<{ value: AppLocale; label: string }> = [
   { value: "en", label: "English" },
 ];
 
+const themeOptions = THEME_OPTIONS;
+const builtinWallpapers = BUILTIN_WALLPAPER_ORDER.map((id) => BUILTIN_WALLPAPERS[id]);
+
+const wallpaperPreviewUrl = computed(() => {
+  if (settings.wallpaperMode === "custom" && settings.wallpaperDataUrl) {
+    return settings.wallpaperDataUrl;
+  }
+  if (isBuiltinWallpaperId(settings.wallpaperMode)) {
+    return BUILTIN_WALLPAPERS[settings.wallpaperMode].previewUrl ?? null;
+  }
+  return null;
+});
+
+/** Custom scales only apply when a concrete wallpaper is chosen (not follow-theme / none). */
+const showCustomPalettes = computed(
+  () =>
+    settings.wallpaperMode === "custom" || isBuiltinWallpaperId(settings.wallpaperMode),
+);
+
+function wallpaperBuiltinLabel(id: (typeof BUILTIN_WALLPAPER_ORDER)[number]) {
+  const wallpaper = BUILTIN_WALLPAPERS[id];
+  return settings.locale === "en" ? wallpaper.labelEn : wallpaper.labelZh;
+}
+
+const localeSelectOptions = computed<PartnerSelectOption[]>(() =>
+  localeOptions.map((option) => ({ value: option.value, label: option.label })),
+);
+
+const themeSelectOptions = computed<PartnerSelectOption[]>(() =>
+  themeOptions.map((option) => ({
+    value: option.id,
+    label: settings.locale === "en" ? option.labelEn : option.labelZh,
+    preview: option.preview,
+  })),
+);
+
+const themeSelectValue = computed(() =>
+  settings.theme === "custom" ? "" : settings.theme,
+);
+
+const themeTriggerOption = computed<PartnerSelectOption | null>(() => {
+  if (settings.theme === "custom" && settings.activeCustomPalette) {
+    const palette = settings.activeCustomPalette;
+    return {
+      value: "custom",
+      label:
+        settings.locale === "en"
+          ? `${copy.value.themeCustom} · ${palette.labelEn}`
+          : `${copy.value.themeCustom} · ${palette.labelZh}`,
+      preview: palette.preview,
+    };
+  }
+  return themeSelectOptions.value.find((option) => option.value === settings.theme) ?? null;
+});
+
+const wallpaperSelectGroups = computed<PartnerSelectGroup[]>(() => [
+  {
+    label: "",
+    options: [
+      { value: "theme", label: copy.value.wallpaperTheme },
+      { value: "none", label: copy.value.wallpaperNone },
+    ],
+  },
+  {
+    label: copy.value.wallpaperBuiltinGroup,
+    options: builtinWallpapers.map((wallpaper) => ({
+      value: wallpaper.id,
+      label: wallpaperBuiltinLabel(wallpaper.id),
+    })),
+  },
+  {
+    label: "",
+    options: [{ value: "custom", label: copy.value.wallpaperCustom }],
+  },
+]);
+
+const providerSelectOptions = computed<PartnerSelectOption[]>(() =>
+  providerOptions.value.map((option) => ({
+    value: option.value,
+    label: option.label,
+  })),
+);
+
+const protocolSelectOptions = computed<PartnerSelectOption[]>(() =>
+  protocolOptions.map((option) => ({
+    value: option.value,
+    label: option.label,
+  })),
+);
+
+const customPaletteSelectOptions = computed<PartnerSelectOption[]>(() =>
+  settings.customPalettes.map((palette) => ({
+    value: palette.id,
+    label: settings.locale === "en" ? palette.labelEn : palette.labelZh,
+    preview: palette.preview,
+  })),
+);
+
+const customPaletteSelectValue = computed(() =>
+  settings.theme === "custom" && settings.customPaletteId ? settings.customPaletteId : "",
+);
+
 const copy = computed(() => {
   if (settings.locale === "en") {
     return {
@@ -65,16 +202,39 @@ const copy = computed(() => {
         "Configure the model service used by Agent. Settings are written to Vera settings.json.",
       language: "Language",
       languageHint: "Switch the Partner interface language",
+      theme: "Theme",
+      themeHint: "Preset colors. Picking a custom scale below clears this.",
+      themeCustom: "Custom",
+      wallpaper: "Background",
+      wallpaperHint: "Clarity tints panels; blur softens the wallpaper itself. Blur=0 keeps it sharp.",
+      wallpaperTheme: "Follow theme",
+      wallpaperNone: "None",
+      wallpaperBuiltinGroup: "Builtin",
+      wallpaperCustom: "Custom image",
+      wallpaperUpload: "Choose image",
+      wallpaperClear: "Clear image",
+      wallpaperOpacity: "Clarity",
+      wallpaperBlur: "Blur",
+      wallpaperUploading: "Processing image...",
+      wallpaperReady: "Background image updated",
+      customPalettes: "Custom",
+      customPalettesHint:
+        "Scales from the background. Airy/Soft use light mode with denser frosted panels; Deep/Vivid stay dark. Selecting clears the theme above",
+      customPalettesLoading: "Extracting colors...",
+      customPalettesEmpty: "Choose a background image to extract custom scales",
+      customPalettesPlaceholder: "Choose a custom scale",
       providerHint: "Choose the model provider",
       protocol: "Protocol",
       protocolHint: "Match the request format of the service",
       apiBaseHint: "Official or compatible service endpoint",
       model: "Model",
       modelHint: "Model ID sent to the provider",
-      keySaved: "Stored in Vera settings.json",
+      keySaved: "Saved — masked below; click Show to reveal, or type a new key to replace",
       keyMissing: "No key saved yet",
-      keyReplacePlaceholder: "Enter a new value, saved on blur",
+      keyReplacePlaceholder: "Type a new key to replace",
       keyPlaceholder: "Enter API Key",
+      showKey: "Show",
+      hideKey: "Hide",
       clear: "Clear",
       saving: "Saving...",
       saved: "Auto-saved",
@@ -91,8 +251,6 @@ const copy = computed(() => {
       keyState: "API Key",
       keyAvailable: "Available",
       keyUnavailable: "Missing",
-      showKey: "Show",
-      hideKey: "Hide",
       configPath: "Config Path",
       editJson: "Edit JSON",
       projectRoot: "Project Root",
@@ -122,16 +280,39 @@ const copy = computed(() => {
     description: "配置 Agent 使用的模型服务。配置会写入 Vera settings.json。",
     language: "语言",
     languageHint: "切换 Partner 界面显示语言",
+    theme: "主题",
+    themeHint: "预设配色；若选用下方自定义色阶，此处会取消勾选",
+    themeCustom: "自定义",
+    wallpaper: "背景图",
+    wallpaperHint: "通透度只影响面板；模糊会直接柔化背景图本身，0 为最清晰",
+    wallpaperTheme: "跟随主题",
+    wallpaperNone: "无",
+    wallpaperBuiltinGroup: "内置背景",
+    wallpaperCustom: "自定义图片",
+    wallpaperUpload: "选择图片",
+    wallpaperClear: "清除图片",
+    wallpaperOpacity: "通透度",
+    wallpaperBlur: "模糊",
+    wallpaperUploading: "正在处理图片…",
+    wallpaperReady: "背景图已更新",
+    customPalettes: "自定义",
+    customPalettesHint:
+      "根据背景提取色阶。清透/柔和为浅色（面板会更实、自动轻度磨砂），深邃/浓郁为深色。点选后上方主题会取消勾选",
+    customPalettesLoading: "正在提取配色…",
+    customPalettesEmpty: "选择背景图后可提取自定义色阶",
+    customPalettesPlaceholder: "选择自定义色阶",
     providerHint: "选择模型供应商",
     protocol: "协议",
     protocolHint: "适配不同服务的请求格式",
     apiBaseHint: "支持官方或兼容服务地址",
     model: "模型",
     modelHint: "发送给供应商的模型 ID",
-    keySaved: "已保存到 Vera settings.json",
+    keySaved: "已保存（默认掩码显示；点「显示」可查看，或输入新值覆盖）",
     keyMissing: "尚未保存密钥",
-    keyReplacePlaceholder: "输入新值，失焦后覆盖",
+    keyReplacePlaceholder: "输入新密钥以覆盖",
     keyPlaceholder: "输入 API Key",
+    showKey: "显示",
+    hideKey: "隐藏",
     clear: "清除",
     saving: "正在保存…",
     saved: "已自动保存",
@@ -147,8 +328,6 @@ const copy = computed(() => {
     keyState: "API Key",
     keyAvailable: "可用",
     keyUnavailable: "缺失",
-    showKey: "显示",
-    hideKey: "隐藏",
     configPath: "配置路径",
     editJson: "编辑 JSON",
     projectRoot: "项目根目录",
@@ -383,13 +562,55 @@ function selectModel(model: CatalogModel) {
   status.value = copy.value.saved;
 }
 
+function onApiKeyFocus() {
+  apiKeyFocused.value = true;
+  if (!apiKey.value && revealApiKey.value && loadedApiKey.value) {
+    apiKey.value = loadedApiKey.value;
+  }
+}
+
+function onApiKeyInput(event: Event) {
+  const target = event.target as HTMLInputElement;
+  apiKey.value = target.value === API_KEY_MASK ? "" : target.value;
+}
+
+async function toggleApiKeyReveal() {
+  clearStatus();
+  if (revealApiKey.value) {
+    revealApiKey.value = false;
+    if (apiKey.value && apiKey.value === loadedApiKey.value) {
+      apiKey.value = "";
+    }
+    return;
+  }
+  try {
+    const config = await withTimeout(
+      inspectLlmConfig(workspace.rootPath || undefined, null, true),
+      INSPECT_TIMEOUT_MS,
+      copy.value.inspectTimeout,
+    );
+    loadedApiKey.value = config.apiKeyValue ?? null;
+    revealApiKey.value = true;
+    if (!apiKeyFocused.value) apiKeyFocused.value = false;
+  } catch (revealError) {
+    error.value = revealError instanceof Error ? revealError.message : String(revealError);
+  }
+}
+
 async function saveApiKeyIfNeeded() {
+  apiKeyFocused.value = false;
   clearStatus();
   const nextKey = apiKey.value.trim();
-  if (!nextKey) return;
+  if (!nextKey || nextKey === API_KEY_MASK) return;
+  if (loadedApiKey.value && nextKey === loadedApiKey.value) {
+    apiKey.value = "";
+    return;
+  }
   try {
     await settings.saveApiKey(nextKey, workspace.rootPath || undefined);
+    loadedApiKey.value = nextKey;
     apiKey.value = "";
+    revealApiKey.value = false;
     await refreshEffectiveConfig();
     status.value = copy.value.keySavedStatus;
   } catch (saveError) {
@@ -402,6 +623,9 @@ async function deleteApiKey() {
   try {
     await settings.saveApiKey("", workspace.rootPath || undefined);
     apiKey.value = "";
+    loadedApiKey.value = null;
+    revealApiKey.value = false;
+    apiKeyFocused.value = false;
     await refreshEffectiveConfig();
     status.value = copy.value.keyCleared;
   } catch (deleteError) {
@@ -409,19 +633,90 @@ async function deleteApiKey() {
   }
 }
 
-async function onProviderChange(event: Event) {
-  const target = event.target as HTMLSelectElement;
-  settings.setProviderId(target.value as LLMProviderId);
+function onProviderChange(value: string) {
+  settings.setProviderId(value as LLMProviderId);
 }
 
-function onProtocolChange(event: Event) {
-  const target = event.target as HTMLSelectElement;
-  settings.setProtocol(target.value as LLMProtocol);
+function onProtocolChange(value: string) {
+  settings.setProtocol(value as LLMProtocol);
 }
 
-function onLocaleChange(event: Event) {
-  const target = event.target as HTMLSelectElement;
-  settings.setLocale(target.value as AppLocale);
+function onLocaleChange(value: string) {
+  settings.setLocale(value as AppLocale);
+}
+
+function onThemeChange(value: string) {
+  settings.setTheme(value as Exclude<AppThemeId, "custom">);
+}
+
+function onCustomPaletteSelect(value: string) {
+  settings.setCustomPalette(value as CustomPaletteId);
+}
+
+function onWallpaperModeChange(value: string) {
+  settings.setWallpaperMode(value as WallpaperMode);
+}
+
+function onWallpaperOpacityChange(event: Event) {
+  const target = event.target as HTMLInputElement;
+  settings.setWallpaperOpacity(Number(target.value));
+}
+
+function flushWallpaperBlur(value = wallpaperBlurDraft.value) {
+  if (blurApplyTimer !== undefined) {
+    window.clearTimeout(blurApplyTimer);
+    blurApplyTimer = undefined;
+  }
+  if (settings.wallpaperBlur !== value) {
+    settings.setWallpaperBlur(value);
+  }
+}
+
+function scheduleWallpaperBlur(value: number) {
+  wallpaperBlurDraft.value = value;
+  if (blurApplyTimer !== undefined) {
+    window.clearTimeout(blurApplyTimer);
+  }
+  blurApplyTimer = window.setTimeout(() => {
+    blurApplyTimer = undefined;
+    flushWallpaperBlur(value);
+  }, WALLPAPER_BLUR_DEBOUNCE_MS);
+}
+
+function onWallpaperBlurInput(event: Event) {
+  const target = event.target as HTMLInputElement;
+  scheduleWallpaperBlur(Number(target.value));
+}
+
+function onWallpaperBlurCommit(event: Event) {
+  const target = event.target as HTMLInputElement;
+  wallpaperBlurDraft.value = Number(target.value);
+  flushWallpaperBlur(wallpaperBlurDraft.value);
+}
+
+function openWallpaperPicker() {
+  wallpaperInput.value?.click();
+}
+
+async function onWallpaperFileChange(event: Event) {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  target.value = "";
+  if (!file) return;
+  wallpaperBusy.value = true;
+  clearStatus();
+  try {
+    await settings.setCustomWallpaper(file);
+    status.value = copy.value.wallpaperReady;
+  } catch (uploadError) {
+    error.value = uploadError instanceof Error ? uploadError.message : String(uploadError);
+  } finally {
+    wallpaperBusy.value = false;
+  }
+}
+
+function clearWallpaperImage() {
+  settings.clearCustomWallpaper();
 }
 
 onMounted(() => {
@@ -436,7 +731,17 @@ onBeforeUnmount(() => {
   if (saveTimer) {
     window.clearTimeout(saveTimer);
   }
+  flushWallpaperBlur();
 });
+
+watch(
+  () => settings.wallpaperBlur,
+  (value) => {
+    if (blurApplyTimer === undefined) {
+      wallpaperBlurDraft.value = value;
+    }
+  },
+);
 
 watch(
   () => settings.provider.protocol,
@@ -453,6 +758,11 @@ watch(
     settings.provider.apiBaseUrl,
     settings.provider.model,
     settings.locale,
+    settings.theme,
+    settings.wallpaperMode,
+    settings.wallpaperOpacity,
+    settings.wallpaperBlur,
+    settings.customPaletteId,
   ],
   scheduleConfigSave,
 );
@@ -466,53 +776,159 @@ watch(
     </div>
 
     <div class="settings-card">
-      <label class="setting-row">
+      <div class="setting-row">
         <span class="setting-label">
           <strong>{{ copy.language }}</strong>
           <small>{{ copy.languageHint }}</small>
         </span>
-        <select :value="settings.locale" @change="onLocaleChange">
-          <option
-            v-for="option in localeOptions"
-            :key="option.value"
-            :value="option.value"
-          >
-            {{ option.label }}
-          </option>
-        </select>
-      </label>
+        <PartnerSelect
+          :model-value="settings.locale"
+          :options="localeSelectOptions"
+          :aria-label="copy.language"
+          @update:model-value="onLocaleChange"
+        />
+      </div>
 
-      <label class="setting-row">
+      <div class="setting-row">
+        <span class="setting-label">
+          <strong>{{ copy.theme }}</strong>
+          <small>{{ copy.themeHint }}</small>
+        </span>
+        <PartnerSelect
+          :model-value="themeSelectValue"
+          :options="themeSelectOptions"
+          :display-option="themeTriggerOption"
+          :emphasized="settings.theme === 'custom'"
+          :aria-label="copy.theme"
+          @update:model-value="onThemeChange"
+        />
+      </div>
+
+      <div class="setting-row wallpaper-row">
+        <span class="setting-label">
+          <strong>{{ copy.wallpaper }}</strong>
+          <small>{{ copy.wallpaperHint }}</small>
+        </span>
+        <div class="wallpaper-controls">
+          <PartnerSelect
+            :model-value="settings.wallpaperMode"
+            :groups="wallpaperSelectGroups"
+            :aria-label="copy.wallpaper"
+            @update:model-value="onWallpaperModeChange"
+          />
+
+          <div class="wallpaper-actions">
+            <input
+              ref="wallpaperInput"
+              class="wallpaper-file"
+              type="file"
+              accept="image/*"
+              @change="onWallpaperFileChange"
+            />
+            <button
+              type="button"
+              class="wallpaper-button"
+              :disabled="wallpaperBusy"
+              @click="openWallpaperPicker"
+            >
+              {{ wallpaperBusy ? copy.wallpaperUploading : copy.wallpaperUpload }}
+            </button>
+            <button
+              v-if="settings.wallpaperDataUrl"
+              type="button"
+              class="wallpaper-button secondary"
+              @click="clearWallpaperImage"
+            >
+              {{ copy.wallpaperClear }}
+            </button>
+          </div>
+
+          <label class="wallpaper-opacity">
+            <span>{{ copy.wallpaperOpacity }} · {{ Math.round(settings.wallpaperOpacity * 100) }}%</span>
+            <input
+              type="range"
+              :min="MIN_WALLPAPER_OPACITY"
+              :max="MAX_WALLPAPER_OPACITY"
+              step="0.01"
+              :value="settings.wallpaperOpacity"
+              :disabled="settings.wallpaperMode === 'none'"
+              @input="onWallpaperOpacityChange"
+            />
+          </label>
+
+          <label class="wallpaper-opacity">
+            <span>{{ copy.wallpaperBlur }} · {{ Math.round(wallpaperBlurDraft) }}px</span>
+            <input
+              type="range"
+              :min="MIN_WALLPAPER_BLUR"
+              :max="MAX_WALLPAPER_BLUR"
+              step="1"
+              :value="wallpaperBlurDraft"
+              :disabled="settings.wallpaperMode === 'none'"
+              @input="onWallpaperBlurInput"
+              @change="onWallpaperBlurCommit"
+            />
+          </label>
+
+          <div
+            v-if="wallpaperPreviewUrl"
+            class="wallpaper-preview"
+            :style="{ backgroundImage: `url(${wallpaperPreviewUrl})` }"
+            aria-hidden="true"
+          />
+
+          <div v-if="showCustomPalettes" class="custom-palettes">
+            <div class="custom-palettes-header">
+              <strong>{{ copy.customPalettes }}</strong>
+              <small>{{ copy.customPalettesHint }}</small>
+            </div>
+            <p v-if="settings.customPalettesLoading" class="custom-palettes-status">
+              {{ copy.customPalettesLoading }}
+            </p>
+            <p
+              v-else-if="settings.customPalettes.length === 0"
+              class="custom-palettes-status"
+            >
+              {{ copy.customPalettesEmpty }}
+            </p>
+            <PartnerSelect
+              v-else
+              :model-value="customPaletteSelectValue"
+              :options="customPaletteSelectOptions"
+              :placeholder="copy.customPalettesPlaceholder"
+              :emphasized="settings.theme === 'custom'"
+              :aria-label="copy.customPalettes"
+              @update:model-value="onCustomPaletteSelect"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div class="setting-row">
         <span class="setting-label">
           <strong>Provider</strong>
           <small>{{ copy.providerHint }}</small>
         </span>
-        <select :value="settings.provider.id" @change="onProviderChange">
-          <option
-            v-for="option in providerOptions"
-            :key="option.value"
-            :value="option.value"
-          >
-            {{ option.label }}
-          </option>
-        </select>
-      </label>
+        <PartnerSelect
+          :model-value="settings.provider.id"
+          :options="providerSelectOptions"
+          aria-label="Provider"
+          @update:model-value="onProviderChange"
+        />
+      </div>
 
-      <label class="setting-row">
+      <div class="setting-row">
         <span class="setting-label">
           <strong>{{ copy.protocol }}</strong>
           <small>{{ copy.protocolHint }}</small>
         </span>
-        <select :value="settings.provider.protocol" @change="onProtocolChange">
-          <option
-            v-for="option in protocolOptions"
-            :key="option.value"
-            :value="option.value"
-          >
-            {{ option.label }}
-          </option>
-        </select>
-      </label>
+        <PartnerSelect
+          :model-value="settings.provider.protocol"
+          :options="protocolSelectOptions"
+          :aria-label="copy.protocol"
+          @update:model-value="onProtocolChange"
+        />
+      </div>
 
       <label class="setting-row">
         <span class="setting-label">
@@ -547,13 +963,23 @@ watch(
         </span>
         <span class="key-control">
           <input
-            v-model="apiKey"
-            type="password"
+            :value="apiKeyDisplay"
+            :type="revealApiKey ? 'text' : 'password'"
             autocomplete="new-password"
             :placeholder="settings.hasApiKey ? copy.keyReplacePlaceholder : copy.keyPlaceholder"
+            @focus="onApiKeyFocus"
+            @input="onApiKeyInput"
             @blur="saveApiKeyIfNeeded"
             @keydown.enter.prevent="saveApiKeyIfNeeded"
           />
+          <button
+            v-if="settings.hasApiKey"
+            type="button"
+            class="link-button"
+            @click="toggleApiKeyReveal"
+          >
+            {{ revealApiKey ? copy.hideKey : copy.showKey }}
+          </button>
           <button
             v-if="settings.hasApiKey"
             type="button"
@@ -728,7 +1154,7 @@ watch(
   width: min(100%, 780px);
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 6px;
   background: var(--surface-elevated);
 }
 
@@ -771,7 +1197,7 @@ watch(
   margin-top: 12px;
   padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 6px;
   background: var(--surface-elevated);
 }
 
@@ -855,7 +1281,7 @@ watch(
   margin-top: 18px;
   padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 6px;
   background: var(--surface-elevated);
 }
 
@@ -951,6 +1377,109 @@ watch(
   border-bottom: none;
 }
 
+.wallpaper-row {
+  align-items: start;
+  min-height: 0;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.wallpaper-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.wallpaper-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wallpaper-file {
+  display: none;
+}
+
+.wallpaper-button {
+  min-height: 30px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
+  border-radius: 6px;
+  padding: 0 12px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.wallpaper-button.secondary {
+  border-color: var(--border);
+  background: var(--bg);
+}
+
+.wallpaper-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.wallpaper-opacity {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.wallpaper-opacity input[type="range"] {
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  accent-color: var(--accent);
+}
+
+.wallpaper-preview {
+  width: 100%;
+  height: 72px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+
+.custom-palettes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px dashed color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.custom-palettes-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.custom-palettes-header strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.custom-palettes-header small,
+.custom-palettes-status {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.custom-palettes-status {
+  margin: 0;
+}
+
 .setting-label {
   display: flex;
   flex-direction: column;
@@ -968,21 +1497,19 @@ watch(
   font-size: 11px;
 }
 
-input,
-select {
+input {
   width: 100%;
   min-height: 30px;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: 6px;
   padding: 0 9px;
-  background: var(--bg);
+  background: var(--bg-solid, var(--bg));
   color: var(--text);
   font: inherit;
   font-size: 12px;
 }
 
-input:focus,
-select:focus {
+input:focus {
   border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
   outline: 1px solid color-mix(in srgb, var(--accent) 36%, transparent);
 }
@@ -1036,13 +1563,13 @@ select:focus {
 }
 
 .connection-feedback.error {
-  border: 1px solid color-mix(in srgb, #ff6b6b 50%, var(--border));
-  background: color-mix(in srgb, #ff6b6b 10%, var(--surface));
-  color: #f28b82;
+  border: 1px solid color-mix(in srgb, var(--danger) 50%, var(--border));
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  color: var(--danger-muted);
 }
 
 .status.error {
-  color: #f28b82;
+  color: var(--danger-muted);
 }
 
 @container (max-width: 560px) {

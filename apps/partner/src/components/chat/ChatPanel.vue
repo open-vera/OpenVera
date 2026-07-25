@@ -437,14 +437,15 @@ watch(
   align-items: stretch;
   flex-shrink: 0;
   min-width: 0;
-  height: 40px;
+  height: 48px;
   padding: 0;
-  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
 }
 
 .center-tabs-scroll {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   flex: 1;
   min-width: 0;
   overflow-x: auto;
@@ -456,46 +457,105 @@ watch(
   display: none;
 }
 
+.center-tabs :deep(.session-search),
 .center-tabs :deep(.session-history) {
-  position: sticky;
-  right: 0;
+  position: relative;
   z-index: 5;
   flex-shrink: 0;
-  background: var(--surface);
-  box-shadow: -10px 0 14px color-mix(in srgb, var(--surface) 88%, transparent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  height: 100%;
+  background: transparent;
+}
+
+.center-tabs :deep(.session-history) {
+  box-shadow: -10px 0 14px color-mix(in srgb, var(--bg) 55%, transparent);
+}
+
+.center-tabs :deep(.search-button),
+.center-tabs :deep(.history-button) {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
 }
 
 .center-tab,
 .new-chat {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  height: 40px;
+  height: 48px;
   border: none;
   border-radius: 0;
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
 }
 
 .center-tab {
   gap: 8px;
   min-width: 88px;
-  max-width: 160px;
-  padding: 0 10px 0 12px;
+  max-width: 180px;
+  padding: 0 12px;
   text-align: left;
 }
 
 .center-tab:hover,
 .new-chat:hover {
-  background: color-mix(in srgb, var(--surface-hover) 72%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--surface-hover-solid, var(--surface-hover)) 78%,
+    transparent
+  );
   color: var(--text);
 }
 
+.center-tab:hover::before,
+.new-chat:hover::before {
+  content: "";
+  position: absolute;
+  right: 8px;
+  bottom: 0;
+  left: 8px;
+  z-index: 1;
+  height: 2px;
+  background: color-mix(in srgb, var(--text-muted) 55%, transparent);
+}
+
 .center-tab.active {
-  background: var(--surface-elevated);
+  background: transparent;
   color: var(--text);
+  font-weight: 600;
+}
+
+.center-tab.active:hover {
+  background: color-mix(
+    in srgb,
+    var(--surface-hover-solid, var(--surface-hover)) 55%,
+    transparent
+  );
+}
+
+.center-tab.active:hover::before {
+  display: none;
+}
+
+/* GitHub UnderlineNav: indicator sits on the tab bar border */
+.center-tab.active::after {
+  content: "";
+  position: absolute;
+  right: 8px;
+  bottom: 0;
+  left: 8px;
+  z-index: 1;
+  height: 2px;
+  border-radius: 0;
+  background: var(--tab-indicator, var(--accent));
 }
 
 .tab-title {
@@ -536,7 +596,7 @@ watch(
   justify-content: center;
   flex-shrink: 0;
   padding: 0 12px;
-  background: var(--surface);
+  background: transparent;
   font-size: 12px;
 }
 
@@ -654,9 +714,9 @@ watch(
   width: min(760px, calc(100% - 24px));
   margin: 0 auto 2px;
   padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, #ff6b6b 58%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--danger) 58%, var(--border));
   border-radius: 12px;
-  background: color-mix(in srgb, #ff6b6b 10%, var(--surface-elevated));
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface-elevated));
   color: var(--text);
   box-shadow:
     0 8px 22px rgba(0, 0, 0, 0.18),
@@ -673,7 +733,7 @@ watch(
 }
 
 .error-copy strong {
-  color: #ff8a8a;
+  color: var(--danger-muted);
   font-size: 13px;
 }
 
@@ -772,12 +832,12 @@ watch(
 }
 
 .live-stop-button {
-  color: color-mix(in srgb, #ff8f8f 82%, var(--text-muted));
+  color: color-mix(in srgb, var(--danger-muted) 82%, var(--text-muted));
 }
 
 .live-stop-button:hover {
-  color: #ffd2d2;
-  background: color-mix(in srgb, #ff6b6b 18%, var(--surface-hover));
+  color: var(--danger-muted);
+  background: color-mix(in srgb, var(--danger) 18%, var(--surface-hover));
 }
 
 .live-log-button:hover {

@@ -71,8 +71,11 @@ async function openNodeDownload() {
 .sidecar-dialog {
   width: min(480px, 100%);
   border-radius: 12px;
-  background: var(--panel-bg, #1e1e1e);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--surface-elevated-solid, var(--surface-solid, var(--surface)));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: 1px solid var(--border);
+  color: var(--text);
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
 }
 
@@ -108,7 +111,7 @@ async function openNodeDownload() {
   margin: 12px 18px 0;
   white-space: pre-wrap;
   line-height: 1.5;
-  color: rgba(255, 255, 255, 0.82);
+  color: var(--text-muted);
 }
 
 .sidecar-dialog-actions {
@@ -128,12 +131,12 @@ async function openNodeDownload() {
 
 .sidecar-dialog-primary {
   border: none;
-  background: #3b82f6;
-  color: #fff;
+  background: var(--accent);
+  color: var(--accent-text);
 }
 
 .sidecar-dialog-secondary {
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--border);
   background: transparent;
   color: inherit;
 }

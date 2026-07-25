@@ -227,12 +227,12 @@ defineEmits<{
 }
 
 .git-action.danger {
-  color: #ff9a9a;
+  color: var(--danger-muted);
 }
 
 .git-error {
   margin: 0;
-  color: #ff9a9a;
+  color: var(--danger-muted);
   font-size: 12px;
 }
 

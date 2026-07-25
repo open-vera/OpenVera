@@ -1,0 +1,77 @@
+export {
+  THEME_OPTIONS,
+  applyPartnerTheme,
+  isAppThemeId,
+  isLightTheme,
+  normalizeThemeId,
+  readStoredThemeId,
+  resolveThemeId,
+  themeDefaultWallpaper,
+  type AppThemeId,
+  type ApplyThemeOptions,
+  type ResolvedThemeId,
+  type ThemeDefinition,
+  type ThemeOption,
+} from "./themes.js";
+
+export {
+  THEME_ORDER,
+  THEME_REGISTRY,
+  getThemeDefinition,
+  isResolvedThemeId,
+} from "./palettes.js";
+
+export {
+  THEME_CSS_VARS,
+  applyColorTokens,
+  completeColorTokens,
+  readAppliedColorTokens,
+  tokensToCssVars,
+  type ThemeColorInput,
+  type ThemeColorTokens,
+  type ThemeCssVar,
+} from "./tokens.js";
+
+export {
+  BUILTIN_WALLPAPERS,
+  BUILTIN_WALLPAPER_ORDER,
+  DEFAULT_WALLPAPER_BLUR,
+  DEFAULT_WALLPAPER_OPACITY,
+  MAX_WALLPAPER_BLUR,
+  MAX_WALLPAPER_OPACITY,
+  MIN_WALLPAPER_BLUR,
+  MIN_WALLPAPER_OPACITY,
+  WALLPAPER_STORAGE_KEY,
+  applyPartnerWallpaper,
+  chromeFillPercent,
+  clampWallpaperBlur,
+  clampWallpaperOpacity,
+  LIGHT_SCHEME_MIN_CHROME_FILL,
+  LIGHT_SCHEME_MIN_PANEL_FROST,
+  panelFrostPx,
+  getBuiltinWallpaper,
+  isBuiltinWallpaperId,
+  isWallpaperMode,
+  prepareWallpaperDataUrl,
+  readStoredWallpaperDataUrl,
+  resolveWallpaper,
+  resolveWallpaperImageUrl,
+  writeStoredWallpaperDataUrl,
+  type BuiltinWallpaper,
+  type BuiltinWallpaperId,
+  type ResolvedWallpaper,
+  type WallpaperMode,
+} from "./wallpapers.js";
+
+export {
+  CUSTOM_PALETTE_ORDER,
+  buildPaletteVariants,
+  extractCustomPalettes,
+  isCustomPaletteId,
+  pixelsFromRgba,
+  rgbToHex,
+  sampleDominantColors,
+  type CustomPaletteId,
+  type CustomPaletteVariant,
+  type Rgb,
+} from "./extract-palette.js";

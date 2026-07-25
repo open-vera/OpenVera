@@ -3,6 +3,29 @@ import {
   inspectLlmConfig,
   saveVeraLlmConfig,
 } from "@/bridge";
+import {
+  applyPartnerTheme,
+  BUILTIN_WALLPAPERS,
+  clampWallpaperBlur,
+  clampWallpaperOpacity,
+  DEFAULT_WALLPAPER_BLUR,
+  DEFAULT_WALLPAPER_OPACITY,
+  extractCustomPalettes,
+  isBuiltinWallpaperId,
+  isCustomPaletteId,
+  isWallpaperMode,
+  normalizeThemeId,
+  prepareWallpaperDataUrl,
+  readStoredWallpaperDataUrl,
+  resolveThemeId,
+  resolveWallpaperImageUrl,
+  themeDefaultWallpaper,
+  writeStoredWallpaperDataUrl,
+  type AppThemeId,
+  type CustomPaletteId,
+  type CustomPaletteVariant,
+  type WallpaperMode,
+} from "@/theme";
 import type {
   AgentRunMode,
   AppLocale,
@@ -25,11 +48,15 @@ const DEFAULT_PROVIDER: LLMProvider = {
 };
 
 interface PersistedUiSettings {
-  theme?: "dark" | "light" | "system";
+  theme?: AppThemeId | "dark" | "light";
   maxInstances?: number;
   locale?: AppLocale;
   firstLaunchComplete?: boolean;
   agentMode?: AgentRunMode;
+  wallpaperMode?: WallpaperMode;
+  wallpaperOpacity?: number;
+  wallpaperBlur?: number;
+  customPaletteId?: CustomPaletteId | null;
 }
 
 function readStoredUiSettings(): PersistedUiSettings | null {
@@ -96,17 +123,84 @@ export const useSettingsStore = defineStore("settings", {
   state: () => ({
     provider: { ...DEFAULT_PROVIDER },
     agentMode: "agent" as AgentRunMode,
-    theme: "system" as "dark" | "light" | "system",
+    theme: "system" as AppThemeId,
+    wallpaperMode: "theme" as WallpaperMode,
+    wallpaperOpacity: DEFAULT_WALLPAPER_OPACITY,
+    wallpaperBlur: DEFAULT_WALLPAPER_BLUR,
+    wallpaperDataUrl: null as string | null,
+    customPaletteId: null as CustomPaletteId | null,
+    customPalettes: [] as CustomPaletteVariant[],
+    customPalettesLoading: false,
     maxInstances: 3,
     locale: "zh" as AppLocale,
     firstLaunchComplete: false,
     hasApiKey: false,
     isLoaded: false,
   }),
+  getters: {
+    activeCustomPalette(state): CustomPaletteVariant | null {
+      if (state.theme !== "custom" || !state.customPaletteId) return null;
+      return state.customPalettes.find((p) => p.id === state.customPaletteId) ?? null;
+    },
+  },
   actions: {
+    currentWallpaperImageUrl(): string | null {
+      const themeId =
+        this.theme === "custom" ? resolveThemeId("system") : resolveThemeId(this.theme);
+      return resolveWallpaperImageUrl({
+        mode: this.wallpaperMode,
+        customDataUrl: this.wallpaperDataUrl,
+        themeBuiltin: themeDefaultWallpaper(themeId),
+      });
+    },
+    applyAppearance() {
+      const custom = this.activeCustomPalette;
+      applyPartnerTheme(this.theme, {
+        mode: this.wallpaperMode,
+        customDataUrl: this.wallpaperDataUrl,
+        opacity: this.wallpaperOpacity,
+        blur: this.wallpaperBlur,
+        customColors: custom?.colors ?? null,
+        customScheme: custom?.scheme,
+      });
+    },
+    async refreshCustomPalettes(selectDefault = false) {
+      const imageUrl = this.currentWallpaperImageUrl();
+      if (!imageUrl) {
+        this.customPalettes = [];
+        if (this.theme === "custom") {
+          this.theme = "system";
+          this.customPaletteId = null;
+          this.applyAppearance();
+        }
+        return;
+      }
+      this.customPalettesLoading = true;
+      try {
+        const variants = await extractCustomPalettes(imageUrl);
+        this.customPalettes = variants;
+        if (this.customPaletteId && !variants.some((v) => v.id === this.customPaletteId)) {
+          this.customPaletteId = variants[0]?.id ?? null;
+        }
+        if (selectDefault && variants[0]) {
+          this.customPaletteId = variants[0].id;
+          this.theme = "custom";
+          this.applyAppearance();
+          return;
+        }
+        if (this.theme === "custom") {
+          this.applyAppearance();
+        }
+      } catch (error) {
+        console.warn("[Settings] palette extraction failed:", error);
+        this.customPalettes = [];
+      } finally {
+        this.customPalettesLoading = false;
+      }
+    },
     async load(projectRoot?: string) {
       const storedUi = readStoredUiSettings();
-      if (storedUi?.theme) this.theme = storedUi.theme;
+      if (storedUi?.theme) this.theme = normalizeThemeId(storedUi.theme);
       if (typeof storedUi?.maxInstances === "number") this.maxInstances = storedUi.maxInstances;
       if (storedUi?.locale) this.locale = storedUi.locale;
       if (typeof storedUi?.firstLaunchComplete === "boolean") {
@@ -115,6 +209,23 @@ export const useSettingsStore = defineStore("settings", {
       if (storedUi?.agentMode) {
         this.agentMode = storedUi.agentMode;
       }
+      if (isWallpaperMode(storedUi?.wallpaperMode)) {
+        this.wallpaperMode = storedUi.wallpaperMode;
+      }
+      if (typeof storedUi?.wallpaperOpacity === "number") {
+        this.wallpaperOpacity = clampWallpaperOpacity(storedUi.wallpaperOpacity);
+      }
+      if (typeof storedUi?.wallpaperBlur === "number") {
+        this.wallpaperBlur = clampWallpaperBlur(storedUi.wallpaperBlur);
+      }
+      if (isCustomPaletteId(storedUi?.customPaletteId)) {
+        this.customPaletteId = storedUi.customPaletteId;
+      } else if (storedUi?.customPaletteId === null) {
+        this.customPaletteId = null;
+      }
+      this.wallpaperDataUrl = readStoredWallpaperDataUrl();
+      await this.refreshCustomPalettes();
+      this.applyAppearance();
 
       const effective = await inspectLlmConfig(projectRoot, null, false);
       this.provider = providerFromEffective(effective);
@@ -130,6 +241,69 @@ export const useSettingsStore = defineStore("settings", {
     },
     setLocale(locale: AppLocale) {
       this.locale = locale;
+    },
+    setTheme(theme: AppThemeId) {
+      const next = normalizeThemeId(theme);
+      // Preset themes clear the custom palette selection.
+      if (next !== "custom") {
+        this.customPaletteId = null;
+      }
+      this.theme = next;
+      if (this.wallpaperMode === "theme" && next !== "custom") {
+        const builtin = themeDefaultWallpaper(resolveThemeId(next));
+        if (builtin) {
+          this.wallpaperOpacity = builtin.defaultOpacity;
+        }
+      }
+      this.applyAppearance();
+    },
+    setCustomPalette(id: CustomPaletteId) {
+      this.customPaletteId = id;
+      this.theme = "custom";
+      this.applyAppearance();
+    },
+    setWallpaperMode(mode: WallpaperMode) {
+      this.wallpaperMode = mode;
+      if (mode === "theme" && this.theme !== "custom") {
+        const builtin = themeDefaultWallpaper(resolveThemeId(this.theme));
+        if (builtin) {
+          this.wallpaperOpacity = builtin.defaultOpacity;
+        }
+      } else if (isBuiltinWallpaperId(mode)) {
+        this.wallpaperOpacity = BUILTIN_WALLPAPERS[mode].defaultOpacity;
+      }
+      this.applyAppearance();
+      void this.refreshCustomPalettes();
+    },
+    setWallpaperOpacity(opacity: number) {
+      this.wallpaperOpacity = clampWallpaperOpacity(opacity);
+      this.applyAppearance();
+    },
+    setWallpaperBlur(blur: number) {
+      this.wallpaperBlur = clampWallpaperBlur(blur);
+      this.applyAppearance();
+    },
+    async setCustomWallpaper(file: File) {
+      const dataUrl = await prepareWallpaperDataUrl(file);
+      writeStoredWallpaperDataUrl(dataUrl);
+      this.wallpaperDataUrl = dataUrl;
+      this.wallpaperMode = "custom";
+      this.applyAppearance();
+      await this.refreshCustomPalettes(true);
+    },
+    clearCustomWallpaper() {
+      writeStoredWallpaperDataUrl(null);
+      this.wallpaperDataUrl = null;
+      if (this.wallpaperMode === "custom") {
+        this.wallpaperMode = "theme";
+      }
+      if (this.theme === "custom") {
+        this.theme = "system";
+        this.customPaletteId = null;
+      }
+      this.customPalettes = [];
+      this.applyAppearance();
+      void this.refreshCustomPalettes();
     },
     setAgentMode(mode: AgentRunMode) {
       this.agentMode = mode;
@@ -167,6 +341,10 @@ export const useSettingsStore = defineStore("settings", {
           locale: this.locale,
           firstLaunchComplete: this.firstLaunchComplete,
           agentMode: this.agentMode,
+          wallpaperMode: this.wallpaperMode,
+          wallpaperOpacity: this.wallpaperOpacity,
+          wallpaperBlur: this.wallpaperBlur,
+          customPaletteId: this.customPaletteId,
         }),
       );
       const effective = await saveVeraLlmConfig({

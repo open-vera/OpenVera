@@ -543,11 +543,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .composer {
   padding: 10px 12px 12px;
-  background: linear-gradient(
-    to bottom,
-    color-mix(in srgb, var(--bg) 86%, transparent),
-    var(--bg)
-  );
+  background: transparent;
 }
 
 .composer-card {
@@ -558,21 +554,17 @@ onBeforeUnmount(() => {
   margin: 0 auto;
   padding: 14px 14px 10px;
   border: 1px solid var(--border);
-  border-radius: 18px;
-  background: var(--surface-elevated);
-  box-shadow:
-    0 10px 32px color-mix(in srgb, #000 18%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface-elevated) 78%, transparent);
+  box-shadow: none;
   transition:
     border-color 120ms ease,
     box-shadow 120ms ease;
 }
 
 .composer-card:focus-within {
-  border-color: color-mix(in srgb, var(--text-muted) 52%, var(--border));
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--text-muted) 18%, transparent),
-    0 10px 32px color-mix(in srgb, #000 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 36%, transparent);
 }
 
 .composer-card textarea {
@@ -653,7 +645,7 @@ onBeforeUnmount(() => {
 
 .attachment-error {
   margin: -2px 0 0;
-  color: var(--danger, #ff6b6b);
+  color: var(--danger);
   font-size: 12px;
 }
 
@@ -712,7 +704,9 @@ onBeforeUnmount(() => {
   padding: 8px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--surface-elevated);
+  background: var(--surface-elevated-solid, var(--surface-elevated));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   box-shadow: 0 12px 32px color-mix(in srgb, #000 24%, transparent);
 }
 
@@ -789,7 +783,7 @@ onBeforeUnmount(() => {
 }
 
 .menu-error {
-  color: var(--danger, #ff6b6b);
+  color: var(--danger);
 }
 
 .menu-status.compact,

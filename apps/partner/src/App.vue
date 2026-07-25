@@ -31,6 +31,7 @@ const workspace = useWorkspaceStore();
 const { activeTabId } = storeToRefs(preview);
 const { rootPath } = storeToRefs(workspace);
 const sidecarDialog = ref<SidecarInfo | null>(null);
+let colorSchemeMedia: MediaQueryList | undefined;
 
 const LAYOUT_STORAGE_KEY_PREFIX = "partner:layout";
 const DEFAULT_LEFT_WIDTH = 240;
@@ -56,16 +57,11 @@ workspace.setWindowId(initialWindowId);
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
 
-const layoutStyle = computed(() => {
-  if (activeTabId.value) {
-    return {
-      gridTemplateColumns: `${leftWidth.value}px 1px minmax(${MIN_CENTER_WIDTH}px, 1fr) 1px ${previewWidth.value}px`,
-    };
-  }
-  return {
-    gridTemplateColumns: `${leftWidth.value}px 1px minmax(${MIN_CENTER_WIDTH}px, 1fr)`,
-  };
-});
+const layoutStyle = computed(() => ({
+  "--left-w": `${leftWidth.value}px`,
+  "--preview-w": `${previewWidth.value}px`,
+  "--center-min": `${MIN_CENTER_WIDTH}px`,
+}));
 
 function readStoredNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -218,9 +214,22 @@ function showSidecarUnavailable(info: SidecarInfo) {
   sidecarDialog.value = info;
 }
 
+function syncPartnerTheme() {
+  settings.applyAppearance();
+}
+
+function onColorSchemeChange() {
+  if (settings.theme === "system") {
+    syncPartnerTheme();
+  }
+}
+
 onMounted(async () => {
   restoreLayout();
   await settings.load();
+  syncPartnerTheme();
+  colorSchemeMedia = window.matchMedia("(prefers-color-scheme: light)");
+  colorSchemeMedia.addEventListener("change", onColorSchemeChange);
   try {
     const sidecarInfo = await getSidecarInfo();
     showSidecarUnavailable(sidecarInfo);
@@ -244,6 +253,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  colorSchemeMedia?.removeEventListener("change", onColorSchemeChange);
   unregisterAppEvents?.();
   unregisterShortcuts?.();
   stopPersistSessionsTimer();
@@ -252,6 +262,20 @@ onBeforeUnmount(() => {
   }
   stopResize();
 });
+
+watch(
+  () => [
+    settings.theme,
+    settings.wallpaperMode,
+    settings.wallpaperOpacity,
+    settings.wallpaperBlur,
+    settings.wallpaperDataUrl,
+    settings.customPaletteId,
+  ],
+  () => {
+    syncPartnerTheme();
+  },
+);
 
 watch(
   rootPath,
@@ -325,6 +349,12 @@ watch(
   flex: 1;
   display: grid;
   min-height: 0;
+  grid-template-columns: var(--left-w) 1px minmax(var(--center-min), 1fr);
+}
+
+.main-layout.has-preview {
+  grid-template-columns:
+    var(--left-w) 1px minmax(var(--center-min), 1fr) 1px var(--preview-w);
 }
 
 .panel {
@@ -360,21 +390,28 @@ watch(
   user-select: none;
 }
 
+/* Narrow windows: keep preview, compress columns (override saved px widths). */
 @media (max-width: 1024px) {
   .main-layout {
-    grid-template-columns: 220px 1fr;
+    grid-template-columns: minmax(140px, min(200px, var(--left-w))) 1px minmax(240px, 1fr);
   }
 
   .main-layout.has-preview {
-    grid-template-columns: 220px 1fr;
+    grid-template-columns:
+      minmax(120px, min(180px, var(--left-w))) 1px minmax(220px, 1fr) 1px
+      minmax(200px, min(280px, var(--preview-w)));
+  }
+}
+
+@media (max-width: 720px) {
+  .main-layout {
+    grid-template-columns: minmax(120px, min(160px, var(--left-w))) 1px minmax(200px, 1fr);
   }
 
-  .right {
-    display: none;
-  }
-
-  .resize-handle:nth-of-type(2) {
-    display: none;
+  .main-layout.has-preview {
+    grid-template-columns:
+      minmax(100px, min(150px, var(--left-w))) 1px minmax(180px, 1fr) 1px
+      minmax(160px, min(240px, var(--preview-w)));
   }
 }
 </style>

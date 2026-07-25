@@ -4,43 +4,63 @@
   box-sizing: border-box;
 }
 
+/*
+ * Color tokens are injected at runtime by `applyColorTokens` (see theme/tokens.ts).
+ * Values below are FOUC-safe defaults (GitHub Dark) until JS boots.
+ */
 :root {
-  --bg: #202124;
-  --surface: #292a2d;
-  --surface-elevated: #1f2023;
-  --surface-hover: #303134;
-  --border: #3c4043;
-  --text: #e8eaed;
-  --text-muted: #9aa0a6;
-  --accent: #8ab4f8;
-  --accent-text: #202124;
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-elevated: #161b22;
+  --surface-inset: #010409;
+  --surface-hover: #21262d;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-muted: #9198a1;
+  --accent: #58a6ff;
+  --accent-text: #ffffff;
+  --tab-indicator: #f78166;
+  --danger: #f85149;
+  --danger-muted: #ff7b72;
+  --success: #3fb950;
+  --success-emphasis: #238636;
+  --attention: #d29922;
+  --token-comment: #8b949e;
+  --token-keyword: #ff7b72;
+  --token-string: #a5d6ff;
+  --token-variable: #ffa657;
+  --token-property: #79c0ff;
+  --token-number: #79c0ff;
+
+  --bg-solid: #0d1117;
+  --surface-solid: #161b22;
+  --surface-elevated-solid: #161b22;
+  --surface-inset-solid: #010409;
+  --surface-hover-solid: #21262d;
+
+  --wallpaper-image: none;
+  --wallpaper-size: cover;
+  --wallpaper-repeat: no-repeat;
+  --wallpaper-blend: normal;
+  --wallpaper-opacity: 0;
+  --wallpaper-blur: 0px;
+  --panel-frost: 0px;
+
   font-family:
-    "Inter",
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
+    "Noto Sans",
+    Helvetica,
+    Arial,
     sans-serif;
   font-size: 14px;
   line-height: 1.5;
   color: var(--text);
-  background: var(--bg);
+  background: var(--bg-solid);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f8fafd;
-    --surface: #ffffff;
-    --surface-elevated: #f1f3f4;
-    --surface-hover: #e8eaed;
-    --border: #dadce0;
-    --text: #202124;
-    --text-muted: #5f6368;
-    --accent: #1a73e8;
-    --accent-text: #ffffff;
-  }
 }
 
 html,
@@ -49,6 +69,72 @@ body,
   margin: 0;
   height: 100%;
   overflow: hidden;
+}
+
+body {
+  background: var(--bg-solid);
+}
+
+#app {
+  position: relative;
+  z-index: 1;
+}
+
+/*
+ * Wallpaper sits behind the UI. Higher intensity → stronger image + more
+ * translucent chrome (glass), so 100% feels open rather than fogged on top.
+ */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-color: transparent;
+  background-image: var(--wallpaper-image);
+  background-size: var(--wallpaper-size);
+  background-repeat: var(--wallpaper-repeat);
+  background-position: center;
+  opacity: var(--wallpaper-opacity);
+  mix-blend-mode: var(--wallpaper-blend);
+  filter: none;
+  transform: none;
+  image-rendering: auto;
+}
+
+/* Blur the wallpaper layer itself — panel backdrop-filter alone is punched
+   through by transparent children and often ignores full `var()` values. */
+:root[data-wallpaper="on"][data-wallpaper-blur="on"] body::before {
+  filter: blur(var(--wallpaper-blur));
+  /* Grow slightly so blurred edges don't show empty bands. */
+  transform: scale(1.08);
+}
+
+/*
+ * Avoid stacking translucent layers (shell + panel + child each at 8% solid
+ * quickly becomes opaque). Keep glass on leaf panes only.
+ */
+:root[data-wallpaper="on"] .app-shell,
+:root[data-wallpaper="on"] .main-layout > .panel,
+:root[data-wallpaper="on"] .center-tabs,
+:root[data-wallpaper="on"] .settings-slot,
+:root[data-wallpaper="on"] .code-editor,
+:root[data-wallpaper="on"] .code-editor .toolbar,
+:root[data-wallpaper="on"] .diff-merge-editor,
+:root[data-wallpaper="on"] .chat-workspace {
+  background: transparent !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* Panel frost softens wallpaper detail under text. Light schemes always frost
+   panels even when the blur slider is 0 (see --panel-frost). */
+:root[data-wallpaper="on"][data-panel-frost="on"] .left-panel,
+:root[data-wallpaper="on"][data-panel-frost="on"] .chat-panel,
+:root[data-wallpaper="on"][data-panel-frost="on"] .preview-panel,
+:root[data-wallpaper="on"][data-panel-frost="on"] .settings-panel {
+  -webkit-backdrop-filter: blur(var(--panel-frost));
+  backdrop-filter: blur(var(--panel-frost));
 }
 
 button,
@@ -78,4 +164,3 @@ textarea {
 *::-webkit-scrollbar-thumb:hover {
   background: color-mix(in srgb, var(--text-muted) 52%, transparent);
 }
-

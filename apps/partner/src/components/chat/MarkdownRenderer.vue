@@ -143,7 +143,7 @@ async function onMarkdownClick(event: MouseEvent) {
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--surface-elevated) 82%, #10141b);
+  background: var(--surface-inset);
   overflow-x: auto;
   white-space: pre;
 }
@@ -227,8 +227,8 @@ async function onMarkdownClick(event: MouseEvent) {
   background: linear-gradient(
     to bottom,
     transparent,
-    color-mix(in srgb, var(--surface-elevated) 84%, #10141b) 54%,
-    color-mix(in srgb, var(--surface-elevated) 92%, #10141b)
+    color-mix(in srgb, var(--surface-inset) 84%, var(--bg)) 54%,
+    color-mix(in srgb, var(--surface-inset) 92%, var(--bg))
   );
   pointer-events: none;
 }
@@ -239,7 +239,7 @@ async function onMarkdownClick(event: MouseEvent) {
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   border-top: none;
   border-radius: 0 0 8px 8px;
-  background: color-mix(in srgb, var(--surface-elevated) 82%, #10141b);
+  background: var(--surface-inset);
 }
 
 .markdown-renderer :deep(.code-block-shell.is-expanded pre) {
@@ -281,34 +281,34 @@ async function onMarkdownClick(event: MouseEvent) {
 }
 
 .markdown-renderer :deep(.code-block code) {
-  color: color-mix(in srgb, var(--text) 88%, #d8e2ff);
+  color: color-mix(in srgb, var(--text) 88%, var(--token-string, #a5d6ff));
 }
 
 .markdown-renderer :deep(.token-comment) {
-  color: #7f8da3;
+  color: var(--token-comment, #8b949e);
   font-style: italic;
 }
 
 .markdown-renderer :deep(.token-keyword) {
-  color: #8ab4ff;
+  color: var(--token-keyword, #ff7b72);
   font-weight: 650;
 }
 
 .markdown-renderer :deep(.token-string) {
-  color: #9bd88f;
+  color: var(--token-string, #a5d6ff);
 }
 
 .markdown-renderer :deep(.token-variable) {
-  color: #ffd166;
+  color: var(--token-variable, #ffa657);
 }
 
 .markdown-renderer :deep(.token-property) {
-  color: #8bd3ff;
+  color: var(--token-property, #79c0ff);
 }
 
 .markdown-renderer :deep(.token-number),
 .markdown-renderer :deep(.token-literal) {
-  color: #f7a8c4;
+  color: var(--token-number, #79c0ff);
 }
 
 .markdown-renderer :deep(a) {

@@ -2,13 +2,11 @@ import { syntaxHighlighting } from "@codemirror/language";
 import { oneDarkHighlightStyle } from "@codemirror/theme-one-dark";
 import { EditorView } from "@codemirror/view";
 
-const editorBackground = "#1f2023";
-
 export const partnerEditorTheme = EditorView.theme({
   "&": {
     height: "100%",
     fontSize: "13px",
-    backgroundColor: editorBackground,
+    backgroundColor: "var(--bg)",
     color: "var(--text)",
     position: "relative",
   },
@@ -20,7 +18,7 @@ export const partnerEditorTheme = EditorView.theme({
     fontFamily:
       'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
     lineHeight: "1.6",
-    backgroundColor: editorBackground,
+    backgroundColor: "var(--bg)",
     position: "relative",
     overflowX: "hidden",
     scrollbarWidth: "thin",
@@ -41,7 +39,7 @@ export const partnerEditorTheme = EditorView.theme({
     background: "color-mix(in srgb, var(--text-muted) 48%, transparent)",
   },
   ".cm-gutters": {
-    backgroundColor: editorBackground,
+    backgroundColor: "var(--bg)",
     color: "color-mix(in srgb, var(--text-muted) 82%, transparent)",
     borderRight: "none",
     paddingLeft: "8px",
@@ -111,7 +109,7 @@ export const partnerEditorTheme = EditorView.theme({
     border: "1px solid color-mix(in srgb, var(--border) 42%, transparent)",
     borderRadius: "9px",
     background:
-      "linear-gradient(180deg, color-mix(in srgb, #282a30 46%, transparent), color-mix(in srgb, #17181b 52%, transparent))",
+      "linear-gradient(180deg, color-mix(in srgb, #21262d 46%, transparent), color-mix(in srgb, #010409 52%, transparent))",
     boxShadow: "0 12px 34px rgba(0, 0, 0, 0.24)",
     opacity: "0.46",
     backdropFilter: "blur(10px)",
@@ -157,10 +155,10 @@ export const partnerEditorTheme = EditorView.theme({
     outline: "1px solid color-mix(in srgb, var(--accent) 22%, transparent)",
   },
   ".cm-diagnostic-error": {
-    borderBottom: "2px wavy #ef4444",
+    borderBottom: "2px wavy #f85149",
   },
   ".cm-diagnostic-warning": {
-    borderBottom: "2px wavy #f59e0b",
+    borderBottom: "2px wavy #d29922",
   },
   ".cm-tooltip": {
     backgroundColor: "var(--surface-elevated)",
@@ -369,12 +367,12 @@ export const partnerEditorTheme = EditorView.theme({
     content: '"ab"',
   },
   ".cm-searchMatch": {
-    backgroundColor: "color-mix(in srgb, #fbbc04 28%, transparent)",
-    outline: "1px solid color-mix(in srgb, #fbbc04 35%, transparent)",
+    backgroundColor: "color-mix(in srgb, #d29922 28%, transparent)",
+    outline: "1px solid color-mix(in srgb, #d29922 35%, transparent)",
   },
   ".cm-searchMatch-selected": {
-    backgroundColor: "color-mix(in srgb, #fbbc04 45%, transparent)",
-    outline: "1px solid color-mix(in srgb, #fbbc04 70%, transparent)",
+    backgroundColor: "color-mix(in srgb, #d29922 45%, transparent)",
+    outline: "1px solid color-mix(in srgb, #d29922 70%, transparent)",
   },
 });
 

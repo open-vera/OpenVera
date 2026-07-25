@@ -226,9 +226,10 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border: none;
+  border-radius: 6px;
   padding: 0;
   background: transparent;
   color: var(--text-muted);
@@ -258,7 +259,9 @@ onBeforeUnmount(() => {
   padding: 6px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--surface-elevated);
+  background: var(--surface-elevated-solid, var(--surface-elevated));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   box-shadow: 0 16px 38px rgb(0 0 0 / 38%);
   overflow-y: auto;
 }
@@ -270,7 +273,7 @@ onBeforeUnmount(() => {
 }
 
 .history-empty.error {
-  color: #ff8a8a;
+  color: var(--danger-muted);
 }
 
 .history-item {

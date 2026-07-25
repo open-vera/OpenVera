@@ -85,6 +85,7 @@ export type LLMProviderId = string;
 export type LLMProtocol = "anthropic" | "openai-compatible" | "openai-responses" | "gemini";
 export type AppLocale = "zh" | "en";
 export type AgentRunMode = "agent" | "chat" | "plan";
+export type { AppThemeId, ResolvedThemeId } from "@/theme";
 
 export interface CatalogProvider {
   id: string;

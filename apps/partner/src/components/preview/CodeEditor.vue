@@ -395,7 +395,7 @@ watch(
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: #1f2023;
+  background: var(--bg);
 }
 
 .toolbar {
@@ -404,7 +404,7 @@ watch(
   gap: 8px;
   min-height: 30px;
   padding: 0 16px;
-  background: #1f2023;
+  background: var(--bg);
 }
 
 .path {
@@ -426,7 +426,7 @@ watch(
 
 .save-error,
 .format-error {
-  color: #f28b82;
+  color: var(--danger-muted);
 }
 
 .editor-context-menu {
@@ -436,7 +436,9 @@ watch(
   padding: 4px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--surface);
+  background: var(--surface-elevated-solid, var(--surface-solid, var(--surface)));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
 }
 
