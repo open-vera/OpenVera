@@ -118,7 +118,6 @@ const activeToolProgressKey = computed(() => {
   return "";
 });
 
-const chatTabCount = computed(() => tabs.value.filter((tab) => tab.kind === "chat").length);
 const latestRunningToolCall = computed(() => {
   for (let index = messages.value.length - 1; index >= 0; index -= 1) {
     const message = messages.value[index];
@@ -162,12 +161,6 @@ const uiText = computed(() => {
     dismiss: "关闭",
   };
 });
-
-function canCloseTab(tabId: string): boolean {
-  const tab = tabs.value.find((item) => item.id === tabId);
-  if (!tab) return false;
-  return tab.kind === "settings" || chatTabCount.value > 1;
-}
 
 function createNewChat() {
   chat.createChatTab();
@@ -329,13 +322,7 @@ watch(
         >
           <span class="tab-title">{{ tabTitle(tab) }}</span>
           <span v-if="tab.isAgentRunning" class="running-dot" :aria-label="uiText.running" />
-          <span
-            v-if="canCloseTab(tab.id)"
-            class="tab-close"
-            @click.stop="closeTab(tab.id)"
-          >
-            ×
-          </span>
+          <span class="tab-close" @click.stop="closeTab(tab.id)">×</span>
         </button>
         <button
           type="button"
@@ -437,7 +424,7 @@ watch(
   align-items: stretch;
   flex-shrink: 0;
   min-width: 0;
-  height: 48px;
+  height: 36px;
   padding: 0;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
@@ -476,9 +463,9 @@ watch(
 
 .center-tabs :deep(.search-button),
 .center-tabs :deep(.history-button) {
-  width: 36px;
-  height: 36px;
-  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
 }
 
 .center-tab,
@@ -486,22 +473,22 @@ watch(
   position: relative;
   display: inline-flex;
   align-items: center;
-  height: 48px;
+  height: 36px;
   border: none;
   border-radius: 0;
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
 }
 
 .center-tab {
-  gap: 8px;
-  min-width: 88px;
-  max-width: 180px;
-  padding: 0 12px;
+  gap: 6px;
+  min-width: 72px;
+  max-width: 160px;
+  padding: 0 10px;
   text-align: left;
 }
 
@@ -570,11 +557,21 @@ watch(
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
-  border-radius: 4px;
+  border-radius: 5px;
   color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.center-tab:hover .tab-close,
+.center-tab.active .tab-close {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .tab-close:hover {
@@ -583,8 +580,8 @@ watch(
 }
 
 .running-dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   flex-shrink: 0;
   border-radius: 999px;
   background: var(--accent);
@@ -592,12 +589,12 @@ watch(
 }
 
 .new-chat {
-  gap: 6px;
+  gap: 4px;
   justify-content: center;
   flex-shrink: 0;
-  padding: 0 12px;
+  padding: 0 10px;
   background: transparent;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .settings-slot {

@@ -190,6 +190,19 @@ describe("useSettingsStore", () => {
     expect((document.documentElement.dataset as DOMStringMap).wallpaper).toBe("on");
   });
 
+  it("resets clarity and blur to theme defaults when following theme", () => {
+    const settings = useSettingsStore();
+    settings.setTheme("ayaka-night");
+    settings.setWallpaperMode("ayaka-night");
+    settings.setWallpaperOpacity(1);
+    settings.setWallpaperBlur(18);
+
+    settings.setWallpaperMode("theme");
+
+    expect(settings.wallpaperOpacity).toBe(0.32);
+    expect(settings.wallpaperBlur).toBe(0);
+  });
+
   it("persists agent mode preference", async () => {
     const settings = useSettingsStore();
 

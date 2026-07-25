@@ -160,10 +160,25 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  function resetChatTab(tab: ChatTab, title = "对话 1") {
+    tab.title = title;
+    tab.messages = [];
+    tab.isAgentRunning = false;
+    tab.activeTaskId = null;
+    tab.lastTaskId = null;
+    tab.lastError = null;
+    tab.currentTokenCount = 0;
+    tab.estimatedCost = 0;
+  }
+
   function closeTab(id: string) {
     const tab = tabs.value.find((item) => item.id === id);
     if (!tab) return;
+
+    // Keep at least one chat tab: closing the last one clears it instead.
     if (tab.kind === "chat" && tabs.value.filter((item) => item.kind === "chat").length === 1) {
+      resetChatTab(tab);
+      activeTabId.value = tab.id;
       return;
     }
 

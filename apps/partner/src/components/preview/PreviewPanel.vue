@@ -188,7 +188,7 @@ watch(
 .tabs-shell {
   position: relative;
   flex-shrink: 0;
-  height: 48px;
+  height: 36px;
   min-width: 0;
   border-bottom: 1px solid var(--border);
   background: var(--bg);
@@ -197,7 +197,7 @@ watch(
 .tabs {
   display: flex;
   align-items: stretch;
-  height: 48px;
+  height: 36px;
   padding: 0;
   background: var(--bg);
   overflow-x: auto;

@@ -105,11 +105,12 @@ const wallpaperPreviewUrl = computed(() => {
   return null;
 });
 
-/** Custom scales only apply when a concrete wallpaper is chosen (not follow-theme / none). */
-const showCustomPalettes = computed(
+/** Tuning + custom scales only when a concrete wallpaper is chosen (not follow-theme / none). */
+const showWallpaperTuning = computed(
   () =>
     settings.wallpaperMode === "custom" || isBuiltinWallpaperId(settings.wallpaperMode),
 );
+const showCustomPalettes = showWallpaperTuning;
 
 function wallpaperBuiltinLabel(id: (typeof BUILTIN_WALLPAPER_ORDER)[number]) {
   const wallpaper = BUILTIN_WALLPAPERS[id];
@@ -206,7 +207,8 @@ const copy = computed(() => {
       themeHint: "Preset colors. Picking a custom scale below clears this.",
       themeCustom: "Custom",
       wallpaper: "Background",
-      wallpaperHint: "Clarity tints panels; blur softens the wallpaper itself. Blur=0 keeps it sharp.",
+      wallpaperHint:
+        "Follow theme uses the theme defaults. Pick a builtin/custom image to tune clarity and blur.",
       wallpaperTheme: "Follow theme",
       wallpaperNone: "None",
       wallpaperBuiltinGroup: "Builtin",
@@ -284,7 +286,7 @@ const copy = computed(() => {
     themeHint: "预设配色；若选用下方自定义色阶，此处会取消勾选",
     themeCustom: "自定义",
     wallpaper: "背景图",
-    wallpaperHint: "通透度只影响面板；模糊会直接柔化背景图本身，0 为最清晰",
+    wallpaperHint: "跟随主题时使用主题默认效果；选择内置/自定义背景后可调通透度与模糊",
     wallpaperTheme: "跟随主题",
     wallpaperNone: "无",
     wallpaperBuiltinGroup: "内置背景",
@@ -843,32 +845,32 @@ watch(
             </button>
           </div>
 
-          <label class="wallpaper-opacity">
-            <span>{{ copy.wallpaperOpacity }} · {{ Math.round(settings.wallpaperOpacity * 100) }}%</span>
-            <input
-              type="range"
-              :min="MIN_WALLPAPER_OPACITY"
-              :max="MAX_WALLPAPER_OPACITY"
-              step="0.01"
-              :value="settings.wallpaperOpacity"
-              :disabled="settings.wallpaperMode === 'none'"
-              @input="onWallpaperOpacityChange"
-            />
-          </label>
+          <template v-if="showWallpaperTuning">
+            <label class="wallpaper-opacity">
+              <span>{{ copy.wallpaperOpacity }} · {{ Math.round(settings.wallpaperOpacity * 100) }}%</span>
+              <input
+                type="range"
+                :min="MIN_WALLPAPER_OPACITY"
+                :max="MAX_WALLPAPER_OPACITY"
+                step="0.01"
+                :value="settings.wallpaperOpacity"
+                @input="onWallpaperOpacityChange"
+              />
+            </label>
 
-          <label class="wallpaper-opacity">
-            <span>{{ copy.wallpaperBlur }} · {{ Math.round(wallpaperBlurDraft) }}px</span>
-            <input
-              type="range"
-              :min="MIN_WALLPAPER_BLUR"
-              :max="MAX_WALLPAPER_BLUR"
-              step="1"
-              :value="wallpaperBlurDraft"
-              :disabled="settings.wallpaperMode === 'none'"
-              @input="onWallpaperBlurInput"
-              @change="onWallpaperBlurCommit"
-            />
-          </label>
+            <label class="wallpaper-opacity">
+              <span>{{ copy.wallpaperBlur }} · {{ Math.round(wallpaperBlurDraft) }}px</span>
+              <input
+                type="range"
+                :min="MIN_WALLPAPER_BLUR"
+                :max="MAX_WALLPAPER_BLUR"
+                step="1"
+                :value="wallpaperBlurDraft"
+                @input="onWallpaperBlurInput"
+                @change="onWallpaperBlurCommit"
+              />
+            </label>
+          </template>
 
           <div
             v-if="wallpaperPreviewUrl"

@@ -224,6 +224,8 @@ export const useSettingsStore = defineStore("settings", {
         this.customPaletteId = null;
       }
       this.wallpaperDataUrl = readStoredWallpaperDataUrl();
+      // Follow-theme ignores stored clarity/blur and always uses theme defaults.
+      this.syncThemeWallpaperDefaults();
       await this.refreshCustomPalettes();
       this.applyAppearance();
 
@@ -242,6 +244,17 @@ export const useSettingsStore = defineStore("settings", {
     setLocale(locale: AppLocale) {
       this.locale = locale;
     },
+    /** Follow-theme mode uses theme defaults; clarity/blur are not user-tunable. */
+    syncThemeWallpaperDefaults() {
+      if (this.wallpaperMode !== "theme") return;
+      this.wallpaperBlur = DEFAULT_WALLPAPER_BLUR;
+      if (this.theme === "custom") {
+        this.wallpaperOpacity = DEFAULT_WALLPAPER_OPACITY;
+        return;
+      }
+      const builtin = themeDefaultWallpaper(resolveThemeId(this.theme));
+      this.wallpaperOpacity = builtin?.defaultOpacity ?? DEFAULT_WALLPAPER_OPACITY;
+    },
     setTheme(theme: AppThemeId) {
       const next = normalizeThemeId(theme);
       // Preset themes clear the custom palette selection.
@@ -249,12 +262,7 @@ export const useSettingsStore = defineStore("settings", {
         this.customPaletteId = null;
       }
       this.theme = next;
-      if (this.wallpaperMode === "theme" && next !== "custom") {
-        const builtin = themeDefaultWallpaper(resolveThemeId(next));
-        if (builtin) {
-          this.wallpaperOpacity = builtin.defaultOpacity;
-        }
-      }
+      this.syncThemeWallpaperDefaults();
       this.applyAppearance();
     },
     setCustomPalette(id: CustomPaletteId) {
@@ -264,11 +272,8 @@ export const useSettingsStore = defineStore("settings", {
     },
     setWallpaperMode(mode: WallpaperMode) {
       this.wallpaperMode = mode;
-      if (mode === "theme" && this.theme !== "custom") {
-        const builtin = themeDefaultWallpaper(resolveThemeId(this.theme));
-        if (builtin) {
-          this.wallpaperOpacity = builtin.defaultOpacity;
-        }
+      if (mode === "theme") {
+        this.syncThemeWallpaperDefaults();
       } else if (isBuiltinWallpaperId(mode)) {
         this.wallpaperOpacity = BUILTIN_WALLPAPERS[mode].defaultOpacity;
       }
@@ -302,6 +307,7 @@ export const useSettingsStore = defineStore("settings", {
         this.customPaletteId = null;
       }
       this.customPalettes = [];
+      this.syncThemeWallpaperDefaults();
       this.applyAppearance();
       void this.refreshCustomPalettes();
     },

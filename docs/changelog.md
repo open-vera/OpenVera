@@ -13,6 +13,7 @@ After each commit, append a summary to this file. Detailed content goes into `do
 
 | Date Batch | Summary | Detail |
 |---|---|---|
+| 2026-07-25 · 14:xx | feat(partner): 顶栏更紧凑、页签关闭交互、跟随主题隐藏通透度 | [→](./changelog/2026-07-25-14.md) |
 | 2026-07-25 · 12:xx | feat(partner): 主题/壁纸玻璃 UI、自定义色阶提取与浅色可读性 | [→](./changelog/2026-07-25-12.md) |
 | 2026-07-07 · 20:xx | feat(core+partner): OpenAI Responses API adapter，四层协议打通（core/sidecar/tauri/UI） | [→](./changelog/2026-07-07-20.md) |
 | 2026-06-05 · 00:xx | docs: VitePress documentation site launched, bilingual EN/ZH, 9 new feature docs, sidebar restructure | [→](./changelog/2026-06-05-00.md) |

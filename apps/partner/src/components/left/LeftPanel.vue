@@ -744,10 +744,10 @@ watch([searchQuery, includeQuery, excludeQuery], () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 6px;
   flex-shrink: 0;
-  height: 48px;
-  padding: 0 8px;
+  height: 36px;
+  padding: 0 6px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -755,10 +755,10 @@ watch([searchQuery, includeQuery, excludeQuery], () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
   border: none;
-  border-radius: 6px;
+  border-radius: 5px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -771,8 +771,8 @@ watch([searchQuery, includeQuery, excludeQuery], () => {
 }
 
 .activity-button svg {
-  width: 17px;
-  height: 17px;
+  width: 15px;
+  height: 15px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.7;

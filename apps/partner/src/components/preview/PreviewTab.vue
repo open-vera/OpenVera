@@ -31,16 +31,16 @@ const emit = defineEmits<{
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex: 0 0 auto;
   min-width: max-content;
-  height: 48px;
-  padding: 0 12px;
+  height: 36px;
+  padding: 0 10px;
   border: none;
   border-radius: 0;
   background: transparent;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
@@ -109,8 +109,8 @@ const emit = defineEmits<{
 }
 
 .dirty-dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   flex-shrink: 0;
   border-radius: 999px;
   background: var(--accent);
@@ -120,14 +120,24 @@ const emit = defineEmits<{
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
-  border-radius: 4px;
-  opacity: 0.6;
+  border-radius: 5px;
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
 }
 
-.close:hover {
+.tab:hover .close,
+.tab.active .close {
+  opacity: 0.7;
+  pointer-events: auto;
+}
+
+.tab:hover .close:hover,
+.tab.active .close:hover {
   background: var(--surface-hover);
   opacity: 1;
 }

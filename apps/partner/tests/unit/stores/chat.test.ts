@@ -411,4 +411,24 @@ describe("useChatStore", () => {
     expect(chat.messages[0]?.queueStatus).toBeUndefined();
     expect(chat.messages[1]?.queueStatus).toBeUndefined();
   });
+
+  it("resets the last chat tab instead of removing it", () => {
+    const chat = useChatStore();
+    const tabId = chat.ensureActiveChatTab();
+    chat.append({
+      id: "m1",
+      role: "user",
+      content: "keep one tab",
+      timestamp: Date.now(),
+    }, tabId);
+    chat.setLastError("boom", tabId);
+
+    chat.closeTab(tabId);
+
+    expect(chat.tabs.filter((tab) => tab.kind === "chat")).toHaveLength(1);
+    expect(chat.activeTabId).toBe(tabId);
+    expect(chat.messages).toEqual([]);
+    expect(chat.lastError).toBeNull();
+    expect(chat.tabs.find((tab) => tab.id === tabId)?.title).toBe("对话 1");
+  });
 });
