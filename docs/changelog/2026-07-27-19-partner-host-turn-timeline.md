@@ -18,6 +18,8 @@
 | `9a3a7ed` | partner | 多项目工作区、内嵌终端、文件操作、quick open、LSP 跳转、Markdown 预览、diff/merge 编辑器、托盘、perf 层；无项目时右侧列整体收起；向上展开的弹层改 bottom 锚定 |
 | `a69c325` | ci | partner-release workflow、build-release 包装、CI 增加 partner 测试、旧会话迁移脚本 |
 | `dd63f7a` | partner | 对话 tab 拖拽重排 / 跨条移动 |
+| `27858ed` | harness | benchmark / eval / skill / swarm 的测试迁移到已拆分出的对应包（原路径 `../src/benchmark/*` 等已不存在，全部收集失败） |
+| `cc806d8` | harness | 9 个包补 `vitest.config.ts` 排除 `**/dist/**`，不再同时收集编译产物里的同名测试 |
 
 ### 三个协议级修复（含在 `f70dece`）
 
@@ -27,13 +29,14 @@
 
 ## 测试
 
-- `apps/partner`：71 文件 / 385 用例通过；新增 `chat-timeline`（9）、`chat-runner` 分段（4）、`turn-timeline` 组件（4）、`context-usage-ring` 组件（8）、`tool-progress` 折行（3）、`model-catalog` 空条目（1）
+- `apps/partner`：73 文件 / 398 用例通过；新增 `chat-timeline`（9）、`chat-runner` 分段（4）、`turn-timeline` 组件（4）、`context-usage-ring` 组件（8）、`tool-progress` 折行（3）、`model-catalog` 空条目（1）
 - `packages/core`：199 文件 / 4748 用例通过（修正了两处 openai adapter 的过期期望，`cache_included_in_input` 是有意新增字段）
-- `src-tauri`：`cargo test` 14 用例通过（协议 camelCase、domain event、事件名合法性、dispatch 不变量）
+- `src-tauri`：`cargo test` 41 用例通过（协议 camelCase、domain event、事件名合法性、dispatch 不变量）
+- **全 workspace `pnpm -r test` 首次全绿**：修掉 harness 系列 37 个失败（见 `27858ed` / `cc806d8`），`packages/harness` 22 文件、`harness-benchmark` 6、`harness-eval` 7、`harness-swarm` 4、`harness-skill` 1、`harness-strategy` 3 全通过
 
 ## 遗留事项
 
-- `packages/harness` 有 37 个既有失败（缺 benchmark/eval fixture、`dist/` 下的过期测试），与本批次无关，未处理
 - 旧会话历史消息没有 `turnId`，按 legacy 分支平铺、不折叠；只有重启后新产生的轮次有新展示
 - `FileTreeNode.reloadChildren` 列目录失败仍只 `console.warn`，界面上分不清"空目录"和"读取失败"
+- `harness-benchmark` / `harness-eval` 现在存在同一被测类的两套测试（迁移过来的旧套件更全，新套件有独有用例，均未删），后续可合并去重
 - 覆盖率未单独统计（本批次以 partner 应用为主，`packages/core` 侧改动小）
