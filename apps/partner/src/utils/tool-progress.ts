@@ -71,15 +71,199 @@ function quoteShellArg(value: string): string {
   return JSON.stringify(value);
 }
 
-function inputCommand(input: Record<string, unknown>): string | null {
+export function inputCommand(input: Record<string, unknown>): string | null {
   const command = asString(input.command) ?? asString(input.cmd);
   if (!command) return null;
   const args = asStringArray(input.args);
   return [command, ...args].map(quoteShellArg).join(" ");
 }
 
-function inputCwd(input: Record<string, unknown>): string | null {
+export function inputCwd(input: Record<string, unknown>): string | null {
   return asString(input.cwd) ?? asString(input.projectRoot);
+}
+
+/** One-line preview for compact step lists (collapse newlines / excess spaces). */
+export function oneLineText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+export function isShellProgressStep(step: Pick<ToolProgressStep, "category">): boolean {
+  return step.category === "shell" || step.category === "git";
+}
+
+const SKIP_PARAM_KEYS = new Set([
+  "callId",
+  "level",
+  "needsTools",
+  "needsPlanning",
+  "reason",
+  "executionMode",
+  "domain",
+]);
+
+function formatParamValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === "string" ? quoteShellArg(item) : formatParamValue(item)))
+      .join(" ");
+  }
+  if (value && typeof value === "object") {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
+function hasDisplayableParams(input: Record<string, unknown>): boolean {
+  return Object.entries(input).some(([key, value]) => {
+    if (SKIP_PARAM_KEYS.has(key)) return false;
+    if (value == null) return false;
+    if (typeof value === "string") return value.trim().length > 0;
+    if (Array.isArray(value)) return value.length > 0;
+    return true;
+  });
+}
+
+/** Primary one-line summary for a tool call (command / path / query / …). */
+export function primaryToolDetail(step: Pick<ToolProgressStep, "category" | "detail" | "rawInput">): string {
+  const command = inputCommand(step.rawInput);
+  if (command && isShellProgressStep(step)) return command;
+  return (
+    inputPath(step.rawInput) ??
+    inputQuery(step.rawInput) ??
+    command ??
+    step.detail
+  );
+}
+
+/** Full parameter dump for expanded step view. */
+export function formatToolParams(input: Record<string, unknown>): string {
+  const lines: string[] = [];
+  for (const [key, value] of Object.entries(input)) {
+    if (SKIP_PARAM_KEYS.has(key)) continue;
+    if (value == null) continue;
+    if (typeof value === "string" && !value.trim()) continue;
+    if (Array.isArray(value) && value.length === 0) continue;
+
+    const formatted = formatParamValue(value);
+    if (formatted.includes("\n")) {
+      lines.push(`${key}:`);
+      lines.push(formatted);
+    } else {
+      lines.push(`${key}: ${formatted}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+/** Keep expand-all from freezing the UI on huge tool params / outputs. */
+export const TOOL_DETAIL_FULL_MAX_CHARS = 4_000;
+export const TOOL_RESULT_PREVIEW_MAX_CHARS = 1_200;
+/** Compact collapsed panel: a few lines of tool / LLM result. */
+export const TOOL_RESULT_COMPACT_PREVIEW_MAX_CHARS = 360;
+export const TOOL_RESULT_MARKDOWN_MAX_CHARS = 24_000;
+
+export function truncateDisplayText(text: string, maxChars: number): {
+  text: string;
+  truncated: boolean;
+} {
+  if (text.length <= maxChars) {
+    return { text, truncated: false };
+  }
+  return {
+    text: `${text.slice(0, maxChars)}\n…`,
+    truncated: true,
+  };
+}
+
+/** Progress-style spam (`Progress: resolved 66, …`) shares a long head. */
+const REPEAT_PREFIX_CHARS = 16;
+const REPEAT_MIN_RUN = 3;
+
+/**
+ * Fold consecutive near-identical lines into the last one plus a count, so a
+ * package manager's progress spinner cannot bury the rest of the output.
+ */
+export function foldRepeatedLines(text: string, suffix = "行相似"): string {
+  const lines = text.split("\n");
+  if (lines.length < REPEAT_MIN_RUN) return text;
+  const folded: string[] = [];
+  let runStart = 0;
+
+  const flush = (endExclusive: number) => {
+    const count = endExclusive - runStart;
+    const last = lines[endExclusive - 1] ?? "";
+    if (count >= REPEAT_MIN_RUN) {
+      folded.push(`${last}  … ×${count} ${suffix}`);
+      return;
+    }
+    for (let index = runStart; index < endExclusive; index += 1) {
+      folded.push(lines[index] ?? "");
+    }
+  };
+
+  const head = (line: string) => line.trim().slice(0, REPEAT_PREFIX_CHARS);
+  for (let index = 1; index <= lines.length; index += 1) {
+    const sameRun =
+      index < lines.length &&
+      head(lines[index] ?? "") !== "" &&
+      head(lines[index] ?? "") === head(lines[runStart] ?? "");
+    if (sameRun) continue;
+    flush(index);
+    runStart = index;
+  }
+
+  return folded.join("\n");
+}
+
+/** One-line result summary for the live (running) progress view. */
+export function summarizeResultOutput(
+  output: string,
+  isError: boolean | undefined,
+  locale?: string,
+): string {
+  const zh = (locale ?? "zh").toLowerCase().startsWith("zh");
+  const text = output.trim();
+  if (!text) {
+    if (isError) return zh ? "失败 · 无输出" : "failed · no output";
+    return zh ? "完成 · 无输出" : "done · no output";
+  }
+  const lines = text.split("\n").filter((line) => line.trim());
+  const first = oneLineText(lines[0] ?? "");
+  const countLabel = zh ? `${lines.length} 行` : `${lines.length} lines`;
+  return lines.length > 1 ? `${countLabel} · ${first}` : first;
+}
+
+/**
+ * Compact: single-line preview with collapsed whitespace.
+ * Full: complete tool params (or short agent label when there are none).
+ */
+export function formatStepDetail(
+  step: ToolProgressStep,
+  mode: "compact" | "full",
+): string {
+  if (step.category === "agent" || step.category === "approval" || step.category === "error") {
+    return mode === "compact" ? oneLineText(step.detail) : step.detail;
+  }
+
+  const command = inputCommand(step.rawInput);
+  if (command && isShellProgressStep(step)) {
+    return mode === "compact" ? oneLineText(command) : command;
+  }
+
+  if (mode === "compact") {
+    return oneLineText(primaryToolDetail(step));
+  }
+
+  const full = hasDisplayableParams(step.rawInput)
+    ? formatToolParams(step.rawInput)
+    : step.detail;
+  return truncateDisplayText(full, TOOL_DETAIL_FULL_MAX_CHARS).text;
 }
 
 function classifyTool(name: string): string {
@@ -111,7 +295,12 @@ function classifyTool(name: string): string {
   ) {
     return "search";
   }
-  if (normalized.includes("shell") || normalized.includes("exec") || normalized.includes("command")) {
+  if (
+    normalized === "bash" ||
+    normalized.includes("shell") ||
+    normalized.includes("exec") ||
+    normalized.includes("command")
+  ) {
     return "shell";
   }
   if (normalized.includes("git")) return "git";
@@ -150,13 +339,11 @@ function describeDetail(
         : ({ code: "代码", chat: "对话", other: "通用" }[domain] ?? domain)
       : null;
     const planned = input.executionMode === "harness_plan";
-    const modeLabel =
-      locale === "en-US" ? (planned ? "plan" : "direct") : planned ? "规划执行" : "直接执行";
-    const prefix = locale === "en-US" ? "Intent" : "意图识别";
-    if (locale === "en-US") {
-      return domainLabel ? `${prefix}: ${domainLabel} · ${modeLabel}` : `${prefix}: ${modeLabel}`;
+    if (planned) {
+      const planLabel = locale === "en-US" ? "plan" : "规划";
+      return domainLabel ? `${domainLabel} · ${planLabel}` : planLabel;
     }
-    return domainLabel ? `${prefix}：${domainLabel} · ${modeLabel}` : `${prefix}：${modeLabel}`;
+    return domainLabel ?? (locale === "en-US" ? "chat" : "对话");
   }
   if (name === "agent_error") {
     const message = asString(input.message);
@@ -197,20 +384,17 @@ function describeDetail(
   const path = inputPath(input);
   const query = inputQuery(input);
   const command = inputCommand(input);
-  const cwd = inputCwd(input);
+
+  if ((category === "shell" || category === "git") && command) {
+    return command;
+  }
 
   if (locale === "en-US") {
-    if ((category === "shell" || category === "git") && command) {
-      return cwd ? `Ran command: ${command} (cwd: ${cwd})` : `Ran command: ${command}`;
-    }
     if (category === "search" && query) return `Searched for: ${query}`;
     if (path) return `${CATEGORY_TITLES[locale][category]}: ${path}`;
     return `Used ${name}`;
   }
 
-  if ((category === "shell" || category === "git") && command) {
-    return cwd ? `运行命令：${command}（目录：${cwd}）` : `运行命令：${command}`;
-  }
   if (category === "search" && query) return `搜索：${query}`;
   if (path) return `${CATEGORY_TITLES[locale][category]}：${path}`;
   return `调用 ${name}`;
@@ -268,7 +452,21 @@ export function compactToolProgress(
   maxGroups = 1,
   maxStepsPerGroup = 3,
 ): ToolProgressGroup[] {
-  return groups.slice(-maxGroups).map((group) => ({
+  if (!groups.length) return [];
+
+  // Trailing agent lifecycle steps (thinking/intent) hide the real tool work —
+  // prefer the previous group so the quick preview still surfaces results.
+  let end = groups.length;
+  const trailing = groups[end - 1];
+  if (
+    end > 1 &&
+    trailing?.category === "agent" &&
+    trailing.steps.every((step) => step.rawName !== "agent_error")
+  ) {
+    end -= 1;
+  }
+
+  return groups.slice(Math.max(0, end - maxGroups), end).map((group) => ({
     ...group,
     steps: group.steps.slice(-maxStepsPerGroup),
   }));

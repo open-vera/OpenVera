@@ -1,33 +1,20 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { loadPartnerSessions } from "@/bridge";
+import { useAppStateStore } from "@/stores/app-state";
 import { useChatStore } from "@/stores/chat";
-import { usePreviewStore } from "@/stores/preview";
-import { useSessionStore } from "@/stores/session";
-import { useWorkspaceStore } from "@/stores/workspace";
 import { formatChatTime } from "@/utils/chat-time";
-import {
-  normalizePartnerSessions,
-  type PartnerTaskSnapshot,
-  type PartnerWindowSnapshot,
-} from "@/utils/partner-sessions";
-import type { ChatTab, Message } from "@/types";
+import type { Message } from "@/types";
 
 interface HistoryEntry {
   key: string;
-  windowId: string;
-  tabId: string;
+  sessionId: string;
   title: string;
   preview: string;
   updatedAt: number;
-  taskSnapshot?: PartnerTaskSnapshot;
-  windowSnapshot?: PartnerWindowSnapshot;
 }
 
 const chat = useChatStore();
-const previewStore = usePreviewStore();
-const session = useSessionStore();
-const workspace = useWorkspaceStore();
+const appState = useAppStateStore();
 const open = ref(false);
 const loading = ref(false);
 const error = ref("");
@@ -42,73 +29,27 @@ const uiText = computed(() => ({
   empty: "暂无历史会话",
 }));
 
-function lastMessage(tab: ChatTab): Message | undefined {
-  return [...tab.messages].reverse().find((message) => message.content.trim());
-}
-
-function entryPreview(tab: ChatTab): string {
-  const message = lastMessage(tab);
-  if (!message) return "空会话";
-  return message.content.trim().replace(/\s+/g, " ").slice(0, 80);
-}
-
-function entryUpdatedAt(tab: ChatTab, fallback: number): number {
-  return lastMessage(tab)?.timestamp ?? fallback;
-}
-
-function currentWindowSnapshot(): PartnerWindowSnapshot {
-  return {
-    windowId: session.current.windowId,
-    chat: chat.exportSnapshot(),
-    preview: previewStore.exportSnapshot(),
-    layout: { leftWidth: 240, previewWidth: 420 },
-    updatedAt: Date.now(),
-  };
-}
-
-function buildEntries(snapshot: unknown): HistoryEntry[] {
-  const normalized = normalizePartnerSessions(snapshot);
-  normalized.windows[session.current.windowId] = currentWindowSnapshot();
-  const taskEntries = Object.values(normalized.tasks)
-    .map((task) => ({
-      key: `task:${task.taskId}`,
-      windowId: task.windowId,
-      tabId: task.chatTabId,
-      title: task.title,
-      preview: task.previewText || "空会话",
-      updatedAt: task.updatedAt,
-      taskSnapshot: task,
-    }))
-    .sort((a, b) => b.updatedAt - a.updatedAt);
-
-  const windowEntries = Object.values(normalized.windows)
-    .flatMap((windowSnapshot) =>
-      windowSnapshot.chat.tabs
-        .filter((tab) => tab.kind === "chat")
-        .map((tab) => ({
-          key: `${windowSnapshot.windowId}:${tab.id}`,
-          windowId: windowSnapshot.windowId,
-          tabId: tab.id,
-          title: tab.title,
-          preview: entryPreview(tab),
-          updatedAt: entryUpdatedAt(tab, windowSnapshot.updatedAt),
-          windowSnapshot,
-        })),
-    )
-    .sort((a, b) => b.updatedAt - a.updatedAt);
-
-  return [...taskEntries, ...windowEntries].sort((a, b) => b.updatedAt - a.updatedAt);
+function lastMessage(messages: Message[]): Message | undefined {
+  return [...messages].reverse().find((message) => message.content.trim());
 }
 
 async function refreshHistory() {
-  if (!workspace.rootPath) {
-    entries.value = [];
-    return;
-  }
   loading.value = true;
   error.value = "";
   try {
-    entries.value = buildEntries(await loadPartnerSessions(workspace.rootPath));
+    if (!appState.isLoaded) await appState.load();
+    entries.value = Object.values(appState.sessions)
+      .map((session) => {
+        const message = lastMessage(session.messages);
+        return {
+          key: session.id,
+          sessionId: session.id,
+          title: session.title.trim() || "未命名会话",
+          preview: message?.content.trim().replace(/\s+/g, " ").slice(0, 80) || "空会话",
+          updatedAt: session.updatedAt,
+        };
+      })
+      .sort((a, b) => b.updatedAt - a.updatedAt);
   } catch (historyError) {
     error.value = historyError instanceof Error ? historyError.message : String(historyError);
     entries.value = [];
@@ -122,7 +63,10 @@ function updatePopoverPosition() {
   if (!rect) return;
   const width = 320;
   const rightPadding = 10;
-  const left = Math.max(rightPadding, Math.min(rect.right - width, window.innerWidth - width - rightPadding));
+  const left = Math.max(
+    rightPadding,
+    Math.min(rect.right - width, window.innerWidth - width - rightPadding),
+  );
   popoverStyle.value = {
     top: `${rect.bottom + 4}px`,
     left: `${left}px`,
@@ -139,46 +83,39 @@ async function toggleOpen() {
 }
 
 function selectEntry(entry: HistoryEntry) {
-  let openedTabId: string | null = null;
-  if (entry.taskSnapshot) {
-    openedTabId = chat.openSnapshotTab(entry.taskSnapshot.chat, entry.tabId);
-    previewStore.restoreSnapshot(entry.taskSnapshot.preview);
-  } else if (entry.windowSnapshot) {
-    openedTabId = chat.openSnapshotTab(entry.windowSnapshot.chat, entry.tabId);
-    if (entry.windowId !== session.current.windowId) {
-      previewStore.restoreSnapshot(entry.windowSnapshot.preview);
-    }
-  }
-  chat.selectTab(openedTabId ?? entry.tabId);
+  appState.selectTab(entry.sessionId);
+  const session = appState.getSession(entry.sessionId);
+  if (session) chat.ensureSessionTab(session);
   open.value = false;
 }
 
-function closeOnOutsideClick(event: MouseEvent) {
-  const target = event.target;
-  if (!(target instanceof Element) || !target.closest("[data-session-history-menu]")) {
-    open.value = false;
-  }
+function onPointerDown(event: PointerEvent) {
+  const target = event.target as Node | null;
+  if (!open.value || !target) return;
+  if (buttonRef.value?.contains(target)) return;
+  const popover = document.querySelector(".session-history-popover");
+  if (popover?.contains(target)) return;
+  open.value = false;
 }
 
 onMounted(() => {
-  window.addEventListener("click", closeOnOutsideClick);
-  window.addEventListener("resize", updatePopoverPosition);
+  window.addEventListener("pointerdown", onPointerDown, true);
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener("click", closeOnOutsideClick);
-  window.removeEventListener("resize", updatePopoverPosition);
+  window.removeEventListener("pointerdown", onPointerDown, true);
 });
 </script>
 
 <template>
-  <div class="session-history" data-session-history-menu>
+  <div class="session-history">
     <button
       ref="buttonRef"
       type="button"
       class="history-button"
       :title="uiText.historyTitle"
       :aria-label="uiText.historyTitle"
+      :aria-expanded="open"
       @click.stop="toggleOpen"
     >
       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -190,27 +127,24 @@ onBeforeUnmount(() => {
     <Teleport to="body">
       <div
         v-if="open"
-        class="history-popover"
+        class="session-history-popover"
         :style="popoverStyle"
-        data-session-history-menu
-        @click.stop
       >
-        <div v-if="loading" class="history-empty">{{ uiText.loading }}</div>
-        <div v-else-if="error" class="history-empty error">{{ error }}</div>
-        <div v-else-if="entries.length === 0" class="history-empty">{{ uiText.empty }}</div>
-        <template v-else>
-          <button
-            v-for="entry in entries"
-            :key="entry.key"
-            type="button"
-            class="history-item"
-            @click="selectEntry(entry)"
-          >
-            <span class="history-title">{{ entry.title }}</span>
-            <span class="history-meta">{{ formatChatTime(entry.updatedAt) }}</span>
-            <span class="history-preview">{{ entry.preview }}</span>
-          </button>
-        </template>
+        <div class="popover-title">{{ uiText.historyTitle }}</div>
+        <div v-if="loading" class="popover-empty">{{ uiText.loading }}</div>
+        <div v-else-if="error" class="popover-empty">{{ error }}</div>
+        <div v-else-if="entries.length === 0" class="popover-empty">{{ uiText.empty }}</div>
+        <button
+          v-for="entry in entries"
+          :key="entry.key"
+          type="button"
+          class="history-item"
+          @click="selectEntry(entry)"
+        >
+          <span class="history-item-title">{{ entry.title }}</span>
+          <span class="history-item-preview">{{ entry.preview }}</span>
+          <span class="history-item-time">{{ formatChatTime(entry.updatedAt) }}</span>
+        </button>
       </div>
     </Teleport>
   </div>
@@ -219,9 +153,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .session-history {
   position: relative;
-  flex-shrink: 0;
 }
-
 .history-button {
   display: inline-flex;
   align-items: center;
@@ -235,12 +167,10 @@ onBeforeUnmount(() => {
   color: var(--text-muted);
   cursor: pointer;
 }
-
 .history-button:hover {
   background: color-mix(in srgb, var(--surface-hover) 72%, transparent);
   color: var(--text);
 }
-
 .history-button svg {
   width: 18px;
   height: 18px;
@@ -250,72 +180,63 @@ onBeforeUnmount(() => {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-
-.history-popover {
+.session-history-popover {
   position: fixed;
-  z-index: 1000;
+  z-index: 80;
   width: 320px;
-  max-height: min(420px, 70vh);
-  padding: 6px;
+  max-height: 360px;
+  overflow: auto;
   border: 1px solid var(--border);
   border-radius: 10px;
+  /* Solid surface: the glass/wallpaper `--bg` let the file tree bleed through. */
   background: var(--surface-elevated-solid, var(--surface-elevated));
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
-  box-shadow: 0 16px 38px rgb(0 0 0 / 38%);
-  overflow-y: auto;
+  box-shadow: 0 12px 40px color-mix(in srgb, #000 40%, transparent);
+  padding: 8px;
 }
-
-.history-empty {
-  padding: 12px;
+.popover-title {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 4px 6px 8px;
+}
+.popover-empty {
+  padding: 16px 8px;
   color: var(--text-muted);
   font-size: 12px;
 }
-
-.history-empty.error {
-  color: var(--danger-muted);
-}
-
 .history-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 3px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   width: 100%;
   border: none;
-  border-radius: 8px;
-  padding: 8px;
   background: transparent;
-  color: var(--text);
-  font: inherit;
   text-align: left;
+  padding: 8px;
+  border-radius: 8px;
   cursor: pointer;
+  color: var(--text);
+  transition: background 120ms ease;
 }
-
-.history-item:hover {
-  background: var(--surface-hover);
+.history-item:hover,
+.history-item:focus-visible {
+  background: var(--surface-hover-solid, var(--surface-hover));
+  outline: none;
 }
-
-.history-title,
-.history-preview {
-  min-width: 0;
+.history-item-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.history-item-preview {
+  font-size: 12px;
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.history-title {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.history-meta {
-  color: var(--text-muted);
+.history-item-time {
   font-size: 11px;
-}
-
-.history-preview {
-  grid-column: 1 / -1;
   color: var(--text-muted);
-  font-size: 12px;
 }
 </style>

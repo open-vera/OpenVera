@@ -1,15 +1,45 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import ChevronIcon from "@/components/ui/ChevronIcon.vue";
 import { useModelCatalogStore } from "@/stores/model-catalog";
+import { usePreviewStore } from "@/stores/preview";
 import { useSettingsStore } from "@/stores/settings";
 import { useWorkspaceStore } from "@/stores/workspace";
-import type { AgentRunMode, CatalogModel, CatalogProvider, ChatAttachment, LLMProtocol } from "@/types";
+import type {
+  AgentRunMode,
+  CatalogModel,
+  CatalogProvider,
+  ChatAttachment,
+  TokenUsage,
+} from "@/types";
+import ContextUsageRing from "./ContextUsageRing.vue";
 import {
+  attachmentChipKind,
+  attachmentDisplayName,
   attachmentLabel,
   createChatAttachments,
+  createChatAttachmentsFromDragItems,
+  createChatAttachmentsFromPaths,
+  createSelectionAttachment,
+  mergeChatAttachments,
 } from "@/utils/attachments";
+import {
+  setComposerDropHoverHandler,
+  setComposerPathDropHandler,
+} from "@/utils/composer-drop";
 import { modelDisplayLabel, providerDisplayLabel } from "@/utils/model-presets";
-import { LLM_PROTOCOL_OPTIONS, protocolLabel } from "@/utils/llm-protocol";
+import { protocolLabel, resolveCatalogProtocol } from "@/utils/llm-protocol";
+import { alertDialog } from "@/utils/native-dialog";
+import {
+  PARTNER_PATHS_MIME,
+  clearActivePartnerDrag,
+  readPartnerPathsDrag,
+  readPartnerSelectionClipboard,
+} from "@/utils/partner-dnd";
+import {
+  positionAnchoredMenu,
+  type AnchoredMenuPosition,
+} from "@/utils/position-anchored-menu";
 
 const emit = defineEmits<{
   submit: [payload: { text: string; attachments: ChatAttachment[] }];
@@ -19,11 +49,13 @@ const emit = defineEmits<{
 defineProps<{
   disabled?: boolean;
   running?: boolean;
+  usage?: TokenUsage | null;
 }>();
 
 const settings = useSettingsStore();
 const workspace = useWorkspaceStore();
 const modelCatalog = useModelCatalogStore();
+const preview = usePreviewStore();
 
 const text = ref("");
 const attachments = ref<ChatAttachment[]>([]);
@@ -31,14 +63,16 @@ const textareaRef = ref<HTMLTextAreaElement | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
 const isReadingFiles = ref(false);
 const attachmentError = ref("");
+const dropActive = ref(false);
+let dragDepth = 0;
 const isComposing = ref(false);
 const lastCompositionEndAt = ref(0);
 const modeMenuOpen = ref(false);
 const modelMenuOpen = ref(false);
 const modeButtonRef = ref<HTMLButtonElement | null>(null);
 const modelButtonRef = ref<HTMLButtonElement | null>(null);
-const modeMenuStyle = ref<Record<string, string>>({});
-const modelMenuStyle = ref<Record<string, string>>({});
+const modeMenuStyle = ref<AnchoredMenuPosition | Record<string, never>>({});
+const modelMenuStyle = ref<AnchoredMenuPosition | Record<string, never>>({});
 const isSavingModel = ref(false);
 const expandedProviderId = ref<string | null>(null);
 
@@ -52,8 +86,6 @@ const modeOptions: Array<{
   { value: "chat", icon: "💬", label: "Chat", hint: "纯对话，不使用工具" },
   { value: "plan", icon: "📋", label: "Plan", hint: "规划模式，适合复杂任务" },
 ];
-
-const protocolOptions = LLM_PROTOCOL_OPTIONS;
 
 const activeMode = computed(() =>
   modeOptions.find((option) => option.value === settings.agentMode) ?? modeOptions[0],
@@ -75,27 +107,21 @@ const providerRows = computed(() => modelCatalog.availableProviders);
 
 function positionMenu(
   button: HTMLButtonElement | null,
-  menuHeight: number,
-): Record<string, string> {
-  if (!button) return {};
-  const rect = button.getBoundingClientRect();
-  const width = 260;
-  const left = Math.min(Math.max(12, rect.left), window.innerWidth - width - 12);
-  const top = Math.max(12, rect.top - menuHeight - 8);
-  return {
-    position: "fixed",
-    left: `${left}px`,
-    top: `${top}px`,
-    width: `${width}px`,
-    zIndex: "40",
-  };
+  preferredMaxHeight: number,
+): AnchoredMenuPosition | Record<string, never> {
+  return positionAnchoredMenu(button?.getBoundingClientRect() ?? null, window, {
+    preferredMaxHeight,
+    width: 260,
+    preferAbove: true,
+    zIndex: 200,
+  });
 }
 
 function openModeMenu() {
   modelMenuOpen.value = false;
   modeMenuOpen.value = !modeMenuOpen.value;
   if (modeMenuOpen.value) {
-    modeMenuStyle.value = positionMenu(modeButtonRef.value, 168);
+    modeMenuStyle.value = positionMenu(modeButtonRef.value, 220);
   }
 }
 
@@ -103,7 +129,7 @@ function openModelMenu() {
   modeMenuOpen.value = false;
   modelMenuOpen.value = !modelMenuOpen.value;
   if (modelMenuOpen.value) {
-    modelMenuStyle.value = positionMenu(modelButtonRef.value, 360);
+    modelMenuStyle.value = positionMenu(modelButtonRef.value, 420);
     void modelCatalog.loadProviders(workspace.rootPath || undefined);
     const currentProvider = settings.provider.id;
     expandedProviderId.value = currentProvider;
@@ -138,21 +164,6 @@ async function selectMode(mode: AgentRunMode) {
   closeMenus();
 }
 
-async function selectProtocol(protocol: LLMProtocol) {
-  if (settings.provider.protocol === protocol) return;
-  settings.setProtocol(protocol);
-  await settings.save(workspace.rootPath || undefined);
-  modelCatalog.invalidateProvider(settings.provider.id);
-  if (modelMenuOpen.value) {
-    expandedProviderId.value = settings.provider.id;
-    await modelCatalog.ensureProviderModels(
-      workspace.rootPath || undefined,
-      settings.provider.id,
-      { protocol },
-    );
-  }
-}
-
 async function selectModel(provider: CatalogProvider, model: CatalogModel) {
   if (isModelSelected(provider.id, model)) {
     closeMenus();
@@ -162,6 +173,7 @@ async function selectModel(provider: CatalogProvider, model: CatalogModel) {
   try {
     settings.applyProviderModel({
       providerId: provider.id,
+      protocol: resolveCatalogProtocol(provider),
       apiBaseUrl: provider.apiBaseUrl || settings.provider.apiBaseUrl,
       model: model.id,
     });
@@ -213,16 +225,35 @@ function debugInputEvent(type: string, event?: KeyboardEvent | CompositionEvent,
   });
 }
 
+function appendAttachments(incoming: ChatAttachment[]) {
+  if (!incoming.length) return;
+  attachments.value = mergeChatAttachments(attachments.value, incoming);
+}
+
 async function addFiles(files: Iterable<File>) {
   const selected = Array.from(files);
   if (!selected.length) return;
   attachmentError.value = "";
   isReadingFiles.value = true;
   try {
-    attachments.value.push(...await createChatAttachments(selected));
+    appendAttachments(await createChatAttachments(selected));
   } catch (error) {
     attachmentError.value =
       error instanceof Error ? error.message : "读取附件失败，请重试。";
+  } finally {
+    isReadingFiles.value = false;
+  }
+}
+
+async function addPaths(paths: string[]) {
+  if (!paths.length) return;
+  attachmentError.value = "";
+  isReadingFiles.value = true;
+  try {
+    appendAttachments(await createChatAttachmentsFromPaths(paths));
+  } catch (error) {
+    attachmentError.value =
+      error instanceof Error ? error.message : "添加路径失败，请重试。";
   } finally {
     isReadingFiles.value = false;
   }
@@ -239,6 +270,13 @@ function onFileChange(event: Event) {
 }
 
 function onPaste(event: ClipboardEvent) {
+  const selection = readPartnerSelectionClipboard(event.clipboardData);
+  if (selection) {
+    event.preventDefault();
+    appendAttachments([createSelectionAttachment(selection)]);
+    return;
+  }
+
   const files = Array.from(event.clipboardData?.items ?? [])
     .filter((item) => item.kind === "file")
     .map((item) => item.getAsFile())
@@ -248,8 +286,86 @@ function onPaste(event: ClipboardEvent) {
   void addFiles(files);
 }
 
+function hasPartnerDrag(event: DragEvent): boolean {
+  const types = Array.from(event.dataTransfer?.types ?? []);
+  return (
+    types.includes(PARTNER_PATHS_MIME) ||
+    types.includes("Files") ||
+    types.includes("text/uri-list")
+  );
+}
+
+function onDragEnter(event: DragEvent) {
+  if (!hasPartnerDrag(event)) return;
+  event.preventDefault();
+  dragDepth += 1;
+  dropActive.value = true;
+}
+
+function onDragOver(event: DragEvent) {
+  if (!hasPartnerDrag(event)) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+  dropActive.value = true;
+}
+
+function onDragLeave(event: DragEvent) {
+  if (!hasPartnerDrag(event)) return;
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) dropActive.value = false;
+}
+
+function onDrop(event: DragEvent) {
+  event.preventDefault();
+  dragDepth = 0;
+  dropActive.value = false;
+
+  const partnerItems = readPartnerPathsDrag(event.dataTransfer);
+  if (partnerItems.length) {
+    clearActivePartnerDrag();
+    appendAttachments(createChatAttachmentsFromDragItems(partnerItems));
+    return;
+  }
+
+  const files = Array.from(event.dataTransfer?.files ?? []);
+  if (files.length) {
+    clearActivePartnerDrag();
+    void addFiles(files);
+  }
+}
+
 function removeAttachment(id: string) {
   attachments.value = attachments.value.filter((item) => item.id !== id);
+}
+
+async function previewAttachment(attachment: ChatAttachment) {
+  if (attachment.kind === "image" && attachment.dataUrl) {
+    preview.openImagePreview({
+      id: attachment.id,
+      name: attachment.name,
+      dataUrl: attachment.dataUrl,
+    });
+    return;
+  }
+  if (attachment.kind === "selection" && attachment.content) {
+    const range =
+      attachment.startLine && attachment.endLine
+        ? ` L${attachment.startLine}-${attachment.endLine}`
+        : "";
+    await alertDialog(
+      `${attachment.path ?? attachment.name}${range}\n\n${attachment.content.slice(0, 2000)}`,
+    );
+    return;
+  }
+  if (attachment.path) {
+    await alertDialog(attachment.path);
+    return;
+  }
+  await alertDialog(
+    attachment.kind === "image"
+      ? `「${attachment.name}」过大，未生成可预览的缩略图。`
+      : `「${attachment.name}」暂不支持预览。`,
+  );
 }
 
 function onSubmit() {
@@ -301,42 +417,87 @@ function onEnter(event: KeyboardEvent) {
 
 onMounted(() => {
   document.addEventListener("pointerdown", onDocumentPointerDown);
+  setComposerPathDropHandler((paths) => {
+    void addPaths(paths);
+  });
+  setComposerDropHoverHandler((active) => {
+    dropActive.value = active;
+  });
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", onDocumentPointerDown);
+  setComposerPathDropHandler(null);
+  setComposerDropHoverHandler(null);
+  dropActive.value = false;
 });
 </script>
 
 <template>
   <footer class="composer">
-    <form class="composer-card" @submit.prevent="onSubmit">
+    <form
+      class="composer-card"
+      data-composer-drop
+      :class="{ 'drop-active': dropActive }"
+      @submit.prevent="onSubmit"
+      @dragenter="onDragEnter"
+      @dragover="onDragOver"
+      @dragleave="onDragLeave"
+      @drop="onDrop"
+    >
       <div v-if="attachments.length" class="attachments" aria-label="已添加附件">
-        <span
+        <div
           v-for="attachment in attachments"
           :key="attachment.id"
           class="attachment-chip"
-          :title="attachmentLabel(attachment)"
+          :class="{
+            image: attachment.kind === 'image' && attachment.dataUrl,
+            clickable:
+              (attachment.kind === 'image' && Boolean(attachment.dataUrl)) ||
+              attachment.kind === 'selection' ||
+              Boolean(attachment.path),
+            reference:
+              attachment.kind === 'path' ||
+              attachment.kind === 'folder' ||
+              attachment.kind === 'selection',
+          }"
         >
-          <span class="attachment-kind">{{ attachment.kind === "image" ? "IMG" : "FILE" }}</span>
-          <span class="attachment-name">{{ attachment.name }}</span>
+          <button
+            type="button"
+            class="attachment-preview"
+            :title="attachmentLabel(attachment, settings.locale)"
+            @click="previewAttachment(attachment)"
+          >
+            <img
+              v-if="attachment.kind === 'image' && attachment.dataUrl"
+              class="attachment-thumb"
+              :src="attachment.dataUrl"
+              :alt="attachmentLabel(attachment, settings.locale)"
+            />
+            <template v-else>
+              <span class="attachment-kind">
+                {{ attachmentChipKind(attachment) }}
+              </span>
+              <span class="attachment-name">{{ attachmentDisplayName(attachment) }}</span>
+            </template>
+          </button>
           <button
             type="button"
             class="attachment-remove"
             :disabled="disabled"
-            :aria-label="`移除 ${attachment.name}`"
+            :aria-label="`移除 ${attachmentDisplayName(attachment)}`"
             @click="removeAttachment(attachment.id)"
           >
             ×
           </button>
-        </span>
+        </div>
       </div>
       <p v-if="attachmentError" class="attachment-error">{{ attachmentError }}</p>
       <textarea
         ref="textareaRef"
         v-model="text"
         :disabled="disabled"
-        placeholder="告诉 Partner 要做什么"
+        placeholder="一起创造点什么"
         rows="3"
         @compositionstart="onCompositionStart"
         @compositionend="onCompositionEnd"
@@ -366,140 +527,121 @@ onBeforeUnmount(() => {
             :title="`${providerDisplayLabel(settings.provider.id)} · ${settings.provider.model} · ${activeProtocolLabel}`"
             @click="openModelMenu"
           >
-            {{ modelLabel }}
+            <span class="model-label">{{ modelLabel }}</span>
           </button>
+          <ContextUsageRing mode="context" :usage="usage" />
 
-          <div
-            v-if="modeMenuOpen"
-            class="input-menu"
-            :style="modeMenuStyle"
-            data-input-bar-menu
-          >
-            <p class="menu-title">运行模式</p>
-            <button
-              v-for="option in modeOptions"
-              :key="option.value"
-              type="button"
-              class="menu-item"
-              :class="{ selected: settings.agentMode === option.value }"
-              @click="selectMode(option.value)"
+          <Teleport to="body">
+            <div
+              v-if="modeMenuOpen"
+              class="input-menu"
+              :style="modeMenuStyle"
+              data-input-bar-menu
             >
-              <span class="menu-item-icon">{{ option.icon }}</span>
-              <span class="menu-item-body">
-                <strong>{{ option.label }}</strong>
-                <small>{{ option.hint }}</small>
-              </span>
-            </button>
-          </div>
-
-          <div
-            v-if="modelMenuOpen"
-            class="input-menu model-menu"
-            :style="modelMenuStyle"
-            data-input-bar-menu
-          >
-            <p class="menu-title">模型</p>
-            <div class="protocol-section">
-              <p class="menu-subtitle">协议</p>
-              <div class="protocol-options">
-                <button
-                  v-for="option in protocolOptions"
-                  :key="option.value"
-                  type="button"
-                  class="protocol-option"
-                  :class="{ selected: settings.provider.protocol === option.value }"
-                  :disabled="isSavingModel"
-                  @click="selectProtocol(option.value)"
-                >
-                  {{ option.label }}
-                </button>
-              </div>
-            </div>
-            <p v-if="modelCatalog.loadingProviders && !providerRows.length" class="menu-status">
-              加载供应商…
-            </p>
-            <p v-else-if="modelCatalog.providersError" class="menu-error">
-              {{ modelCatalog.providersError }}
-            </p>
-            <p v-else-if="!providerRows.length" class="menu-status">未找到已配置 API Key 的供应商</p>
-            <section
-              v-for="provider in providerRows"
-              :key="provider.id"
-              class="provider-section"
-            >
+              <p class="menu-title">运行模式</p>
               <button
+                v-for="option in modeOptions"
+                :key="option.value"
                 type="button"
-                class="provider-toggle"
-                :class="{ expanded: expandedProviderId === provider.id }"
-                :aria-expanded="expandedProviderId === provider.id"
-                @click="toggleProvider(provider)"
+                class="menu-item"
+                :class="{ selected: settings.agentMode === option.value }"
+                @click="selectMode(option.value)"
               >
-                <span
-                  class="provider-chevron"
-                  :class="{ expanded: expandedProviderId === provider.id }"
-                  aria-hidden="true"
-                >
-                  <svg viewBox="0 0 20 20">
-                    <path d="M5 8l5 5 5-5" />
-                  </svg>
-                </span>
-                <span class="provider-toggle-label">
-                  <strong>{{ providerDisplayLabel(provider.id) }}</strong>
-                  <small v-if="provider.isDefault">默认</small>
-                </span>
-                <span
-                  v-if="modelCatalog.isProviderLoading(provider.id)"
-                  class="provider-loading"
-                >
-                  加载中…
+                <span class="menu-item-icon">{{ option.icon }}</span>
+                <span class="menu-item-body">
+                  <strong>{{ option.label }}</strong>
+                  <small>{{ option.hint }}</small>
                 </span>
               </button>
+            </div>
 
-              <div
-                v-if="expandedProviderId === provider.id"
-                class="provider-models"
+            <div
+              v-if="modelMenuOpen"
+              class="input-menu model-menu"
+              :style="modelMenuStyle"
+              data-input-bar-menu
+            >
+              <p class="menu-title">模型</p>
+              <p v-if="modelCatalog.loadingProviders && !providerRows.length" class="menu-status">
+                加载供应商…
+              </p>
+              <p v-else-if="modelCatalog.providersError" class="menu-error">
+                {{ modelCatalog.providersError }}
+              </p>
+              <p v-else-if="!providerRows.length" class="menu-status">未找到已配置 API Key 的供应商</p>
+              <section
+                v-for="provider in providerRows"
+                :key="provider.id"
+                class="provider-section"
               >
-                <p
-                  v-if="modelCatalog.providerErrors[provider.id]"
-                  class="menu-error compact"
-                >
-                  {{ modelCatalog.providerErrors[provider.id] }}
-                </p>
                 <button
-                  v-for="model in modelCatalog.modelsForProvider(provider.id)"
-                  :key="`${provider.id}:${model.id}`"
                   type="button"
-                  class="menu-item compact"
-                  :class="{ selected: isModelSelected(provider.id, model) }"
-                  @click="selectModel(provider, model)"
+                  class="provider-toggle"
+                  :class="{ expanded: expandedProviderId === provider.id }"
+                  :aria-expanded="expandedProviderId === provider.id"
+                  @click="toggleProvider(provider)"
                 >
-                  <span class="menu-item-body">
-                    <strong>{{ model.displayName || model.id }}</strong>
-                    <small v-if="model.upstreamId">{{ model.upstreamId }}</small>
+                  <span class="provider-chevron" aria-hidden="true">
+                    <ChevronIcon :expanded="expandedProviderId === provider.id" />
+                  </span>
+                  <span class="provider-toggle-label">
+                    <strong>{{ providerDisplayLabel(provider.id) }}</strong>
+                    <small v-if="provider.isDefault">已启用</small>
+                  </span>
+                  <span
+                    v-if="modelCatalog.isProviderLoading(provider.id)"
+                    class="provider-loading"
+                  >
+                    加载中…
                   </span>
                 </button>
-                <p
-                  v-if="
-                    modelCatalog.isProviderRefreshing(provider.id) &&
-                    !modelCatalog.modelsForProvider(provider.id).length
-                  "
-                  class="menu-status compact"
+
+                <div
+                  v-if="expandedProviderId === provider.id"
+                  class="provider-models"
                 >
-                  正在同步远程模型…
-                </p>
-                <p
-                  v-else-if="
-                    !modelCatalog.isProviderLoading(provider.id) &&
-                    !modelCatalog.providerErrors[provider.id] &&
-                    !modelCatalog.modelsForProvider(provider.id).length
-                  "
-                  class="menu-status compact"
-                >
-                  暂无可用模型
-                </p>
-              </div>
-            </section>
-          </div>
+                  <p
+                    v-if="modelCatalog.providerErrors[provider.id]"
+                    class="menu-error compact"
+                  >
+                    {{ modelCatalog.providerErrors[provider.id] }}
+                  </p>
+                  <button
+                    v-for="model in modelCatalog.modelsForProvider(provider.id)"
+                    :key="`${provider.id}:${model.id}`"
+                    type="button"
+                    class="menu-item compact"
+                    :class="{ selected: isModelSelected(provider.id, model) }"
+                    @click="selectModel(provider, model)"
+                  >
+                    <span class="menu-item-body">
+                      <strong>{{ model.displayName || model.id }}</strong>
+                      <small v-if="model.upstreamId">{{ model.upstreamId }}</small>
+                    </span>
+                  </button>
+                  <p
+                    v-if="
+                      modelCatalog.isProviderRefreshing(provider.id) &&
+                      !modelCatalog.modelsForProvider(provider.id).length
+                    "
+                    class="menu-status compact"
+                  >
+                    正在同步远程模型…
+                  </p>
+                  <p
+                    v-else-if="
+                      !modelCatalog.isProviderLoading(provider.id) &&
+                      !modelCatalog.providerErrors[provider.id] &&
+                      !modelCatalog.modelsForProvider(provider.id).length
+                    "
+                    class="menu-status compact"
+                  >
+                    暂无可用模型
+                  </p>
+                </div>
+              </section>
+            </div>
+          </Teleport>
         </div>
         <div class="composer-actions">
           <input
@@ -542,7 +684,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .composer {
-  padding: 10px 12px 12px;
+  /* Horizontal inset comes from ChatPanel --chat-side-pad so messages align. */
+  padding: 10px 0 12px;
   background: transparent;
 }
 
@@ -550,7 +693,8 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: min(920px, 100%);
+  width: 100%;
+  max-width: var(--chat-column-max, 920px);
   margin: 0 auto;
   padding: 14px 14px 10px;
   border: 1px solid var(--border);
@@ -595,17 +739,89 @@ onBeforeUnmount(() => {
   gap: 6px;
 }
 
+.composer-card.drop-active {
+  outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+  background: color-mix(
+    in srgb,
+    var(--accent) 8%,
+    var(--surface-elevated-solid, var(--surface-elevated))
+  );
+}
+
 .attachment-chip {
   display: inline-flex;
   align-items: center;
   max-width: min(280px, 100%);
-  height: 28px;
+  min-height: 28px;
   border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  border-radius: 999px;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--surface) 82%, transparent);
   color: var(--text);
   font-size: 12px;
   overflow: hidden;
+}
+
+.attachment-chip.reference {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(
+    in srgb,
+    var(--accent) 12%,
+    var(--surface-elevated-solid, var(--surface-elevated))
+  );
+}
+
+.attachment-chip.image {
+  position: relative;
+  min-height: 0;
+  padding: 0;
+  border-radius: 12px;
+}
+
+.attachment-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0 0 0 2px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.attachment-chip.image .attachment-preview {
+  padding: 0;
+}
+
+.attachment-chip.clickable .attachment-preview {
+  cursor: zoom-in;
+}
+
+.attachment-chip.clickable .attachment-preview:hover .attachment-name {
+  color: var(--accent);
+}
+
+.attachment-chip.image.clickable .attachment-preview:hover .attachment-thumb {
+  filter: brightness(1.08);
+}
+
+.attachment-thumb {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface-elevated) 80%, transparent);
+}
+
+.attachment-chip.image .attachment-thumb {
+  width: 72px;
+  height: 72px;
+  border-radius: 11px;
 }
 
 .attachment-kind {
@@ -618,6 +834,7 @@ onBeforeUnmount(() => {
 
 .attachment-name {
   min-width: 0;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -636,6 +853,18 @@ onBeforeUnmount(() => {
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
+}
+
+.attachment-chip.image .attachment-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  background: color-mix(in srgb, var(--surface-elevated) 88%, transparent);
+  color: var(--text);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
 }
 
 .attachment-remove:hover {
@@ -682,6 +911,18 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
+.model {
+  max-width: min(200px, 36vw);
+  min-width: 0;
+}
+
+.model-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .menu-trigger {
   cursor: pointer;
   transition:
@@ -708,11 +949,8 @@ onBeforeUnmount(() => {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   box-shadow: 0 12px 32px color-mix(in srgb, #000 24%, transparent);
-}
-
-.model-menu {
-  max-height: min(420px, 56vh);
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .menu-title {
@@ -721,55 +959,6 @@ onBeforeUnmount(() => {
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-}
-
-.protocol-section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0 0 6px;
-  padding: 0 4px 8px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-}
-
-.menu-subtitle {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.protocol-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.protocol-option {
-  min-height: 26px;
-  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
-  border-radius: 999px;
-  padding: 0 10px;
-  background: var(--bg);
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.protocol-option:hover:not(:disabled) {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
-}
-
-.protocol-option.selected {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
-}
-
-.protocol-option:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 
 .menu-status,
@@ -824,22 +1013,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   flex-shrink: 0;
   color: var(--text-muted);
-}
-
-.provider-chevron svg {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  transform: rotate(-90deg);
-  transition: transform 120ms ease;
-}
-
-.provider-chevron.expanded svg {
-  transform: rotate(0deg);
+  font-size: 14px;
 }
 
 .provider-toggle-label {

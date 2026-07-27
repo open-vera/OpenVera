@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
-import { renderMarkdown } from "@/utils/markdown";
+import { nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { renderMarkdownAsync } from "@/utils/markdown-worker-client";
 
 const props = defineProps<{
   content: string;
 }>();
 
-const rendered = computed(() => renderMarkdown(props.content));
+const rendered = ref("");
 const rendererRef = ref<HTMLElement | null>(null);
 const CODE_BLOCK_MAX_HEIGHT = 800;
+let renderSeq = 0;
 
 function setupCodeBlockOverflow() {
   const root = rendererRef.value;
@@ -24,14 +25,29 @@ function setupCodeBlockOverflow() {
 }
 
 watch(
-  rendered,
-  () => {
-    void nextTick(() => {
-      requestAnimationFrame(setupCodeBlockOverflow);
-    });
+  () => props.content,
+  (content) => {
+    const seq = ++renderSeq;
+    void renderMarkdownAsync(content)
+      .then((html) => {
+        if (seq !== renderSeq) return;
+        rendered.value = html;
+        void nextTick(() => {
+          requestAnimationFrame(setupCodeBlockOverflow);
+        });
+      })
+      .catch((error: unknown) => {
+        if (seq !== renderSeq) return;
+        console.warn("[MarkdownRenderer] worker render failed:", error);
+        rendered.value = "";
+      });
   },
   { immediate: true },
 );
+
+onBeforeUnmount(() => {
+  renderSeq += 1;
+});
 
 async function copyText(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {

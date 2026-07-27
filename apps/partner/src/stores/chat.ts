@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
-import type { ChatErrorNotice, ChatTab, Message, ToolCall, ToolResult } from "@/types";
+import type { ChatErrorNotice, ChatTab, Message, TokenUsage, ToolCall, ToolResult } from "@/types";
 
 const DEFAULT_CHAT_TAB_ID = "chat:default";
 const SETTINGS_TAB_ID = "settings";
@@ -22,6 +22,7 @@ function newChatTab(title: string): ChatTab {
     isAgentRunning: false,
     currentTokenCount: 0,
     estimatedCost: 0,
+    runUsage: null,
   };
 }
 
@@ -34,6 +35,7 @@ function createSettingsTab(): ChatTab {
     isAgentRunning: false,
     currentTokenCount: 0,
     estimatedCost: 0,
+    runUsage: null,
   };
 }
 
@@ -109,6 +111,7 @@ export const useChatStore = defineStore("chat", () => {
   const lastError = computed(() => activeChatTab.value?.lastError ?? null);
   const currentTokenCount = computed(() => activeChatTab.value?.currentTokenCount ?? 0);
   const estimatedCost = computed(() => activeChatTab.value?.estimatedCost ?? 0);
+  const runUsage = computed(() => activeChatTab.value?.runUsage ?? null);
 
   function createChatTab() {
     const count = tabs.value.filter((tab) => tab.kind === "chat").length + 1;
@@ -169,14 +172,15 @@ export const useChatStore = defineStore("chat", () => {
     tab.lastError = null;
     tab.currentTokenCount = 0;
     tab.estimatedCost = 0;
+    tab.runUsage = null;
   }
 
   function closeTab(id: string) {
     const tab = tabs.value.find((item) => item.id === id);
     if (!tab) return;
 
-    // Keep at least one chat tab: closing the last one clears it instead.
-    if (tab.kind === "chat" && tabs.value.filter((item) => item.kind === "chat").length === 1) {
+    const chatTabs = tabs.value.filter((item) => item.kind === "chat");
+    if (tab.kind === "chat" && chatTabs.length <= 1) {
       resetChatTab(tab);
       activeTabId.value = tab.id;
       return;
@@ -188,6 +192,7 @@ export const useChatStore = defineStore("chat", () => {
       activeTabId.value =
         tabs.value[Math.max(0, removedIndex - 1)]?.id ??
         tabs.value.find((item) => item.kind === "chat")?.id ??
+        tabs.value[0]?.id ??
         DEFAULT_CHAT_TAB_ID;
     }
   }
@@ -251,6 +256,22 @@ export const useChatStore = defineStore("chat", () => {
     if (message) {
       message.isStreaming = false;
     }
+  }
+
+  /** Stamp a segment (or the whole turn, via its last message) as finished. */
+  function setMessageEndedAt(id: string, endedAt: number, tabId?: string) {
+    const resolvedTabId = tabId ?? ensureActiveChatTab();
+    const message = messagesForTab(resolvedTabId).find((item) => item.id === id);
+    if (message) {
+      message.endedAt = endedAt;
+    }
+  }
+
+  function closeTurn(turnId: string, endedAt: number, tabId?: string) {
+    const resolvedTabId = tabId ?? ensureActiveChatTab();
+    const inTurn = messagesForTab(resolvedTabId).filter((item) => item.turnId === turnId);
+    const last = inTurn[inTurn.length - 1];
+    if (last) last.endedAt = endedAt;
   }
 
   function markMessageError(id: string, content: string, tabId?: string) {
@@ -317,6 +338,43 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  function updateRunUsage(usage: TokenUsage | null, tabId?: string) {
+    const resolvedTabId = tabId ?? ensureActiveChatTab();
+    const tab = tabs.value.find((item) => item.id === resolvedTabId && item.kind === "chat");
+    if (!tab) return;
+    if (usage === null) {
+      // Keep last remote context-window occupancy across turns; clear only
+      // ephemeral this-run totals so the ring still reflects the session window.
+      const prev = tab.runUsage;
+      if (!prev) return;
+      tab.runUsage = {
+        ...prev,
+        input_tokens: 0,
+        output_tokens: 0,
+        total_tokens: 0,
+        input: 0,
+        output: 0,
+        total: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        reasoning_tokens: 0,
+        duration_ms: 0,
+        ttfb_ms: undefined,
+        ttft_ms: undefined,
+        turns: 0,
+        tool_use_count: 0,
+        api_calls: 0,
+      };
+      return;
+    }
+    tab.runUsage = usage;
+    const total =
+      usage.total_tokens ??
+      usage.total ??
+      (usage.input_tokens ?? usage.input ?? 0) + (usage.output_tokens ?? usage.output ?? 0);
+    tab.currentTokenCount = total;
+  }
+
   function setActiveTaskId(taskId: string | null, tabId?: string) {
     const resolvedTabId = tabId ?? ensureActiveChatTab();
     const tab = tabs.value.find((item) => item.id === resolvedTabId && item.kind === "chat");
@@ -337,6 +395,7 @@ export const useChatStore = defineStore("chat", () => {
     tab.messages = [];
     tab.currentTokenCount = 0;
     tab.estimatedCost = 0;
+    tab.runUsage = null;
   }
 
   function resetToDefault() {
@@ -416,6 +475,90 @@ export const useChatStore = defineStore("chat", () => {
     return sourceTab.id;
   }
 
+  /** Hydrate / update a chat tab from a PartnerSessionRecord (multi-project sync). */
+  function ensureSessionTab(session: {
+    id: string;
+    title: string;
+    messages: Message[];
+    lastError?: ChatErrorNotice | null;
+    lastTaskId?: string | null;
+  }): string {
+    const existing = tabs.value.find((tab) => tab.id === session.id);
+    if (existing) {
+      if (existing.kind !== "chat") return existing.id;
+      existing.title = session.title;
+      existing.messages = session.messages;
+      existing.lastError = session.lastError ?? null;
+      existing.lastTaskId = existing.lastTaskId ?? session.lastTaskId ?? null;
+      activeTabId.value = existing.id;
+      return existing.id;
+    }
+    tabs.value.push({
+      id: session.id,
+      title: session.title,
+      kind: "chat",
+      messages: session.messages,
+      isAgentRunning: false,
+      lastError: session.lastError ?? null,
+      lastTaskId: session.lastTaskId ?? null,
+      currentTokenCount: 0,
+      estimatedCost: 0,
+      runUsage: null,
+    });
+    activeTabId.value = session.id;
+    return session.id;
+  }
+
+  /** Align open chat tabs with app-state openTabIds (keeps settings). */
+  function syncFromOpenTabIds(
+    openTabIds: string[],
+    sessions: Record<
+      string,
+      {
+        id: string;
+        title: string;
+        messages: Message[];
+        lastError?: ChatErrorNotice | null;
+        lastTaskId?: string | null;
+      }
+    >,
+    nextActiveId: string | null,
+  ) {
+    const keep = new Set(openTabIds);
+    tabs.value = tabs.value.filter((tab) =>
+      tab.kind === "settings" ? keep.has(SETTINGS_TAB_ID) : keep.has(tab.id),
+    );
+    for (const id of openTabIds) {
+      if (id === SETTINGS_TAB_ID) {
+        if (!tabs.value.some((tab) => tab.id === SETTINGS_TAB_ID)) {
+          tabs.value.push(createSettingsTab());
+        }
+        continue;
+      }
+      const session = sessions[id];
+      if (!session) continue;
+      if (!tabs.value.some((tab) => tab.id === id)) {
+        tabs.value.push({
+          id: session.id,
+          title: session.title,
+          kind: "chat",
+          messages: session.messages,
+          isAgentRunning: false,
+          lastError: session.lastError ?? null,
+          lastTaskId: session.lastTaskId ?? null,
+          currentTokenCount: 0,
+          estimatedCost: 0,
+          runUsage: null,
+        });
+      }
+    }
+    if (nextActiveId && tabs.value.some((tab) => tab.id === nextActiveId)) {
+      activeTabId.value = nextActiveId;
+    } else if (!tabs.value.some((tab) => tab.id === activeTabId.value)) {
+      activeTabId.value = tabs.value[0]?.id ?? DEFAULT_CHAT_TAB_ID;
+    }
+  }
+
   return {
     tabs,
     activeTabId,
@@ -426,17 +569,22 @@ export const useChatStore = defineStore("chat", () => {
     lastError,
     currentTokenCount,
     estimatedCost,
+    runUsage,
     ensureDefaultChatTab,
     ensureActiveChatTab,
     createChatTab,
     openSettingsTab,
     selectTab,
     closeTab,
+    ensureSessionTab,
+    syncFromOpenTabIds,
     append,
     appendToolCall,
     appendToolResult,
     updateStreaming,
     finalizeMessage,
+    setMessageEndedAt,
+    closeTurn,
     markMessageError,
     clearMessageQueueStatus,
     clearQueuedMessages,
@@ -446,6 +594,7 @@ export const useChatStore = defineStore("chat", () => {
     messagesForTab,
     setAgentRunning,
     setActiveTaskId,
+    updateRunUsage,
     abort,
     clear,
     resetToDefault,

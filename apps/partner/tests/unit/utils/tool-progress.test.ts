@@ -2,9 +2,16 @@ import { describe, expect, it } from "vitest";
 import type { ToolCall } from "@/types";
 import {
   compactToolProgress,
+  foldRepeatedLines,
+  formatStepDetail,
+  formatToolParams,
   groupToolProgress,
   isVisibleToolProgressStep,
+  oneLineText,
+  summarizeResultOutput,
   summarizeToolCall,
+  TOOL_DETAIL_FULL_MAX_CHARS,
+  truncateDisplayText,
 } from "@/utils/tool-progress";
 
 function toolCall(id: string, name: string, input: Record<string, unknown>): ToolCall {
@@ -69,22 +76,22 @@ describe("tool progress summaries", () => {
       "zh-CN",
     );
     expect(direct.title).toBe("推进任务");
-    expect(direct.detail).toBe("意图识别：代码 · 直接执行");
+    expect(direct.detail).toBe("代码");
 
     const planned = summarizeToolCall(
       toolCall("t2", "agent_intent", { domain: "other", executionMode: "harness_plan" }),
       "zh-CN",
     );
-    expect(planned.detail).toBe("意图识别：通用 · 规划执行");
+    expect(planned.detail).toBe("通用 · 规划");
 
     const english = summarizeToolCall(
       toolCall("t3", "agent_intent", { domain: "code", executionMode: "direct_stream" }),
       "en-US",
     );
-    expect(english.detail).toBe("Intent: code · direct");
+    expect(english.detail).toBe("code");
 
     const noDomain = summarizeToolCall(toolCall("t4", "agent_intent", {}), "zh-CN");
-    expect(noDomain.detail).toBe("意图识别：直接执行");
+    expect(noDomain.detail).toBe("对话");
   });
 
   it("summarizes agent errors as failed progress", () => {
@@ -154,7 +161,7 @@ describe("tool progress summaries", () => {
     expect(groups[1]?.title).toBe("执行命令");
   });
 
-  it("shows full shell commands with args and cwd", () => {
+  it("shows full shell commands with args", () => {
     const step = summarizeToolCall(
       toolCall("t1", "execute_shell", {
         cmd: "git",
@@ -165,10 +172,21 @@ describe("tool progress summaries", () => {
     );
 
     expect(step.title).toBe("执行命令");
-    expect(step.detail).toBe("运行命令：git status --short（目录：/repo）");
+    expect(step.detail).toBe("git status --short");
+    expect(step.category).toBe("shell");
   });
 
-  it("shows git tool calls as full commands too", () => {
+  it("shows bash and git tool calls as full commands too", () => {
+    const bash = summarizeToolCall(
+      toolCall("t0", "bash", {
+        cmd: "ls",
+        args: ["-la", "src"],
+      }),
+      "zh-CN",
+    );
+    expect(bash.category).toBe("shell");
+    expect(bash.detail).toBe("ls -la src");
+
     const step = summarizeToolCall(
       toolCall("t1", "git_status", {
         cmd: "git",
@@ -178,7 +196,49 @@ describe("tool progress summaries", () => {
     );
 
     expect(step.title).toBe("检查版本状态");
-    expect(step.detail).toBe("运行命令：git diff -- src/App.vue");
+    expect(step.detail).toBe("git diff -- src/App.vue");
+  });
+
+  it("collapses multiline text to one line for compact preview", () => {
+    expect(oneLineText("pnpm test\n  --coverage")).toBe("pnpm test --coverage");
+  });
+
+  it("formats all tool params in expanded view and one-line when compact", () => {
+    const write = summarizeToolCall(
+      toolCall("t1", "write_file", {
+        path: "src/a.ts",
+        content: "export const a = 1;\n",
+      }),
+      "zh-CN",
+    );
+
+    expect(formatStepDetail(write, "compact")).toBe("src/a.ts");
+    expect(formatStepDetail(write, "full")).toBe(
+      ["path: src/a.ts", "content:", "export const a = 1;", ""].join("\n"),
+    );
+
+    const shell = summarizeToolCall(
+      toolCall("t2", "execute_shell", {
+        cmd: "rg",
+        args: ["-n", "TODO", "src"],
+      }),
+      "zh-CN",
+    );
+    expect(formatStepDetail(shell, "compact")).toBe("rg -n TODO src");
+    expect(formatStepDetail(shell, "full")).toBe("rg -n TODO src");
+    expect(formatToolParams(shell.rawInput)).toContain("cmd: rg");
+  });
+
+  it("truncates huge full-mode tool params so expand-all stays responsive", () => {
+    const huge = "x".repeat(TOOL_DETAIL_FULL_MAX_CHARS + 2_000);
+    const write = summarizeToolCall(
+      toolCall("t1", "write_file", { path: "big.txt", content: huge }),
+      "zh-CN",
+    );
+    const full = formatStepDetail(write, "full");
+    expect(full.length).toBeLessThanOrEqual(TOOL_DETAIL_FULL_MAX_CHARS + 8);
+    expect(full.endsWith("…")).toBe(true);
+    expect(truncateDisplayText("abc", 10)).toEqual({ text: "abc", truncated: false });
   });
 
   it("keeps only the latest group and latest three steps when compacted", () => {
@@ -195,5 +255,48 @@ describe("tool progress summaries", () => {
     expect(compacted).toHaveLength(1);
     expect(compacted[0]?.title).toBe("执行命令");
     expect(compacted[0]?.steps.map((step) => step.id)).toEqual(["t3", "t4", "t5"]);
+  });
+
+  it("skips trailing agent lifecycle groups so compact preview keeps tool results", () => {
+    const groups = groupToolProgress([
+      summarizeToolCall(toolCall("t1", "read_file", { path: "a.ts" }), "zh-CN"),
+      summarizeToolCall(toolCall("t2", "read_file", { path: "b.ts" }), "zh-CN"),
+      summarizeToolCall(toolCall("t3", "agent_thinking", {}), "zh-CN"),
+    ]);
+
+    const compacted = compactToolProgress(groups);
+    expect(compacted).toHaveLength(1);
+    expect(compacted[0]?.category).toBe("filesystem");
+    expect(compacted[0]?.steps.map((step) => step.id)).toEqual(["t1", "t2"]);
+  });
+});
+
+describe("output compaction", () => {
+  it("folds runs of near-identical progress lines", () => {
+    const text = [
+      "Progress: resolved 66, reused 0",
+      "Progress: resolved 84, reused 0",
+      "Progress: resolved 86, reused 0",
+      "Progress: resolved 832, reused 0",
+      "Done in 12.2s",
+    ].join("\n");
+
+    const folded = foldRepeatedLines(text);
+    expect(folded.split("\n")).toHaveLength(2);
+    expect(folded).toContain("Progress: resolved 832, reused 0  … ×4 行相似");
+    expect(folded).toContain("Done in 12.2s");
+  });
+
+  it("leaves distinct lines untouched", () => {
+    const text = "first line\nsecond thing\nthird item";
+    expect(foldRepeatedLines(text)).toBe(text);
+  });
+
+  it("summarizes an output into one line for the live view", () => {
+    expect(summarizeResultOutput("only line", false, "zh-CN")).toBe("only line");
+    expect(summarizeResultOutput("a\nb\nc", false, "zh-CN")).toBe("3 行 · a");
+    expect(summarizeResultOutput("", false, "zh-CN")).toBe("完成 · 无输出");
+    expect(summarizeResultOutput("", true, "zh-CN")).toBe("失败 · 无输出");
+    expect(summarizeResultOutput("a\nb", false, "en-US")).toBe("2 lines · a");
   });
 });

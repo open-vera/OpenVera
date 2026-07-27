@@ -1,115 +1,84 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
 import { computed, nextTick, onMounted, ref, watch, type ComponentPublicInstance } from "vue";
-import { readFile } from "@/bridge";
+import { readRunLog, type RunLogView } from "@/bridge";
+import { measureAsync } from "@/perf";
 import { useChatStore } from "@/stores/chat";
-import { getOrchestrator } from "@/orchestrator";
+import { getChatRunner } from "@/shell";
 import { useSettingsStore } from "@/stores/settings";
 import { usePreviewStore } from "@/stores/preview";
 import { useWorkspaceStore } from "@/stores/workspace";
-import type { ChatAttachment, Message, ToolCall, ToolResult } from "@/types";
-import { buildPartnerRunLogPath, formatRunLogPlaceholder } from "@/utils/run-log";
-import { formatChatTime, shouldShowChatTime } from "@/utils/chat-time";
-import { isVisibleToolProgressStep, summarizeToolCall } from "@/utils/tool-progress";
-import MessageBubble from "./MessageBubble.vue";
+import type { ChatAttachment } from "@/types";
+import {
+  closeCenterTabById,
+  confirmQuitPartner,
+} from "@/utils/close-center-tab";
+import {
+  formatRunLogPlaceholder,
+  formatRunLogReadFailure,
+  formatRunLogTruncationNotice,
+} from "@/utils/run-log";
+import {
+  buildChatDisplayItems,
+  buildChatTimelineEntries,
+  hasVisibleToolProgress,
+  type ChatDisplayItem,
+  type ChatTimelineEntry,
+} from "@/utils/chat-timeline";
+import MessageAnchorRail from "./MessageAnchorRail.vue";
 import InputBar from "./InputBar.vue";
-import ToolProgressPanel from "./ToolProgressPanel.vue";
-import SessionSearchDialog from "./SessionSearchDialog.vue";
-import SessionHistoryMenu from "./SessionHistoryMenu.vue";
+import ChatTimelineItem from "./ChatTimelineItem.vue";
+import TurnTimeline from "./TurnTimeline.vue";
 import SettingsPanel from "@/components/settings/SettingsPanel.vue";
+import { useAppStateStore } from "@/stores/app-state";
+import { buildUserMessageAnchors } from "@/utils/message-anchors";
+import { scrollTabIntoView } from "@/utils/scroll-tab-into-view";
 
 const chat = useChatStore();
 const settings = useSettingsStore();
 const preview = usePreviewStore();
 const workspace = useWorkspaceStore();
-const { activeTab, messages, isAgentRunning, lastError, tabs } = storeToRefs(chat);
-const orchestrator = getOrchestrator();
+const appState = useAppStateStore();
+const { activeTab, messages, isAgentRunning, tabs, runUsage } = storeToRefs(chat);
+const chatRunner = getChatRunner();
 const messagesRef = ref<HTMLElement | null>(null);
+const tabsScrollRef = ref<HTMLElement | null>(null);
 const inputBarRef = ref<InstanceType<typeof InputBar> | null>(null);
 const shouldStickToBottom = ref(true);
 const itemElements = new Map<string, HTMLElement>();
 
-type ChatDisplayItem =
-  | { type: "time"; key: string; label: string }
-  | { type: "thinking"; key: string; label: string }
-  | { type: "message"; key: string; message: Message }
-  | {
-      type: "tool-progress";
-      key: string;
-      messageIds: string[];
-      timestamp: number;
-      toolCalls: ToolCall[];
-      toolResults: ToolResult[];
-    };
+const displayLocale = computed<"zh-CN" | "en-US">(() =>
+  settings.locale === "zh" ? "zh-CN" : "en-US",
+);
 
-function hasVisibleToolProgress(toolCalls: ToolCall[]): boolean {
-  return toolCalls
-    .map((toolCall) => summarizeToolCall(toolCall, settings.locale === "zh" ? "zh-CN" : "en-US"))
-    .some(isVisibleToolProgressStep);
-}
+const allDisplayItems = computed<ChatDisplayItem[]>(() =>
+  buildChatDisplayItems(messages.value),
+);
 
-const allDisplayItems = computed<ChatDisplayItem[]>(() => {
-  const items: ChatDisplayItem[] = [];
-  let activeToolGroup: Extract<ChatDisplayItem, { type: "tool-progress" }> | null = null;
-  let lastVisibleTimestamp: number | null = null;
-
-  const appendTimeIfNeeded = (timestamp: number) => {
-    if (!shouldShowChatTime(lastVisibleTimestamp, timestamp)) return;
-    items.push({
-      type: "time",
-      key: `time:${timestamp}`,
-      label: formatChatTime(timestamp),
-    });
-  };
-
-  for (const message of messages.value) {
-    if (
-      message.role === "assistant" &&
-      message.isStreaming &&
-      !message.content.trim()
-    ) {
-      continue;
-    }
-
-    if (message.role === "tool" && message.toolCalls?.length) {
-      if (!activeToolGroup) {
-        appendTimeIfNeeded(message.timestamp);
-        activeToolGroup = {
-          type: "tool-progress",
-          key: `tools:${message.id}`,
-          messageIds: [],
-          timestamp: message.timestamp,
-          toolCalls: [],
-          toolResults: [],
-        };
-        items.push(activeToolGroup);
-      }
-      activeToolGroup.messageIds.push(message.id);
-      activeToolGroup.toolCalls.push(...message.toolCalls);
-      activeToolGroup.toolResults.push(...(message.toolResults ?? []));
-      lastVisibleTimestamp = message.timestamp;
-      continue;
-    }
-
-    activeToolGroup = null;
-    appendTimeIfNeeded(message.timestamp);
-    items.push({
-      type: "message",
-      key: message.id,
-      message,
-    });
-    lastVisibleTimestamp = message.timestamp;
-  }
-
-  return items;
-});
 const displayItems = computed<ChatDisplayItem[]>(() => {
   if (!isAgentRunning.value) return allDisplayItems.value;
 
   return allDisplayItems.value.filter(
-    (item) => item.type !== "tool-progress" || hasVisibleToolProgress(item.toolCalls),
+    (item) =>
+      item.type !== "tool-progress" ||
+      hasVisibleToolProgress(item.toolCalls, displayLocale.value),
   );
 });
+
+const timelineEntries = computed<ChatTimelineEntry[]>(() =>
+  buildChatTimelineEntries(displayItems.value),
+);
+
+/** The turn the agent is currently working on — the last one, while running. */
+const runningTurnKey = computed(() => {
+  if (!isAgentRunning.value) return "";
+  for (let index = timelineEntries.value.length - 1; index >= 0; index -= 1) {
+    const entry = timelineEntries.value[index];
+    if (entry?.type === "turn") return entry.key;
+  }
+  return "";
+});
+
 const activeToolProgressKey = computed(() => {
   for (let index = displayItems.value.length - 1; index >= 0; index -= 1) {
     const item = displayItems.value[index];
@@ -118,19 +87,6 @@ const activeToolProgressKey = computed(() => {
   return "";
 });
 
-const latestRunningToolCall = computed(() => {
-  for (let index = messages.value.length - 1; index >= 0; index -= 1) {
-    const message = messages.value[index];
-    if (message?.role !== "tool" || !message.toolCalls?.length) continue;
-    return message.toolCalls.at(-1) ?? null;
-  }
-  return null;
-});
-const runningStatus = computed(() => {
-  const toolCall = latestRunningToolCall.value;
-  if (!toolCall) return "";
-  return summarizeToolCall(toolCall, settings.locale === "zh" ? "zh-CN" : "en-US").detail;
-});
 const uiText = computed(() => {
   if (settings.locale === "en") {
     return {
@@ -139,12 +95,6 @@ const uiText = computed(() => {
       newChat: "New Chat",
       newChatTitle: "New chat",
       running: "Running",
-      agentRunning: "Agent running; new messages will queue",
-      currentStep: "Running",
-      stop: "Stop",
-      logs: "Logs",
-      errorTitle: "Run failed",
-      dismiss: "Dismiss",
     };
   }
   return {
@@ -153,43 +103,48 @@ const uiText = computed(() => {
     newChat: "新对话",
     newChatTitle: "新建对话",
     running: "运行中",
-    agentRunning: "Agent 运行中，可继续输入",
-    currentStep: "运行中",
-    stop: "停止",
-    logs: "日志",
-    errorTitle: "运行失败",
-    dismiss: "关闭",
   };
 });
 
 function createNewChat() {
-  chat.createChatTab();
+  const id = appState.createSession({ projectId: appState.previewProjectId });
+  const session = appState.getSession(id);
+  if (session) chat.ensureSessionTab(session);
   focusInputBar();
 }
 
 function selectTab(tabId: string) {
-  chat.selectTab(tabId);
+  appState.selectTab(tabId);
+  if (tabId === "settings") {
+    chat.openSettingsTab();
+  } else {
+    const session = appState.getSession(tabId);
+    if (session) chat.ensureSessionTab(session);
+    else chat.selectTab(tabId);
+  }
   focusInputBar();
 }
 
 function closeTab(tabId: string) {
-  const tab = tabs.value.find((item) => item.id === tabId);
-  if (tab?.isAgentRunning) {
-    orchestrator.abort({ discardQueue: true });
-  }
-  chat.closeTab(tabId);
+  void (async () => {
+    if (tabs.value.length <= 1 && tabs.value[0]?.id === tabId) {
+      await confirmQuitPartner();
+      return;
+    }
+    closeCenterTabById(tabId);
+  })();
 }
 
 function abortActiveRun() {
-  orchestrator.abort();
+  chatRunner.abort();
 }
 
-function promoteQueuedMessage(messageId: string) {
-  orchestrator.promoteQueuedTask(messageId);
+function promoteQueuedMessage(_messageId: string) {
+  // Queue order is owned by Host; no client-side promote.
 }
 
-function runQueuedMessageNow(messageId: string) {
-  orchestrator.runQueuedTaskNow(messageId);
+function runQueuedMessageNow(_messageId: string) {
+  // Queue order is owned by Host; no client-side jump.
 }
 
 function tabTitle(tab: { kind: string; title: string }) {
@@ -199,6 +154,12 @@ function tabTitle(tab: { kind: string; title: string }) {
 function focusInputBar() {
   void nextTick(() => {
     inputBarRef.value?.focus();
+  });
+}
+
+function scrollActiveCenterTabIntoView() {
+  scrollTabIntoView(tabsScrollRef.value, activeTab.value?.id ?? null, {
+    behavior: "smooth",
   });
 }
 
@@ -213,6 +174,9 @@ function setItemElement(key: string, element: Element | ComponentPublicInstance 
 function itemKeyForMessageId(messageId: string): string {
   const message = messages.value.find((item) => item.id === messageId);
   if (!message) return messageId;
+  // Messages inside a turn are rendered by TurnTimeline (and may be collapsed),
+  // so anchor on the turn container instead.
+  if (message.turnId) return `turn:${message.turnId}`;
   if (message.role !== "tool") return message.id;
   return displayItems.value.find(
     (item) => item.type === "tool-progress" && item.messageIds.includes(messageId),
@@ -232,6 +196,8 @@ function jumpToMessage(messageId: string) {
     });
   });
 }
+
+const userMessageAnchors = computed(() => buildUserMessageAnchors(messages.value));
 
 function isNearBottom(element: HTMLElement): boolean {
   return element.scrollHeight - element.scrollTop - element.clientHeight < 80;
@@ -258,30 +224,54 @@ function scheduleScrollToBottom(force = false) {
 
 async function onSubmit(payload: { text: string; attachments: ChatAttachment[] }) {
   shouldStickToBottom.value = true;
-  await orchestrator.sendMessage(payload.text, undefined, payload.attachments);
+  await chatRunner.sendMessage(payload.text, undefined, payload.attachments);
   scheduleScrollToBottom(true);
 }
 
+const RUN_LOG_OPEN_MAX_BYTES = 400_000;
+
 async function openRunLog() {
-  if (!workspace.rootPath) {
-    preview.openCodeFile("partner-run-log.txt", "尚未选择工作区，无法定位运行日志。\n");
-    return;
-  }
-  const taskId = activeTab.value?.kind === "chat"
-    ? activeTab.value.activeTaskId ?? activeTab.value.lastTaskId
-    : null;
-  const path = buildPartnerRunLogPath(workspace.rootPath, new Date(), taskId);
-  try {
-    const content = await readFile(path);
-    preview.openCodeFile(path, content);
-  } catch (error) {
-    preview.openCodeFile(path, formatRunLogPlaceholder(path, error));
-    console.warn("[ChatPanel] failed to open run log:", error);
-  }
+  await measureAsync(
+    "openRunLog",
+    async () => {
+      if (!workspace.rootPath) {
+        preview.openCodeFile("partner-run-log.txt", "尚未选择工作区，无法定位运行日志。\n");
+        return;
+      }
+      const taskId = activeTab.value?.kind === "chat"
+        ? activeTab.value.activeTaskId ?? activeTab.value.lastTaskId
+        : null;
+      let view: RunLogView;
+      try {
+        view = await readRunLog(workspace.rootPath, taskId, RUN_LOG_OPEN_MAX_BYTES);
+      } catch (error) {
+        const label = `${workspace.rootPath} (task: ${taskId ?? "未知"})`;
+        preview.openCodeFile("partner-run-log.txt", formatRunLogReadFailure(label, error));
+        console.warn("[ChatPanel] failed to open run log:", error);
+        return;
+      }
+      if (!view.exists) {
+        preview.openCodeFile(view.path, formatRunLogPlaceholder(view.path));
+        return;
+      }
+      preview.openCodeFile(
+        view.path,
+        view.truncated
+          ? [
+              formatRunLogTruncationNotice(view.path, view.content.length, view.totalBytes),
+              view.content,
+            ].join("\n")
+          : view.content,
+      );
+    },
+    { warnMs: 100, errorMs: 800, timeoutMs: 15_000 },
+  );
 }
 
+defineExpose({ jumpToMessage });
+
 onMounted(() => {
-  chat.ensureDefaultChatTab();
+  // Default session is seeded by App via app-state sync (avoid dual default tabs).
   scheduleScrollToBottom(true);
   focusInputBar();
 });
@@ -293,6 +283,18 @@ watch(
     shouldStickToBottom.value = true;
     scheduleScrollToBottom(true);
     focusInputBar();
+    void nextTick(() => {
+      requestAnimationFrame(scrollActiveCenterTabIntoView);
+    });
+  },
+);
+
+watch(
+  () => tabs.value.length,
+  () => {
+    void nextTick(() => {
+      requestAnimationFrame(scrollActiveCenterTabIntoView);
+    });
   },
 );
 
@@ -309,34 +311,47 @@ watch(
 </script>
 
 <template>
-  <section class="chat-panel" data-shortcut-scope="center">
+  <section class="chat-panel" data-shortcut-scope="center" data-chat-drop>
     <nav class="center-tabs" :aria-label="uiText.workspaceLabel">
-      <div class="center-tabs-scroll">
+      <div ref="tabsScrollRef" class="center-tabs-scroll">
         <button
           v-for="tab in tabs"
           :key="tab.id"
           type="button"
           class="center-tab"
-          :class="{ active: tab.id === activeTab?.id }"
+          :data-tab-id="tab.id"
+          :class="{
+            active: tab.id === activeTab?.id,
+            settings: tab.kind === 'settings',
+          }"
           @click="selectTab(tab.id)"
         >
+          <svg
+            v-if="tab.kind === 'settings'"
+            class="tab-icon"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+            />
+          </svg>
           <span class="tab-title">{{ tabTitle(tab) }}</span>
           <span v-if="tab.isAgentRunning" class="running-dot" :aria-label="uiText.running" />
           <span class="tab-close" @click.stop="closeTab(tab.id)">×</span>
         </button>
-        <button
-          type="button"
-          class="new-chat"
-          :title="uiText.newChatTitle"
-          :aria-label="uiText.newChatTitle"
-          @click="createNewChat"
-        >
-          <span aria-hidden="true">+</span>
-          <span>{{ uiText.newChat }}</span>
-        </button>
       </div>
-      <SessionSearchDialog @select="jumpToMessage" />
-      <SessionHistoryMenu />
+      <button
+        type="button"
+        class="new-chat"
+        :title="uiText.newChatTitle"
+        :aria-label="uiText.newChatTitle"
+        @click="createNewChat"
+      >
+        <span aria-hidden="true">+</span>
+        <span>{{ uiText.newChat }}</span>
+      </button>
     </nav>
 
     <div v-if="activeTab?.kind === 'settings'" class="settings-slot">
@@ -344,67 +359,54 @@ watch(
     </div>
 
     <div v-else class="chat-workspace" :class="{ 'is-empty': !messages.length }">
-      <div ref="messagesRef" class="messages" @scroll="onMessagesScroll">
-        <template v-for="item in displayItems" :key="item.key">
-          <div v-if="item.type === 'time'" class="time-separator">
-            {{ item.label }}
-          </div>
-          <div v-else-if="item.type === 'thinking'" class="running-thinking">
-            <span class="thinking-dot" aria-hidden="true" />
-            {{ item.label }}
-          </div>
-          <div
-            v-else-if="item.type === 'message'"
-            :ref="(element) => setItemElement(item.key, element)"
-            class="message-anchor"
-          >
-            <MessageBubble
-              :message="item.message"
-              @promote-queued="promoteQueuedMessage"
-              @run-queued-now="runQueuedMessageNow"
-            />
-          </div>
-          <div
-            v-else
-            :ref="(element) => setItemElement(item.key, element)"
-            class="message-anchor"
-          >
-            <ToolProgressPanel
-              :tool-calls="item.toolCalls"
-              :tool-results="item.toolResults"
-              :running="isAgentRunning && item.key === activeToolProgressKey"
-            />
-          </div>
-        </template>
+      <div class="messages-shell">
+        <div ref="messagesRef" class="messages" @scroll="onMessagesScroll">
+          <template v-for="entry in timelineEntries" :key="entry.key">
+            <div
+              v-if="entry.type === 'item'"
+              :ref="(element) => setItemElement(entry.key, element)"
+              class="message-anchor"
+            >
+              <ChatTimelineItem
+                :item="entry.item"
+                :running="isAgentRunning && entry.key === activeToolProgressKey"
+                :usage="entry.key === activeToolProgressKey ? runUsage : null"
+                @promote-queued="promoteQueuedMessage"
+                @run-queued-now="runQueuedMessageNow"
+                @open-logs="openRunLog"
+              />
+            </div>
+            <div
+              v-else
+              :ref="(element) => setItemElement(entry.key, element)"
+              class="message-anchor"
+            >
+              <TurnTimeline
+                :turn="entry"
+                :running="entry.key === runningTurnKey"
+                :usage="entry.key === runningTurnKey ? runUsage : null"
+                :locale="displayLocale"
+                @promote-queued="promoteQueuedMessage"
+                @run-queued-now="runQueuedMessageNow"
+                @open-logs="openRunLog"
+              />
+            </div>
+          </template>
+        </div>
+        <MessageAnchorRail
+          :anchors="userMessageAnchors"
+          @select="jumpToMessage"
+        />
       </div>
 
       <div class="composer-slot">
-        <div v-if="lastError" class="error-status" role="alert">
-          <div class="error-copy">
-            <strong>{{ uiText.errorTitle }}</strong>
-            <span>{{ lastError.message }}</span>
-          </div>
-          <div class="error-actions">
-            <button type="button" class="error-action" @click="openRunLog">
-              {{ uiText.logs }}
-            </button>
-            <button type="button" class="error-action" @click="chat.clearLastError()">
-              {{ uiText.dismiss }}
-            </button>
-          </div>
-        </div>
-        <div v-if="isAgentRunning" class="live-status">
-          <span class="live-dot" aria-hidden="true" />
-          <span class="live-label">{{ uiText.currentStep }}</span>
-          <span class="live-detail">{{ runningStatus || uiText.agentRunning }}</span>
-          <button type="button" class="live-stop-button" @click="abortActiveRun">
-            {{ uiText.stop }}
-          </button>
-          <button type="button" class="live-log-button" @click="openRunLog">
-            {{ uiText.logs }}
-          </button>
-        </div>
-        <InputBar ref="inputBarRef" :running="isAgentRunning" @submit="onSubmit" @abort="abortActiveRun" />
+        <InputBar
+          ref="inputBarRef"
+          :running="isAgentRunning"
+          :usage="runUsage"
+          @submit="onSubmit"
+          @abort="abortActiveRun"
+        />
       </div>
     </div>
   </section>
@@ -444,36 +446,13 @@ watch(
   display: none;
 }
 
-.center-tabs :deep(.session-search),
-.center-tabs :deep(.session-history) {
-  position: relative;
-  z-index: 5;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  align-self: stretch;
-  height: 100%;
-  background: transparent;
-}
-
-.center-tabs :deep(.session-history) {
-  box-shadow: -10px 0 14px color-mix(in srgb, var(--bg) 55%, transparent);
-}
-
-.center-tabs :deep(.search-button),
-.center-tabs :deep(.history-button) {
-  width: 28px;
-  height: 28px;
-  border-radius: 5px;
-}
-
 .center-tab,
 .new-chat {
   position: relative;
   display: inline-flex;
   align-items: center;
-  height: 36px;
+  align-self: stretch;
+  height: auto;
   border: none;
   border-radius: 0;
   background: transparent;
@@ -545,6 +524,22 @@ watch(
   background: var(--tab-indicator, var(--accent));
 }
 
+.tab-icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.9;
+}
+
+.center-tab.settings .tab-title {
+  flex: 0 1 auto;
+}
+
 .tab-title {
   flex: 1;
   min-width: 0;
@@ -592,9 +587,7 @@ watch(
   gap: 4px;
   justify-content: center;
   flex-shrink: 0;
-  padding: 0 10px;
-  background: transparent;
-  font-size: 11px;
+  padding: 0 12px;
 }
 
 .settings-slot {
@@ -604,54 +597,39 @@ watch(
 }
 
 .chat-workspace {
+  /* Same column as InputBar composer-card (920px). Keep room for the left anchor rail. */
+  --chat-column-max: 920px;
+  --chat-side-pad: max(32px, calc((100% - var(--chat-column-max)) / 2));
   flex: 1;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto minmax(0, 0fr);
+  display: flex;
+  flex-direction: column;
   min-height: 0;
-  transition: grid-template-rows 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  min-width: 0;
 }
 
-.chat-workspace::after {
-  content: "";
+.messages-shell {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
   min-height: 0;
-}
-
-.chat-workspace.is-empty {
-  grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .messages {
-  --chat-assistant-width: min(92%, 900px);
+  /* Fill the shared chat column; side pad handles centering vs input. */
+  --chat-assistant-width: 100%;
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 12px;
   min-height: 0;
-  padding: 16px 16px 10px;
+  padding: 16px var(--chat-side-pad) 10px;
   overflow-y: auto;
   transition:
     padding 280ms cubic-bezier(0.2, 0.8, 0.2, 1),
     opacity 160ms ease;
-}
-
-.time-separator {
-  align-self: center;
-  max-width: 80%;
-  margin: 4px 0;
-  padding: 2px 8px;
-  border-radius: 999px;
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--surface) 66%, transparent);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.running-thinking {
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-muted);
-  font-size: 13px;
 }
 
 .message-anchor {
@@ -667,179 +645,24 @@ watch(
   border-radius: 12px;
 }
 
-.thinking-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--accent);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 42%, transparent);
-  animation: thinking-pulse 1.3s ease-in-out infinite;
-}
-
-@keyframes thinking-pulse {
-  0%,
-  100% {
-    opacity: 0.5;
-    transform: scale(0.85);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
 .chat-workspace.is-empty .messages {
   padding-block: 0;
   opacity: 0;
   pointer-events: none;
 }
 
+.chat-workspace.is-empty :deep(.message-anchor-rail) {
+  display: none;
+}
+
 .composer-slot {
+  flex: 0 0 auto;
   min-width: 0;
+  margin-top: auto;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-inline: 12px;
-}
-
-.error-status {
-  align-self: center;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  width: min(760px, calc(100% - 24px));
-  margin: 0 auto 2px;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--danger) 58%, var(--border));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--danger) 10%, var(--surface-elevated));
-  color: var(--text);
-  box-shadow:
-    0 8px 22px rgba(0, 0, 0, 0.18),
-    inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
-}
-
-.error-copy {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.error-copy strong {
-  color: var(--danger-muted);
-  font-size: 13px;
-}
-
-.error-copy span {
-  display: block;
-  max-height: 180px;
-  overflow: auto;
-  color: color-mix(in srgb, var(--text) 86%, transparent);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.error-actions {
-  display: flex;
-  flex-shrink: 0;
-  gap: 6px;
-}
-
-.error-action {
-  height: 24px;
-  border: none;
-  border-radius: 999px;
-  padding: 0 8px;
-  background: color-mix(in srgb, var(--surface-hover) 76%, transparent);
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.error-action:hover {
-  color: var(--text);
-  background: var(--surface-hover);
-}
-
-.live-status {
-  align-self: center;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  max-width: min(560px, calc(100% - 24px));
-  margin: 0 auto -2px;
-  padding: 5px 9px;
-  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface-elevated) 68%, transparent);
-  color: var(--text-muted);
-  font-size: 11px;
-  box-shadow:
-    0 8px 22px rgba(0, 0, 0, 0.18),
-    inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
-  backdrop-filter: blur(8px);
-}
-
-.live-dot {
-  width: 6px;
-  height: 6px;
-  flex-shrink: 0;
-  border-radius: 999px;
-  background: var(--accent);
-  animation: pulse 1s infinite;
-}
-
-.live-label {
-  flex-shrink: 0;
-  color: color-mix(in srgb, var(--text) 72%, transparent);
-}
-
-.live-label::after {
-  content: "·";
-  margin-left: 7px;
-  color: var(--text-muted);
-}
-
-.live-detail {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.live-stop-button,
-.live-log-button {
-  flex-shrink: 0;
-  height: 20px;
-  border: none;
-  border-radius: 999px;
-  padding: 0 7px;
-  background: color-mix(in srgb, var(--surface-hover) 68%, transparent);
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.live-stop-button {
-  color: color-mix(in srgb, var(--danger-muted) 82%, var(--text-muted));
-}
-
-.live-stop-button:hover {
-  color: var(--danger-muted);
-  background: color-mix(in srgb, var(--danger) 18%, var(--surface-hover));
-}
-
-.live-log-button:hover {
-  color: var(--text);
-  background: var(--surface-hover);
+  padding-inline: var(--chat-side-pad);
 }
 
 @keyframes pulse {

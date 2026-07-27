@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import type { Message } from "@/types";
+import type { ChatAttachment, Message } from "@/types";
+import { usePreviewStore } from "@/stores/preview";
 import { useSettingsStore } from "@/stores/settings";
-import { attachmentLabel } from "@/utils/attachments";
+import {
+  attachmentChipKind,
+  attachmentDisplayName,
+  attachmentLabel,
+} from "@/utils/attachments";
 import { copyTextToClipboard } from "@/utils/clipboard";
 import MarkdownRenderer from "./MarkdownRenderer.vue";
 
@@ -16,8 +21,19 @@ defineEmits<{
 }>();
 
 const settings = useSettingsStore();
+const preview = usePreviewStore();
 const copyState = ref<"idle" | "copied" | "failed">("idle");
 let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
+
+function previewAttachment(attachment: ChatAttachment) {
+  if (attachment.kind === "image" && attachment.dataUrl) {
+    preview.openImagePreview({
+      id: attachment.id,
+      name: attachment.name,
+      dataUrl: attachment.dataUrl,
+    });
+  }
+}
 
 const queueLabel = computed(() =>
   settings.locale === "en"
@@ -79,7 +95,14 @@ async function copyAssistantMessage(): Promise<void> {
         {{ copyButtonLabel }}
       </button>
       <div v-if="message.isError" class="error-heading">运行失败</div>
-      <MarkdownRenderer :content="message.content || '…'" />
+      <pre
+        v-if="message.isError"
+        class="error-body"
+      >{{ message.content || "…" }}</pre>
+      <MarkdownRenderer
+        v-else
+        :content="message.content || '…'"
+      />
     </div>
     <div v-else class="content">
       {{ message.content || "…" }}
@@ -104,15 +127,36 @@ async function copyAssistantMessage(): Promise<void> {
         </button>
       </span>
       <div v-if="message.attachments?.length" class="message-attachments">
-        <span
+        <button
           v-for="attachment in message.attachments"
           :key="attachment.id"
+          type="button"
           class="message-attachment"
-          :title="attachmentLabel(attachment)"
+          :class="{
+            image: attachment.kind === 'image' && attachment.dataUrl,
+            clickable: attachment.kind === 'image' && attachment.dataUrl,
+            reference:
+              attachment.kind === 'path' ||
+              attachment.kind === 'folder' ||
+              attachment.kind === 'selection',
+          }"
+          :title="attachmentLabel(attachment, settings.locale)"
+          :disabled="!(attachment.kind === 'image' && attachment.dataUrl)"
+          @click="previewAttachment(attachment)"
         >
-          <span class="attachment-kind">{{ attachment.kind === "image" ? "IMG" : "FILE" }}</span>
-          <span class="attachment-name">{{ attachment.name }}</span>
-        </span>
+          <img
+            v-if="attachment.kind === 'image' && attachment.dataUrl"
+            class="attachment-thumb"
+            :src="attachment.dataUrl"
+            :alt="attachmentLabel(attachment, settings.locale)"
+          />
+          <template v-else>
+            <span class="attachment-kind">
+              {{ attachmentChipKind(attachment) }}
+            </span>
+            <span class="attachment-name">{{ attachmentDisplayName(attachment) }}</span>
+          </template>
+        </button>
       </div>
     </div>
   </article>
@@ -265,6 +309,16 @@ async function copyAssistantMessage(): Promise<void> {
   font-weight: 700;
 }
 
+.error-body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .message-attachments {
   display: flex;
   flex-wrap: wrap;
@@ -275,14 +329,66 @@ async function copyAssistantMessage(): Promise<void> {
 .message-attachment {
   display: inline-flex;
   align-items: center;
+  gap: 8px;
   max-width: 280px;
-  height: 26px;
+  min-height: 26px;
+  margin: 0;
+  padding: 0;
   border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  border-radius: 999px;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--surface) 72%, transparent);
   color: var(--text);
+  font: inherit;
   font-size: 12px;
   overflow: hidden;
+  cursor: default;
+  text-align: left;
+}
+
+.message-attachment.reference {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(
+    in srgb,
+    var(--accent) 12%,
+    var(--surface-elevated-solid, var(--surface-elevated))
+  );
+}
+
+.message-attachment.image {
+  min-height: 0;
+  padding: 0;
+  border-radius: 12px;
+}
+
+.message-attachment.clickable {
+  cursor: zoom-in;
+}
+
+.message-attachment.clickable:hover .attachment-name {
+  color: var(--accent);
+}
+
+.message-attachment.image.clickable:hover .attachment-thumb {
+  filter: brightness(1.08);
+}
+
+.message-attachment:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.attachment-thumb {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 7px;
+}
+
+.message-attachment.image .attachment-thumb {
+  width: 72px;
+  height: 72px;
+  border-radius: 11px;
 }
 
 .attachment-kind {

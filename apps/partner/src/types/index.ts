@@ -15,10 +15,19 @@ export interface ToolApprovalRequest {
   allowDir?: string;
 }
 
+export interface FileChange {
+  path: string;
+  added: number;
+  removed: number;
+  unifiedDiff: string;
+}
+
 export interface ToolResult {
   id: string;
   output: string;
   isError?: boolean;
+  /** Present when write_file / edit_file produced a structured diff. */
+  fileChange?: FileChange;
 }
 
 export interface ChatErrorNotice {
@@ -27,7 +36,16 @@ export interface ChatErrorNotice {
   timestamp: number;
 }
 
-export type ChatAttachmentKind = "text" | "image" | "binary";
+export type ChatAttachmentKind =
+  | "text"
+  | "image"
+  | "binary"
+  /** Workspace / Finder path reference (contents not inlined). */
+  | "path"
+  /** Directory path reference. */
+  | "folder"
+  /** Editor text selection — chip in UI, full content sent to the model. */
+  | "selection";
 
 export interface ChatAttachment {
   id: string;
@@ -38,6 +56,11 @@ export interface ChatAttachment {
   content?: string;
   dataUrl?: string;
   truncated?: boolean;
+  /** Absolute filesystem path for path / folder / selection refs. */
+  path?: string;
+  /** 1-based line range for selection refs. */
+  startLine?: number;
+  endLine?: number;
 }
 
 export interface Message {
@@ -53,6 +76,14 @@ export interface Message {
   isError?: boolean;
   tokenCount?: number;
   queueStatus?: "queued" | "next";
+  /**
+   * Groups every message produced by one agent run. A run is split into
+   * time-ordered segments (text → tools → text …) so the transcript keeps the
+   * real order instead of "all tools, then all text". Absent on legacy sessions.
+   */
+  turnId?: string;
+  /** Segment / turn end time, set when the segment stops accepting events. */
+  endedAt?: number;
 }
 
 export interface ChatTab {
@@ -66,6 +97,8 @@ export interface ChatTab {
   lastError?: ChatErrorNotice | null;
   currentTokenCount: number;
   estimatedCost: number;
+  /** Latest agent-run usage / context-window stats for the active tab. */
+  runUsage?: TokenUsage | null;
 }
 
 export interface Session {
@@ -79,6 +112,18 @@ export interface Session {
 export interface LayoutSnapshot {
   leftWidth: number;
   previewWidth: number;
+  /** Session sidebar open */
+  leftOpen?: boolean;
+  /** Right workspace (explorer + editor) open */
+  previewOpen?: boolean;
+  /** File explorer open inside preview */
+  explorerOpen?: boolean;
+  /** Code editor open inside preview */
+  editorOpen?: boolean;
+  /** Bottom terminal panel open */
+  terminalOpen?: boolean;
+  /** Bottom terminal panel height in px */
+  terminalHeight?: number;
 }
 
 export type LLMProviderId = string;
@@ -94,6 +139,8 @@ export interface CatalogProvider {
   apiBaseUrl: string;
   hasApiKey: boolean;
   isDefault: boolean;
+  /** Preferred / known model id for this provider (from settings). */
+  model?: string;
 }
 
 export interface CatalogModel {
@@ -119,6 +166,20 @@ export interface LLMRuntimeConfig {
   apiKey: string;
 }
 
+export interface VeraModelAlias {
+  alias: string;
+  provider: string;
+  model?: string | null;
+}
+
+export interface VeraRoutingSettings {
+  enabled: boolean;
+  classifier?: string | null;
+  l0?: string | null;
+  l1?: string | null;
+  l2?: string | null;
+}
+
 export interface EffectiveLlmConfig {
   source: "partner-settings" | "vera-config" | "environment" | "missing";
   sourceLabel: string;
@@ -134,8 +195,14 @@ export interface EffectiveLlmConfig {
   apiKeyValue?: string;
   envKeyName?: string;
   configPath?: string | null;
-  configScope?: string;
+  configScope?: "explicit" | "env" | "project" | "global" | string;
   configExists: boolean;
+  projectConfigPath?: string | null;
+  globalConfigPath?: string | null;
+  defaultProvider?: string | null;
+  defaultModel?: string | null;
+  models?: VeraModelAlias[];
+  routing?: VeraRoutingSettings;
 }
 
 export interface TaskStep {
@@ -209,4 +276,26 @@ export interface TokenUsage {
   input?: number;
   output?: number;
   total?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+  reasoning_tokens?: number;
+  /** OpenAI/DeepSeek: cache_* already counted inside input_tokens. */
+  cache_included_in_input?: boolean;
+  /** Latest prompt size (approx) occupying the context window. */
+  context_used?: number;
+  /** Model context window limit. */
+  context_max?: number;
+  /** Latest-call breakdown (sums to context_used). */
+  context_cache_read_tokens?: number;
+  context_cache_write_tokens?: number;
+  context_prompt_tokens?: number;
+  duration_ms?: number;
+  /** Time to first stream event (approx TTFB). */
+  ttfb_ms?: number;
+  /** Time to first text token. */
+  ttft_ms?: number;
+  /** LLM rounds in this run. */
+  turns?: number;
+  tool_use_count?: number;
+  api_calls?: number;
 }
