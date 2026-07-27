@@ -1,0 +1,165 @@
+# Partner packaging (system Node + optional bundled Node).
+#
+# Triggers:
+# - tag `partner-v*` (e.g. partner-v0.1.0) → build + GitHub Release assets
+# - workflow_dispatch → build artifacts (default: system-node on macOS + Windows)
+#
+# Notarization / Developer ID / Authenticode signing are out of scope;
+# CI produces unsigned packages for internal distribution.
+
+name: Partner Release
+
+on:
+  push:
+    tags:
+      - "partner-v*"
+  workflow_dispatch:
+    inputs:
+      build_bundled_node:
+        description: "Also build bundled-Node variants"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: partner-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    timeout-minutes: 75
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/partner/src-tauri -> target
+          shared-key: partner-tauri-macos
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Partner-SystemNode.app
+        run: pnpm partner:build:system
+
+      - name: Build Partner.app (bundled Node)
+        if: ${{ github.event_name == 'push' || inputs.build_bundled_node }}
+        run: pnpm partner:build:bundled
+
+      - name: Package zip artifacts
+        working-directory: apps/partner/release/macos
+        run: |
+          set -euo pipefail
+          if [[ -d Partner-SystemNode.app ]]; then
+            ditto -c -k --sequesterRsrc --keepParent Partner-SystemNode.app Partner-macos-system-node.zip
+          fi
+          if [[ -d Partner.app ]]; then
+            ditto -c -k --sequesterRsrc --keepParent Partner.app Partner-macos-bundled.zip
+          fi
+          ls -lh *.zip
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: partner-macos-${{ github.ref_name }}
+          path: apps/partner/release/macos/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/partner/src-tauri -> target
+          shared-key: partner-tauri-windows
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Partner Windows system-node installer
+        run: pnpm partner:build:system
+        shell: bash
+
+      - name: Build Partner Windows bundled installer
+        if: ${{ github.event_name == 'push' || inputs.build_bundled_node }}
+        run: pnpm partner:build:bundled
+        shell: bash
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: partner-windows-${{ github.ref_name }}
+          path: apps/partner/release/windows/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    if: ${{ startsWith(github.ref, 'refs/tags/partner-v') }}
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: partner-macos-${{ github.ref_name }}
+          path: dist/macos
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: partner-windows-${{ github.ref_name }}
+          path: dist/windows
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/macos/*
+            dist/windows/*
+          generate_release_notes: true
+          fail_on_unmatched_files: false

@@ -44,3 +44,46 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path-to-lcov: packages/core/coverage/lcov.info
+
+  # Lightweight Partner gate for every PR/push. Full macOS Tauri packaging
+  # lives in partner-release.yml (tags / manual).
+  partner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace deps for sidecar
+        run: |
+          pnpm --filter @open-vera/core build
+          pnpm --filter @open-vera/openvera build
+
+      - name: Typecheck and build Partner sidecar
+        run: |
+          pnpm --filter @vera/partner-sidecar typecheck
+          pnpm --filter @vera/partner-sidecar build
+
+      - name: Typecheck Partner UI
+        run: pnpm --filter @vera/partner typecheck
+
+      - name: Test Partner UI
+        run: pnpm --filter @vera/partner test
+
+      - name: Build Partner UI
+        run: pnpm --filter @vera/partner build

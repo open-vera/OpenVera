@@ -2,6 +2,11 @@ import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+if (process.platform !== "darwin") {
+  console.log(`[fix-macos-icon] skip on ${process.platform}`);
+  process.exit(0);
+}
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const targetDir = process.env.CARGO_TARGET_DIR ?? join(root, "src-tauri/target");
 const appResources = join(
