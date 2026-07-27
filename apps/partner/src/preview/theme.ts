@@ -13,6 +13,12 @@ export const partnerEditorTheme = EditorView.theme({
   ".cm-content": {
     caretColor: "var(--accent)",
     padding: "12px 16px 12px 0",
+    // Narrow side panels keep a readable code column and scroll horizontally.
+    minWidth: "max(100%, 48rem)",
+    whiteSpace: "pre",
+  },
+  ".cm-line": {
+    whiteSpace: "pre",
   },
   ".cm-scroller": {
     fontFamily:
@@ -20,13 +26,14 @@ export const partnerEditorTheme = EditorView.theme({
     lineHeight: "1.6",
     backgroundColor: "var(--bg)",
     position: "relative",
-    overflowX: "hidden",
+    overflowX: "auto",
+    overflowY: "auto",
     scrollbarWidth: "thin",
     scrollbarColor: "color-mix(in srgb, var(--text-muted) 36%, transparent) transparent",
   },
   ".cm-scroller::-webkit-scrollbar": {
     width: "6px",
-    height: "0",
+    height: "6px",
   },
   ".cm-scroller::-webkit-scrollbar-track": {
     background: "transparent",
@@ -89,6 +96,31 @@ export const partnerEditorTheme = EditorView.theme({
     transform: "rotate(-45deg)",
   },
   ".cm-foldGutter .cm-gutterElement span:hover": {
+    color: "var(--text)",
+  },
+  // Folded-range chip (`{ … }`) — follow theme tokens instead of CM default white pill.
+  ".cm-foldPlaceholder": {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    margin: "0 3px",
+    border: "1px solid color-mix(in srgb, var(--border) 72%, transparent)",
+    borderRadius: "5px",
+    padding: "0 7px",
+    background: "color-mix(in srgb, var(--surface-elevated) 78%, var(--bg))",
+    color: "var(--text-muted)",
+    fontFamily: "inherit",
+    fontSize: "11px",
+    fontWeight: "600",
+    letterSpacing: "0.12em",
+    lineHeight: "1.35",
+    verticalAlign: "middle",
+    cursor: "pointer",
+    boxShadow: "none",
+  },
+  ".cm-foldPlaceholder:hover": {
+    borderColor: "color-mix(in srgb, var(--accent) 42%, var(--border))",
+    background: "color-mix(in srgb, var(--accent) 12%, var(--surface-elevated))",
     color: "var(--text)",
   },
   ".partner-floating-minimap.cm-minimap-gutter": {
@@ -205,6 +237,9 @@ export const partnerEditorTheme = EditorView.theme({
   ".cm-panel.cm-search .partner-search-toggle": {
     gridColumn: "1",
     gridRow: "1",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
     width: "20px",
     height: "24px",
     minWidth: "20px",
@@ -219,14 +254,19 @@ export const partnerEditorTheme = EditorView.theme({
     background: "var(--surface-hover)",
     color: "var(--text)",
   },
-  ".cm-panel.cm-search .partner-search-toggle::before": {
-    content: '">"',
-    display: "block",
-    fontSize: "14px",
-    lineHeight: "24px",
+  ".cm-panel.cm-search .partner-search-toggle svg": {
+    width: "14px",
+    height: "14px",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2",
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    transform: "rotate(-90deg)",
+    transition: "transform 120ms ease",
   },
-  ".cm-panel.cm-search.partner-search-replace-open .partner-search-toggle::before": {
-    content: '"v"',
+  ".cm-panel.cm-search.partner-search-replace-open .partner-search-toggle svg": {
+    transform: "rotate(0deg)",
   },
   ".cm-panel.cm-search input.cm-textfield:focus": {
     borderColor: "color-mix(in srgb, var(--accent) 75%, var(--border))",

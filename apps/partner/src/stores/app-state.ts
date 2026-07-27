@@ -13,6 +13,7 @@ import {
   type PartnerSessionRecord,
 } from "@/utils/partner-app-state";
 import type { ChatErrorNotice, Message } from "@/types";
+import { alignOrder } from "@/utils/tab-reorder";
 import type { PreviewSnapshot } from "@/stores/preview";
 
 function emptyPreview(): PreviewSnapshot {
@@ -254,6 +255,14 @@ export const useAppStateStore = defineStore("partner-app-state", {
           this.doc.openTabIds[0] ??
           null;
       }
+      void this.persist();
+    },
+
+    /** Persist a drag-reorder of the open tab strip. */
+    reorderOpenTabs(orderedTabIds: string[]) {
+      const next = alignOrder(this.doc.openTabIds, orderedTabIds);
+      if (next.every((id, index) => id === this.doc.openTabIds[index])) return;
+      this.doc.openTabIds = next;
       void this.persist();
     },
 

@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import type { ChatErrorNotice, ChatTab, Message, TokenUsage, ToolCall, ToolResult } from "@/types";
+import { moveTabById } from "@/utils/tab-reorder";
 
 const DEFAULT_CHAT_TAB_ID = "chat:default";
 const SETTINGS_TAB_ID = "settings";
@@ -161,6 +162,14 @@ export const useChatStore = defineStore("chat", () => {
     if (tabs.value.some((tab) => tab.id === id)) {
       activeTabId.value = id;
     }
+  }
+
+  /** Drag-reorder within the center tab strip. Returns the resulting order. */
+  function moveTab(tabId: string, insertionIndex: number): string[] | null {
+    const next = moveTabById(tabs.value, tabId, insertionIndex);
+    if (next === tabs.value) return null;
+    tabs.value = next;
+    return next.map((tab) => tab.id);
   }
 
   function resetChatTab(tab: ChatTab, title = "对话 1") {
@@ -575,6 +584,7 @@ export const useChatStore = defineStore("chat", () => {
     createChatTab,
     openSettingsTab,
     selectTab,
+    moveTab,
     closeTab,
     ensureSessionTab,
     syncFromOpenTabIds,

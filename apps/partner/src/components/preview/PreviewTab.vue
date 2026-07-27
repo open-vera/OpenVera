@@ -1,22 +1,69 @@
 <script setup lang="ts">
-defineProps<{
+import { deliverComposerPathDrop } from "@/utils/composer-drop";
+import {
+  clearActivePartnerDrag,
+  finishPartnerPathsDragAt,
+  setPartnerPathsDrag,
+} from "@/utils/partner-dnd";
+import { beginTabDrag, clearTabDrag, resolveTabReorderAt } from "@/utils/tab-dnd";
+
+const props = defineProps<{
+  tabId: string;
   title: string;
+  filePath?: string | null;
   active?: boolean;
   dirty?: boolean;
+  dropBefore?: boolean;
+  dropAfter?: boolean;
 }>();
 
 const emit = defineEmits<{
   select: [];
   close: [];
+  reorder: [insertionIndex: number];
 }>();
+
+function onDragStart(event: DragEvent) {
+  beginTabDrag("preview", props.tabId, event.dataTransfer);
+  if (!props.filePath || !event.dataTransfer) return;
+  setPartnerPathsDrag(event.dataTransfer, [
+    { path: props.filePath, isDir: false },
+  ]);
+}
+
+/**
+ * Tauri native DnD often swallows HTML5 `drop`; finish via dragend + hit-test.
+ * A release inside the tab strip reorders; anywhere else keeps the existing
+ * "drop this file path into the composer" behaviour.
+ */
+function onDragEnd(event: DragEvent) {
+  const reorder = resolveTabReorderAt("preview", event.clientX, event.clientY);
+  clearTabDrag();
+  if (reorder) {
+    clearActivePartnerDrag();
+    emit("reorder", reorder.insertionIndex);
+    return;
+  }
+
+  const items = finishPartnerPathsDragAt(event.clientX, event.clientY);
+  if (items?.length) {
+    deliverComposerPathDrop(items.map((item) => item.path));
+    return;
+  }
+  clearActivePartnerDrag();
+}
 </script>
 
 <template>
   <button
     type="button"
     class="tab"
-    :class="{ active }"
+    :class="{ active, 'drop-before': dropBefore, 'drop-after': dropAfter }"
+    :data-tab-id="tabId"
+    draggable="true"
     @click="emit('select')"
+    @dragstart="onDragStart"
+    @dragend="onDragEnd"
   >
     <span class="title">
       <span v-if="dirty" class="dirty-dot" aria-label="未保存" />
@@ -44,6 +91,24 @@ const emit = defineEmits<{
   font-weight: 500;
   text-align: left;
   cursor: pointer;
+}
+
+.tab[draggable="true"] {
+  cursor: grab;
+}
+
+.tab[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+/* Insertion marker while dragging. Inset shadow keeps ::before (hover) and
+   ::after (active indicator) free. */
+.tab.drop-before {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.tab.drop-after {
+  box-shadow: inset -2px 0 0 var(--accent);
 }
 
 .tab:hover {

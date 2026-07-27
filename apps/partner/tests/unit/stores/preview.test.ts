@@ -90,4 +90,47 @@ describe("usePreviewStore", () => {
     expect(preview.activeTabId).toBe("code:/workspace/app.ts");
     expect(preview.tabs[0]?.content).toBe("const value = 1;\n");
   });
+
+  describe("moveTab", () => {
+    function openThree() {
+      const preview = usePreviewStore();
+      preview.openCodeFile("/a.ts", "a");
+      preview.openCodeFile("/b.ts", "b");
+      preview.openCodeFile("/c.ts", "c");
+      return preview;
+    }
+
+    it("reorders tabs to the drop position", () => {
+      const preview = openThree();
+
+      expect(preview.moveTab("code:/c.ts", 0)).toBe(true);
+      expect(preview.tabs.map((tab) => tab.id)).toEqual([
+        "code:/c.ts",
+        "code:/a.ts",
+        "code:/b.ts",
+      ]);
+    });
+
+    it("keeps the active tab selected across a reorder", () => {
+      const preview = openThree();
+      preview.activeTabId = "code:/a.ts";
+
+      preview.moveTab("code:/a.ts", 3);
+
+      expect(preview.activeTabId).toBe("code:/a.ts");
+      expect(preview.tabs.at(-1)?.id).toBe("code:/a.ts");
+    });
+
+    it("reports a no-op drop", () => {
+      const preview = openThree();
+
+      expect(preview.moveTab("code:/b.ts", 1)).toBe(false);
+      expect(preview.moveTab("code:/missing.ts", 0)).toBe(false);
+      expect(preview.tabs.map((tab) => tab.id)).toEqual([
+        "code:/a.ts",
+        "code:/b.ts",
+        "code:/c.ts",
+      ]);
+    });
+  });
 });

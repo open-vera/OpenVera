@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import ChevronIcon from "@/components/ui/ChevronIcon.vue";
+import {
+  positionAnchoredMenu,
+  type AnchoredMenuPosition,
+} from "@/utils/position-anchored-menu";
 
 export interface PartnerSelectOption {
   value: string;
@@ -44,6 +49,9 @@ const emit = defineEmits<{
 
 const open = ref(false);
 const root = ref<HTMLElement | null>(null);
+const triggerRef = ref<HTMLButtonElement | null>(null);
+const menuRef = ref<HTMLElement | null>(null);
+const menuStyle = ref<AnchoredMenuPosition | Record<string, never>>({});
 
 const flatOptions = computed(() => {
   if (props.groups.length > 0) {
@@ -62,9 +70,26 @@ const menuSections = computed(() => {
   return [{ label: "", options: props.options }];
 });
 
-function toggle() {
+function repositionMenu() {
+  if (!open.value) return;
+  const rect = triggerRef.value?.getBoundingClientRect() ?? null;
+  menuStyle.value = positionAnchoredMenu(rect, window, {
+    width: Math.max(160, Math.round(rect?.width ?? 240)),
+    preferredMaxHeight: 280,
+    minHeight: 96,
+    gap: 4,
+    preferAbove: false,
+    zIndex: 320,
+  });
+}
+
+async function toggle() {
   if (props.disabled) return;
   open.value = !open.value;
+  if (open.value) {
+    await nextTick();
+    repositionMenu();
+  }
 }
 
 function selectOption(option: PartnerSelectOption) {
@@ -78,18 +103,36 @@ function onKeydown(event: KeyboardEvent) {
 }
 
 function onDocumentPointerDown(event: PointerEvent) {
-  if (!open.value || !root.value) return;
-  if (event.target instanceof Node && !root.value.contains(event.target)) {
-    open.value = false;
-  }
+  if (!open.value) return;
+  const target = event.target;
+  if (!(target instanceof Node)) return;
+  if (root.value?.contains(target) || menuRef.value?.contains(target)) return;
+  open.value = false;
 }
+
+function onViewportChange() {
+  if (open.value) repositionMenu();
+}
+
+watch(open, async (isOpen) => {
+  if (!isOpen) {
+    menuStyle.value = {};
+    return;
+  }
+  await nextTick();
+  repositionMenu();
+});
 
 onMounted(() => {
   document.addEventListener("pointerdown", onDocumentPointerDown);
+  window.addEventListener("resize", onViewportChange);
+  window.addEventListener("scroll", onViewportChange, true);
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", onDocumentPointerDown);
+  window.removeEventListener("resize", onViewportChange);
+  window.removeEventListener("scroll", onViewportChange, true);
 });
 </script>
 
@@ -101,6 +144,7 @@ onBeforeUnmount(() => {
     @keydown="onKeydown"
   >
     <button
+      ref="triggerRef"
       type="button"
       class="partner-select-trigger"
       :aria-expanded="open"
@@ -123,45 +167,51 @@ onBeforeUnmount(() => {
       <span class="partner-select-label">
         {{ selected?.label ?? placeholder }}
       </span>
-      <span class="partner-select-chevron" aria-hidden="true">▾</span>
+      <span class="partner-select-chevron" aria-hidden="true">
+        <ChevronIcon expanded :flipped="open" />
+      </span>
     </button>
 
-    <div
-      v-if="open"
-      class="partner-select-menu"
-      role="listbox"
-      :aria-label="ariaLabel"
-    >
-      <template v-for="(section, sectionIndex) in menuSections" :key="sectionIndex">
-        <div v-if="section.label" class="partner-select-group-label">
-          {{ section.label }}
-        </div>
-        <button
-          v-for="option in section.options"
-          :key="option.value"
-          type="button"
-          class="partner-select-option"
-          role="option"
-          :aria-selected="modelValue === option.value"
-          :class="{ active: modelValue === option.value }"
-          :disabled="option.disabled"
-          @click="selectOption(option)"
-        >
-          <span
-            v-if="option.preview"
-            class="partner-select-scale"
-            aria-hidden="true"
+    <Teleport to="body">
+      <div
+        v-if="open"
+        ref="menuRef"
+        class="partner-select-menu"
+        role="listbox"
+        :aria-label="ariaLabel"
+        :style="menuStyle"
+      >
+        <template v-for="(section, sectionIndex) in menuSections" :key="sectionIndex">
+          <div v-if="section.label" class="partner-select-group-label">
+            {{ section.label }}
+          </div>
+          <button
+            v-for="option in section.options"
+            :key="option.value"
+            type="button"
+            class="partner-select-option"
+            role="option"
+            :aria-selected="modelValue === option.value"
+            :class="{ active: modelValue === option.value }"
+            :disabled="option.disabled"
+            @click="selectOption(option)"
           >
-            <i
-              v-for="(color, index) in option.preview"
-              :key="`${option.value}-${index}`"
-              :style="{ background: color }"
-            />
-          </span>
-          <span class="partner-select-label">{{ option.label }}</span>
-        </button>
-      </template>
-    </div>
+            <span
+              v-if="option.preview"
+              class="partner-select-scale"
+              aria-hidden="true"
+            >
+              <i
+                v-for="(color, index) in option.preview"
+                :key="`${option.value}-${index}`"
+                :style="{ background: color }"
+              />
+            </span>
+            <span class="partner-select-label">{{ option.label }}</span>
+          </button>
+        </template>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -206,21 +256,19 @@ onBeforeUnmount(() => {
 }
 
 .partner-select-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   margin-left: auto;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .partner-select-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  left: 0;
-  z-index: 40;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 280px;
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 8px;

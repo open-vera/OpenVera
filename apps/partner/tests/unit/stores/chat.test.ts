@@ -431,4 +431,39 @@ describe("useChatStore", () => {
     expect(chat.lastError).toBeNull();
     expect(chat.tabs.find((tab) => tab.id === tabId)?.title).toBe("对话 1");
   });
+
+  describe("moveTab", () => {
+    function openThree() {
+      const chat = useChatStore();
+      const first = chat.ensureActiveChatTab();
+      const second = chat.newTab("对话 2");
+      const third = chat.newTab("对话 3");
+      return { chat, ids: [first, second, third] };
+    }
+
+    it("returns the new order after a reorder", () => {
+      const { chat, ids } = openThree();
+
+      expect(chat.moveTab(ids[2], 0)).toEqual([ids[2], ids[0], ids[1]]);
+      expect(chat.tabs.map((tab) => tab.id)).toEqual([ids[2], ids[0], ids[1]]);
+    });
+
+    it("keeps the active tab selected across a reorder", () => {
+      const { chat, ids } = openThree();
+      chat.selectTab(ids[0]);
+
+      chat.moveTab(ids[0], 3);
+
+      expect(chat.activeTabId).toBe(ids[0]);
+      expect(chat.tabs.at(-1)?.id).toBe(ids[0]);
+    });
+
+    it("returns null for a no-op drop", () => {
+      const { chat, ids } = openThree();
+
+      expect(chat.moveTab(ids[1], 1)).toBeNull();
+      expect(chat.moveTab("missing", 0)).toBeNull();
+      expect(chat.tabs.map((tab) => tab.id)).toEqual(ids);
+    });
+  });
 });

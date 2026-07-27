@@ -1,17 +1,64 @@
 import { describe, expect, it } from "vitest";
 import {
+  detectLanguage,
   detectLanguageFromPath,
+  detectLanguageFromShebang,
   isLspSupported,
+  languageSupportFor,
   lspLanguageId,
 } from "@/preview/language";
-import { isCodeFilePath } from "@/stores/preview";
+import { classifyFilePath, isCodeFilePath } from "@/stores/preview";
 
 describe("preview/language", () => {
   it("detects typescript from extension", () => {
     expect(detectLanguageFromPath("/src/App.vue")).toBe("vue");
     expect(detectLanguageFromPath("/src/main.ts")).toBe("typescript");
     expect(detectLanguageFromPath("README.md")).toBe("markdown");
+    expect(detectLanguageFromPath("/app/index.html")).toBe("html");
+    expect(detectLanguageFromPath("/notes/readme.txt")).toBe("plaintext");
     expect(detectLanguageFromPath("/logs/2026-07-07.jsonl")).toBe("jsonl");
+  });
+
+  it("detects shell from extension and git-hook filenames", () => {
+    expect(detectLanguageFromPath("/scripts/setup.sh")).toBe("shell");
+    expect(detectLanguageFromPath("/scripts/run.bash")).toBe("shell");
+    expect(detectLanguageFromPath("/Users/yang.zhou/workspace/open-vera/.hooks/pre-commit")).toBe(
+      "shell",
+    );
+    expect(detectLanguageFromPath("/repo/.git/hooks/pre-push")).toBe("shell");
+  });
+
+  it("uses basename extension when path directories contain dots", () => {
+    expect(detectLanguageFromPath("/Users/yang.zhou/workspace/app/main.ts")).toBe(
+      "typescript",
+    );
+    expect(detectLanguageFromPath("/Users/yang.zhou/workspace/Makefile")).toBe("plaintext");
+  });
+
+  it("falls back to shebang when filename is ambiguous", () => {
+    expect(detectLanguageFromShebang("#!/usr/bin/env bash\nset -e\n")).toBe("shell");
+    expect(detectLanguageFromShebang("#!/bin/sh\necho hi\n")).toBe("shell");
+    expect(detectLanguage("bin/custom-tool", "#!/usr/bin/env python3\nprint(1)\n")).toBe(
+      "python",
+    );
+    expect(detectLanguage("bin/custom-tool", "plain text\n")).toBe("plaintext");
+  });
+
+  it("provides shell LanguageSupport", () => {
+    expect(languageSupportFor("shell")).not.toBeNull();
+    expect(isLspSupported("shell")).toBe(false);
+  });
+
+  it("detects and highlights config markup languages", () => {
+    expect(detectLanguageFromPath("/repo/node_modules/.modules.yaml")).toBe("yaml");
+    expect(detectLanguageFromPath("/.github/workflows/ci.yml")).toBe("yaml");
+    expect(detectLanguageFromPath("/src-tauri/Cargo.toml")).toBe("toml");
+    expect(detectLanguageFromPath("/etc/app.ini")).toBe("ini");
+    expect(detectLanguageFromPath("/etc/app.conf")).toBe("ini");
+    expect(languageSupportFor("yaml")).not.toBeNull();
+    expect(languageSupportFor("toml")).not.toBeNull();
+    expect(languageSupportFor("ini")).not.toBeNull();
+    expect(isLspSupported("yaml")).toBe(false);
   });
 
   it("marks supported LSP languages", () => {
@@ -83,5 +130,13 @@ describe("preview/language", () => {
     expect(isCodeFilePath("/workspace/app-icon.png")).toBe(false);
     expect(isCodeFilePath("/workspace/archive.zip")).toBe(false);
     expect(isCodeFilePath("/workspace/video.mp4")).toBe(false);
+  });
+
+  it("classifies .DS_Store as binary and unknown extensions as unknown", () => {
+    expect(classifyFilePath("/workspace/.DS_Store")).toBe("binary");
+    expect(classifyFilePath("/workspace/Thumbs.db")).toBe("binary");
+    expect(classifyFilePath("/workspace/weird.foo")).toBe("unknown");
+    expect(classifyFilePath("/workspace/icon.png")).toBe("binary");
+    expect(classifyFilePath("/workspace/app.ts")).toBe("code");
   });
 });

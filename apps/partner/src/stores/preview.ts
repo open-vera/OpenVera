@@ -1,8 +1,14 @@
 import { defineStore } from "pinia";
-import { detectLanguageFromPath } from "@/preview/language";
+import { detectLanguage } from "@/preview/language";
+import { moveTabById } from "@/utils/tab-reorder";
 import type { PreviewTab } from "./preview-types.js";
 export type { PreviewTab } from "./preview-types.js";
-export { isCodeFilePath } from "./preview-types.js";
+export {
+  classifyFilePath,
+  isBinaryFilePath,
+  isCodeFilePath,
+} from "./preview-types.js";
+export type { FilePathKind } from "./preview-types.js";
 
 const SNAPSHOT_VERSION = 1;
 
@@ -65,8 +71,22 @@ export const usePreviewStore = defineStore("preview", {
     tabs: [] as PreviewTab[],
     activeTabId: null as string | null,
     lspEnabled: true,
+    /** Bumped whenever UI should force-reveal the right preview panel. */
+    revealToken: 0,
+    /** Fullscreen chat/composer image preview. */
+    imageLightbox: null as { src: string; alt: string } | null,
   }),
   actions: {
+    /** Ask the shell to expand the collapsed right workspace panel. */
+    requestReveal() {
+      this.revealToken += 1;
+    },
+    openImageLightbox(src: string, alt = "") {
+      this.imageLightbox = { src, alt };
+    },
+    closeImageLightbox() {
+      this.imageLightbox = null;
+    },
     openTab(tab: PreviewTab) {
       const existing = this.tabs.find((item) => item.id === tab.id);
       if (!existing) {
@@ -75,12 +95,23 @@ export const usePreviewStore = defineStore("preview", {
         Object.assign(existing, tab);
       }
       this.activeTabId = tab.id;
+      this.requestReveal();
+    },
+    /** Focus an already-open code tab; returns false when the file is not open. */
+    focusCodeFile(filePath: string): boolean {
+      const id = `code:${filePath}`;
+      const existing = this.tabs.find((item) => item.id === id);
+      if (!existing) return false;
+      this.activeTabId = id;
+      this.requestReveal();
+      return true;
     },
     openCodeFile(filePath: string, content: string) {
       const id = `code:${filePath}`;
       const existing = this.tabs.find((item) => item.id === id);
       if (existing?.isDirty) {
         this.activeTabId = id;
+        this.requestReveal();
         return;
       }
       const title = filePath.split("/").pop() ?? filePath;
@@ -93,7 +124,7 @@ export const usePreviewStore = defineStore("preview", {
         content,
         savedContent: content,
         isDirty: false,
-        languageId: detectLanguageFromPath(filePath),
+        languageId: detectLanguage(filePath, content),
       });
     },
     openDiffFile(filePath: string, content: string) {
@@ -110,6 +141,10 @@ export const usePreviewStore = defineStore("preview", {
         readOnly: true,
         languageId: "plaintext",
       });
+    },
+    /** Preview an in-memory image (e.g. pasted/attached chat image). */
+    openImagePreview(options: { id?: string; name: string; dataUrl: string }) {
+      this.openImageLightbox(options.dataUrl, options.name || "");
     },
     updateCodeFileContent(filePath: string, content: string) {
       const tab = this.tabs.find((item) => item.id === `code:${filePath}`);
@@ -137,6 +172,13 @@ export const usePreviewStore = defineStore("preview", {
       if (this.activeTabId === id) {
         this.activeTabId = this.tabs[0]?.id ?? null;
       }
+    },
+    /** Drag-reorder within the preview tab strip. */
+    moveTab(tabId: string, insertionIndex: number) {
+      const next = moveTabById(this.tabs, tabId, insertionIndex);
+      if (next === this.tabs) return false;
+      this.tabs = next;
+      return true;
     },
     setLspEnabled(enabled: boolean) {
       this.lspEnabled = enabled;

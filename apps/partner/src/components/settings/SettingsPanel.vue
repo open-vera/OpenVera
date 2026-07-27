@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { homeDir, join } from "@tauri-apps/api/path";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { inspectLlmConfig, readFile } from "@/bridge";
 import {
   listLlmProviderModels,
   refreshLlmProviderModels,
   testLlmConnection,
 } from "@/bridge/llm-catalog";
+import PartnerCombobox from "@/components/ui/PartnerCombobox.vue";
 import PartnerSelect, {
   type PartnerSelectGroup,
   type PartnerSelectOption,
 } from "@/components/ui/PartnerSelect.vue";
+import { useModelCatalogStore } from "@/stores/model-catalog";
 import { usePreviewStore } from "@/stores/preview";
 import { useSettingsStore } from "@/stores/settings";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -26,12 +29,24 @@ import {
   type CustomPaletteId,
   type WallpaperMode,
 } from "@/theme";
-import type { AppLocale, CatalogModel, EffectiveLlmConfig, LLMProviderId, LLMProtocol } from "@/types";
+import type {
+  AppLocale,
+  CatalogModel,
+  CatalogProvider,
+  LLMProtocol,
+} from "@/types";
 import { LLM_PROTOCOL_OPTIONS } from "@/utils/llm-protocol";
+import {
+  isScrolledToBottom,
+  pickActiveSection,
+  type SectionOffset,
+} from "@/utils/section-nav";
+import StorageUsageSection from "./StorageUsageSection.vue";
 
 const settings = useSettingsStore();
 const workspace = useWorkspaceStore();
 const preview = usePreviewStore();
+const modelCatalog = useModelCatalogStore();
 const apiKey = ref("");
 const apiKeyFocused = ref(false);
 const revealApiKey = ref(false);
@@ -39,10 +54,15 @@ const loadedApiKey = ref<string | null>(null);
 const status = ref("");
 const error = ref("");
 const connectionTestFeedback = ref<{ type: "success" | "error"; message: string } | null>(null);
-const effectiveConfig = ref<EffectiveLlmConfig | null>(null);
-const isInspecting = ref(false);
-const inspectError = ref("");
-const revealEffectiveKey = ref(false);
+/** Effective Vera settings.json path (project wins over global when present). */
+const settingsJsonPath = ref("");
+const globalSettingsJsonPath = ref("");
+const configScope = ref<"explicit" | "env" | "project" | "global" | "">("");
+const editJsonHintOpen = ref(false);
+let editJsonHintTimer: number | undefined;
+
+/** Only when project `.vera/settings.json` is the active file do we show the dual-config tip. */
+const showProjectConfigHint = computed(() => configScope.value === "project");
 
 const API_KEY_MASK = "••••••••••••••••";
 
@@ -54,6 +74,8 @@ const apiKeyDisplay = computed(() => {
 });
 const isReady = ref(false);
 const isSavingConfig = ref(false);
+/** Skip autosave while swapping the edited provider chip. */
+const isSwitchingProvider = ref(false);
 const isTestingConnection = ref(false);
 const showModelList = ref(false);
 const isLoadingModels = ref(false);
@@ -63,29 +85,62 @@ const wallpaperInput = ref<HTMLInputElement | null>(null);
 const wallpaperBusy = ref(false);
 /** Local slider value; blur filter is applied after debounce. */
 const wallpaperBlurDraft = ref(settings.wallpaperBlur);
+const providerIdDraft = ref(settings.provider.id);
 let saveTimer: number | undefined;
+let modelsRoutingTimer: number | undefined;
 let blurApplyTimer: number | undefined;
+
+const modelAliasOptions = computed(() =>
+  settings.modelAliases.map((item) => ({
+    value: item.alias,
+    label: item.model && item.model !== item.alias ? `${item.alias} → ${item.model}` : item.alias,
+  })),
+);
+
+const providerSelectOptions = computed(() =>
+  providerProfiles.value.map((item) => ({
+    value: item.id,
+    label: item.id,
+  })),
+);
+
+function upstreamModelOptions(providerId: string): PartnerSelectOption[] {
+  return modelCatalog.modelsForProvider(providerId).map((model) => {
+    const value = model.upstreamId || model.id;
+    const label =
+      model.displayName && model.displayName !== model.id
+        ? `${value} · ${model.displayName}`
+        : value;
+    return { value, label };
+  });
+}
+
+function ensureProviderModelOptions(providerId: string) {
+  if (!providerId) return;
+  void modelCatalog.ensureProviderModels(workspace.rootPath || undefined, providerId);
+}
+
+function ensureAliasProviderModels() {
+  const ids = new Set<string>([
+    settings.provider.id,
+    ...settings.modelAliases.map((item) => item.provider).filter(Boolean),
+  ]);
+  for (const id of ids) {
+    ensureProviderModelOptions(id);
+  }
+}
 
 const INSPECT_TIMEOUT_MS = 5_000;
 const REMOTE_MODEL_TIMEOUT_MS = 12_000;
 const WALLPAPER_BLUR_DEBOUNCE_MS = 120;
 
-const baseProviderOptions: Array<{ value: LLMProviderId; label: string }> = [
-  { value: "anthropic", label: "Anthropic" },
-  { value: "openai", label: "OpenAI" },
-  { value: "gemini", label: "Gemini" },
-];
-const providerOptions = computed(() => {
-  if (baseProviderOptions.some((option) => option.value === settings.provider.id)) {
-    return baseProviderOptions;
-  }
-  return [
-    ...baseProviderOptions,
-    { value: settings.provider.id, label: settings.provider.id },
-  ];
-});
-
 const protocolOptions = LLM_PROTOCOL_OPTIONS;
+const providerProfiles = computed(() => modelCatalog.providers);
+const editingIsDefault = computed(
+  () =>
+    providerProfiles.value.find((item) => item.id === settings.provider.id)?.isDefault ??
+    false,
+);
 
 const localeOptions: Array<{ value: AppLocale; label: string }> = [
   { value: "zh", label: "中文" },
@@ -169,13 +224,6 @@ const wallpaperSelectGroups = computed<PartnerSelectGroup[]>(() => [
   },
 ]);
 
-const providerSelectOptions = computed<PartnerSelectOption[]>(() =>
-  providerOptions.value.map((option) => ({
-    value: option.value,
-    label: option.label,
-  })),
-);
-
 const protocolSelectOptions = computed<PartnerSelectOption[]>(() =>
   protocolOptions.map((option) => ({
     value: option.value,
@@ -198,9 +246,13 @@ const customPaletteSelectValue = computed(() =>
 const copy = computed(() => {
   if (settings.locale === "en") {
     return {
-      title: "Model Settings",
-      description:
-        "Configure the model service used by Agent. Settings are written to Vera settings.json.",
+      title: "Settings",
+      description: "Appearance stays in Partner. LLM profiles are stored in Vera settings.json.",
+      appearanceTitle: "Appearance",
+      appearanceHint: "Language, theme, and wallpaper for this Partner window.",
+      llmTitle: "LLM Providers",
+      llmHint:
+        "Providers hold connection settings. Models and routing below map to Vera settings.json (models / default_model / routing).",
       language: "Language",
       languageHint: "Switch the Partner interface language",
       theme: "Theme",
@@ -225,39 +277,58 @@ const copy = computed(() => {
       customPalettesLoading: "Extracting colors...",
       customPalettesEmpty: "Choose a background image to extract custom scales",
       customPalettesPlaceholder: "Choose a custom scale",
-      providerHint: "Choose the model provider",
+      providersLabel: "Profiles",
+      providersHint: "Click any provider to edit it. Runtime still uses the default until you enable another.",
+      newProvider: "New",
+      newProviderPrompt: "Provider id (e.g. gateway, deepseek, work-claude):",
+      defaultBadge: "Default",
+      setDefault: "Enable",
+      alreadyDefault: "Enabled",
+      editingDefault: "Editing the enabled runtime provider",
+      editingOther: "Browsing this profile — click “Enable” to use it at runtime",
       protocol: "Protocol",
       protocolHint: "Match the request format of the service",
       apiBaseHint: "Official or compatible service endpoint",
+      providerId: "Provider id",
+      providerIdHint: "Key in settings.json providers; rename updates all references",
       model: "Model",
-      modelHint: "Model ID sent to the provider",
-      keySaved: "Saved — masked below; click Show to reveal, or type a new key to replace",
+      modelHint: "Upstream model id for an alias",
+      modelsRoutingTitle: "Models & routing",
+      modelsRoutingHint:
+        "Aliases in models{}, plus default_model and intent routing (classifier / L0 / L1 / L2).",
+      modelAlias: "Alias",
+      modelProvider: "Provider",
+      modelUpstream: "Upstream model",
+      modelPickEmpty: "No models yet — type an id, or open View Models to sync",
+      aliasPickEmpty: "No aliases yet — type a name",
+      addModel: "Add alias",
+      removeModel: "Remove",
+      defaultModel: "Default model",
+      defaultModelHint: "Used when routing is off (or as chat default)",
+      routingEnabled: "Intent routing",
+      routingEnabledHint: "Pick models by task complexity (Vera L0–L2)",
+      routingClassifier: "Classifier",
+      routingL0: "L0 (simple)",
+      routingL1: "L1 (default)",
+      routingL2: "L2 (complex)",
+      addAsAlias: "Add as alias",
+      keySaved: "Saved — masked below; click Show to reveal (default only), or type a new key",
       keyMissing: "No key saved yet",
       keyReplacePlaceholder: "Type a new key to replace",
       keyPlaceholder: "Enter API Key",
       showKey: "Show",
       hideKey: "Hide",
-      clear: "Clear",
       saving: "Saving...",
       saved: "Auto-saved",
       keySavedStatus: "Key saved to Vera settings.json",
-      keyCleared: "Key cleared",
-      effectiveTitle: "Effective Runtime Config",
-      effectiveHint:
-        "This is what Partner will actually use from Vera config and environment variables.",
       refresh: "Refresh",
-      loadingEffective: "Reading effective config...",
       inspectTimeout:
         "Reading timed out. If the app was already running, restart Partner so the new sidecar command is loaded.",
-      source: "Source",
-      keyState: "API Key",
-      keyAvailable: "Available",
-      keyUnavailable: "Missing",
-      configPath: "Config Path",
       editJson: "Edit JSON",
-      projectRoot: "Project Root",
-      adapter: "Adapter",
-      notAvailable: "N/A",
+      editJsonProjectHint:
+        "Project config is active (.vera/settings.json). Click to edit it.",
+      editJsonGlobal: "Edit global config",
+      configPathMissing: "No settings.json path available.",
       testConnection: "Test Connection",
       viewModels: "View Models",
       testingConnection: "Testing connection...",
@@ -275,11 +346,18 @@ const copy = computed(() => {
       modelSourceConfig: "config",
       modelSourceRemote: "remote",
       hideModels: "Hide",
+      emptyProviders: "No providers in settings.json yet. Create one to get started.",
+      emptyModels: "No model aliases yet. Add one or pick from the remote list.",
     };
   }
   return {
-    title: "大模型设置",
-    description: "配置 Agent 使用的模型服务。配置会写入 Vera settings.json。",
+    title: "设置",
+    description: "外观保存在 Partner 本地；大模型配置写入 Vera settings.json。",
+    appearanceTitle: "外观",
+    appearanceHint: "语言、主题与壁纸，仅影响当前 Partner 窗口。",
+    llmTitle: "大模型",
+    llmHint:
+      "Provider 负责连接；下方「模型与路由」对应 settings.json 的 models / default_model / routing。",
     language: "语言",
     languageHint: "切换 Partner 界面显示语言",
     theme: "主题",
@@ -303,38 +381,56 @@ const copy = computed(() => {
     customPalettesLoading: "正在提取配色…",
     customPalettesEmpty: "选择背景图后可提取自定义色阶",
     customPalettesPlaceholder: "选择自定义色阶",
-    providerHint: "选择模型供应商",
+    providersLabel: "Provider 配置",
+    providersHint: "可随意点选查看/编辑；运行时仍用当前默认，需手动点「启用」才会切换。",
+    newProvider: "新建",
+    newProviderPrompt: "Provider 标识（如 gateway、deepseek、work-claude）：",
+    defaultBadge: "默认",
+    setDefault: "启用",
+    alreadyDefault: "使用中",
+    editingDefault: "正在编辑当前启用的 Provider",
+    editingOther: "正在浏览该配置 — 点「启用」后才会在运行时生效",
     protocol: "协议",
     protocolHint: "适配不同服务的请求格式",
     apiBaseHint: "支持官方或兼容服务地址",
+    providerId: "Provider 标识",
+    providerIdHint: "对应 settings.json 的 providers 键名；改名会同步更新引用",
     model: "模型",
-    modelHint: "发送给供应商的模型 ID",
-    keySaved: "已保存（默认掩码显示；点「显示」可查看，或输入新值覆盖）",
+    modelHint: "别名对应的上游模型 ID",
+    modelsRoutingTitle: "模型与路由",
+    modelsRoutingHint:
+      "对应 models 别名目录，以及 default_model 与意图路由（classifier / L0 / L1 / L2）。",
+    modelAlias: "别名",
+    modelProvider: "所属 Provider",
+    modelUpstream: "上游模型",
+    modelPickEmpty: "暂无模型列表 — 可直接输入，或点「查看模型列表」同步",
+    aliasPickEmpty: "暂无别名 — 可直接输入",
+    addModel: "添加别名",
+    removeModel: "删除",
+    defaultModel: "默认模型",
+    defaultModelHint: "关闭路由时使用（也可作为对话默认）",
+    routingEnabled: "意图路由",
+    routingEnabledHint: "按任务复杂度选择模型（Vera L0–L2）",
+    routingClassifier: "分类器",
+    routingL0: "L0（简单）",
+    routingL1: "L1（默认）",
+    routingL2: "L2（复杂）",
+    addAsAlias: "添加为别名",
+    keySaved: "已保存（默认掩码；点「显示」可查看当前默认项密钥，或输入新值覆盖）",
     keyMissing: "尚未保存密钥",
     keyReplacePlaceholder: "输入新密钥以覆盖",
     keyPlaceholder: "输入 API Key",
     showKey: "显示",
     hideKey: "隐藏",
-    clear: "清除",
     saving: "正在保存…",
     saved: "已自动保存",
     keySavedStatus: "密钥已自动保存到 Vera settings.json",
-    keyCleared: "密钥已清除",
-    effectiveTitle: "实际运行配置",
-    effectiveHint:
-      "这里展示 Partner 真正会读取的 Vera 配置和环境变量。",
     refresh: "刷新",
-    loadingEffective: "正在读取实际配置…",
     inspectTimeout: "读取超时。如果应用已在运行，请重启 Partner，让新的 sidecar 命令生效。",
-    source: "来源",
-    keyState: "API Key",
-    keyAvailable: "可用",
-    keyUnavailable: "缺失",
-    configPath: "配置路径",
     editJson: "编辑 JSON",
-    projectRoot: "项目根目录",
-    adapter: "适配器",
-    notAvailable: "无",
+    editJsonProjectHint: "当前生效的是项目配置（.vera/settings.json），点击将编辑它。",
+    editJsonGlobal: "编辑全局配置",
+    configPathMissing: "找不到 settings.json 路径。",
     testConnection: "测试连接",
     viewModels: "查看模型列表",
     testingConnection: "正在测试连接…",
@@ -350,8 +446,71 @@ const copy = computed(() => {
     modelSourceConfig: "配置",
     modelSourceRemote: "远程",
     hideModels: "收起",
+    emptyProviders: "settings.json 里还没有 providers，先新建一套配置。",
+    emptyModels: "还没有模型别名，可手动添加或从远程列表点选。",
   };
 });
+
+const SECTION_IDS = ["appearance", "llm", "storage"] as const;
+type SectionId = (typeof SECTION_IDS)[number];
+
+const navItems = computed<Array<{ id: SectionId; label: string }>>(() => [
+  { id: "appearance", label: copy.value.appearanceTitle },
+  { id: "llm", label: copy.value.llmTitle },
+  { id: "storage", label: settings.locale === "en" ? "Cache & storage" : "缓存与存储" },
+]);
+
+const scrollRef = ref<HTMLElement | null>(null);
+const sectionRefs = new Map<SectionId, HTMLElement>();
+const activeSection = ref<SectionId>("appearance");
+let scrollFrame = 0;
+
+function setSectionRef(id: SectionId, element: unknown) {
+  const host =
+    element instanceof HTMLElement
+      ? element
+      : (element as { $el?: unknown } | null)?.$el instanceof HTMLElement
+        ? ((element as { $el: HTMLElement }).$el)
+        : null;
+  if (host) sectionRefs.set(id, host);
+  else sectionRefs.delete(id);
+}
+
+function sectionOffsets(): SectionOffset[] {
+  const container = scrollRef.value;
+  if (!container) return [];
+  const base = container.getBoundingClientRect().top - container.scrollTop;
+  return SECTION_IDS.flatMap((id) => {
+    const element = sectionRefs.get(id);
+    if (!element) return [];
+    return [{ id, top: element.getBoundingClientRect().top - base }];
+  });
+}
+
+function syncActiveSection() {
+  const container = scrollRef.value;
+  if (!container) return;
+  activeSection.value = pickActiveSection(sectionOffsets(), container.scrollTop, {
+    atBottom: isScrolledToBottom(
+      container.scrollTop,
+      container.clientHeight,
+      container.scrollHeight,
+    ),
+  }) as SectionId;
+}
+
+function onSettingsScroll() {
+  if (scrollFrame) return;
+  scrollFrame = requestAnimationFrame(() => {
+    scrollFrame = 0;
+    syncActiveSection();
+  });
+}
+
+function goToSection(id: SectionId) {
+  activeSection.value = id;
+  sectionRefs.get(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 
 const apiBaseHint = computed(() => {
   if (settings.provider.protocol === "openai-compatible") {
@@ -379,37 +538,45 @@ function mergeModels(configured: CatalogModel[], remote: CatalogModel[]): Catalo
   return [...remote, ...extras];
 }
 
-async function flushPendingSettings() {
-  if (apiKey.value.trim()) {
-    await saveApiKeyIfNeeded();
-  }
-  await settings.save(workspace.rootPath || undefined);
-}
-
 async function ensureLoaded() {
   if (!settings.isLoaded) {
     await settings.load(workspace.rootPath || undefined);
   }
+  await modelCatalog.loadProviders(workspace.rootPath || undefined, true);
 }
 
-function scheduleConfigSave() {
-  if (!isReady.value || isSavingConfig.value) return;
+async function flushPendingLlmSettings() {
+  if (apiKey.value.trim()) {
+    await saveApiKeyIfNeeded();
+  }
+  await saveConfig(editingIsDefault.value);
+}
+
+function scheduleAppearanceSave() {
+  if (!isReady.value) return;
+  settings.persistUi();
+}
+
+function scheduleLlmSave() {
+  if (!isReady.value || isSavingConfig.value || isSwitchingProvider.value) return;
   clearStatus();
   status.value = copy.value.saving;
   if (saveTimer) {
     window.clearTimeout(saveTimer);
   }
   saveTimer = window.setTimeout(() => {
-    void saveConfig();
+    // Autosave never promotes a browsed profile to default.
+    void saveConfig(editingIsDefault.value);
   }, 350);
 }
 
-async function saveConfig() {
+async function saveConfig(setAsDefault = false) {
   clearStatus();
   isSavingConfig.value = true;
   try {
-    await settings.save(workspace.rootPath || undefined);
-    await refreshEffectiveConfig();
+    await settings.save(workspace.rootPath || undefined, { setAsDefault });
+    await modelCatalog.loadProviders(workspace.rootPath || undefined, true);
+    await resolveSettingsJsonPath();
     status.value = copy.value.saved;
   } catch (saveError) {
     error.value = saveError instanceof Error ? saveError.message : String(saveError);
@@ -418,48 +585,216 @@ async function saveConfig() {
   }
 }
 
-async function refreshEffectiveConfig() {
-  isInspecting.value = true;
-  inspectError.value = "";
+function selectProviderProfile(provider: CatalogProvider) {
+  if (provider.id === settings.provider.id) return;
+  if (saveTimer) {
+    window.clearTimeout(saveTimer);
+    saveTimer = undefined;
+  }
+  isSwitchingProvider.value = true;
+  settings.editCatalogProvider(provider);
+  providerIdDraft.value = provider.id;
+  apiKey.value = "";
+  loadedApiKey.value = null;
+  revealApiKey.value = false;
+  showModelList.value = false;
+  connectionTestFeedback.value = null;
+  status.value = "";
+  error.value = "";
+  void nextTick(() => {
+    isSwitchingProvider.value = false;
+  });
+}
+
+async function commitProviderRename() {
+  const next = providerIdDraft.value.trim().replace(/\s+/g, "-");
+  if (!next || next === settings.provider.id) {
+    providerIdDraft.value = settings.provider.id;
+    return;
+  }
+  clearStatus();
+  isSavingConfig.value = true;
   try {
-    effectiveConfig.value = await withTimeout(
-      inspectLlmConfig(
-        workspace.rootPath || undefined,
-        null,
-        revealEffectiveKey.value,
-      ),
+    await settings.renameProvider(
+      settings.provider.id,
+      next,
+      workspace.rootPath || undefined,
+    );
+    providerIdDraft.value = settings.provider.id;
+    await modelCatalog.loadProviders(workspace.rootPath || undefined, true);
+    status.value = copy.value.saved;
+  } catch (renameError) {
+    error.value = renameError instanceof Error ? renameError.message : String(renameError);
+    providerIdDraft.value = settings.provider.id;
+  } finally {
+    isSavingConfig.value = false;
+  }
+}
+
+function scheduleModelsRoutingSave() {
+  if (!isReady.value || isSavingConfig.value || isSwitchingProvider.value) return;
+  clearStatus();
+  status.value = copy.value.saving;
+  if (modelsRoutingTimer) {
+    window.clearTimeout(modelsRoutingTimer);
+  }
+  modelsRoutingTimer = window.setTimeout(() => {
+    void (async () => {
+      isSavingConfig.value = true;
+      try {
+        await settings.saveModelsRouting(workspace.rootPath || undefined);
+        status.value = copy.value.saved;
+      } catch (saveError) {
+        error.value = saveError instanceof Error ? saveError.message : String(saveError);
+      } finally {
+        isSavingConfig.value = false;
+      }
+    })();
+  }, 350);
+}
+
+function addModelAlias() {
+  const alias = `model-${settings.modelAliases.length + 1}`;
+  settings.modelAliases.push({
+    alias,
+    provider: settings.provider.id,
+    model: "",
+  });
+  if (!settings.defaultModel) {
+    settings.defaultModel = alias;
+  }
+  scheduleModelsRoutingSave();
+}
+
+function removeModelAlias(alias: string) {
+  settings.modelAliases = settings.modelAliases.filter((item) => item.alias !== alias);
+  if (settings.defaultModel === alias) {
+    settings.defaultModel = settings.modelAliases[0]?.alias ?? "";
+  }
+  for (const key of ["classifier", "l0", "l1", "l2"] as const) {
+    if (settings.routing[key] === alias) {
+      settings.routing[key] = "";
+    }
+  }
+  scheduleModelsRoutingSave();
+}
+
+function createProviderProfile() {
+  const id = window.prompt(copy.value.newProviderPrompt)?.trim();
+  if (!id) return;
+  settings.createProviderProfile(id);
+  providerIdDraft.value = settings.provider.id;
+  apiKey.value = "";
+  loadedApiKey.value = null;
+  revealApiKey.value = false;
+  void saveConfig(providerProfiles.value.length === 0);
+}
+
+async function makeProviderDefault() {
+  await saveConfig(true);
+}
+
+async function resolveGlobalSettingsPath(fromInspect?: string | null): Promise<string> {
+  if (fromInspect) return fromInspect;
+  try {
+    return await join(await homeDir(), ".vera", "settings.json");
+  } catch {
+    return "";
+  }
+}
+
+async function resolveSettingsJsonPath() {
+  const projectFallback = workspace.rootPath
+    ? `${workspace.rootPath.replace(/\/$/, "")}/.vera/settings.json`
+    : "";
+  try {
+    const config = await withTimeout(
+      inspectLlmConfig(workspace.rootPath || undefined, null, false),
       INSPECT_TIMEOUT_MS,
       copy.value.inspectTimeout,
     );
-  } catch (configError) {
-    effectiveConfig.value = null;
-    inspectError.value = configError instanceof Error ? configError.message : String(configError);
-  } finally {
-    isInspecting.value = false;
+    const scope =
+      config.configScope === "project" ||
+      config.configScope === "global" ||
+      config.configScope === "env" ||
+      config.configScope === "explicit"
+        ? config.configScope
+        : "";
+    configScope.value = scope;
+    settingsJsonPath.value = config.configPath || projectFallback;
+    globalSettingsJsonPath.value = await resolveGlobalSettingsPath(config.globalConfigPath);
+  } catch {
+    configScope.value = "";
+    settingsJsonPath.value = projectFallback;
+    globalSettingsJsonPath.value = await resolveGlobalSettingsPath(null);
+    if (!projectFallback && globalSettingsJsonPath.value) {
+      settingsJsonPath.value = globalSettingsJsonPath.value;
+      configScope.value = "global";
+    }
   }
 }
 
-async function toggleEffectiveKey() {
-  revealEffectiveKey.value = !revealEffectiveKey.value;
-  if (!revealEffectiveKey.value && effectiveConfig.value) {
-    effectiveConfig.value = {
-      ...effectiveConfig.value,
-      apiKeyValue: undefined,
-    };
+async function openConfigJson(path = settingsJsonPath.value) {
+  const target =
+    path ||
+    settingsJsonPath.value ||
+    (workspace.rootPath
+      ? `${workspace.rootPath.replace(/\/$/, "")}/.vera/settings.json`
+      : globalSettingsJsonPath.value);
+  if (!target) {
+    error.value = copy.value.configPathMissing;
     return;
   }
-  await refreshEffectiveConfig();
+  try {
+    const content = await readFile(target);
+    preview.openCodeFile(target, content);
+  } catch (openError) {
+    // Missing file: open an empty object so the user can create it via save.
+    const message = openError instanceof Error ? openError.message : String(openError);
+    if (/not found|no such file|ENOENT/i.test(message)) {
+      preview.openCodeFile(target, "{\n}\n");
+      return;
+    }
+    error.value = message;
+  }
 }
 
-async function openConfigJson() {
-  const path = effectiveConfig.value?.configPath;
-  if (!path) return;
-  try {
-    const content = await readFile(path);
-    preview.openCodeFile(path, content);
-  } catch (openError) {
-    inspectError.value = openError instanceof Error ? openError.message : String(openError);
+function openEditJsonHint() {
+  if (editJsonHintTimer !== undefined) {
+    window.clearTimeout(editJsonHintTimer);
+    editJsonHintTimer = undefined;
   }
+  if (showProjectConfigHint.value) {
+    editJsonHintOpen.value = true;
+  }
+}
+
+function closeEditJsonHint(delayMs = 140) {
+  if (editJsonHintTimer !== undefined) {
+    window.clearTimeout(editJsonHintTimer);
+  }
+  editJsonHintTimer = window.setTimeout(() => {
+    editJsonHintOpen.value = false;
+    editJsonHintTimer = undefined;
+  }, delayMs);
+}
+
+function onEditJsonFocusOut(event: FocusEvent) {
+  const wrap = event.currentTarget as HTMLElement | null;
+  const next = event.relatedTarget as Node | null;
+  if (wrap && next && wrap.contains(next)) return;
+  closeEditJsonHint();
+}
+
+async function openGlobalConfigJson() {
+  editJsonHintOpen.value = false;
+  const path =
+    globalSettingsJsonPath.value || (await resolveGlobalSettingsPath(null));
+  if (!path) {
+    error.value = copy.value.configPathMissing;
+    return;
+  }
+  await openConfigJson(path);
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -484,7 +819,7 @@ async function testConnection() {
   connectionTestFeedback.value = null;
   isTestingConnection.value = true;
   try {
-    await flushPendingSettings();
+    await flushPendingLlmSettings();
     const result = await withTimeout(
       testLlmConnection(workspace.rootPath || undefined, settings.provider.id, {
         protocol: settings.provider.protocol,
@@ -497,7 +832,6 @@ async function testConnection() {
         type: "success",
         message: copy.value.testSuccess(result.modelCount),
       };
-      await refreshEffectiveConfig();
       return;
     }
     connectionTestFeedback.value = {
@@ -519,7 +853,7 @@ async function loadModelList() {
   isLoadingModels.value = true;
   modelList.value = [];
   try {
-    await flushPendingSettings();
+    await flushPendingLlmSettings();
     const configured = await listLlmProviderModels(
       workspace.rootPath || undefined,
       settings.provider.id,
@@ -542,6 +876,13 @@ async function loadModelList() {
           remoteError instanceof Error ? remoteError.message : String(remoteError);
       }
     }
+    // Keep combobox options in sync with the settings list panel.
+    modelCatalog.$patch((state) => {
+      state.modelsByProvider = {
+        ...state.modelsByProvider,
+        [settings.provider.id]: modelList.value,
+      };
+    });
   } catch (loadError) {
     modelListError.value = loadError instanceof Error ? loadError.message : String(loadError);
   } finally {
@@ -560,7 +901,24 @@ async function toggleModelList() {
 }
 
 function selectModel(model: CatalogModel) {
-  settings.provider.model = model.id;
+  const alias = model.id;
+  const upstream = model.upstreamId || model.id;
+  const index = settings.modelAliases.findIndex((item) => item.alias === alias);
+  const entry = {
+    alias,
+    provider: settings.provider.id,
+    model: upstream === alias ? undefined : upstream,
+  };
+  if (index >= 0) {
+    settings.modelAliases[index] = entry;
+  } else {
+    settings.modelAliases.push(entry);
+  }
+  if (!settings.defaultModel) {
+    settings.defaultModel = alias;
+  }
+  settings.provider.model = alias;
+  scheduleModelsRoutingSave();
   status.value = copy.value.saved;
 }
 
@@ -609,34 +967,20 @@ async function saveApiKeyIfNeeded() {
     return;
   }
   try {
-    await settings.saveApiKey(nextKey, workspace.rootPath || undefined);
+    await settings.saveApiKey(
+      nextKey,
+      workspace.rootPath || undefined,
+      editingIsDefault.value,
+    );
     loadedApiKey.value = nextKey;
     apiKey.value = "";
     revealApiKey.value = false;
-    await refreshEffectiveConfig();
+    await modelCatalog.loadProviders(workspace.rootPath || undefined, true);
+    await resolveSettingsJsonPath();
     status.value = copy.value.keySavedStatus;
   } catch (saveError) {
     error.value = saveError instanceof Error ? saveError.message : String(saveError);
   }
-}
-
-async function deleteApiKey() {
-  clearStatus();
-  try {
-    await settings.saveApiKey("", workspace.rootPath || undefined);
-    apiKey.value = "";
-    loadedApiKey.value = null;
-    revealApiKey.value = false;
-    apiKeyFocused.value = false;
-    await refreshEffectiveConfig();
-    status.value = copy.value.keyCleared;
-  } catch (deleteError) {
-    error.value = deleteError instanceof Error ? deleteError.message : String(deleteError);
-  }
-}
-
-function onProviderChange(value: string) {
-  settings.setProviderId(value as LLMProviderId);
 }
 
 function onProtocolChange(value: string) {
@@ -724,14 +1068,26 @@ function clearWallpaperImage() {
 onMounted(() => {
   void (async () => {
     await ensureLoaded();
-    await refreshEffectiveConfig();
+    await resolveSettingsJsonPath();
+    ensureAliasProviderModels();
     isReady.value = true;
+    await nextTick();
+    syncActiveSection();
   })();
 });
 
 onBeforeUnmount(() => {
+  if (scrollFrame) {
+    cancelAnimationFrame(scrollFrame);
+  }
   if (saveTimer) {
     window.clearTimeout(saveTimer);
+  }
+  if (modelsRoutingTimer) {
+    window.clearTimeout(modelsRoutingTimer);
+  }
+  if (editJsonHintTimer !== undefined) {
+    window.clearTimeout(editJsonHintTimer);
   }
   flushWallpaperBlur();
 });
@@ -755,10 +1111,6 @@ watch(
 
 watch(
   () => [
-    settings.provider.id,
-    settings.provider.protocol,
-    settings.provider.apiBaseUrl,
-    settings.provider.model,
     settings.locale,
     settings.theme,
     settings.wallpaperMode,
@@ -766,7 +1118,31 @@ watch(
     settings.wallpaperBlur,
     settings.customPaletteId,
   ],
-  scheduleConfigSave,
+  scheduleAppearanceSave,
+);
+
+// Do not watch provider.id — chip switches must not autosave/promote defaults.
+watch(
+  () => [
+    settings.provider.protocol,
+    settings.provider.apiBaseUrl,
+    settings.provider.model,
+  ],
+  scheduleLlmSave,
+);
+
+watch(
+  () => workspace.rootPath,
+  () => {
+    void resolveSettingsJsonPath();
+  },
+);
+
+watch(
+  () => settings.provider.id,
+  (id) => {
+    providerIdDraft.value = id;
+  },
 );
 </script>
 
@@ -777,241 +1153,460 @@ watch(
       <p>{{ copy.description }}</p>
     </div>
 
-    <div class="settings-card">
-      <div class="setting-row">
-        <span class="setting-label">
-          <strong>{{ copy.language }}</strong>
-          <small>{{ copy.languageHint }}</small>
-        </span>
-        <PartnerSelect
-          :model-value="settings.locale"
-          :options="localeSelectOptions"
-          :aria-label="copy.language"
-          @update:model-value="onLocaleChange"
-        />
-      </div>
+    <div class="settings-body">
+      <nav class="settings-nav" :aria-label="copy.title">
+        <button
+          v-for="item in navItems"
+          :key="item.id"
+          type="button"
+          class="settings-nav-item"
+          :class="{ active: activeSection === item.id }"
+          :aria-current="activeSection === item.id ? 'true' : undefined"
+          @click="goToSection(item.id)"
+        >
+          {{ item.label }}
+        </button>
+      </nav>
 
-      <div class="setting-row">
-        <span class="setting-label">
-          <strong>{{ copy.theme }}</strong>
-          <small>{{ copy.themeHint }}</small>
-        </span>
-        <PartnerSelect
-          :model-value="themeSelectValue"
-          :options="themeSelectOptions"
-          :display-option="themeTriggerOption"
-          :emphasized="settings.theme === 'custom'"
-          :aria-label="copy.theme"
-          @update:model-value="onThemeChange"
-        />
+      <div ref="scrollRef" class="settings-scroll" @scroll="onSettingsScroll">
+    <section
+      :ref="(el) => setSectionRef('appearance', el)"
+      class="settings-section"
+    >
+      <div class="section-heading">
+        <strong>{{ copy.appearanceTitle }}</strong>
+        <small>{{ copy.appearanceHint }}</small>
       </div>
-
-      <div class="setting-row wallpaper-row">
-        <span class="setting-label">
-          <strong>{{ copy.wallpaper }}</strong>
-          <small>{{ copy.wallpaperHint }}</small>
-        </span>
-        <div class="wallpaper-controls">
+      <div class="settings-card">
+        <div class="setting-row">
+          <span class="setting-label">
+            <strong>{{ copy.language }}</strong>
+            <small>{{ copy.languageHint }}</small>
+          </span>
           <PartnerSelect
-            :model-value="settings.wallpaperMode"
-            :groups="wallpaperSelectGroups"
-            :aria-label="copy.wallpaper"
-            @update:model-value="onWallpaperModeChange"
+            :model-value="settings.locale"
+            :options="localeSelectOptions"
+            :aria-label="copy.language"
+            @update:model-value="onLocaleChange"
           />
+        </div>
 
-          <div class="wallpaper-actions">
-            <input
-              ref="wallpaperInput"
-              class="wallpaper-file"
-              type="file"
-              accept="image/*"
-              @change="onWallpaperFileChange"
-            />
-            <button
-              type="button"
-              class="wallpaper-button"
-              :disabled="wallpaperBusy"
-              @click="openWallpaperPicker"
-            >
-              {{ wallpaperBusy ? copy.wallpaperUploading : copy.wallpaperUpload }}
-            </button>
-            <button
-              v-if="settings.wallpaperDataUrl"
-              type="button"
-              class="wallpaper-button secondary"
-              @click="clearWallpaperImage"
-            >
-              {{ copy.wallpaperClear }}
-            </button>
-          </div>
-
-          <template v-if="showWallpaperTuning">
-            <label class="wallpaper-opacity">
-              <span>{{ copy.wallpaperOpacity }} · {{ Math.round(settings.wallpaperOpacity * 100) }}%</span>
-              <input
-                type="range"
-                :min="MIN_WALLPAPER_OPACITY"
-                :max="MAX_WALLPAPER_OPACITY"
-                step="0.01"
-                :value="settings.wallpaperOpacity"
-                @input="onWallpaperOpacityChange"
-              />
-            </label>
-
-            <label class="wallpaper-opacity">
-              <span>{{ copy.wallpaperBlur }} · {{ Math.round(wallpaperBlurDraft) }}px</span>
-              <input
-                type="range"
-                :min="MIN_WALLPAPER_BLUR"
-                :max="MAX_WALLPAPER_BLUR"
-                step="1"
-                :value="wallpaperBlurDraft"
-                @input="onWallpaperBlurInput"
-                @change="onWallpaperBlurCommit"
-              />
-            </label>
-          </template>
-
-          <div
-            v-if="wallpaperPreviewUrl"
-            class="wallpaper-preview"
-            :style="{ backgroundImage: `url(${wallpaperPreviewUrl})` }"
-            aria-hidden="true"
+        <div class="setting-row">
+          <span class="setting-label">
+            <strong>{{ copy.theme }}</strong>
+            <small>{{ copy.themeHint }}</small>
+          </span>
+          <PartnerSelect
+            :model-value="themeSelectValue"
+            :options="themeSelectOptions"
+            :display-option="themeTriggerOption"
+            :emphasized="settings.theme === 'custom'"
+            :aria-label="copy.theme"
+            @update:model-value="onThemeChange"
           />
+        </div>
 
-          <div v-if="showCustomPalettes" class="custom-palettes">
-            <div class="custom-palettes-header">
-              <strong>{{ copy.customPalettes }}</strong>
-              <small>{{ copy.customPalettesHint }}</small>
-            </div>
-            <p v-if="settings.customPalettesLoading" class="custom-palettes-status">
-              {{ copy.customPalettesLoading }}
-            </p>
-            <p
-              v-else-if="settings.customPalettes.length === 0"
-              class="custom-palettes-status"
-            >
-              {{ copy.customPalettesEmpty }}
-            </p>
+        <div class="setting-row wallpaper-row">
+          <span class="setting-label">
+            <strong>{{ copy.wallpaper }}</strong>
+            <small>{{ copy.wallpaperHint }}</small>
+          </span>
+          <div class="wallpaper-controls">
             <PartnerSelect
-              v-else
-              :model-value="customPaletteSelectValue"
-              :options="customPaletteSelectOptions"
-              :placeholder="copy.customPalettesPlaceholder"
-              :emphasized="settings.theme === 'custom'"
-              :aria-label="copy.customPalettes"
-              @update:model-value="onCustomPaletteSelect"
+              :model-value="settings.wallpaperMode"
+              :groups="wallpaperSelectGroups"
+              :aria-label="copy.wallpaper"
+              @update:model-value="onWallpaperModeChange"
             />
+
+            <div class="wallpaper-actions">
+              <input
+                ref="wallpaperInput"
+                class="wallpaper-file"
+                type="file"
+                accept="image/*"
+                @change="onWallpaperFileChange"
+              />
+              <button
+                type="button"
+                class="wallpaper-button"
+                :disabled="wallpaperBusy"
+                @click="openWallpaperPicker"
+              >
+                {{ wallpaperBusy ? copy.wallpaperUploading : copy.wallpaperUpload }}
+              </button>
+              <button
+                v-if="settings.wallpaperDataUrl"
+                type="button"
+                class="wallpaper-button secondary"
+                @click="clearWallpaperImage"
+              >
+                {{ copy.wallpaperClear }}
+              </button>
+            </div>
+
+            <template v-if="showWallpaperTuning">
+              <label class="wallpaper-opacity">
+                <span>{{ copy.wallpaperOpacity }} · {{ Math.round(settings.wallpaperOpacity * 100) }}%</span>
+                <input
+                  type="range"
+                  :min="MIN_WALLPAPER_OPACITY"
+                  :max="MAX_WALLPAPER_OPACITY"
+                  step="0.01"
+                  :value="settings.wallpaperOpacity"
+                  @input="onWallpaperOpacityChange"
+                />
+              </label>
+
+              <label class="wallpaper-opacity">
+                <span>{{ copy.wallpaperBlur }} · {{ Math.round(wallpaperBlurDraft) }}px</span>
+                <input
+                  type="range"
+                  :min="MIN_WALLPAPER_BLUR"
+                  :max="MAX_WALLPAPER_BLUR"
+                  step="1"
+                  :value="wallpaperBlurDraft"
+                  @input="onWallpaperBlurInput"
+                  @change="onWallpaperBlurCommit"
+                />
+              </label>
+            </template>
+
+            <div
+              v-if="wallpaperPreviewUrl"
+              class="wallpaper-preview"
+              :style="{ backgroundImage: `url(${wallpaperPreviewUrl})` }"
+              aria-hidden="true"
+            />
+
+            <div v-if="showCustomPalettes" class="custom-palettes">
+              <div class="custom-palettes-header">
+                <strong>{{ copy.customPalettes }}</strong>
+                <small>{{ copy.customPalettesHint }}</small>
+              </div>
+              <p v-if="settings.customPalettesLoading" class="custom-palettes-status">
+                {{ copy.customPalettesLoading }}
+              </p>
+              <p
+                v-else-if="settings.customPalettes.length === 0"
+                class="custom-palettes-status"
+              >
+                {{ copy.customPalettesEmpty }}
+              </p>
+              <PartnerSelect
+                v-else
+                :model-value="customPaletteSelectValue"
+                :options="customPaletteSelectOptions"
+                :placeholder="copy.customPalettesPlaceholder"
+                :emphasized="settings.theme === 'custom'"
+                :aria-label="copy.customPalettes"
+                @update:model-value="onCustomPaletteSelect"
+              />
+            </div>
           </div>
         </div>
       </div>
+    </section>
 
-      <div class="setting-row">
-        <span class="setting-label">
-          <strong>Provider</strong>
-          <small>{{ copy.providerHint }}</small>
-        </span>
-        <PartnerSelect
-          :model-value="settings.provider.id"
-          :options="providerSelectOptions"
-          aria-label="Provider"
-          @update:model-value="onProviderChange"
-        />
+    <section
+      :ref="(el) => setSectionRef('llm', el)"
+      class="settings-section section-divided"
+    >
+      <div class="section-heading">
+        <div class="section-heading-row">
+          <strong>{{ copy.llmTitle }}</strong>
+          <div
+            class="edit-json-wrap"
+            @mouseenter="openEditJsonHint"
+            @mouseleave="closeEditJsonHint()"
+            @focusin="openEditJsonHint"
+            @focusout="onEditJsonFocusOut"
+          >
+            <button
+              type="button"
+              class="link-button heading-action"
+              :disabled="!settingsJsonPath && !globalSettingsJsonPath"
+              @click="openConfigJson()"
+            >
+              {{ copy.editJson }}
+            </button>
+            <div
+              v-if="showProjectConfigHint && editJsonHintOpen"
+              class="edit-json-popover"
+              role="tooltip"
+              @mouseenter="openEditJsonHint"
+              @mouseleave="closeEditJsonHint()"
+            >
+              <p>{{ copy.editJsonProjectHint }}</p>
+              <button
+                type="button"
+                class="link-button"
+                :disabled="!globalSettingsJsonPath"
+                @click="openGlobalConfigJson"
+              >
+                {{ copy.editJsonGlobal }}
+              </button>
+            </div>
+          </div>
+        </div>
+        <small>{{ copy.llmHint }}</small>
       </div>
 
-      <div class="setting-row">
-        <span class="setting-label">
-          <strong>{{ copy.protocol }}</strong>
-          <small>{{ copy.protocolHint }}</small>
-        </span>
-        <PartnerSelect
-          :model-value="settings.provider.protocol"
-          :options="protocolSelectOptions"
-          :aria-label="copy.protocol"
-          @update:model-value="onProtocolChange"
-        />
+      <div class="provider-toolbar">
+        <div class="provider-chips" role="tablist" :aria-label="copy.providersLabel">
+          <button
+            v-for="provider in providerProfiles"
+            :key="provider.id"
+            type="button"
+            class="provider-chip"
+            :class="{
+              active: provider.id === settings.provider.id,
+              default: provider.isDefault,
+            }"
+            role="tab"
+            :aria-selected="provider.id === settings.provider.id"
+            @click="selectProviderProfile(provider)"
+          >
+            <span class="provider-chip-id">{{ provider.id }}</span>
+            <span v-if="provider.isDefault" class="provider-badge">{{ copy.defaultBadge }}</span>
+          </button>
+          <button
+            type="button"
+            class="provider-chip create"
+            @click="createProviderProfile"
+          >
+            + {{ copy.newProvider }}
+          </button>
+          <p v-if="!providerProfiles.length" class="provider-empty">{{ copy.emptyProviders }}</p>
+        </div>
       </div>
 
-      <label class="setting-row">
-        <span class="setting-label">
-          <strong>API Base URL</strong>
-          <small>{{ apiBaseHint }}</small>
-        </span>
-        <input
-          v-model.trim="settings.provider.apiBaseUrl"
-          type="url"
-          placeholder="https://api.example.com/v1"
-        />
-      </label>
+      <p class="provider-edit-hint">
+        {{ editingIsDefault ? copy.editingDefault : copy.editingOther }}
+      </p>
 
-      <label class="setting-row">
-        <span class="setting-label">
-          <strong>{{ copy.model }}</strong>
-          <small>{{ copy.modelHint }}</small>
-        </span>
-        <input
-          v-model.trim="settings.provider.model"
-          type="text"
-          placeholder="claude-sonnet-4-20250514"
-        />
-      </label>
+      <div class="settings-card">
+        <div class="setting-row">
+          <span class="setting-label">
+            <strong>{{ copy.providerId }}</strong>
+            <small>{{ copy.providerIdHint }}</small>
+          </span>
+          <div class="provider-id-row">
+            <input
+              v-model.trim="providerIdDraft"
+              type="text"
+              :aria-label="copy.providerId"
+              @blur="commitProviderRename"
+              @keydown.enter.prevent="commitProviderRename"
+            />
+            <button
+              type="button"
+              class="action-button"
+              :class="{ secondary: editingIsDefault }"
+              :disabled="isSavingConfig || editingIsDefault"
+              @click="makeProviderDefault"
+            >
+              {{ editingIsDefault ? copy.alreadyDefault : copy.setDefault }}
+            </button>
+          </div>
+        </div>
 
-      <label class="setting-row">
-        <span class="setting-label">
-          <strong>API Key</strong>
-          <small>
-            {{ settings.hasApiKey ? copy.keySaved : copy.keyMissing }}
-          </small>
-        </span>
-        <span class="key-control">
-          <input
-            :value="apiKeyDisplay"
-            :type="revealApiKey ? 'text' : 'password'"
-            autocomplete="new-password"
-            :placeholder="settings.hasApiKey ? copy.keyReplacePlaceholder : copy.keyPlaceholder"
-            @focus="onApiKeyFocus"
-            @input="onApiKeyInput"
-            @blur="saveApiKeyIfNeeded"
-            @keydown.enter.prevent="saveApiKeyIfNeeded"
+        <div class="setting-row">
+          <span class="setting-label">
+            <strong>{{ copy.protocol }}</strong>
+            <small>{{ copy.protocolHint }}</small>
+          </span>
+          <PartnerSelect
+            :model-value="settings.provider.protocol"
+            :options="protocolSelectOptions"
+            :aria-label="copy.protocol"
+            @update:model-value="onProtocolChange"
           />
-          <button
-            v-if="settings.hasApiKey"
-            type="button"
-            class="link-button"
-            @click="toggleApiKeyReveal"
-          >
-            {{ revealApiKey ? copy.hideKey : copy.showKey }}
-          </button>
-          <button
-            v-if="settings.hasApiKey"
-            type="button"
-            class="link-button"
-            @click="deleteApiKey"
-          >
-            {{ copy.clear }}
-          </button>
-        </span>
-      </label>
-    </div>
+        </div>
 
-    <div class="settings-actions">
-      <button
-        type="button"
-        class="action-button"
-        :disabled="isTestingConnection || isSavingConfig"
-        @click="testConnection"
-      >
-        {{ isTestingConnection ? copy.testingConnection : copy.testConnection }}
-      </button>
-      <button
-        type="button"
-        class="action-button secondary"
-        :disabled="isLoadingModels || isSavingConfig"
-        @click="toggleModelList"
-      >
-        {{ showModelList ? copy.hideModels : copy.viewModels }}
-      </button>
-    </div>
+        <label class="setting-row">
+          <span class="setting-label">
+            <strong>API Base URL</strong>
+            <small>{{ apiBaseHint }}</small>
+          </span>
+          <input
+            v-model.trim="settings.provider.apiBaseUrl"
+            type="url"
+            placeholder="https://api.example.com/v1"
+          />
+        </label>
+
+        <label class="setting-row">
+          <span class="setting-label">
+            <strong>API Key</strong>
+            <small>
+              {{ settings.hasApiKey ? copy.keySaved : copy.keyMissing }}
+            </small>
+          </span>
+          <span class="key-control">
+            <input
+              :value="apiKeyDisplay"
+              :type="revealApiKey ? 'text' : 'password'"
+              autocomplete="new-password"
+              :placeholder="settings.hasApiKey ? copy.keyReplacePlaceholder : copy.keyPlaceholder"
+              @focus="onApiKeyFocus"
+              @input="onApiKeyInput"
+              @blur="saveApiKeyIfNeeded"
+              @keydown.enter.prevent="saveApiKeyIfNeeded"
+            />
+            <button
+              v-if="settings.hasApiKey && editingIsDefault"
+              type="button"
+              class="link-button"
+              @click="toggleApiKeyReveal"
+            >
+              {{ revealApiKey ? copy.hideKey : copy.showKey }}
+            </button>
+          </span>
+        </label>
+      </div>
+
+      <div class="section-heading models-routing-heading">
+        <strong>{{ copy.modelsRoutingTitle }}</strong>
+        <small>{{ copy.modelsRoutingHint }}</small>
+      </div>
+
+      <div class="settings-card">
+        <div class="model-alias-list">
+          <div
+            v-for="(item, index) in settings.modelAliases"
+            :key="`${item.alias}-${index}`"
+            class="model-alias-row"
+          >
+            <input
+              v-model.trim="item.alias"
+              type="text"
+              :placeholder="copy.modelAlias"
+              :aria-label="copy.modelAlias"
+              @change="scheduleModelsRoutingSave"
+            />
+            <PartnerSelect
+              :model-value="item.provider"
+              :options="providerSelectOptions"
+              :aria-label="copy.modelProvider"
+              @update:model-value="
+                (value) => {
+                  item.provider = String(value);
+                  ensureProviderModelOptions(String(value));
+                  scheduleModelsRoutingSave();
+                }
+              "
+            />
+            <PartnerCombobox
+              :model-value="item.model ?? ''"
+              :options="upstreamModelOptions(item.provider)"
+              :placeholder="copy.modelUpstream"
+              :aria-label="copy.modelUpstream"
+              :empty-label="copy.modelPickEmpty"
+              @update:model-value="
+                (value) => {
+                  item.model = value;
+                }
+              "
+              @change="scheduleModelsRoutingSave"
+              @open="ensureProviderModelOptions(item.provider)"
+            />
+            <button
+              type="button"
+              class="link-button"
+              @click="removeModelAlias(item.alias)"
+            >
+              {{ copy.removeModel }}
+            </button>
+          </div>
+          <p v-if="!settings.modelAliases.length" class="provider-empty">
+            {{ copy.emptyModels }}
+          </p>
+          <button type="button" class="link-button" @click="addModelAlias">
+            + {{ copy.addModel }}
+          </button>
+        </div>
+
+        <label class="setting-row">
+          <span class="setting-label">
+            <strong>{{ copy.defaultModel }}</strong>
+            <small>{{ copy.defaultModelHint }}</small>
+          </span>
+          <PartnerCombobox
+            :model-value="settings.defaultModel"
+            :options="modelAliasOptions"
+            :aria-label="copy.defaultModel"
+            :empty-label="copy.aliasPickEmpty"
+            @update:model-value="
+              (value) => {
+                settings.defaultModel = value;
+              }
+            "
+            @change="scheduleModelsRoutingSave"
+          />
+        </label>
+
+        <label class="setting-row setting-row-toggle">
+          <span class="setting-label">
+            <strong>{{ copy.routingEnabled }}</strong>
+            <small>{{ copy.routingEnabledHint }}</small>
+          </span>
+          <input
+            v-model="settings.routing.enabled"
+            type="checkbox"
+            @change="scheduleModelsRoutingSave"
+          />
+        </label>
+
+        <template v-if="settings.routing.enabled">
+          <label
+            v-for="tier in [
+              { key: 'classifier' as const, label: copy.routingClassifier },
+              { key: 'l0' as const, label: copy.routingL0 },
+              { key: 'l1' as const, label: copy.routingL1 },
+              { key: 'l2' as const, label: copy.routingL2 },
+            ]"
+            :key="tier.key"
+            class="setting-row"
+          >
+            <span class="setting-label">
+              <strong>{{ tier.label }}</strong>
+            </span>
+            <PartnerCombobox
+              :model-value="settings.routing[tier.key] ?? ''"
+              :options="modelAliasOptions"
+              :aria-label="tier.label"
+              :empty-label="copy.aliasPickEmpty"
+              @update:model-value="
+                (value) => {
+                  settings.routing[tier.key] = value;
+                }
+              "
+              @change="scheduleModelsRoutingSave"
+            />
+          </label>
+        </template>
+      </div>
+
+      <div class="settings-actions">
+        <button
+          type="button"
+          class="action-button"
+          :disabled="isTestingConnection || isSavingConfig"
+          @click="testConnection"
+        >
+          {{ isTestingConnection ? copy.testingConnection : copy.testConnection }}
+        </button>
+        <button
+          type="button"
+          class="action-button secondary"
+          :disabled="isLoadingModels || isSavingConfig"
+          @click="toggleModelList"
+        >
+          {{ showModelList ? copy.hideModels : copy.viewModels }}
+        </button>
+      </div>
+    </section>
 
     <p
       v-if="connectionTestFeedback"
@@ -1053,86 +1648,91 @@ watch(
       </ul>
     </section>
 
-    <section class="effective-card">
-      <div class="effective-header">
-        <span>
-          <strong>{{ copy.effectiveTitle }}</strong>
-          <small>{{ copy.effectiveHint }}</small>
-        </span>
-        <button type="button" class="link-button" @click="refreshEffectiveConfig">
-          {{ copy.refresh }}
-        </button>
+        <StorageUsageSection
+          :ref="(el) => setSectionRef('storage', el)"
+          class="section-divided"
+        />
       </div>
-      <p v-if="isInspecting" class="status">{{ copy.loadingEffective }}</p>
-      <p v-else-if="inspectError" class="status error">{{ inspectError }}</p>
-      <dl v-else-if="effectiveConfig" class="effective-grid">
-        <div>
-          <dt>{{ copy.source }}</dt>
-          <dd>{{ effectiveConfig.sourceLabel }}</dd>
-        </div>
-        <div>
-          <dt>Provider</dt>
-          <dd>{{ effectiveConfig.provider }}</dd>
-        </div>
-        <div>
-          <dt>{{ copy.adapter }}</dt>
-          <dd>{{ effectiveConfig.adapter }}</dd>
-        </div>
-        <div>
-          <dt>{{ copy.model }}</dt>
-          <dd>{{ effectiveConfig.model }}</dd>
-        </div>
-        <div>
-          <dt>API Base URL</dt>
-          <dd>{{ effectiveConfig.apiBaseUrl || copy.notAvailable }}</dd>
-        </div>
-        <div>
-          <dt>{{ copy.keyState }}</dt>
-          <dd>{{ effectiveConfig.apiKeyAvailable ? copy.keyAvailable : copy.keyUnavailable }}</dd>
-        </div>
-        <div v-if="effectiveConfig.apiKeyAvailable">
-          <dt>API Key Value</dt>
-          <dd class="key-source">
-            <span>{{ revealEffectiveKey ? effectiveConfig.apiKeyValue : "••••••••" }}</span>
-            <button
-              type="button"
-              class="inline-link-button"
-              @click="toggleEffectiveKey"
-            >
-              {{ revealEffectiveKey ? copy.hideKey : copy.showKey }}
-            </button>
-          </dd>
-        </div>
-        <div>
-          <dt>{{ copy.configPath }}</dt>
-          <dd class="key-source">
-            <span>{{ effectiveConfig.configPath || copy.notAvailable }}</span>
-            <button
-              v-if="effectiveConfig.configPath"
-              type="button"
-              class="inline-link-button"
-              @click="openConfigJson"
-            >
-              {{ copy.editJson }}
-            </button>
-          </dd>
-        </div>
-        <div>
-          <dt>{{ copy.projectRoot }}</dt>
-          <dd>{{ effectiveConfig.projectRoot }}</dd>
-        </div>
-      </dl>
-    </section>
+    </div>
   </section>
 </template>
 
 <style scoped>
 .settings-panel {
+  display: flex;
+  flex-direction: column;
   height: 100%;
-  overflow: auto;
-  padding: 18px;
+  overflow: hidden;
+  padding: 18px 18px 0;
   color: var(--text);
   container-type: inline-size;
+}
+
+.settings-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 20px;
+}
+
+/* Vertical table of contents; sticks while the content scrolls. */
+.settings-nav {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 2px;
+  width: 128px;
+  padding-bottom: 18px;
+}
+
+.settings-nav-item {
+  border: none;
+  border-left: 2px solid transparent;
+  border-radius: 0 4px 4px 0;
+  padding: 7px 10px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-nav-item:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text);
+}
+
+.settings-nav-item.active {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.settings-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding-bottom: 18px;
+  scroll-behavior: smooth;
+}
+
+@container (max-width: 620px) {
+  /* Stay vertical at every width — the rail reads as a table of contents. Only
+     its width shrinks so the content column keeps a usable measure. */
+  .settings-body {
+    gap: 12px;
+  }
+
+  .settings-nav {
+    width: 92px;
+  }
+
+  .settings-nav-item {
+    padding: 7px 8px;
+    font-size: 11px;
+  }
 }
 
 .settings-header {
@@ -1152,19 +1752,216 @@ watch(
   font-size: 12px;
 }
 
-.settings-card {
+.settings-section {
   width: min(100%, 780px);
+  margin-bottom: 28px;
+}
+
+/* Visible break between top-level settings blocks. */
+.section-divided {
+  margin-top: 28px;
+  padding-top: 28px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.section-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.section-heading-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.section-heading strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.section-heading .heading-action {
+  font-size: 12px;
+}
+
+.edit-json-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.edit-json-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 220px;
+  max-width: 320px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-elevated) 96%, transparent);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+}
+
+.edit-json-popover p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.edit-json-popover .link-button {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.section-heading small {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.provider-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.provider-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.provider-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 10px;
+  background: color-mix(in srgb, var(--surface-elevated) 88%, transparent);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.provider-chip:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.provider-chip.active {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-elevated));
+  color: var(--text);
+}
+
+.provider-chip.create {
+  border-style: dashed;
+  color: var(--text-muted);
+}
+
+.provider-chip.create:hover {
+  border-style: solid;
+  color: var(--text);
+}
+
+.provider-chip-id {
+  font-weight: 600;
+}
+
+.provider-badge {
+  border-radius: 999px;
+  padding: 1px 6px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.provider-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.provider-edit-hint {
+  margin: 0 0 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.settings-card {
+  width: 100%;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface-elevated);
 }
 
+.models-routing-heading {
+  margin-top: 18px;
+}
+
+.provider-id-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.provider-id-row input {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.model-alias-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.model-alias-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1.2fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.model-alias-row input,
+.model-alias-row :deep(.partner-combobox),
+.model-alias-row :deep(.partner-select) {
+  min-width: 0;
+}
+
+.setting-row-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
 .settings-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  width: min(100%, 780px);
+  width: 100%;
   margin-top: 12px;
 }
 
@@ -1276,93 +2073,6 @@ watch(
   border-radius: 999px;
   padding: 1px 7px;
   background: color-mix(in srgb, var(--border) 60%, transparent);
-}
-
-.effective-card {
-  width: min(100%, 780px);
-  margin-top: 18px;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-elevated);
-}
-
-.effective-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 12px;
-}
-
-.effective-header span {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.effective-header strong {
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.effective-header small {
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-.effective-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px 18px;
-  margin: 0;
-}
-
-.effective-grid div {
-  min-width: 0;
-}
-
-.effective-grid dt {
-  margin-bottom: 3px;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.effective-grid dd {
-  margin: 0;
-  overflow: hidden;
-  color: var(--text);
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.key-source {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.key-source span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.inline-link-button {
-  flex-shrink: 0;
-  border: none;
-  border-radius: 4px;
-  padding: 0 4px;
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--accent);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
 }
 
 .setting-row {
@@ -1582,12 +2292,7 @@ input:focus {
     gap: 8px;
   }
 
-  .effective-header {
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .effective-grid {
+  .model-alias-row {
     grid-template-columns: 1fr;
   }
 }

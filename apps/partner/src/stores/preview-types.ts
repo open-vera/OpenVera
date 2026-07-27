@@ -142,6 +142,12 @@ const BINARY_EXTENSIONS = new Set([
   "zip",
 ]);
 
+const BINARY_FILENAMES = new Set([
+  ".ds_store",
+  "thumbs.db",
+  "desktop.ini",
+]);
+
 const CODE_FILENAMES = new Set([
   "license",
   "licence",
@@ -171,14 +177,31 @@ const CODE_FILENAME_PREFIXES = [
   "makefile.",
 ];
 
-export function isCodeFilePath(path: string): boolean {
-  const filename = path.split("/").pop()?.toLowerCase() ?? "";
-  if (CODE_FILENAMES.has(filename)) return true;
+export type FilePathKind = "code" | "binary" | "unknown";
+
+function fileNameFromPath(path: string): string {
+  return path.split("/").pop()?.toLowerCase() ?? "";
+}
+
+/** Classify a path for preview: known text, known binary, or unrecognized. */
+export function classifyFilePath(path: string): FilePathKind {
+  const filename = fileNameFromPath(path);
+  if (BINARY_FILENAMES.has(filename)) return "binary";
+  if (CODE_FILENAMES.has(filename)) return "code";
   if (CODE_FILENAME_PREFIXES.some((prefix) => filename.startsWith(prefix))) {
-    return true;
+    return "code";
   }
-  if (!filename.includes(".")) return true;
+  if (!filename.includes(".")) return "code";
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-  if (BINARY_EXTENSIONS.has(ext)) return false;
-  return CODE_EXTENSIONS.has(ext);
+  if (BINARY_EXTENSIONS.has(ext)) return "binary";
+  if (CODE_EXTENSIONS.has(ext)) return "code";
+  return "unknown";
+}
+
+export function isCodeFilePath(path: string): boolean {
+  return classifyFilePath(path) === "code";
+}
+
+export function isBinaryFilePath(path: string): boolean {
+  return classifyFilePath(path) === "binary";
 }

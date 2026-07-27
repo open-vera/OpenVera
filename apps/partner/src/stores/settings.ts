@@ -1,7 +1,9 @@
 import { defineStore } from "pinia";
 import {
   inspectLlmConfig,
+  renameVeraProvider,
   saveVeraLlmConfig,
+  saveVeraModelsRouting,
 } from "@/bridge";
 import {
   applyPartnerTheme,
@@ -29,12 +31,17 @@ import {
 import type {
   AgentRunMode,
   AppLocale,
+  CatalogProvider,
   EffectiveLlmConfig,
   LLMProvider,
   LLMProviderId,
   LLMProtocol,
   LLMRuntimeConfig,
+  VeraModelAlias,
+  VeraRoutingSettings,
 } from "@/types";
+import { resolveCatalogProtocol } from "@/utils/llm-protocol";
+import type { VeraModelsRoutingSnapshot } from "@/utils/vera-config-edit";
 
 const UI_SETTINGS_STORAGE_KEY = "partner:ui-settings";
 const DEFAULT_API_KEY_REF = "llm:anthropic:api-key";
@@ -136,6 +143,20 @@ export const useSettingsStore = defineStore("settings", {
     firstLaunchComplete: false,
     hasApiKey: false,
     isLoaded: false,
+    modelAliases: [] as VeraModelAlias[],
+    defaultModel: "" as string,
+    routing: {
+      enabled: false,
+      classifier: "",
+      l0: "",
+      l1: "",
+      l2: "",
+    } as VeraRoutingSettings & {
+      classifier: string;
+      l0: string;
+      l1: string;
+      l2: string;
+    },
   }),
   getters: {
     activeCustomPalette(state): CustomPaletteVariant | null {
@@ -144,6 +165,22 @@ export const useSettingsStore = defineStore("settings", {
     },
   },
   actions: {
+    applyModelsRoutingFromEffective(effective: EffectiveLlmConfig) {
+      this.modelAliases = (effective.models ?? []).map((item) => ({
+        alias: item.alias,
+        provider: item.provider,
+        model: item.model ?? "",
+      }));
+      this.defaultModel = effective.defaultModel ?? effective.model ?? "";
+      const routing = effective.routing;
+      this.routing = {
+        enabled: Boolean(routing?.enabled),
+        classifier: typeof routing?.classifier === "string" ? routing.classifier : "",
+        l0: typeof routing?.l0 === "string" ? routing.l0 : "",
+        l1: typeof routing?.l1 === "string" ? routing.l1 : "",
+        l2: typeof routing?.l2 === "string" ? routing.l2 : "",
+      };
+    },
     currentWallpaperImageUrl(): string | null {
       const themeId =
         this.theme === "custom" ? resolveThemeId("system") : resolveThemeId(this.theme);
@@ -232,6 +269,7 @@ export const useSettingsStore = defineStore("settings", {
       const effective = await inspectLlmConfig(projectRoot, null, false);
       this.provider = providerFromEffective(effective);
       this.hasApiKey = effective.apiKeyAvailable;
+      this.applyModelsRoutingFromEffective(effective);
       this.isLoaded = true;
     },
     setProviderId(id: LLMProviderId) {
@@ -334,11 +372,34 @@ export const useSettingsStore = defineStore("settings", {
         apiKeyRef: `llm:${params.providerId}:api-key`,
       };
     },
+    /** Switch the settings editor to an existing Vera provider profile. */
+    editCatalogProvider(provider: CatalogProvider) {
+      this.provider = {
+        id: provider.id,
+        protocol: resolveCatalogProtocol(provider),
+        apiBaseUrl: provider.apiBaseUrl ?? "",
+        model: provider.model ?? "",
+        apiKeyRef: `llm:${provider.id}:api-key`,
+      };
+      this.hasApiKey = provider.hasApiKey;
+    },
+    createProviderProfile(id: string, preset?: Partial<LLMProvider>) {
+      const trimmed = id.trim().replace(/\s+/g, "-");
+      if (!trimmed) return;
+      const base = providerDefaults(trimmed);
+      this.provider = {
+        ...base,
+        ...preset,
+        id: trimmed,
+        apiKeyRef: `llm:${trimmed}:api-key`,
+      };
+      this.hasApiKey = false;
+    },
     async refreshApiKeyStatus() {
       const effective = await inspectLlmConfig(undefined, null, false);
       this.hasApiKey = effective.apiKeyAvailable;
     },
-    async save(projectRoot?: string) {
+    persistUi() {
       window.localStorage.setItem(
         UI_SETTINGS_STORAGE_KEY,
         JSON.stringify({
@@ -353,26 +414,79 @@ export const useSettingsStore = defineStore("settings", {
           customPaletteId: this.customPaletteId,
         }),
       );
-      const effective = await saveVeraLlmConfig({
-        projectRoot,
-        provider: this.provider.id,
-        protocol: this.provider.protocol,
-        apiBaseUrl: this.provider.apiBaseUrl,
-        model: this.provider.model,
-      });
-      this.hasApiKey = effective.apiKeyAvailable;
     },
-    async saveApiKey(value: string, projectRoot?: string) {
-      const nextValue = value.trim();
+    async saveLlm(
+      projectRoot?: string,
+      options?: { apiKey?: string; setAsDefault?: boolean },
+    ) {
+      const model =
+        this.provider.model.trim() ||
+        this.defaultModel.trim() ||
+        this.modelAliases.find((item) => item.provider === this.provider.id)?.alias ||
+        "";
       const effective = await saveVeraLlmConfig({
         projectRoot,
         provider: this.provider.id,
         protocol: this.provider.protocol,
         apiBaseUrl: this.provider.apiBaseUrl,
-        model: this.provider.model,
-        apiKey: nextValue,
+        model,
+        ...(options?.apiKey !== undefined ? { apiKey: options.apiKey } : {}),
+        ...(options?.setAsDefault !== undefined
+          ? { setAsDefault: options.setAsDefault }
+          : {}),
       });
       this.hasApiKey = effective.apiKeyAvailable;
+      this.applyModelsRoutingFromEffective(effective);
+      return effective;
+    },
+    async save(projectRoot?: string, options?: { setAsDefault?: boolean }) {
+      this.persistUi();
+      await this.saveLlm(projectRoot, { setAsDefault: options?.setAsDefault });
+    },
+    async saveApiKey(value: string, projectRoot?: string, setAsDefault = false) {
+      const nextValue = value.trim();
+      await this.saveLlm(projectRoot, { apiKey: nextValue, setAsDefault });
+    },
+    async renameProvider(oldId: string, newId: string, projectRoot?: string) {
+      const effective = await renameVeraProvider({
+        projectRoot,
+        oldId,
+        newId,
+      });
+      this.provider = {
+        ...this.provider,
+        id: newId.trim().replace(/\s+/g, "-"),
+        apiKeyRef: `llm:${newId.trim().replace(/\s+/g, "-")}:api-key`,
+      };
+      this.hasApiKey = effective.apiKeyAvailable;
+      this.applyModelsRoutingFromEffective(effective);
+      return effective;
+    },
+    async saveModelsRouting(
+      projectRoot?: string,
+      snapshot?: Partial<VeraModelsRoutingSnapshot>,
+    ) {
+      const models = (snapshot?.models ?? this.modelAliases).map((item) => ({
+        alias: item.alias,
+        provider: item.provider,
+        ...(item.model ? { model: item.model } : {}),
+      }));
+      const routing = snapshot?.routing ?? this.routing;
+      const effective = await saveVeraModelsRouting({
+        projectRoot,
+        models,
+        defaultProvider: snapshot?.defaultProvider ?? this.provider.id,
+        defaultModel: snapshot?.defaultModel ?? this.defaultModel,
+        routing: {
+          enabled: Boolean(routing.enabled),
+          ...(routing.classifier ? { classifier: String(routing.classifier) } : {}),
+          ...(routing.l0 ? { l0: String(routing.l0) } : {}),
+          ...(routing.l1 ? { l1: String(routing.l1) } : {}),
+          ...(routing.l2 ? { l2: String(routing.l2) } : {}),
+        },
+      });
+      this.applyModelsRoutingFromEffective(effective);
+      return effective;
     },
     async runtimeLlmConfig(projectRoot?: string): Promise<LLMRuntimeConfig | null> {
       const effective = await inspectLlmConfig(projectRoot, null, true);
@@ -381,7 +495,7 @@ export const useSettingsStore = defineStore("settings", {
         provider: this.provider.id,
         protocol: this.provider.protocol,
         apiBaseUrl: this.provider.apiBaseUrl || effective.apiBaseUrl,
-        model: this.provider.model,
+        model: this.defaultModel || this.provider.model || effective.model,
         apiKey: effective.apiKeyValue,
       };
     },

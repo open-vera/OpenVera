@@ -8,7 +8,7 @@ import { basicSetup } from "codemirror";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { parseUnifiedDiff } from "@/preview/diff";
 import {
-  detectLanguageFromPath,
+  detectLanguage,
   languageSupportFor,
   type PreviewLanguageId,
 } from "@/preview/language";
@@ -23,7 +23,9 @@ const containerRef = ref<HTMLDivElement | null>(null);
 let mergeView: MergeView | null = null;
 
 const parsed = computed(() => parseUnifiedDiff(props.content, props.filePath.replace(/\.diff$/i, "")));
-const language = computed<PreviewLanguageId>(() => detectLanguageFromPath(parsed.value.filePath));
+const language = computed<PreviewLanguageId>(() =>
+  detectLanguage(parsed.value.filePath, parsed.value.newText),
+);
 
 function editorExtensions(languageId: PreviewLanguageId): Extension[] {
   const languageSupport = languageSupportFor(languageId);

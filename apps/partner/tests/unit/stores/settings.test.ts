@@ -5,6 +5,8 @@ import { useSettingsStore } from "@/stores/settings";
 const localValues = new Map<string, string>();
 const inspectLlmConfigMock = vi.fn();
 const saveVeraLlmConfigMock = vi.fn();
+const renameVeraProviderMock = vi.fn();
+const saveVeraModelsRoutingMock = vi.fn();
 
 interface SaveVeraLlmConfigParams {
   projectRoot?: string;
@@ -18,6 +20,8 @@ interface SaveVeraLlmConfigParams {
 vi.mock("@/bridge", () => ({
   inspectLlmConfig: (...args: unknown[]) => inspectLlmConfigMock(...args),
   saveVeraLlmConfig: (...args: unknown[]) => saveVeraLlmConfigMock(...args),
+  renameVeraProvider: (...args: unknown[]) => renameVeraProviderMock(...args),
+  saveVeraModelsRouting: (...args: unknown[]) => saveVeraModelsRoutingMock(...args),
 }));
 
 describe("useSettingsStore", () => {
@@ -26,6 +30,8 @@ describe("useSettingsStore", () => {
     localValues.clear();
     inspectLlmConfigMock.mockReset();
     saveVeraLlmConfigMock.mockReset();
+    renameVeraProviderMock.mockReset();
+    saveVeraModelsRoutingMock.mockReset();
     inspectLlmConfigMock.mockResolvedValue({
       source: "vera-config",
       sourceLabel: "Vera config",
@@ -39,6 +45,9 @@ describe("useSettingsStore", () => {
       apiKeySource: "missing",
       apiKeySourceLabel: "Not found",
       configExists: true,
+      defaultModel: "claude-sonnet",
+      models: [{ alias: "claude-sonnet", provider: "anthropic" }],
+      routing: { enabled: false },
     });
     saveVeraLlmConfigMock.mockImplementation(async (params: SaveVeraLlmConfigParams) => ({
       source: "vera-config",

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { LLM_PROTOCOL_OPTIONS, protocolLabel } from "@/utils/llm-protocol";
+import {
+  LLM_PROTOCOL_OPTIONS,
+  protocolLabel,
+  resolveCatalogProtocol,
+} from "@/utils/llm-protocol";
 
 describe("llm-protocol utils", () => {
   it("maps protocol values to labels", () => {
@@ -16,5 +20,17 @@ describe("llm-protocol utils", () => {
       "openai-responses",
       "gemini",
     ]);
+  });
+
+  it("resolves protocol from catalog provider config", () => {
+    expect(
+      resolveCatalogProtocol({ protocol: "openai-compatible", adapter: "anthropic" }),
+    ).toBe("openai-compatible");
+    expect(
+      resolveCatalogProtocol({ protocol: "weird", adapter: "openai-responses" }),
+    ).toBe("openai-responses");
+    expect(
+      resolveCatalogProtocol({ protocol: "weird", adapter: "openai" }),
+    ).toBe("openai-compatible");
   });
 });

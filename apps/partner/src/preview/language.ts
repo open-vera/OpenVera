@@ -6,7 +6,11 @@ import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
 import { rust } from "@codemirror/lang-rust";
 import { vue } from "@codemirror/lang-vue";
-import type { LanguageSupport } from "@codemirror/language";
+import { LanguageSupport, StreamLanguage } from "@codemirror/language";
+import { properties } from "@codemirror/legacy-modes/mode/properties";
+import { shell } from "@codemirror/legacy-modes/mode/shell";
+import { toml } from "@codemirror/legacy-modes/mode/toml";
+import { yaml } from "@codemirror/legacy-modes/mode/yaml";
 
 export type PreviewLanguageId =
   | "typescript"
@@ -19,6 +23,10 @@ export type PreviewLanguageId =
   | "python"
   | "rust"
   | "vue"
+  | "shell"
+  | "yaml"
+  | "toml"
+  | "ini"
   | "plaintext";
 
 const EXTENSION_MAP: Record<string, PreviewLanguageId> = {
@@ -42,20 +50,99 @@ const EXTENSION_MAP: Record<string, PreviewLanguageId> = {
   svg: "html",
   md: "markdown",
   mdx: "markdown",
+  txt: "plaintext",
+  text: "plaintext",
+  log: "plaintext",
+  csv: "plaintext",
+  tsv: "plaintext",
+  conf: "ini",
+  cfg: "ini",
+  ini: "ini",
+  properties: "ini",
+  env: "ini",
   py: "python",
   rs: "rust",
   vue: "vue",
   jsonc: "json",
   json5: "json",
-  toml: "plaintext",
-  yaml: "plaintext",
-  yml: "plaintext",
+  sh: "shell",
+  bash: "shell",
+  zsh: "shell",
+  fish: "shell",
+  toml: "toml",
+  yaml: "yaml",
+  yml: "yaml",
   spec: "plaintext",
 };
 
+/** Extensionless / dotted names that should highlight as shell (git hooks, etc.). */
+const SHELL_FILENAMES = new Set([
+  "pre-commit",
+  "post-commit",
+  "pre-push",
+  "pre-rebase",
+  "post-checkout",
+  "post-merge",
+  "post-rewrite",
+  "commit-msg",
+  "prepare-commit-msg",
+  "applypatch-msg",
+  "pre-applypatch",
+  "pre-receive",
+  "update",
+  "post-receive",
+  "post-update",
+]);
+
+function fileNameFromPath(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/");
+  return normalized.split("/").pop() ?? filePath;
+}
+
+function extensionFromFileName(fileName: string): string {
+  // Dotfiles like `.gitignore` have no language extension.
+  const dot = fileName.lastIndexOf(".");
+  if (dot <= 0) return "";
+  return fileName.slice(dot + 1).toLowerCase();
+}
+
+export function detectLanguageFromShebang(content: string): PreviewLanguageId | null {
+  const firstLine = content.split(/\r?\n/, 1)[0]?.trim() ?? "";
+  if (!firstLine.startsWith("#!")) return null;
+  const lower = firstLine.toLowerCase();
+  if (
+    /\b(bash|zsh|sh|fish|dash|ksh)\b/.test(lower) ||
+    lower.includes("/bin/sh") ||
+    lower.includes("/bin/bash")
+  ) {
+    return "shell";
+  }
+  if (/\bpython[0-9.]*\b/.test(lower)) return "python";
+  if (/\bnode\b/.test(lower)) return "javascript";
+  return null;
+}
+
 export function detectLanguageFromPath(filePath: string): PreviewLanguageId {
-  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
-  return EXTENSION_MAP[ext] ?? "plaintext";
+  const fileName = fileNameFromPath(filePath);
+  const lowerName = fileName.toLowerCase();
+  if (SHELL_FILENAMES.has(lowerName)) return "shell";
+
+  const ext = extensionFromFileName(fileName);
+  if (ext) return EXTENSION_MAP[ext] ?? "plaintext";
+  return "plaintext";
+}
+
+/** Prefer path/filename, then shebang when the path alone is plaintext. */
+export function detectLanguage(
+  filePath: string,
+  content?: string,
+): PreviewLanguageId {
+  const fromPath = detectLanguageFromPath(filePath);
+  if (fromPath !== "plaintext") return fromPath;
+  if (content) {
+    return detectLanguageFromShebang(content) ?? "plaintext";
+  }
+  return "plaintext";
 }
 
 export function languageSupportFor(id: PreviewLanguageId): LanguageSupport | null {
@@ -80,6 +167,14 @@ export function languageSupportFor(id: PreviewLanguageId): LanguageSupport | nul
       return rust();
     case "vue":
       return vue();
+    case "shell":
+      return new LanguageSupport(StreamLanguage.define(shell));
+    case "yaml":
+      return new LanguageSupport(StreamLanguage.define(yaml));
+    case "toml":
+      return new LanguageSupport(StreamLanguage.define(toml));
+    case "ini":
+      return new LanguageSupport(StreamLanguage.define(properties));
     default:
       return null;
   }
@@ -107,6 +202,8 @@ export function lspLanguageId(id: PreviewLanguageId): string | null {
       return "rust";
     case "vue":
       return "vue";
+    case "shell":
+      return null;
     default:
       return null;
   }
