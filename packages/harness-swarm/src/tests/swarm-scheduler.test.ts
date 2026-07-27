@@ -9,13 +9,13 @@ import type {
   SandboxCreateOptions,
   SandboxExecResult,
 } from "@open-vera/core";
-import { createSwarmScheduler, SwarmSchedulerError } from "../src/swarm/scheduler.js";
+import { createSwarmScheduler, SwarmSchedulerError } from "../scheduler.js";
 import type {
   SwarmTask,
   SwarmSchedulerConfig,
   SwarmSchedulerEvent,
   SwarmEventListener,
-} from "../src/swarm/types.js";
+} from "../types.js";
 
 // ── Mock Sandbox ────────────────────────────────────────────────────────────
 

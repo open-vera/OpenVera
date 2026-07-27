@@ -3,8 +3,8 @@ import {
   WebArenaRunner,
   type WebArenaRawCase,
   type WebArenaEvalConfig,
-} from "../../src/eval/runners/webarena-runner.js";
-import type { AgentExecutor, AgentResponse } from "../../src/eval/harness.js";
+} from "../runners/webarena-runner.js";
+import type { AgentExecutor, AgentResponse } from "../harness.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { BenchmarkHarness, type BenchmarkResult } from "../../src/benchmark/harness.js";
-import type { EvalCase, AgentExecutor, AgentResponse } from "../../src/eval/harness.js";
+import { BenchmarkHarness, type BenchmarkResult } from "../harness.js";
+import type { EvalCase, AgentExecutor, AgentResponse } from "@open-vera/harness-eval";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

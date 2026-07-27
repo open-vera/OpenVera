@@ -3,21 +3,21 @@
  */
 
 import { describe, it, expect } from "vitest";
-import type { SwarmTask, SwarmTaskResult } from "../src/swarm/types.js";
+import type { SwarmTask, SwarmTaskResult } from "../types.js";
 import {
   TaskSplitter,
   FileBatchSplitStrategy,
   ContentBatchSplitStrategy,
   ParallelCommandSplitStrategy,
   CustomSplitStrategy,
-} from "../src/swarm/task-splitter.js";
+} from "../task-splitter.js";
 import {
   ResultMerger,
   ConcatMergeStrategy,
   ReportMergeStrategy,
   CustomMergeStrategy,
   ResultMergerError,
-} from "../src/swarm/result-merger.js";
+} from "../result-merger.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

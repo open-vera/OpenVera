@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { GaiaRunner, type GaiaRawCase } from "../../src/eval/runners/gaia-runner.js";
-import type { AgentExecutor, AgentResponse } from "../../src/eval/harness.js";
+import { GaiaRunner, type GaiaRawCase } from "../runners/gaia-runner.js";
+import type { AgentExecutor, AgentResponse } from "../harness.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 

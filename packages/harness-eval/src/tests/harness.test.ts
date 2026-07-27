@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { EvalHarness, type EvalCase, type AgentExecutor, type AgentResponse } from "../../src/eval/harness.js";
+import { EvalHarness, type EvalCase, type AgentExecutor, type AgentResponse } from "../harness.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 

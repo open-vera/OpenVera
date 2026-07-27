@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { EvalReporter } from "../../src/eval/reporter.js";
-import type { EvalReport } from "../../src/eval/harness.js";
+import { EvalReporter } from "../reporter.js";
+import type { EvalReport } from "../harness.js";
 
 function makeReport(overrides: Partial<EvalReport> = {}): EvalReport {
   return {

@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { CIGate, type CIGateResult } from "../../src/benchmark/ci-gate.js";
-import type { EvalCase, AgentExecutor, AgentResponse } from "../../src/eval/harness.js";
-import type { BenchmarkResult } from "../../src/benchmark/harness.js";
+import { CIGate, type CIGateResult } from "../ci-gate.js";
+import type { EvalCase, AgentExecutor, AgentResponse } from "@open-vera/harness-eval";
+import type { BenchmarkResult } from "../harness.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

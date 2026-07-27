@@ -18,8 +18,8 @@ import {
   type ExecutionTrace,
   type SkillExecutionRecord,
   type TaskContext,
-} from "../src/skill/index.js";
-import type { Skill } from "../src/skill/types.js";
+} from "../index.js";
+import type { Skill } from "../types.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

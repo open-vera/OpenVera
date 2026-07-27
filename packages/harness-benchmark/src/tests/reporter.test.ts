@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { BenchmarkReporter } from "../../src/benchmark/reporter.js";
-import type { BenchmarkResult, RegressionCheck } from "../../src/benchmark/harness.js";
-import type { EvalResult } from "../../src/eval/harness.js";
+import { BenchmarkReporter } from "../reporter.js";
+import type { BenchmarkResult, RegressionCheck } from "../harness.js";
+import type { EvalResult } from "@open-vera/harness-eval";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

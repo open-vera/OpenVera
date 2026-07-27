@@ -6,8 +6,8 @@ import {
   RegressionDetector,
   type BenchmarkSnapshot,
   type RegressionReport,
-} from "../../src/benchmark/regression-detector.js";
-import type { BenchmarkResult } from "../../src/benchmark/harness.js";
+} from "../regression-detector.js";
+import type { BenchmarkResult } from "../harness.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
