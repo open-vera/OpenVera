@@ -1,27 +1,35 @@
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   envVarFor,
   LlmService,
   resolveEnvKey,
   type LLMAdapter,
 } from "@open-vera/core/adapters";
-import { loadConfig, resolveConfigLocation } from "@open-vera/core/config";
 import {
+  globalConfigPath,
+  loadConfig,
+  projectConfigPath,
   resolveClassifierTarget,
+  resolveConfigLocation,
   resolveDefaultTarget,
   resolveModelReference,
   resolveProviderModelConfig,
   resolveRoutingConfig,
+  type VeraConfig,
 } from "@open-vera/core/config";
-import type { VeraConfig } from "@open-vera/core/config";
+import { getModelContextLimit } from "@open-vera/core/context";
 import type { PlanEvent } from "@open-vera/core/plan";
 import type { Message, Usage } from "@open-vera/core/types";
 import { createToolRegistry, type SecurityPlugin, type ToolHost, type ToolResult } from "@open-vera/core/tools";
 import { runInteractiveTurn } from "@open-vera/openvera";
 import type { AgentRunParams, PartnerLlmConfig, StreamEvent } from "./protocol.js";
 import { writeEvent } from "./protocol.js";
+import { extractFileChange } from "./file-change.js";
+import { appendGatewayErrorHeaders } from "./gateway-error-headers.js";
+import { createRunMetricsTracker, type PartnerUsagePayload } from "./run-metrics.js";
+import { appendRunLogLine } from "./run-log.js";
 import { waitForToolApproval } from "./tool-approval.js";
 
 const SYSTEM_PROMPT =
@@ -49,6 +57,8 @@ interface PartnerToolRuntime {
 
 interface SessionState {
   abortController: AbortController | null;
+  /** Last remote context-window occupancy for this Partner session. */
+  lastContextUsed?: number;
 }
 
 interface RuntimeConfigSummary {
@@ -64,32 +74,18 @@ interface RuntimeConfigSummary {
 const sessions = new Map<string, SessionState>();
 const requestTaskIds = new Map<string, string>();
 
-function safeLogPathSegment(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120);
-}
-
 function appendRunLog(
   projectRoot: string,
   record: Record<string, unknown>,
 ): void {
   try {
-    const dir = join(projectRoot, ".vera", "partner-runs");
-    const date = new Date().toISOString().slice(0, 10);
     const taskId =
       typeof record.taskId === "string"
         ? record.taskId
         : typeof record.requestId === "string"
           ? requestTaskIds.get(record.requestId)
           : undefined;
-    const targetDir = taskId ? join(dir, date) : dir;
-    mkdirSync(targetDir, { recursive: true });
-    appendFileSync(
-      taskId
-        ? join(targetDir, `${safeLogPathSegment(taskId)}.jsonl`)
-        : join(targetDir, `${date}.jsonl`),
-      `${JSON.stringify({ timestamp: new Date().toISOString(), ...(taskId ? { taskId } : {}), ...record })}\n`,
-      "utf-8",
-    );
+    appendRunLogLine(projectRoot, record, taskId);
   } catch (error) {
     process.stderr.write(`[partner-sidecar] failed to write run log: ${String(error)}\n`);
   }
@@ -104,13 +100,11 @@ function buildAdapter(
   projectRoot: string,
   llmConfig?: PartnerLlmConfig,
 ): LlmEnvironment | undefined {
-  if (llmConfig?.apiKey && llmConfig.model) {
-    const fileConfig = loadConfig(undefined, projectRoot);
+  const fileConfig = loadConfig(undefined, projectRoot);
+
+  if (llmConfig?.apiKey) {
     const adapter = adapterTypeForProtocol(llmConfig.protocol);
     const provider = llmConfig.provider || "partner";
-    const target = resolveModelReference(fileConfig, llmConfig.model);
-    const model =
-      target.provider === provider ? target.model : llmConfig.model;
     const configuredProvider = fileConfig.providers?.[provider];
     const baseUrl = llmConfig.apiBaseUrl || configuredProvider?.base_url;
     const providers = { ...(fileConfig.providers ?? {}) };
@@ -120,30 +114,38 @@ function buildAdapter(
       api_key: llmConfig.apiKey,
       ...(baseUrl ? { base_url: baseUrl } : {}),
     };
+    // Keep file routing; only overlay credentials + optional chat default model.
     const config: VeraConfig = {
       ...fileConfig,
       providers,
-      default_provider: provider,
-      default_model: llmConfig.model,
+      ...(llmConfig.model
+        ? { default_provider: provider, default_model: llmConfig.model }
+        : {}),
     };
     const service = new LlmService({ config, apiKeyOverride: llmConfig.apiKey });
+    const selected = llmConfig.model
+      ? service.selectAdapter({
+          purpose: "chat",
+          provider,
+          model: resolveModelReference(config, llmConfig.model).model,
+        })
+      : service.selectAdapter({ purpose: "chat" });
     return {
-      adapter: service.buildAdapter(provider, model),
-      model,
+      adapter: selected.adapter,
+      model: selected.model,
       service,
-      provider,
+      provider: selected.provider,
     };
   }
 
-  const config = loadConfig(undefined, projectRoot);
-  const service = new LlmService({ config });
+  const service = new LlmService({ config: fileConfig });
   const selected = service.selectAdapter({ purpose: "chat" });
-  const providerConfig = config.providers?.[selected.provider];
+  const providerConfig = fileConfig.providers?.[selected.provider];
   const apiKey =
     providerConfig?.api_key ?? resolveEnvKey(selected.adapterType, selected.provider);
   if (!apiKey) return undefined;
   return {
-    adapter: service.buildAdapter(selected.provider, selected.model),
+    adapter: selected.adapter,
     model: selected.model,
     service,
     provider: selected.provider,
@@ -179,16 +181,16 @@ function formatToolResult(result: ToolResult): string {
 function resolvePartnerClassifier(
   projectRoot: string,
   llm: LlmEnvironment,
-  llmConfig?: PartnerLlmConfig,
+  _llmConfig?: PartnerLlmConfig,
 ): { adapter: LLMAdapter; model: string } {
-  if (llmConfig?.apiKey && llmConfig.model) {
-    return { adapter: llm.adapter, model: llm.model };
-  }
-
-  const config = loadConfig(undefined, projectRoot);
-  const routing = resolveRoutingConfig(config);
+  // Routing always comes from Vera settings.json; Partner llmConfig only overlays credentials.
+  const fileConfig = loadConfig(undefined, projectRoot);
+  const routing = resolveRoutingConfig(fileConfig);
   if (routing?.enabled) {
-    const classifierTarget = resolveClassifierTarget(config, resolveDefaultTarget(config));
+    const classifierTarget = resolveClassifierTarget(
+      fileConfig,
+      resolveDefaultTarget(fileConfig),
+    );
     return {
       adapter: llm.service.buildAdapter(
         classifierTarget.provider,
@@ -240,11 +242,12 @@ function runtimeConfigSummary(
 function formatModelError(error: unknown, summary: RuntimeConfigSummary): string {
   const raw = error instanceof Error ? error.message : String(error);
   const lower = raw.toLowerCase();
+  let message = raw;
   if (
     raw.includes("403") &&
     lower.includes("api key scenario mismatch")
   ) {
-    return [
+    message = [
       "模型服务拒绝了当前请求：API Key 与所选模型/协议场景不匹配。",
       "",
       `当前运行配置：provider=${summary.provider}, adapter=${summary.adapter}, model=${summary.model}`,
@@ -259,9 +262,8 @@ function formatModelError(error: unknown, summary: RuntimeConfigSummary): string
       "",
       `原始错误：${raw}`,
     ].filter(Boolean).join("\n");
-  }
-  if (lower.includes("cache_control") && lower.includes("maximum of 4")) {
-    return [
+  } else if (lower.includes("cache_control") && lower.includes("maximum of 4")) {
+    message = [
       "模型请求参数不合法：Anthropic 最多允许 4 个 cache_control 块。",
       "",
       "Partner 已限制后续请求的缓存块数量；请重试本次消息。",
@@ -272,7 +274,8 @@ function formatModelError(error: unknown, summary: RuntimeConfigSummary): string
       `原始错误：${raw}`,
     ].join("\n");
   }
-  return raw;
+  // Surface gateway diagnostics (gw-* / x-gw-*) that SDKs keep on error.headers.
+  return appendGatewayErrorHeaders(message, error);
 }
 
 export function inspectEffectiveLlmConfig(
@@ -281,7 +284,11 @@ export function inspectEffectiveLlmConfig(
   revealSecrets = false,
 ): Record<string, unknown> {
   const resolvedRoot = resolveAgentProjectRoot(projectRoot);
+  const projectPath = projectConfigPath(resolvedRoot);
+  const globalPath = globalConfigPath();
+
   if (llmConfig?.apiKey && llmConfig.model) {
+    const configLocation = resolveConfigLocation(undefined, resolvedRoot);
     return {
       source: "partner-settings",
       sourceLabel: "Partner settings keychain",
@@ -296,6 +303,9 @@ export function inspectEffectiveLlmConfig(
       apiKeySourceLabel: "Partner keychain",
       configPath: null,
       configExists: false,
+      configScope: configLocation.scope,
+      projectConfigPath: projectPath,
+      globalConfigPath: globalPath,
       ...(revealSecrets ? { apiKeyValue: llmConfig.apiKey } : {}),
     };
   }
@@ -307,6 +317,14 @@ export function inspectEffectiveLlmConfig(
   const configuredKey = Boolean(providerConfig.api_key);
   const envKeyName = envVarFor(providerConfig.adapter, target.provider);
   const envKeyAvailable = Boolean(resolveEnvKey(providerConfig.adapter, target.provider));
+  const models = listInspectModelAliases(config);
+  const routing = {
+    enabled: Boolean(config.routing?.enabled),
+    classifier: stringifyModelRef(config.routing?.classifier),
+    l0: stringifyModelRef(config.routing?.l0),
+    l1: stringifyModelRef(config.routing?.l1),
+    l2: stringifyModelRef(config.routing?.l2),
+  };
 
   return {
     source: configLocation.exists ? "vera-config" : envKeyAvailable ? "environment" : "missing",
@@ -328,7 +346,39 @@ export function inspectEffectiveLlmConfig(
     configPath: configLocation.path,
     configScope: configLocation.scope,
     configExists: configLocation.exists,
+    projectConfigPath: projectPath,
+    globalConfigPath: globalPath,
+    defaultProvider: config.default_provider,
+    defaultModel: config.default_model,
+    models,
+    routing,
   };
+}
+
+function stringifyModelRef(
+  reference: string | { provider: string; model: string } | undefined,
+): string | null {
+  if (!reference) return null;
+  if (typeof reference === "string") return reference;
+  return reference.model;
+}
+
+function listInspectModelAliases(config: VeraConfig): Array<{
+  alias: string;
+  provider: string;
+  model?: string;
+}> {
+  const models = config.models;
+  if (!models) return [];
+  if (Array.isArray(models)) {
+    const provider = config.default_provider ?? "anthropic";
+    return models.map((alias) => ({ alias, provider, model: alias }));
+  }
+  return Object.entries(models).map(([alias, entry]) => ({
+    alias,
+    provider: entry.provider,
+    ...(entry.model ? { model: entry.model } : {}),
+  }));
 }
 
 function loadConfigForInspection(path: string, exists: boolean): VeraConfig {
@@ -453,25 +503,31 @@ export async function handleAgentRun(
     event: "stream_ready",
   });
 
-  let usage: Usage | undefined;
+  const metrics = createRunMetricsTracker(built.model);
+  const contextMax = getModelContextLimit(built.model);
+  const compressionTrigger = Math.floor(contextMax * 0.78);
+  let usage: PartnerUsagePayload | undefined;
   let firstDeltaLogged = false;
   try {
     let finalText = "";
     let harnessError: string | undefined;
 
     const onUsage = (value: Usage) => {
-      usage = value;
+      usage = metrics.recordUsage(value);
+      if (usage.context_used > 0) {
+        session.lastContextUsed = usage.context_used;
+      }
       appendRunLog(resolvedRoot, {
         requestId,
         sessionId,
         instanceId,
         event: "usage",
-        usage: value,
+        usage,
       });
       writeEvent({
         id: requestId,
         type: "usage",
-        data: { instanceId, usage: value },
+        data: { instanceId, usage },
       });
     };
 
@@ -479,6 +535,7 @@ export async function handleAgentRun(
       name: string,
       args: Record<string, unknown>,
     ): Promise<ToolResult> => {
+      metrics.recordToolUse();
       const callId = randomUUID();
       const toolInput = {
         ...args,
@@ -564,6 +621,7 @@ export async function handleAgentRun(
       }
 
       const output = formatToolResult(toolResult);
+      const fileChange = extractFileChange(toolResult);
       appendRunLog(resolvedRoot, {
         requestId,
         sessionId,
@@ -573,6 +631,7 @@ export async function handleAgentRun(
         toolName: name,
         isError: !toolResult.ok,
         outputPreview: previewText(output),
+        fileChangePath: fileChange?.path,
       });
       writeEvent({
         id: requestId,
@@ -582,6 +641,7 @@ export async function handleAgentRun(
           callId,
           output,
           isError: !toolResult.ok,
+          ...(fileChange ? { fileChange } : {}),
         },
       });
       return toolResult;
@@ -672,6 +732,27 @@ export async function handleAgentRun(
       signal: abortController.signal,
       llmService: built.service,
       compressionProvider: built.provider,
+      // Align with REPL: compress when remote window occupancy exceeds ~78%.
+      compressionOptions: {
+        enabled: true,
+        triggerTokens: compressionTrigger,
+        keepRecentTurns: 6,
+        model: built.model,
+      },
+      compressionState: {
+        segments: [],
+        ...(session.lastContextUsed ? { lastContextUsed: session.lastContextUsed } : {}),
+      },
+      microCompactOptions: {
+        enabled: true,
+        gapThresholdMinutes: 60,
+        keepRecent: 5,
+      },
+      contextOptions: {
+        maxTokens: contextMax,
+        targetUtilization: 0.85,
+        keepRecentTurns: 6,
+      },
       classifier: resolvePartnerClassifier(resolvedRoot, built, llmConfig),
       runMode: agentMode ?? "agent",
       onUsage,
@@ -706,6 +787,7 @@ export async function handleAgentRun(
         });
       },
       onDelta: (delta) => {
+        metrics.markFirstDelta();
         if (!firstDeltaLogged) {
           firstDeltaLogged = true;
           appendRunLog(resolvedRoot, {
@@ -714,6 +796,7 @@ export async function handleAgentRun(
             instanceId,
             event: "first_delta",
             deltaPreview: previewText(delta, 120),
+            ttftMs: metrics.snapshot().ttft_ms,
           });
         }
         writeEvent({
@@ -729,6 +812,7 @@ export async function handleAgentRun(
       throw new Error(harnessError);
     }
 
+    usage = metrics.snapshot();
     appendRunLog(resolvedRoot, {
       requestId,
       sessionId,
@@ -744,6 +828,7 @@ export async function handleAgentRun(
     });
   } catch (err) {
     if (abortController.signal.aborted) {
+      usage = metrics.snapshot();
       appendRunLog(resolvedRoot, {
         requestId,
         sessionId,

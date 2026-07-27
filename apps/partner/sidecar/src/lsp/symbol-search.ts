@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { LSP_SERVERS, type LspServerSpec } from "./config.js";
+import { listLspServers, type LspServerSpec } from "./config.js";
 
 interface JsonRpcMessage {
   id?: number | string;
@@ -249,11 +249,7 @@ async function getClient(
 }
 
 function defaultSearchSpecs(): LspServerSpec[] {
-  const byLanguage = new Map<string, LspServerSpec>();
-  for (const spec of Object.values(LSP_SERVERS)) {
-    byLanguage.set(spec.languageId, spec);
-  }
-  return [...byLanguage.values()];
+  return listLspServers();
 }
 
 export async function handleSymbolSearch(params: {

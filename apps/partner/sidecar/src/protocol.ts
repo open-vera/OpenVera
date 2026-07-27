@@ -1,4 +1,5 @@
 import type { Message, Usage } from "@open-vera/core/types";
+import type { PartnerUsagePayload } from "./run-metrics.js";
 
 export interface RpcRequest {
   id: string;
@@ -29,6 +30,13 @@ export interface AgentAbortParams {
   sessionId: string;
 }
 
+export interface PartnerFileChangePayload {
+  path: string;
+  added: number;
+  removed: number;
+  unifiedDiff: string;
+}
+
 export interface ToolResultMessage {
   id: string;
   type: "tool_result";
@@ -36,6 +44,7 @@ export interface ToolResultMessage {
     callId: string;
     output: string;
     isError?: boolean;
+    fileChange?: PartnerFileChangePayload;
   };
 }
 
@@ -70,7 +79,8 @@ export interface StreamEvent {
     handledBySidecar?: boolean;
     output?: string;
     isError?: boolean;
-    usage?: Usage;
+    fileChange?: PartnerFileChangePayload;
+    usage?: Usage | PartnerUsagePayload;
     message?: string;
     reason?: string;
     allowDir?: string;

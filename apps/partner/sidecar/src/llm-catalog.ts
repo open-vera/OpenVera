@@ -94,9 +94,18 @@ export function listConfiguredProviders(projectRoot: string): CatalogProvider[] 
   const defaultProvider = resolveDefaultProviderName(config);
   const providers = config.providers ?? {};
 
+  const models = normalizeModels(config);
+
   return Object.entries(providers)
     .map(([id, provider]) => {
       const adapter = provider.adapter ?? "anthropic";
+      const providerModels = Object.entries(models)
+        .filter(([, model]) => model.provider === id)
+        .map(([alias, model]) => model.model ?? alias);
+      const defaultModel =
+        id === defaultProvider && typeof config.default_model === "string"
+          ? config.default_model
+          : providerModels[0] ?? "";
       return {
         id,
         adapter,
@@ -104,9 +113,9 @@ export function listConfiguredProviders(projectRoot: string): CatalogProvider[] 
         apiBaseUrl: provider.base_url ?? "",
         hasApiKey: providerHasApiKey(config, id, adapter),
         isDefault: id === defaultProvider,
+        model: defaultModel,
       };
     })
-    .filter((provider) => provider.hasApiKey)
     .sort((left, right) => {
       if (left.isDefault !== right.isDefault) return left.isDefault ? -1 : 1;
       return left.id.localeCompare(right.id);
