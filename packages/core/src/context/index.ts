@@ -5,6 +5,12 @@ export {
 } from "./tokens.js";
 
 export {
+  estimateContextUsedFromUsage,
+  latestContextBreakdown,
+} from "./occupancy.js";
+export type { ContextOccupancyBreakdown } from "./occupancy.js";
+
+export {
   trimToWindow,
   getModelContextLimit,
   MODEL_CONTEXT_LIMITS,
@@ -25,6 +31,7 @@ export type { ToolResultBudgetState } from "./tool-budget.js";
 export {
   compressMessages,
   createCompressionState,
+  resolveContextOccupancy,
   microCompact,
   createMicroCompactState,
   isPromptTooLongError,

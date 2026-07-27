@@ -8,7 +8,9 @@ export interface CompressionOptions {
   /** Enable progressive compression. Default: false */
   enabled?: boolean;
   /**
-   * Trigger compression when estimated tokens exceed this threshold.
+   * Trigger compression when context occupancy exceeds this threshold.
+   * Prefer remote `lastContextUsed` (API prompt size); fall back to local
+   * `estimateMessageTokens` when no API occupancy is known yet.
    * Default: 100_000 (half of a 200K context window).
    */
   triggerTokens?: number;
@@ -50,10 +52,26 @@ export interface CompressedSegment {
 
 export interface CompressionState {
   segments: CompressedSegment[];
+  /**
+   * Last known remote context-window occupancy (API prompt tokens).
+   * Updated from usage events; drives compression triggers when present.
+   */
+  lastContextUsed?: number;
 }
 
 export function createCompressionState(): CompressionState {
   return { segments: [] };
+}
+
+/** Prefer remote API occupancy; fall back to local char/4 estimate. */
+export function resolveContextOccupancy(
+  messages: Message[],
+  lastContextUsed?: number,
+): number {
+  if (typeof lastContextUsed === "number" && lastContextUsed > 0) {
+    return lastContextUsed;
+  }
+  return estimateMessageTokens(messages);
 }
 
 // ── Micro-compact types ────────────────────────────────────────────────────
@@ -337,7 +355,7 @@ export async function compressMessages(
 
   if (!enabled && !isReactive) return { messages, state, usage: undefined };
 
-  const currentTokens = estimateMessageTokens(messages);
+  const currentTokens = resolveContextOccupancy(messages, state.lastContextUsed);
   if (!isReactive && currentTokens <= triggerTokens) return { messages, state, usage: undefined };
 
   const turnStarts = findTurnStarts(messages);
@@ -404,10 +422,15 @@ export async function compressMessages(
   const turnLabel =
     turnsToCompress === 1 ? "turn 1" : `turns 1–${turnsToCompress}`;
   const synthetic = buildSyntheticMessage(turnLabel, output, isReactive);
+  const nextMessages = [synthetic, ...recentMessages];
 
   return {
-    messages: [synthetic, ...recentMessages],
-    state: { segments: [...state.segments, segment] },
+    messages: nextMessages,
+    state: {
+      segments: [...state.segments, segment],
+      // Local estimate until the next remote usage event refreshes occupancy.
+      lastContextUsed: estimateMessageTokens(nextMessages),
+    },
     usage: compressionUsage,
   };
 }
@@ -494,6 +517,7 @@ export function insertCompressionInstruction(
   messages: Message[],
   options: CompressionOptions,
   isReactive = false,
+  lastContextUsed?: number,
 ): { messages: Message[]; pending: InsertCompressPending } | null {
   const {
     triggerTokens = 100_000,
@@ -501,7 +525,7 @@ export function insertCompressionInstruction(
   } = options;
 
   if (!isReactive) {
-    const currentTokens = estimateMessageTokens(messages);
+    const currentTokens = resolveContextOccupancy(messages, lastContextUsed);
     if (currentTokens <= triggerTokens) return null;
   }
 

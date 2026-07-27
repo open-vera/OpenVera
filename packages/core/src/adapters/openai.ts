@@ -7,11 +7,61 @@ import type {
   StreamEvent,
   Message,
   ContentPart,
+  Usage,
 } from "../types/index.js";
 import type { ModelInfo } from "../types/model.js";
 import { createLogger } from "@open-vera/logger";
 
 const log = createLogger("adapter:openai");
+
+/** Map OpenAI / DeepSeek-compatible usage payloads onto Vera Usage (incl. cache). */
+export function mapOpenAiUsage(raw: unknown): Usage | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const usage = raw as Record<string, unknown>;
+  const inputTokens = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0);
+  const outputTokens = Number(usage.completion_tokens ?? usage.output_tokens ?? 0);
+  if (!Number.isFinite(inputTokens) && !Number.isFinite(outputTokens)) return undefined;
+
+  const promptDetails =
+    usage.prompt_tokens_details && typeof usage.prompt_tokens_details === "object"
+      ? (usage.prompt_tokens_details as Record<string, unknown>)
+      : undefined;
+  const completionDetails =
+    usage.completion_tokens_details && typeof usage.completion_tokens_details === "object"
+      ? (usage.completion_tokens_details as Record<string, unknown>)
+      : undefined;
+
+  // OpenAI: prompt_tokens_details.cached_tokens; DeepSeek: prompt_cache_hit_tokens.
+  const cacheRead = Number(
+    usage.cache_read_input_tokens ??
+      usage.prompt_cache_hit_tokens ??
+      promptDetails?.cached_tokens ??
+      0,
+  );
+  const cacheWrite = Number(
+    usage.cache_creation_input_tokens ?? usage.cache_write_input_tokens ?? 0,
+  );
+  const reasoning = Number(
+    usage.reasoning_tokens ?? completionDetails?.reasoning_tokens ?? 0,
+  );
+
+  const mapped: Usage = {
+    input_tokens: Number.isFinite(inputTokens) ? inputTokens : 0,
+    output_tokens: Number.isFinite(outputTokens) ? outputTokens : 0,
+    // prompt_tokens already includes cache hits on OpenAI-compatible APIs.
+    cache_included_in_input: true,
+  };
+  if (Number.isFinite(cacheRead) && cacheRead > 0) {
+    mapped.cache_read_input_tokens = cacheRead;
+  }
+  if (Number.isFinite(cacheWrite) && cacheWrite > 0) {
+    mapped.cache_creation_input_tokens = cacheWrite;
+  }
+  if (Number.isFinite(reasoning) && reasoning > 0) {
+    mapped.reasoning_tokens = reasoning;
+  }
+  return mapped;
+}
 
 export class OpenAIAdapter implements LLMAdapter {
   private client: OpenAI;
@@ -61,8 +111,7 @@ export class OpenAIAdapter implements LLMAdapter {
     });
 
     let finishReason: string | null = null;
-    let usage: { input_tokens: number; output_tokens: number } | undefined;
-    let reasoningTokens: number | undefined;
+    let usage: Usage | undefined;
 
     try {
       for await (const chunk of apiStream) {
@@ -70,14 +119,7 @@ export class OpenAIAdapter implements LLMAdapter {
         finishReason = chunk.choices[0]?.finish_reason ?? finishReason;
 
         if (chunk.usage) {
-          usage = {
-            input_tokens: chunk.usage.prompt_tokens,
-            output_tokens: chunk.usage.completion_tokens,
-          };
-          const details = (chunk.usage as unknown as Record<string, unknown>).completion_tokens_details as Record<string, unknown> | undefined;
-          if (details?.reasoning_tokens != null) {
-            reasoningTokens = details.reasoning_tokens as number;
-          }
+          usage = mapOpenAiUsage(chunk.usage) ?? usage;
         }
 
         if (delta?.content) {
@@ -117,7 +159,7 @@ export class OpenAIAdapter implements LLMAdapter {
     yield {
       type: "done",
       stop_reason: finishReason === "tool_calls" ? "tool_use" : "end_turn",
-      usage: usage ? { ...usage, reasoning_tokens: reasoningTokens } : undefined,
+      usage,
     };
     log.debug("stream done", { model: request.model, duration_ms: Date.now() - startMs, usage });
   }
@@ -243,12 +285,7 @@ export class OpenAIAdapter implements LLMAdapter {
       message,
       stop_reason:
         choice.finish_reason === "tool_calls" ? "tool_use" : "end_turn",
-      usage: response.usage
-        ? {
-            input_tokens: response.usage.prompt_tokens,
-            output_tokens: response.usage.completion_tokens,
-          }
-        : undefined,
+      usage: mapOpenAiUsage(response.usage),
     };
   }
 }

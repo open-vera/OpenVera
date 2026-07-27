@@ -1,5 +1,5 @@
 import type { LLMAdapter } from "@open-vera/core/adapters";
-import { streamAgent } from "@open-vera/core/agent";
+import { streamAgent, type AgentOptions } from "@open-vera/core/agent";
 import { classifyIntent, shouldPlan, type IntentResult } from "@open-vera/core/intent";
 import type { PlanEvent } from "@open-vera/core/plan";
 import type { Message, Tool, Usage } from "@open-vera/core/types";
@@ -25,6 +25,11 @@ export interface InteractiveTurnOptions {
   signal: AbortSignal;
   llmService?: import("@open-vera/core/agent").AgentLlmServiceLike;
   compressionProvider?: string;
+  /** Progressive compression / window options — same surface as streamAgent. */
+  compressionOptions?: AgentOptions["compressionOptions"];
+  compressionState?: AgentOptions["compressionState"];
+  microCompactOptions?: AgentOptions["microCompactOptions"];
+  contextOptions?: AgentOptions["contextOptions"];
   classifier?: {
     adapter: LLMAdapter;
     model: string;
@@ -147,6 +152,10 @@ export async function runInteractiveTurn(
         signal: options.signal,
         llmService: options.llmService,
         compressionProvider: options.compressionProvider,
+        compressionOptions: options.compressionOptions,
+        compressionState: options.compressionState,
+        microCompactOptions: options.microCompactOptions,
+        contextOptions: options.contextOptions,
         onToolCall: options.onToolCall,
       },
       (event) => {
@@ -175,6 +184,10 @@ export async function runInteractiveTurn(
       signal: options.signal,
       llmService: options.llmService,
       compressionProvider: options.compressionProvider,
+      compressionOptions: options.compressionOptions,
+      compressionState: options.compressionState,
+      microCompactOptions: options.microCompactOptions,
+      contextOptions: options.contextOptions,
       onUsage: options.onUsage,
       onToolCall: async (name, args) => {
         const result = await options.onToolCall(name, args as Record<string, unknown>);

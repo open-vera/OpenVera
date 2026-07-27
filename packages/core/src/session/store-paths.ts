@@ -25,7 +25,7 @@ const MAX_DIR_LEN = 80;
  * collisions like /a__b and /a_b mapping to the same name).  For paths
  * that exceed MAX_DIR_LEN, append a hash suffix so uniqueness is guaranteed.
  */
-function sanitizePath(p: string): string {
+export function projectSlug(p: string): string {
   const sanitized = p.replace(/[^A-Za-z0-9]/g, "-");
   if (sanitized.length <= MAX_DIR_LEN) {
     return sanitized;
@@ -35,13 +35,11 @@ function sanitizePath(p: string): string {
 }
 
 export function projectDir(cwd: string): string {
-  return join(projectsDir(), sanitizePath(canonicalizePath(cwd)));
+  return join(projectsDir(), projectSlug(canonicalizePath(cwd)));
 }
-
 export function projectDirExact(cwd: string): string {
-  return join(projectsDir(), sanitizePath(cwd));
+  return join(projectsDir(), projectSlug(cwd));
 }
-
 function canonicalizePath(p: string): string {
   try {
     return normalize(realpathSync(p)).normalize("NFC");

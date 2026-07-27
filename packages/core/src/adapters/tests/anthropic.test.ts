@@ -750,6 +750,50 @@ describe("AnthropicAdapter", () => {
       });
     });
 
+    it("should merge consecutive tool results into one user message", async () => {
+      mockCreate.mockResolvedValueOnce(makeTextResponse());
+
+      const adapter = new AnthropicAdapter("k");
+      await adapter.complete({
+        model: "m",
+        messages: [
+          { role: "user", content: "Do both" },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_call",
+                id: "call_01_a",
+                name: "read_file",
+                arguments: "{}",
+              },
+              {
+                type: "tool_call",
+                id: "call_01_b",
+                name: "list_dir",
+                arguments: "{}",
+              },
+            ],
+          },
+          { role: "tool", tool_call_id: "call_01_a", content: "file a" },
+          { role: "tool", tool_call_id: "call_01_b", content: "dir b" },
+        ],
+      });
+
+      const callArgs = mockCreate.mock.calls[0][0] as {
+        messages: Array<{ role: string; content: Array<Record<string, unknown>> }>;
+      };
+      expect(callArgs.messages).toHaveLength(3);
+      expect(callArgs.messages[1]?.role).toBe("assistant");
+      expect(callArgs.messages[2]).toMatchObject({
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "call_01_a", content: "file a" },
+          { type: "tool_result", tool_use_id: "call_01_b", content: "dir b" },
+        ],
+      });
+    });
+
     it("should handle tool message with array content", async () => {
       mockCreate.mockResolvedValueOnce(makeTextResponse());
 

@@ -175,17 +175,33 @@ export class AnthropicAdapter implements LLMAdapter {
       const enableCache = cacheableIndexes.has(i);
 
       if (msg.role === "tool") {
-        result.push({
-          role: "user",
-          content: [
-            {
-              type: "tool_result",
-              tool_use_id: msg.tool_call_id!,
-              content: typeof msg.content === "string" ? msg.content : "",
-              ...(enableCache ? { cache_control: { type: "ephemeral" as const } } as any : {}),
-            },
-          ],
-        });
+        // Anthropic requires every tool_use in an assistant message to be paired
+        // with tool_result blocks in the *immediately following* user message.
+        // Parallel tools are stored as consecutive role:"tool" messages — merge
+        // them into a single user turn so none are left unpaired.
+        const toolResults: Array<
+          Anthropic.ToolResultBlockParam & {
+            cache_control?: { type: "ephemeral" };
+          }
+        > = [];
+        let groupHasCache = false;
+        while (i < messages.length && messages[i]?.role === "tool") {
+          const toolMsg = messages[i];
+          if (!toolMsg || toolMsg.role !== "tool") break;
+          if (cacheableIndexes.has(i)) groupHasCache = true;
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: toolMsg.tool_call_id!,
+            content: typeof toolMsg.content === "string" ? toolMsg.content : "",
+          });
+          i++;
+        }
+        i--; // for-loop will advance once more
+        const lastResult = toolResults[toolResults.length - 1];
+        if (groupHasCache && lastResult) {
+          lastResult.cache_control = { type: "ephemeral" };
+        }
+        result.push({ role: "user", content: toolResults });
       } else if (typeof msg.content === "string") {
         const block: any = { type: "text", text: msg.content };
         if (enableCache) block.cache_control = { type: "ephemeral" };

@@ -31,7 +31,7 @@ vi.mock("openai", () => ({
 }));
 
 // Import after mock
-import { OpenAIAdapter } from "../openai.js";
+import { mapOpenAiUsage, OpenAIAdapter } from "../openai.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -164,7 +164,12 @@ describe("OpenAIAdapter", () => {
 
       expect(res.message.content).toBe("Hi there");
       expect(res.stop_reason).toBe("end_turn");
-      expect(res.usage).toEqual({ input_tokens: 10, output_tokens: 5 });
+      expect(res.usage).toEqual({
+        input_tokens: 10,
+        output_tokens: 5,
+        // OpenAI counts cache hits inside prompt_tokens.
+        cache_included_in_input: true,
+      });
     });
 
     it("should return tool_calls with tool_use stop_reason", async () => {
@@ -630,6 +635,60 @@ describe("OpenAIAdapter", () => {
 
       const done = events.find((e) => e.type === "done");
       expect(done!.usage?.reasoning_tokens).toBe(3);
+    });
+
+    it("should extract DeepSeek / OpenAI cache tokens from usage chunk", async () => {
+      mockCreate.mockResolvedValue(
+        makeChunkStream([
+          {
+            id: "c1",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [{ index: 0, delta: { content: "OK" }, finish_reason: "stop" }],
+            usage: {
+              prompt_tokens: 5100,
+              completion_tokens: 91,
+              total_tokens: 5191,
+              prompt_cache_hit_tokens: 3800,
+              prompt_tokens_details: { cached_tokens: 3800 },
+            },
+          },
+        ]),
+      );
+
+      const adapter = new OpenAIAdapter("k");
+      const events: StreamEvent[] = [];
+      for await (const e of adapter.stream({
+        model: "m",
+        messages: [{ role: "user", content: "x" }],
+      })) {
+        events.push(e);
+      }
+
+      const done = events.find((e) => e.type === "done");
+      expect(done!.usage).toMatchObject({
+        input_tokens: 5100,
+        output_tokens: 91,
+        cache_read_input_tokens: 3800,
+      });
+    });
+
+    it("mapOpenAiUsage reads cached_tokens details", () => {
+      expect(
+        mapOpenAiUsage({
+          prompt_tokens: 100,
+          completion_tokens: 10,
+          prompt_tokens_details: { cached_tokens: 40 },
+          cache_creation_input_tokens: 5,
+        }),
+      ).toEqual({
+        input_tokens: 100,
+        output_tokens: 10,
+        cache_read_input_tokens: 40,
+        cache_creation_input_tokens: 5,
+        cache_included_in_input: true,
+      });
     });
 
     it("should handle usage chunk without details", async () => {

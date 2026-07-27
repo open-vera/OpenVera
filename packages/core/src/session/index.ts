@@ -1,4 +1,5 @@
 export { SessionStore } from "./store.js";
+export { projectSlug, projectsDir } from "./store-paths.js";
 export { SessionManager } from "./session-manager.js";
 export { generateSessionTitle } from "./title.js";
 export { calculateCost, accumulateCost, normalizeModelKey, emptyAccumulatedCost, emptyUsage } from "./cost.js";

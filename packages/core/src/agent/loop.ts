@@ -38,6 +38,7 @@ import {
   insertCompressionInstruction,
   resolveInsertCompress,
 } from "../context/compression.js";
+import { estimateContextUsedFromUsage } from "../context/occupancy.js";
 import { createLogger, previewForLog, sanitizeForLog, truncateForLog } from "@open-vera/logger";
 
 const log = createLogger("agent:loop");
@@ -565,6 +566,17 @@ async function emitTurnRetry(
   }, options, eventBase);
 }
 
+function trackContextOccupancy(
+  compressionState: CompressionState | null,
+  usage: Usage | undefined,
+): void {
+  if (!compressionState || !usage) return;
+  const used = estimateContextUsedFromUsage(usage);
+  if (used > 0) {
+    compressionState.lastContextUsed = used;
+  }
+}
+
 async function applyProactiveCompress(
   messages: Message[],
   compressionState: CompressionState,
@@ -580,7 +592,12 @@ async function applyProactiveCompress(
 
   // OC1: Insert-then-compress — insert instruction into conversation flow
   if (opts.insertCompress) {
-    const result = insertCompressionInstruction(messages, opts);
+    const result = insertCompressionInstruction(
+      messages,
+      opts,
+      false,
+      compressionState.lastContextUsed,
+    );
     if (!result) return { messages, compressionState };
     await hooks?.onCompression?.("insert-compress", messages.length, result.messages.length);
     await emitAgentObserve(eventBus, "compression:after", {
@@ -1278,6 +1295,10 @@ export async function streamAgent(
   let messages: Message[] = [...history, { role: "user", content: userMessage }];
   let finalText = "";
   const activeSystem = system ? system + AGENTIC_SYSTEM_SUFFIX : AGENTIC_SYSTEM_SUFFIX.trim();
+  const reportUsage = (usage: Usage) => {
+    trackContextOccupancy(compressionState, usage);
+    onUsage?.(usage);
+  };
 
   const MAX_REACTIVE_RETRIES = 3;
   let reactiveRetries = 0;
@@ -1365,7 +1386,7 @@ export async function streamAgent(
         { mode: "streaming", model, turn },
         onText,
         onThinking,
-        onUsage
+        reportUsage
       );
       if (streamResult.status === "retry") {
         messages = streamResult.messages;

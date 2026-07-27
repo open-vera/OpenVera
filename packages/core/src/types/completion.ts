@@ -22,6 +22,11 @@ export interface Usage {
   cache_creation_input_tokens?: number;
   cache_read_input_tokens?: number;
   reasoning_tokens?: number;
+  /**
+   * When true, cache_* counts are already included in `input_tokens`
+   * (OpenAI / DeepSeek prompt_tokens). Anthropic leaves this unset — cache is additive.
+   */
+  cache_included_in_input?: boolean;
 }
 
 export interface CompletionResponse {

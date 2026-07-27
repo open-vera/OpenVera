@@ -144,6 +144,25 @@ describe("OC1: Insert-then-Compress", () => {
       expect(result).toBeNull();
     });
 
+    it("uses remote lastContextUsed for the threshold when provided", () => {
+      const msgs = buildConversation(10, "x".repeat(2000));
+      // Local estimate would exceed 100, but remote occupancy is still small.
+      const under = insertCompressionInstruction(
+        msgs,
+        { enabled: true, triggerTokens: 100, keepRecentTurns: 4 },
+        false,
+        50,
+      );
+      expect(under).toBeNull();
+      const over = insertCompressionInstruction(
+        msgs,
+        { enabled: true, triggerTokens: 100, keepRecentTurns: 4 },
+        false,
+        101,
+      );
+      expect(over).not.toBeNull();
+    });
+
     it("should return null when too few turns", () => {
       const msgs = buildConversation(3);
       const result = insertCompressionInstruction(msgs, {
