@@ -1,6 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
 import type { PreviewLanguageId } from "@/preview/language";
 import type { LspSymbolSearchEntry } from "@/types";
+import { hostDispatch } from "@/shell";
 
 export interface LspStartResult {
   wsUrl: string;
@@ -8,30 +8,41 @@ export interface LspStartResult {
   serverId: string;
 }
 
+/** LSP goes through Workbench Host (`host.lsp.*`). */
 export async function startLsp(
   languageId: PreviewLanguageId,
   workspaceRoot: string,
-  filePath: string,
+  _filePath: string,
 ): Promise<LspStartResult> {
-  return invoke<LspStartResult>("lsp_start", {
+  const data = await hostDispatch<Record<string, unknown>>({
+    op: "host.lsp.start",
     languageId,
     workspaceRoot,
-    filePath,
   });
+  return {
+    wsUrl: String(data.wsUrl ?? data.ws_url ?? ""),
+    languageId: String(data.languageId ?? data.language_id ?? languageId),
+    serverId: String(data.serverId ?? data.server_id ?? ""),
+  };
 }
 
 export async function stopLsp(serverId: string): Promise<void> {
-  await invoke("lsp_stop", { serverId });
+  await hostDispatch({
+    op: "host.lsp.stop",
+    languageId: serverId,
+  });
 }
 
 export async function lspSymbolSearch(
   workspaceRoot: string,
   query: string,
-  limit = 80,
+  _limit = 80,
 ): Promise<LspSymbolSearchEntry[]> {
-  return invoke<LspSymbolSearchEntry[]>("lsp_symbol_search", {
+  const data = await hostDispatch<LspSymbolSearchEntry[] | { items?: LspSymbolSearchEntry[] }>({
+    op: "host.lsp.symbol_search",
     workspaceRoot,
     query,
-    limit,
   });
+  if (Array.isArray(data)) return data;
+  return data.items ?? [];
 }

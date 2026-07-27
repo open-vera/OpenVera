@@ -1,11 +1,14 @@
-import { invoke } from "@tauri-apps/api/core";
+/**
+ * Thin adapters over Workbench Host (`host_dispatch`).
+ * No direct Tauri command names besides host_boot / host_dispatch.
+ */
 import type {
   DirEntry,
   FileContentSearchEntry,
   FileSearchEntry,
-  GitChange,
   ShellOutput,
 } from "@/types";
+import { hostDispatch } from "@/shell";
 
 interface RawDirEntry {
   name: string;
@@ -54,19 +57,19 @@ function normalizeDirEntry(entry: RawDirEntry): DirEntry {
 }
 
 export async function readFile(path: string): Promise<string> {
-  return invoke<string>("read_file", { path });
+  return hostDispatch<string>({ op: "host.fs.read", path });
 }
 
 export async function writeFile(path: string, content: string): Promise<void> {
-  return invoke<void>("write_file", { path, content });
+  await hostDispatch({ op: "host.fs.write", path, content });
 }
 
 export async function appendFile(path: string, content: string): Promise<void> {
-  return invoke<void>("append_file", { path, content });
+  await hostDispatch({ op: "host.fs.append", path, content });
 }
 
 export async function pathInfo(path: string): Promise<PathInfo> {
-  const info = await invoke<RawPathInfo>("path_info", { path });
+  const info = await hostDispatch<RawPathInfo>({ op: "host.fs.path_info", path });
   return {
     path: info.path,
     isDir: info.isDir ?? info.is_dir ?? false,
@@ -75,8 +78,90 @@ export async function pathInfo(path: string): Promise<PathInfo> {
 }
 
 export async function listDir(path: string): Promise<DirEntry[]> {
-  const entries = await invoke<RawDirEntry[]>("list_dir", { path });
+  const entries = await hostDispatch<Array<RawDirEntry & { path?: string }>>({
+    op: "host.workspace.list_dir",
+    path,
+  });
   return entries.map(normalizeDirEntry);
+}
+
+export async function createDir(path: string): Promise<void> {
+  await hostDispatch({ op: "host.fs.create_dir", path });
+}
+
+export async function renamePath(from: string, to: string): Promise<void> {
+  await hostDispatch({ op: "host.fs.rename", from, to });
+}
+
+export async function deletePath(path: string): Promise<void> {
+  await hostDispatch({ op: "host.fs.delete", path });
+}
+
+export async function copyPath(from: string, to: string): Promise<void> {
+  await hostDispatch({ op: "host.fs.copy", from, to });
+}
+
+export async function revealInOs(path: string): Promise<void> {
+  await hostDispatch({ op: "host.fs.reveal", path });
+}
+
+export type RunLogSource = "global" | "legacy-project" | "missing";
+
+export interface RunLogView {
+  /** Resolved log file, or the directory logs will appear in when missing. */
+  path: string;
+  exists: boolean;
+  content: string;
+  truncated: boolean;
+  totalBytes: number;
+  source: RunLogSource;
+}
+
+/**
+ * Resolve and read an agent run log. The host owns path resolution — the log
+ * file is named after a task id under a UTC day directory, so Shell cannot
+ * reliably guess it.
+ */
+export async function readRunLog(
+  projectRoot: string,
+  taskId?: string | null,
+  maxBytes?: number,
+): Promise<RunLogView> {
+  return hostDispatch<RunLogView>({
+    op: "host.run_log.read",
+    projectRoot,
+    taskId: taskId ?? null,
+    maxBytes,
+  });
+}
+
+export type StorageScope = "global" | "project";
+
+export interface StorageEntry {
+  /** Stable key the settings panel maps to a localized label. */
+  id: string;
+  path: string;
+  scope: StorageScope;
+  exists: boolean;
+  isDir: boolean;
+  bytes: number;
+  files: number;
+}
+
+export interface StorageUsageReport {
+  entries: StorageEntry[];
+  totalBytes: number;
+  totalFiles: number;
+}
+
+/** Read-only footprint scan; the host runs the walk on a blocking thread. */
+export async function scanStorageUsage(
+  projectRoot?: string | null,
+): Promise<StorageUsageReport> {
+  return hostDispatch<StorageUsageReport>({
+    op: "host.storage.usage",
+    projectRoot: projectRoot ?? null,
+  });
 }
 
 export async function searchFiles(
@@ -86,7 +171,8 @@ export async function searchFiles(
   include?: string,
   exclude?: string,
 ): Promise<FileSearchEntry[]> {
-  const entries = await invoke<RawFileSearchEntry[]>("search_files", {
+  const entries = await hostDispatch<RawFileSearchEntry[]>({
+    op: "host.fs.search_files",
     root,
     query,
     limit,
@@ -106,7 +192,8 @@ export async function searchContent(
   include?: string,
   exclude?: string,
 ): Promise<FileContentSearchEntry[]> {
-  const entries = await invoke<RawFileContentSearchEntry[]>("search_content", {
+  const entries = await hostDispatch<RawFileContentSearchEntry[]>({
+    op: "host.fs.search_content",
     root,
     query,
     limit,
@@ -128,17 +215,14 @@ export async function replaceContent(
   include?: string,
   exclude?: string,
 ): Promise<number> {
-  return invoke<number>("replace_content", {
+  return hostDispatch<number>({
+    op: "host.fs.replace_content",
     root,
     query,
     replacement,
     include,
     exclude,
   });
-}
-
-export async function gitStatus(path: string): Promise<GitChange[]> {
-  return invoke<GitChange[]>("git_status", { path });
 }
 
 export async function executeShell(
@@ -148,7 +232,8 @@ export async function executeShell(
   timeoutMs?: number,
   confirmed = false,
 ): Promise<ShellOutput> {
-  const output = await invoke<RawShellOutput>("execute_shell", {
+  const output = await hostDispatch<RawShellOutput>({
+    op: "host.shell.execute",
     cmd,
     args,
     cwd,
@@ -167,35 +252,35 @@ export async function storeSecret(
   key: string,
   value: string,
 ): Promise<void> {
-  return invoke<void>("store_secret", { service, key, value });
+  await hostDispatch({ op: "host.keychain.store", service, key, value });
 }
 
 export async function getSecret(
   service: string,
   key: string,
 ): Promise<string | null> {
-  return invoke<string | null>("get_secret", { service, key });
+  return hostDispatch<string | null>({ op: "host.keychain.get", service, key });
 }
 
 export async function deleteSecret(service: string, key: string): Promise<void> {
-  return invoke<void>("delete_secret", { service, key });
+  await hostDispatch({ op: "host.keychain.delete", service, key });
 }
 
 export async function defaultServiceName(): Promise<string> {
-  return invoke<string>("default_service_name");
+  return hostDispatch<string>({ op: "host.keychain.default_service" });
 }
 
 export async function getAppVersion(): Promise<string> {
-  return invoke<string>("get_app_version");
+  return hostDispatch<string>({ op: "host.app.version" });
 }
 
 export {
-  invokeAgentRun,
-  waitForAgentCompletion,
-  abortAgent,
+  approveAgentTool,
+  getSidecarInfo,
   getSidecarStatus,
   inspectLlmConfig,
   saveVeraLlmConfig,
+  renameVeraProvider,
+  saveVeraModelsRouting,
 } from "./agent.js";
 export { startLsp, stopLsp, lspSymbolSearch } from "./lsp.js";
-export { loadPartnerSessions, savePartnerSessions } from "./storage.js";

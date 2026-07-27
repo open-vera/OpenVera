@@ -1,105 +1,12 @@
-import { invoke } from "@tauri-apps/api/core";
-import type { AgentRunMode, EffectiveLlmConfig, LLMRuntimeConfig, Message, TokenUsage } from "@/types";
-import { onAgentDone, onAgentError } from "./events.js";
-
-export interface AgentRunParams {
-  requestId: string;
-  instanceId: string;
-  sessionId: string;
-  message: string;
-  history: Message[];
-  projectRoot?: string;
-  llmConfig?: LLMRuntimeConfig;
-  taskId?: string;
-  agentMode?: AgentRunMode;
-}
-
-export interface AgentRunResult {
-  text: string;
-  usage?: TokenUsage;
-}
-
-function toHistory(messages: Message[]) {
-  return messages
-    .filter((item) => item.role === "user" || item.role === "assistant")
-    .filter((item) => item.content.trim().length > 0)
-    .map((item) => ({
-      role: item.role,
-      content: item.agentContent ?? item.content,
-    }));
-}
-
-export async function invokeAgentRun(params: AgentRunParams): Promise<void> {
-  const { requestId, instanceId, sessionId, message, history, projectRoot, llmConfig, taskId, agentMode } =
-    params;
-  await invoke("agent_run", {
-    requestId,
-    instanceId,
-    sessionId,
-    message,
-    history: toHistory(history),
-    projectRoot,
-    llmConfig,
-    taskId,
-    agentMode,
-  });
-}
-
-export function waitForAgentCompletion(
-  requestId: string,
-  instanceId: string,
-): Promise<AgentRunResult> {
-  return new Promise((resolve, reject) => {
-    const unlisteners: Array<() => void> = [];
-    let settled = false;
-
-    const cleanup = () => {
-      for (const unlisten of unlisteners) {
-        unlisten();
-      }
-    };
-
-    void Promise.all([
-      onAgentDone(requestId, instanceId, (payload) => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        resolve({
-          text: payload.text ?? "",
-          usage: payload.usage,
-        });
-      }),
-      onAgentError(requestId, instanceId, (payload) => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        reject(new Error(payload.message));
-      }),
-    ]).then(
-      (listeners) => {
-        if (settled) {
-          for (const unlisten of listeners) {
-            unlisten();
-          }
-          return;
-        }
-        unlisteners.push(...listeners);
-      },
-      (error: unknown) => {
-        if (settled) return;
-        settled = true;
-        reject(error instanceof Error ? error : new Error(String(error)));
-      },
-    );
-  });
-}
-
-export async function abortAgent(sessionId: string): Promise<void> {
-  await invoke("agent_abort", { sessionId });
-}
+import type { EffectiveLlmConfig, LLMRuntimeConfig } from "@/types";
+import { hostDispatch } from "@/shell";
 
 export async function approveAgentTool(callId: string, approved: boolean): Promise<void> {
-  await invoke("agent_tool_approval", { callId, approved });
+  await hostDispatch({
+    op: "host.agent.tool_approval",
+    callId,
+    approved,
+  });
 }
 
 export interface SidecarInfo {
@@ -109,7 +16,17 @@ export interface SidecarInfo {
 }
 
 export async function getSidecarInfo(): Promise<SidecarInfo> {
-  return invoke<SidecarInfo>("sidecar_status");
+  const info = await hostDispatch<{
+    running: boolean;
+    error?: string;
+    needs_node_install?: boolean;
+    needsNodeInstall?: boolean;
+  }>({ op: "host.sidecar.status" });
+  return {
+    running: info.running,
+    error: info.error,
+    needsNodeInstall: info.needsNodeInstall ?? info.needs_node_install,
+  };
 }
 
 export async function getSidecarStatus(): Promise<boolean> {
@@ -119,13 +36,12 @@ export async function getSidecarStatus(): Promise<boolean> {
 
 export async function inspectLlmConfig(
   projectRoot?: string,
-  llmConfig?: LLMRuntimeConfig | null,
-  revealSecrets = false,
+  _llmConfig?: LLMRuntimeConfig | null,
+  _revealSecrets?: boolean,
 ): Promise<EffectiveLlmConfig> {
-  return invoke<EffectiveLlmConfig>("inspect_llm_config", {
+  return hostDispatch<EffectiveLlmConfig>({
+    op: "host.llm.inspect",
     projectRoot,
-    llmConfig: llmConfig ?? undefined,
-    revealSecrets,
   });
 }
 
@@ -136,13 +52,50 @@ export async function saveVeraLlmConfig(params: {
   apiBaseUrl: string;
   model: string;
   apiKey?: string;
+  setAsDefault?: boolean;
 }): Promise<EffectiveLlmConfig> {
-  return invoke<EffectiveLlmConfig>("save_vera_llm_config", {
+  return hostDispatch<EffectiveLlmConfig>({
+    op: "host.llm.save",
     projectRoot: params.projectRoot,
-    provider: params.provider,
-    protocol: params.protocol,
-    apiBaseUrl: params.apiBaseUrl,
-    model: params.model,
-    apiKey: params.apiKey,
+    config: {
+      provider: params.provider,
+      protocol: params.protocol,
+      apiBaseUrl: params.apiBaseUrl,
+      model: params.model,
+      apiKey: params.apiKey,
+      setAsDefault: params.setAsDefault,
+    },
+  });
+}
+
+export async function renameVeraProvider(params: {
+  projectRoot?: string;
+  oldId: string;
+  newId: string;
+}): Promise<EffectiveLlmConfig> {
+  return hostDispatch<EffectiveLlmConfig>({
+    op: "host.llm.rename_provider",
+    projectRoot: params.projectRoot,
+    fromId: params.oldId,
+    toId: params.newId,
+  });
+}
+
+export async function saveVeraModelsRouting(params: {
+  projectRoot?: string;
+  models: unknown;
+  routing: unknown;
+  defaultProvider?: string;
+  defaultModel?: string;
+}): Promise<EffectiveLlmConfig> {
+  return hostDispatch<EffectiveLlmConfig>({
+    op: "host.llm.save_models_routing",
+    projectRoot: params.projectRoot,
+    models: params.models,
+    routing: {
+      ...(params.routing as Record<string, unknown>),
+      defaultProvider: params.defaultProvider,
+      defaultModel: params.defaultModel,
+    },
   });
 }

@@ -1,12 +1,13 @@
-import { invoke } from "@tauri-apps/api/core";
 import type { CatalogModel, CatalogProvider, LLMProtocol } from "@/types";
+import { hostDispatch } from "@/shell";
 
 export interface LlmProviderRequestOptions {
   protocol?: LLMProtocol;
 }
 
 export async function listLlmProviders(projectRoot?: string): Promise<CatalogProvider[]> {
-  const result = await invoke<{ providers: CatalogProvider[] }>("list_llm_providers", {
+  const result = await hostDispatch<{ providers: CatalogProvider[] }>({
+    op: "host.llm.list_providers",
     projectRoot,
   });
   return result.providers ?? [];
@@ -16,7 +17,8 @@ export async function listLlmProviderModels(
   projectRoot: string | undefined,
   providerId: string,
 ): Promise<CatalogModel[]> {
-  const result = await invoke<{ models: CatalogModel[] }>("list_llm_provider_models", {
+  const result = await hostDispatch<{ models: CatalogModel[] }>({
+    op: "host.llm.list_provider_models",
     projectRoot,
     providerId,
   });
@@ -28,7 +30,8 @@ export async function refreshLlmProviderModels(
   providerId: string,
   options?: LlmProviderRequestOptions,
 ): Promise<CatalogModel[]> {
-  const result = await invoke<{ models: CatalogModel[] }>("refresh_llm_provider_models", {
+  const result = await hostDispatch<{ models: CatalogModel[] }>({
+    op: "host.llm.refresh_provider_models",
     projectRoot,
     providerId,
     protocol: options?.protocol,
@@ -50,9 +53,12 @@ export async function testLlmConnection(
   providerId: string,
   options?: LlmProviderRequestOptions,
 ): Promise<LlmConnectionTestResult> {
-  return invoke<LlmConnectionTestResult>("test_llm_connection", {
+  return hostDispatch<LlmConnectionTestResult>({
+    op: "host.llm.test_connection",
     projectRoot,
-    providerId,
-    protocol: options?.protocol,
+    config: {
+      providerId,
+      protocol: options?.protocol,
+    },
   });
 }

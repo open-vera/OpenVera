@@ -1,6 +1,7 @@
 import { createApp } from "vue";
 import { createPinia } from "pinia";
 import App from "./App.vue";
+import { installPartnerPerf } from "./perf";
 import {
   applyPartnerTheme,
   clampWallpaperBlur,
@@ -11,6 +12,8 @@ import {
   type WallpaperMode,
 } from "./theme";
 import "./styles/app.css";
+
+installPartnerPerf();
 
 function bootAppearance() {
   let wallpaperMode: WallpaperMode = "theme";

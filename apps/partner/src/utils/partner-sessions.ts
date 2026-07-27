@@ -110,7 +110,18 @@ function normalizeWindow(windowId: string, value: unknown): PartnerWindowSnapsho
 }
 
 function normalizeLayout(value: unknown): LayoutSnapshot {
-  if (!isRecord(value)) return { leftWidth: 240, previewWidth: 420 };
+  if (!isRecord(value)) {
+    return {
+      leftWidth: 240,
+      previewWidth: 640,
+      leftOpen: true,
+      previewOpen: true,
+      explorerOpen: true,
+      editorOpen: true,
+      terminalOpen: false,
+      terminalHeight: 260,
+    };
+  }
   return {
     leftWidth:
       typeof value.leftWidth === "number" && Number.isFinite(value.leftWidth)
@@ -119,7 +130,16 @@ function normalizeLayout(value: unknown): LayoutSnapshot {
     previewWidth:
       typeof value.previewWidth === "number" && Number.isFinite(value.previewWidth)
         ? value.previewWidth
-        : 420,
+        : 640,
+    leftOpen: value.leftOpen !== false,
+    previewOpen: value.previewOpen !== false,
+    explorerOpen: value.explorerOpen !== false,
+    editorOpen: value.editorOpen !== false,
+    terminalOpen: value.terminalOpen === true,
+    terminalHeight:
+      typeof value.terminalHeight === "number" && Number.isFinite(value.terminalHeight)
+        ? value.terminalHeight
+        : 260,
   };
 }
 
@@ -197,7 +217,7 @@ export function selectPartnerWindowSnapshot(
       windowId,
       chat: raw,
       preview: { version: 1, activeTabId: null, tabs: [] },
-      layout: { leftWidth: 240, previewWidth: 420 },
+      layout: { leftWidth: 240, previewWidth: 640 },
       updatedAt: Date.now(),
     };
   }

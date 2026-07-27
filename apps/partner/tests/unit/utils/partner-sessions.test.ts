@@ -31,7 +31,7 @@ function windowSnapshot(windowId: string): PartnerWindowSnapshot {
     windowId,
     chat: chatSnapshot(`chat:${windowId}`),
     preview: { version: 1, activeTabId: null, tabs: [] },
-    layout: { leftWidth: 240, previewWidth: 420 },
+    layout: { leftWidth: 240, previewWidth: 640 },
     updatedAt: 1,
   };
 }

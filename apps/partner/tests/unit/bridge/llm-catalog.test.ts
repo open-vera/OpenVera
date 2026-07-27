@@ -1,24 +1,26 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const invokeMock = vi.fn();
+const hostDispatch = vi.fn();
 
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: (...args: unknown[]) => invokeMock(...args),
+vi.mock("@/shell", () => ({
+  hostDispatch: (...args: unknown[]) => hostDispatch(...args),
 }));
 
-describe("llm-catalog bridge", () => {
-  it("calls test_llm_connection with provider id", async () => {
-    invokeMock.mockReset();
-    invokeMock.mockResolvedValue({ ok: true, modelCount: 3, message: "ok" });
-    const { testLlmConnection } = await import("@/bridge/llm-catalog");
+describe("llm-catalog via host", () => {
+  beforeEach(() => {
+    hostDispatch.mockReset();
+  });
 
-    const result = await testLlmConnection("/repo", "compony", { protocol: "openai-compatible" });
-
-    expect(invokeMock).toHaveBeenCalledWith("test_llm_connection", {
-      projectRoot: "/repo",
-      providerId: "compony",
-      protocol: "openai-compatible",
+  it("listLlmProviders uses host.llm.list_providers", async () => {
+    hostDispatch.mockResolvedValueOnce({
+      providers: [{ id: "p1", name: "P1" }],
     });
-    expect(result).toEqual({ ok: true, modelCount: 3, message: "ok" });
+    const { listLlmProviders } = await import("@/bridge/llm-catalog");
+    const providers = await listLlmProviders("/repo");
+    expect(hostDispatch).toHaveBeenCalledWith({
+      op: "host.llm.list_providers",
+      projectRoot: "/repo",
+    });
+    expect(providers).toEqual([{ id: "p1", name: "P1" }]);
   });
 });
