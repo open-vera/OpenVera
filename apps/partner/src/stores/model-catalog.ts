@@ -15,11 +15,29 @@ interface RemoteRefreshState {
   failed?: boolean;
 }
 
+/**
+ * Upstream /v1/models lists are not always clean — a gateway can return an
+ * entry with a blank id, which renders as an unclickable empty row, or repeat
+ * the same id. Drop the unusable ones and keep the first of each id.
+ */
+function sanitizeModels(models: CatalogModel[]): CatalogModel[] {
+  const byId = new Map<string, CatalogModel>();
+  for (const model of models) {
+    const id = (model.id ?? "").trim();
+    const displayName = (model.displayName ?? "").trim();
+    if (!id && !displayName) continue;
+    const key = id || displayName;
+    if (byId.has(key)) continue;
+    byId.set(key, { ...model, id: id || displayName, displayName: displayName || id });
+  }
+  return [...byId.values()];
+}
+
 function mergeModels(configured: CatalogModel[], remote: CatalogModel[]): CatalogModel[] {
   if (!remote.length) return configured;
   const seen = new Set(remote.map((model) => model.id));
   const extras = configured.filter((model) => !seen.has(model.id));
-  return [...remote, ...extras];
+  return sanitizeModels([...remote, ...extras]);
 }
 
 function shouldRefreshRemote(state?: RemoteRefreshState): boolean {
@@ -102,9 +120,8 @@ export const useModelCatalogStore = defineStore("modelCatalog", {
         this.loadingProviderIds.push(providerId);
         delete this.providerErrors[providerId];
         try {
-          this.modelsByProvider[providerId] = await listLlmProviderModels(
-            projectRoot,
-            providerId,
+          this.modelsByProvider[providerId] = sanitizeModels(
+            await listLlmProviderModels(projectRoot, providerId),
           );
         } catch (error) {
           this.providerErrors[providerId] =
@@ -139,9 +156,10 @@ export const useModelCatalogStore = defineStore("modelCatalog", {
           REMOTE_REFRESH_TIMEOUT_MS,
           "同步远程模型超时",
         );
-        if (remote.length) {
+        const cleanRemote = sanitizeModels(remote);
+        if (cleanRemote.length) {
           const configured = this.modelsByProvider[providerId] ?? [];
-          this.modelsByProvider[providerId] = mergeModels(configured, remote);
+          this.modelsByProvider[providerId] = mergeModels(configured, cleanRemote);
         }
         this.remoteRefreshState[providerId] = { at: Date.now() };
       } catch {

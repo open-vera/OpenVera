@@ -96,4 +96,23 @@ describe("useModelCatalogStore", () => {
     expect(catalog.isProviderRefreshing("compony")).toBe(false);
     vi.useRealTimers();
   });
+  it("drops blank and duplicate models from an upstream list", async () => {
+    listLlmProviderModelsMock.mockResolvedValueOnce([
+      { id: "", displayName: "", source: "config" },
+      { id: "  ", displayName: undefined, source: "config" },
+      { id: "claude-opus-5", displayName: "Claude-opus-5", source: "config" },
+      { id: "claude-opus-5", displayName: "Claude-opus-5 (dup)", source: "config" },
+      { id: " minimax-m3 ", displayName: "", source: "config" },
+    ]);
+    refreshLlmProviderModelsMock.mockResolvedValueOnce([]);
+
+    const catalog = useModelCatalogStore();
+    await catalog.loadProviders("/repo");
+    await catalog.ensureProviderModels("/repo", "compony");
+
+    const models = catalog.modelsForProvider("compony");
+    expect(models.map((model) => model.id)).toEqual(["claude-opus-5", "minimax-m3"]);
+    // Every row has something to render, so no empty entry in the menu.
+    expect(models.every((model) => (model.displayName || model.id).trim())).toBe(true);
+  });
 });
