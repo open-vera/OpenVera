@@ -1,7 +1,7 @@
 use std::fs;
 use std::fs::OpenOptions;
-use std::io::Write;
-use std::path::Path;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde::Serialize;
@@ -27,7 +27,7 @@ pub struct FileContentSearchEntry {
     pub line: String,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct GitChange {
     pub path: String,
     pub status: String,
@@ -159,26 +159,40 @@ pub async fn path_info(path: String) -> Result<PathInfo, String> {
     })
 }
 
-#[tauri::command]
-pub async fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
+fn entry_is_dir(entry: &fs::DirEntry) -> bool {
+    match entry.file_type() {
+        Ok(file_type) if file_type.is_dir() => true,
+        // pnpm/node_modules often uses symlinks; only resolve those.
+        Ok(file_type) if file_type.is_symlink() => entry.path().is_dir(),
+        Ok(_) => false,
+        // Fall back to metadata when file_type is unavailable.
+        Err(_) => entry.path().is_dir(),
+    }
+}
+
+fn list_dir_sync(path: String) -> Result<Vec<DirEntry>, String> {
     let entries = fs::read_dir(&path).map_err(|error| error.to_string())?;
     let mut result = Vec::new();
 
     for entry in entries {
         let entry = entry.map_err(|error| error.to_string())?;
-        let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
-
         result.push(DirEntry {
             name,
-            // pnpm/node_modules entries are often symlinks to directories.
-            // `Path::is_dir` follows symlinks, unlike `DirEntry::file_type`.
-            is_dir: path.is_dir(),
+            is_dir: entry_is_dir(&entry),
         });
     }
 
     result.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.name.cmp(&b.name)));
     Ok(result)
+}
+
+#[tauri::command]
+pub async fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
+    // Directory listing is sync IO; keep it off the async runtime.
+    tauri::async_runtime::spawn_blocking(move || list_dir_sync(path))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -456,11 +470,131 @@ fn line_matches_query(line: &str, query: &str) -> bool {
 }
 
 #[tauri::command]
-pub async fn git_status(path: String) -> Result<Vec<GitChange>, String> {
+pub async fn create_dir(path: String) -> Result<(), String> {
+    let target = Path::new(&path);
+    if target.exists() {
+        return Err(format!("path already exists: {path}"));
+    }
+    fs::create_dir_all(target).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn rename_path(from: String, to: String) -> Result<(), String> {
+    let from_path = Path::new(&from);
+    let to_path = Path::new(&to);
+    if !from_path.exists() {
+        return Err(format!("source does not exist: {from}"));
+    }
+    if to_path.exists() {
+        return Err(format!("target already exists: {to}"));
+    }
+    if let Some(parent) = to_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    fs::rename(from_path, to_path).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_path(path: String) -> Result<(), String> {
+    let target = Path::new(&path);
+    if !target.exists() {
+        return Err(format!("path does not exist: {path}"));
+    }
+    // Move to the OS trash / recycle bin instead of permanent delete.
+    trash::delete(target).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn copy_path(from: String, to: String) -> Result<(), String> {
+    let from_path = Path::new(&from);
+    let to_path = Path::new(&to);
+    if !from_path.exists() {
+        return Err(format!("source does not exist: {from}"));
+    }
+    if to_path.exists() {
+        return Err(format!("target already exists: {to}"));
+    }
+    if let Some(parent) = to_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    copy_path_recursive(from_path, to_path)
+}
+
+fn copy_path_recursive(from: &Path, to: &Path) -> Result<(), String> {
+    let metadata = fs::metadata(from).map_err(|error| error.to_string())?;
+    if metadata.is_dir() {
+        fs::create_dir_all(to).map_err(|error| error.to_string())?;
+        for entry in fs::read_dir(from).map_err(|error| error.to_string())? {
+            let entry = entry.map_err(|error| error.to_string())?;
+            let name = entry.file_name();
+            copy_path_recursive(&entry.path(), &to.join(name))?;
+        }
+        return Ok(());
+    }
+
+    let mut input = fs::File::open(from).map_err(|error| error.to_string())?;
+    let mut output = fs::File::create(to).map_err(|error| error.to_string())?;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = input.read(&mut buffer).map_err(|error| error.to_string())?;
+        if read == 0 {
+            break;
+        }
+        output
+            .write_all(&buffer[..read])
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn reveal_in_os(path: String) -> Result<(), String> {
+    let target = PathBuf::from(&path);
+    if !target.exists() {
+        return Err(format!("path does not exist: {path}"));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .args(["-R", &path])
+            .status()
+            .map_err(|error| format!("failed to reveal in Finder: {error}"))?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(format!("/select,{path}"))
+            .status()
+            .map_err(|error| format!("failed to reveal in Explorer: {error}"))?;
+        return Ok(());
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let parent = if target.is_dir() {
+            target.clone()
+        } else {
+            target
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from("."))
+        };
+        Command::new("xdg-open")
+            .arg(&parent)
+            .status()
+            .map_err(|error| format!("failed to open folder: {error}"))?;
+        Ok(())
+    }
+}
+
+pub fn git_status_sync(path: &str) -> Result<Vec<GitChange>, String> {
     let output = Command::new("git")
         .args([
             "-C",
-            &path,
+            path,
             "status",
             "--porcelain=v1",
             "--untracked-files=all",

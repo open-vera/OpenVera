@@ -1,17 +1,14 @@
+//! LLM config inspect/save lives in Rust (Host-owned). Runtime agent runs are
+//! dispatched via `host::orchestrator` → sidecar, and the IO/LLM handlers in
+//! `host::io` are the only callers of this module.
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tauri::State;
 
-use crate::sidecar::{resolve_project_root, SidecarInfo, SidecarManager};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HistoryMessage {
-    pub role: String,
-    pub content: String,
-}
+use crate::sidecar::resolve_project_root;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,74 +18,6 @@ pub struct LlmRuntimeConfig {
     pub api_base_url: String,
     pub model: String,
     pub api_key: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentRunResponse {
-    pub request_id: String,
-}
-
-#[tauri::command]
-pub async fn agent_run(
-    sidecar: State<'_, SidecarManager>,
-    request_id: String,
-    instance_id: String,
-    session_id: String,
-    message: String,
-    history: Vec<HistoryMessage>,
-    project_root: Option<String>,
-    llm_config: Option<LlmRuntimeConfig>,
-    task_id: Option<String>,
-    agent_mode: Option<String>,
-) -> Result<AgentRunResponse, String> {
-    let root = project_root.unwrap_or_else(resolve_project_root);
-    let payload = serde_json::json!({
-        "id": request_id,
-        "method": "agent.run",
-        "params": {
-            "sessionId": session_id,
-            "instanceId": instance_id,
-            "message": message,
-            "history": history,
-            "projectRoot": root,
-            "llmConfig": llm_config,
-            "taskId": task_id,
-            "agentMode": agent_mode,
-        }
-    });
-    sidecar.write_json(&payload)?;
-    Ok(AgentRunResponse { request_id })
-}
-
-#[tauri::command]
-pub async fn agent_abort(
-    sidecar: State<'_, SidecarManager>,
-    session_id: String,
-) -> Result<(), String> {
-    let request_id = uuid::Uuid::new_v4().to_string();
-    let payload = serde_json::json!({
-        "id": request_id,
-        "method": "agent.abort",
-        "params": {
-            "sessionId": session_id,
-        }
-    });
-    sidecar.write_json(&payload)
-}
-
-#[tauri::command]
-pub async fn agent_tool_approval(
-    sidecar: State<'_, SidecarManager>,
-    call_id: String,
-    approved: bool,
-) -> Result<(), String> {
-    sidecar.resolve_tool_approval(call_id, approved)
-}
-
-#[tauri::command]
-pub fn sidecar_status(sidecar: State<'_, SidecarManager>) -> Result<SidecarInfo, String> {
-    sidecar.info()
 }
 
 #[tauri::command]
@@ -107,42 +36,6 @@ pub fn list_llm_provider_models(
 }
 
 #[tauri::command]
-pub async fn refresh_llm_provider_models(
-    sidecar: State<'_, SidecarManager>,
-    project_root: Option<String>,
-    provider_id: String,
-    protocol: Option<String>,
-) -> Result<Value, String> {
-    let root = project_root.unwrap_or_else(resolve_project_root);
-    sidecar.call_rpc(
-        "llm.listProviderModels",
-        json!({
-            "projectRoot": root,
-            "providerId": provider_id,
-            "protocol": protocol,
-        }),
-    )
-}
-
-#[tauri::command]
-pub async fn test_llm_connection(
-    sidecar: State<'_, SidecarManager>,
-    project_root: Option<String>,
-    provider_id: String,
-    protocol: Option<String>,
-) -> Result<Value, String> {
-    let root = project_root.unwrap_or_else(resolve_project_root);
-    sidecar.call_rpc(
-        "llm.testConnection",
-        json!({
-            "projectRoot": root,
-            "providerId": provider_id,
-            "protocol": protocol,
-        }),
-    )
-}
-
-#[tauri::command]
 pub async fn inspect_llm_config(
     project_root: Option<String>,
     llm_config: Option<LlmRuntimeConfig>,
@@ -152,6 +45,7 @@ pub async fn inspect_llm_config(
     let reveal = reveal_secrets.unwrap_or(false);
     if let Some(config) = llm_config {
         let adapter = adapter_for_protocol(&config.protocol);
+        let paths = config_path_bundle(&root);
         return Ok(json!({
             "source": "partner-settings",
             "sourceLabel": "Partner settings keychain",
@@ -167,6 +61,9 @@ pub async fn inspect_llm_config(
             "apiKeyValue": if reveal { Some(config.api_key) } else { None },
             "configPath": Value::Null,
             "configExists": false,
+            "configScope": paths.scope,
+            "projectConfigPath": paths.project_path.to_string_lossy().to_string(),
+            "globalConfigPath": paths.global_path.to_string_lossy().to_string(),
         }));
     }
 
@@ -181,6 +78,7 @@ pub async fn save_vera_llm_config(
     api_base_url: String,
     model: String,
     api_key: Option<String>,
+    set_as_default: Option<bool>,
 ) -> Result<Value, String> {
     let root = project_root.unwrap_or_else(resolve_project_root);
     let path = writable_config_path(&root);
@@ -221,14 +119,22 @@ pub async fn save_vera_llm_config(
         }
     }
 
-    if !config.get("models").is_some_and(Value::is_object) {
-        config["models"] = json!({});
+    if !model.trim().is_empty() {
+        if !config.get("models").is_some_and(Value::is_object) {
+            config["models"] = json!({});
+        }
+        config["models"][&model] = json!({
+            "provider": provider,
+        });
     }
-    config["models"][&model] = json!({
-        "provider": provider,
-    });
-    config["default_provider"] = Value::String(provider);
-    config["default_model"] = Value::String(model);
+
+    let make_default = set_as_default.unwrap_or(true);
+    if make_default {
+        config["default_provider"] = Value::String(provider.clone());
+        if !model.trim().is_empty() {
+            config["default_model"] = Value::String(model);
+        }
+    }
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -239,6 +145,60 @@ pub async fn save_vera_llm_config(
     )
     .map_err(|error| error.to_string())?;
 
+    inspect_vera_config(&root, false)
+}
+
+#[tauri::command]
+pub fn rename_vera_provider(
+    project_root: Option<String>,
+    old_id: String,
+    new_id: String,
+) -> Result<Value, String> {
+    let root = project_root.unwrap_or_else(resolve_project_root);
+    let path = writable_config_path(&root);
+    let mut config = read_writable_config(&path)?;
+    rename_provider_in_config(&mut config, &old_id, &new_id)?;
+    write_config_file(&path, &config)?;
+    inspect_vera_config(&root, false)
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VeraModelAliasInput {
+    pub alias: String,
+    pub provider: String,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VeraRoutingInput {
+    pub enabled: bool,
+    pub classifier: Option<String>,
+    pub l0: Option<String>,
+    pub l1: Option<String>,
+    pub l2: Option<String>,
+}
+
+#[tauri::command]
+pub fn save_vera_models_routing(
+    project_root: Option<String>,
+    models: Vec<VeraModelAliasInput>,
+    default_provider: Option<String>,
+    default_model: Option<String>,
+    routing: VeraRoutingInput,
+) -> Result<Value, String> {
+    let root = project_root.unwrap_or_else(resolve_project_root);
+    let path = writable_config_path(&root);
+    let mut config = read_writable_config(&path)?;
+    apply_models_routing(
+        &mut config,
+        &models,
+        default_provider.as_deref(),
+        default_model.as_deref(),
+        &routing,
+    );
+    write_config_file(&path, &config)?;
     inspect_vera_config(&root, false)
 }
 
@@ -272,6 +232,33 @@ fn provider_has_api_key(config: &Value, provider_id: &str, adapter: &str) -> boo
     resolve_env_key(adapter, provider_id).is_some()
 }
 
+fn first_model_for_provider(config: &Value, provider_id: &str) -> Option<String> {
+    match config.get("models") {
+        Some(Value::Object(items)) => {
+            for (alias, model_config) in items {
+                if model_config.get("provider").and_then(Value::as_str) == Some(provider_id) {
+                    return Some(
+                        model_config
+                            .get("model")
+                            .and_then(Value::as_str)
+                            .unwrap_or(alias)
+                            .to_string(),
+                    );
+                }
+            }
+            None
+        }
+        Some(Value::Array(items)) => {
+            if resolve_default_provider(config) == provider_id {
+                items.iter().find_map(|item| item.as_str().map(str::to_string))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 fn list_configured_providers(root: &str) -> Result<Value, String> {
     let config = load_vera_config(root)?;
     let default_provider = resolve_default_provider(&config);
@@ -279,25 +266,34 @@ fn list_configured_providers(root: &str) -> Result<Value, String> {
         return Ok(json!({ "providers": [] }));
     };
 
+    let default_model = config
+        .get("default_model")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+
     let mut entries: Vec<Value> = providers
         .iter()
-        .filter_map(|(id, provider_config)| {
+        .map(|(id, provider_config)| {
             let adapter = provider_config
                 .get("adapter")
                 .and_then(Value::as_str)
                 .unwrap_or("anthropic");
             let has_api_key = provider_has_api_key(&config, id, adapter);
-            if !has_api_key {
-                return None;
-            }
-            Some(json!({
+            let model = if id == &default_provider {
+                default_model.clone()
+            } else {
+                first_model_for_provider(&config, id).unwrap_or_default()
+            };
+            json!({
                 "id": id,
                 "adapter": adapter,
                 "protocol": protocol_for_adapter(adapter),
                 "apiBaseUrl": provider_config.get("base_url").and_then(Value::as_str).unwrap_or(""),
-                "hasApiKey": true,
+                "hasApiKey": has_api_key,
                 "isDefault": id == &default_provider,
-            }))
+                "model": model,
+            })
         })
         .collect();
 
@@ -372,6 +368,7 @@ fn list_configured_provider_models(root: &str, provider_id: &str) -> Result<Valu
 
 fn inspect_vera_config(root: &str, reveal: bool) -> Result<Value, String> {
     let location = resolve_config_location(root);
+    let paths = config_path_bundle(root);
     let config = if location.exists {
         let raw = fs::read_to_string(&location.path).map_err(|error| error.to_string())?;
         serde_json::from_str::<Value>(&raw).map_err(|error| error.to_string())?
@@ -417,7 +414,288 @@ fn inspect_vera_config(root: &str, reveal: bool) -> Result<Value, String> {
         "configPath": location.path.to_string_lossy().to_string(),
         "configScope": location.scope,
         "configExists": location.exists,
+        "projectConfigPath": paths.project_path.to_string_lossy().to_string(),
+        "globalConfigPath": paths.global_path.to_string_lossy().to_string(),
+        "defaultProvider": config.get("default_provider").and_then(Value::as_str),
+        "defaultModel": config.get("default_model").and_then(Value::as_str),
+        "models": list_model_aliases_json(&config),
+        "routing": routing_snapshot(&config),
     }))
+}
+
+fn read_writable_config(path: &Path) -> Result<Value, String> {
+    if path.exists() {
+        let raw = fs::read_to_string(path).map_err(|error| error.to_string())?;
+        serde_json::from_str::<Value>(&raw).map_err(|error| error.to_string())
+    } else {
+        Ok(json!({}))
+    }
+}
+
+fn write_config_file(path: &Path, config: &Value) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    fs::write(
+        path,
+        serde_json::to_string_pretty(config).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn normalize_provider_id(id: &str) -> String {
+    id.trim().split_whitespace().collect::<Vec<_>>().join("-")
+}
+
+fn is_valid_provider_id(id: &str) -> bool {
+    let mut chars = id.chars();
+    match chars.next() {
+        Some(first) if first.is_ascii_alphanumeric() => {}
+        _ => return false,
+    }
+    chars.all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | ':' | '-'))
+}
+
+fn rename_provider_in_config(config: &mut Value, old_id: &str, new_id_raw: &str) -> Result<(), String> {
+    let old_key = old_id.trim();
+    let new_id = normalize_provider_id(new_id_raw);
+    if old_key.is_empty() {
+        return Err("Provider id is required".to_string());
+    }
+    if !is_valid_provider_id(&new_id) {
+        return Err(format!("Invalid provider id: {new_id}"));
+    }
+    if old_key == new_id {
+        return Ok(());
+    }
+
+    let providers = config
+        .get_mut("providers")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| format!("Provider not found: {old_key}"))?;
+    if !providers.contains_key(old_key) {
+        return Err(format!("Provider not found: {old_key}"));
+    }
+    if providers.contains_key(&new_id) {
+        return Err(format!("Provider already exists: {new_id}"));
+    }
+    let entry = providers
+        .remove(old_key)
+        .ok_or_else(|| format!("Provider not found: {old_key}"))?;
+    providers.insert(new_id.clone(), entry);
+
+    if let Some(models) = config.get_mut("models").and_then(Value::as_object_mut) {
+        for (_alias, value) in models.iter_mut() {
+            if let Some(obj) = value.as_object_mut() {
+                if obj.get("provider").and_then(Value::as_str) == Some(old_key) {
+                    obj.insert("provider".to_string(), Value::String(new_id.clone()));
+                }
+            }
+        }
+    }
+
+    if config.get("default_provider").and_then(Value::as_str) == Some(old_key) {
+        config["default_provider"] = Value::String(new_id.clone());
+    }
+
+    rewrite_routing_provider_refs(config, old_key, &new_id);
+    rewrite_session_provider_refs(config, old_key, &new_id);
+    Ok(())
+}
+
+fn rewrite_model_reference(reference: &mut Value, old_id: &str, new_id: &str) {
+    if let Some(obj) = reference.as_object_mut() {
+        if obj.get("provider").and_then(Value::as_str) == Some(old_id) {
+            obj.insert("provider".to_string(), Value::String(new_id.to_string()));
+        }
+    }
+}
+
+fn rewrite_routing_provider_refs(config: &mut Value, old_id: &str, new_id: &str) {
+    let Some(routing) = config.get_mut("routing").and_then(Value::as_object_mut) else {
+        return;
+    };
+    for key in ["classifier", "l0", "l1", "l2"] {
+        if let Some(reference) = routing.get_mut(key) {
+            rewrite_model_reference(reference, old_id, new_id);
+        }
+    }
+}
+
+fn rewrite_session_provider_refs(config: &mut Value, old_id: &str, new_id: &str) {
+    let Some(session) = config.get_mut("session").and_then(Value::as_object_mut) else {
+        return;
+    };
+    for key in ["ai_title", "compact"] {
+        if let Some(block) = session.get_mut(key).and_then(Value::as_object_mut) {
+            if block.get("provider").and_then(Value::as_str) == Some(old_id) {
+                block.insert("provider".to_string(), Value::String(new_id.to_string()));
+            }
+        }
+    }
+}
+
+fn apply_models_routing(
+    config: &mut Value,
+    models: &[VeraModelAliasInput],
+    default_provider: Option<&str>,
+    default_model: Option<&str>,
+    routing: &VeraRoutingInput,
+) {
+    let mut models_obj = serde_json::Map::new();
+    for item in models {
+        let alias = item.alias.trim();
+        if alias.is_empty() {
+            continue;
+        }
+        let provider = normalize_provider_id(&item.provider);
+        if provider.is_empty() {
+            continue;
+        }
+        let mut entry = serde_json::Map::new();
+        entry.insert("provider".to_string(), Value::String(provider));
+        if let Some(upstream) = item.model.as_deref().map(str::trim).filter(|value| !value.is_empty())
+        {
+            if upstream != alias {
+                entry.insert("model".to_string(), Value::String(upstream.to_string()));
+            }
+        }
+        models_obj.insert(alias.to_string(), Value::Object(entry));
+    }
+    config["models"] = Value::Object(models_obj);
+
+    if let Some(provider) = default_provider.map(str::trim).filter(|value| !value.is_empty()) {
+        config["default_provider"] = Value::String(normalize_provider_id(provider));
+    }
+    match default_model.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(model) => config["default_model"] = Value::String(model.to_string()),
+        None => {
+            if let Some(obj) = config.as_object_mut() {
+                obj.remove("default_model");
+            }
+        }
+    }
+
+    let mut routing_obj = serde_json::Map::new();
+    routing_obj.insert("enabled".to_string(), Value::Bool(routing.enabled));
+    for (key, value) in [
+        ("classifier", routing.classifier.as_deref()),
+        ("l0", routing.l0.as_deref()),
+        ("l1", routing.l1.as_deref()),
+        ("l2", routing.l2.as_deref()),
+    ] {
+        if let Some(text) = value.map(str::trim).filter(|item| !item.is_empty()) {
+            routing_obj.insert(key.to_string(), Value::String(text.to_string()));
+        }
+    }
+    config["routing"] = Value::Object(routing_obj);
+}
+
+fn list_model_aliases_json(config: &Value) -> Value {
+    let mut items = Vec::new();
+    match config.get("models") {
+        Some(Value::Object(map)) => {
+            for (alias, value) in map {
+                let provider = value
+                    .get("provider")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| resolve_default_provider(config));
+                let model = value
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                items.push(json!({
+                    "alias": alias,
+                    "provider": provider,
+                    "model": model,
+                }));
+            }
+        }
+        Some(Value::Array(list)) => {
+            let provider = resolve_default_provider(config);
+            for item in list {
+                if let Some(alias) = item.as_str() {
+                    items.push(json!({
+                        "alias": alias,
+                        "provider": provider,
+                        "model": alias,
+                    }));
+                }
+            }
+        }
+        _ => {}
+    }
+    items.sort_by(|left, right| {
+        left.get("alias")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .cmp(right.get("alias").and_then(Value::as_str).unwrap_or_default())
+    });
+    Value::Array(items)
+}
+
+fn routing_snapshot(config: &Value) -> Value {
+    let routing = config.get("routing").and_then(Value::as_object);
+    let pick = |key: &str| -> Value {
+        match routing.and_then(|map| map.get(key)) {
+            Some(Value::String(text)) => Value::String(text.clone()),
+            Some(Value::Object(obj)) => {
+                if let (Some(provider), Some(model)) = (
+                    obj.get("provider").and_then(Value::as_str),
+                    obj.get("model").and_then(Value::as_str),
+                ) {
+                    json!({ "provider": provider, "model": model })
+                } else {
+                    Value::Null
+                }
+            }
+            _ => Value::Null,
+        }
+    };
+    json!({
+        "enabled": routing
+            .and_then(|map| map.get("enabled"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        "classifier": pick("classifier"),
+        "l0": pick("l0"),
+        "l1": pick("l1"),
+        "l2": pick("l2"),
+    })
+}
+
+struct ConfigPathBundle {
+    project_path: PathBuf,
+    global_path: PathBuf,
+    scope: &'static str,
+}
+
+fn config_path_bundle(root: &str) -> ConfigPathBundle {
+    let project_path = Path::new(root).join(".vera/settings.json");
+    let global_path = std::env::var("HOME")
+        .map(|home| PathBuf::from(home).join(".vera/settings.json"))
+        .unwrap_or_else(|_| PathBuf::from(".vera/settings.json"));
+
+    if let Ok(config_dir) = std::env::var("VERA_CONFIG_DIR") {
+        return ConfigPathBundle {
+            project_path,
+            global_path: PathBuf::from(config_dir).join("settings.json"),
+            scope: "env",
+        };
+    }
+
+    let scope = if project_path.exists() {
+        "project"
+    } else {
+        "global"
+    };
+
+    ConfigPathBundle {
+        project_path,
+        global_path,
+        scope,
+    }
 }
 
 fn writable_config_path(root: &str) -> PathBuf {

@@ -5,8 +5,14 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:app:allow-default-window-icon",
+    "core:window:allow-show",
+    "core:window:allow-unminimize",
+    "core:window:allow-set-focus",
     "shell:allow-execute",
     "shell:allow-open",
+    "dialog:allow-ask",
+    "dialog:allow-message",
     "partner-commands"
   ]
 }

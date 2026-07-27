@@ -442,31 +442,33 @@ fn dispatch_sidecar_line(
                 &input,
                 tool_approvals,
             )?;
-            app.emit(
-                "agent:stream:tool_result",
-                json!({
-                    "requestId": request_id,
-                    "instanceId": instance_id,
-                    "callId": call_id,
-                    "output": tool_result.pointer("/data/output").and_then(Value::as_str).unwrap_or_default(),
-                    "isError": tool_result.pointer("/data/isError").and_then(Value::as_bool).unwrap_or(false),
-                }),
-            )
-            .map_err(|error| error.to_string())?;
+            let mut tool_result_payload = json!({
+                "requestId": request_id,
+                "instanceId": instance_id,
+                "callId": call_id,
+                "output": tool_result.pointer("/data/output").and_then(Value::as_str).unwrap_or_default(),
+                "isError": tool_result.pointer("/data/isError").and_then(Value::as_bool).unwrap_or(false),
+            });
+            if let Some(file_change) = tool_result.pointer("/data/fileChange").cloned() {
+                tool_result_payload["fileChange"] = file_change;
+            }
+            app.emit("agent:stream:tool_result", tool_result_payload)
+                .map_err(|error| error.to_string())?;
             writer.write_json(&tool_result)?;
         }
         "tool_result" => {
-            app.emit(
-                "agent:stream:tool_result",
-                json!({
-                    "requestId": request_id,
-                    "instanceId": instance_id,
-                    "callId": event.pointer("/data/callId").and_then(Value::as_str).unwrap_or_default(),
-                    "output": event.pointer("/data/output").and_then(Value::as_str).unwrap_or_default(),
-                    "isError": event.pointer("/data/isError").and_then(Value::as_bool).unwrap_or(false),
-                }),
-            )
-            .map_err(|error| error.to_string())?;
+            let mut tool_result_payload = json!({
+                "requestId": request_id,
+                "instanceId": instance_id,
+                "callId": event.pointer("/data/callId").and_then(Value::as_str).unwrap_or_default(),
+                "output": event.pointer("/data/output").and_then(Value::as_str).unwrap_or_default(),
+                "isError": event.pointer("/data/isError").and_then(Value::as_bool).unwrap_or(false),
+            });
+            if let Some(file_change) = event.pointer("/data/fileChange").cloned() {
+                tool_result_payload["fileChange"] = file_change;
+            }
+            app.emit("agent:stream:tool_result", tool_result_payload)
+                .map_err(|error| error.to_string())?;
         }
         "tool_approval_required" => {
             let call_id = event
@@ -759,7 +761,22 @@ fn read_sidecar_node_mode(app: &AppHandle) -> Option<String> {
 }
 
 fn bundled_node_path(app: &AppHandle) -> Option<PathBuf> {
-    for rel in ["sidecar/node", "sidecar/bin/node"] {
+    let relatives: &[&str] = if cfg!(target_os = "windows") {
+        &[
+            "sidecar/node.exe",
+            "sidecar/bin/node.exe",
+            "sidecar/node",
+            "sidecar/bin/node",
+        ]
+    } else {
+        &[
+            "sidecar/node",
+            "sidecar/bin/node",
+            "sidecar/node.exe",
+            "sidecar/bin/node.exe",
+        ]
+    };
+    for rel in relatives {
         if let Ok(path) = app.path().resolve(rel, BaseDirectory::Resource) {
             if path.is_file() {
                 return Some(path);
@@ -791,13 +808,42 @@ fn system_node_candidates() -> Vec<PathBuf> {
         }
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        candidates.push(PathBuf::from("node.exe"));
+        if let Ok(program_files) = std::env::var("ProgramFiles") {
+            candidates.push(PathBuf::from(program_files).join("nodejs\\node.exe"));
+        }
+        if let Ok(program_files_x86) = std::env::var("ProgramFiles(x86)") {
+            candidates.push(PathBuf::from(program_files_x86).join("nodejs\\node.exe"));
+        }
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            candidates.push(PathBuf::from(local_app_data).join("Programs\\nodejs\\node.exe"));
+        }
+    }
+
     candidates.push(PathBuf::from("node"));
     candidates
 }
 
+fn node_command_available(program: &Path) -> bool {
+    Command::new(program)
+        .arg("-v")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
 fn resolve_node_program(app: &AppHandle) -> Result<String, String> {
     if let Ok(node) = std::env::var("PARTNER_NODE") {
-        if node == "node" || Path::new(&node).is_file() {
+        if node == "node"
+            || node == "node.exe"
+            || Path::new(&node).is_file()
+            || node_command_available(Path::new(&node))
+        {
             return Ok(node);
         }
     }
@@ -807,10 +853,7 @@ fn resolve_node_program(app: &AppHandle) -> Result<String, String> {
     }
 
     for candidate in system_node_candidates() {
-        if candidate == Path::new("node") {
-            continue;
-        }
-        if candidate.is_file() {
+        if candidate.is_file() || node_command_available(&candidate) {
             return Ok(candidate.to_string_lossy().to_string());
         }
     }

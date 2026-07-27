@@ -1,13 +1,20 @@
 mod commands;
+mod host;
+mod paths;
 mod sidecar;
 
+use commands::pty::PtyManager;
+use commands::workspace_watch::WorkspaceWatchManager;
+use host::HostHandle;
 use sidecar::SidecarManager;
+use std::sync::Arc;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 const MENU_OPEN_FOLDER: &str = "open_folder";
 const MENU_OPEN_SETTINGS: &str = "open_settings";
+const MENU_CLOSE_TAB: &str = "close_tab";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -23,21 +30,55 @@ pub fn run() {
                         return;
                     };
                     if let Some(path) = folder.as_path() {
-                        let _ = app_handle.emit(
-                            "workspace:open-folder",
-                            serde_json::json!({
-                                "path": path.to_string_lossy().to_string(),
-                            }),
-                        );
+                        let path = path.to_string_lossy().to_string();
+                        let app_handle = app_handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            if let (Some(host), Some(watch)) = (
+                                app_handle.try_state::<HostHandle>(),
+                                app_handle.try_state::<WorkspaceWatchManager>(),
+                            ) {
+                                let _ = host::open_workspace_path(
+                                    &app_handle,
+                                    host.inner(),
+                                    watch.inner(),
+                                    &path,
+                                )
+                                .await;
+                            }
+                            let _ = app_handle.emit(
+                                "host:event",
+                                serde_json::json!({
+                                    "kind": "menu",
+                                    "action": "open_folder",
+                                    "path": path,
+                                }),
+                            );
+                        });
                     }
                 });
             }
             MENU_OPEN_SETTINGS => {
+                let _ = app.emit(
+                    "host:event",
+                    serde_json::json!({ "kind": "menu", "action": "open_settings" }),
+                );
+                // Legacy channel kept for Shell HMR / mixed binary cutover.
                 let _ = app.emit("app:open-settings", ());
+            }
+            MENU_CLOSE_TAB => {
+                let _ = app.emit(
+                    "host:event",
+                    serde_json::json!({ "kind": "menu", "action": "close_tab" }),
+                );
+                let _ = app.emit("app:close-tab", ());
             }
             _ => {}
         })
         .setup(|app| {
+            let host = HostHandle::default();
+            host::install_host_bridges(&app.handle(), host.clone());
+            app.manage(host);
+
             let sidecar = SidecarManager::try_spawn(&app.handle());
             if let Ok(info) = sidecar.info() {
                 if !info.running {
@@ -51,40 +92,14 @@ pub fn run() {
                 }
             }
             app.manage(sidecar);
+            app.manage(Arc::new(PtyManager::default()));
+            app.manage(WorkspaceWatchManager::default());
             Ok(())
         })
+        // Hard cutover: Shell may only talk to Workbench Host.
         .invoke_handler(tauri::generate_handler![
-            commands::get_app_version,
-            commands::fs::read_file,
-            commands::fs::write_file,
-            commands::fs::append_file,
-            commands::fs::path_info,
-            commands::fs::list_dir,
-            commands::fs::search_files,
-            commands::fs::search_content,
-            commands::fs::replace_content,
-            commands::fs::git_status,
-            commands::shell::execute_shell,
-            commands::keychain::store_secret,
-            commands::keychain::get_secret,
-            commands::keychain::delete_secret,
-            commands::keychain::default_service_name,
-            commands::storage::storage_ping,
-            commands::storage::load_partner_sessions,
-            commands::storage::save_partner_sessions,
-            commands::agent::agent_run,
-            commands::agent::agent_abort,
-            commands::agent::agent_tool_approval,
-            commands::agent::sidecar_status,
-            commands::agent::inspect_llm_config,
-            commands::agent::save_vera_llm_config,
-            commands::agent::list_llm_providers,
-            commands::agent::list_llm_provider_models,
-            commands::agent::refresh_llm_provider_models,
-            commands::agent::test_llm_connection,
-            commands::lsp::lsp_start,
-            commands::lsp::lsp_stop,
-            commands::lsp::lsp_symbol_search,
+            host::host_boot,
+            host::host_dispatch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -117,6 +132,15 @@ fn build_menu(handle: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         "Settings…",
         true,
         Some("CmdOrCtrl+,"),
+    )?;
+    // Claim Cmd+W for tab close (settings included). Do not use
+    // PredefinedMenuItem::close_window — it steals Cmd+W on macOS.
+    let close_tab = MenuItem::with_id(
+        handle,
+        MENU_CLOSE_TAB,
+        "Close Tab",
+        true,
+        Some("CmdOrCtrl+W"),
     )?;
 
     Menu::with_items(
@@ -151,7 +175,7 @@ fn build_menu(handle: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
                     &open_settings,
                     #[cfg(not(target_os = "macos"))]
                     &PredefinedMenuItem::separator(handle)?,
-                    &PredefinedMenuItem::close_window(handle, None)?,
+                    &close_tab,
                     #[cfg(not(target_os = "macos"))]
                     &PredefinedMenuItem::quit(handle, None)?,
                 ],

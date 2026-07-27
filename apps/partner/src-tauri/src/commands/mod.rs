@@ -1,11 +1,8 @@
 pub mod agent;
 pub mod fs;
 pub mod keychain;
-pub mod lsp;
+pub mod pty;
+pub mod run_log;
 pub mod shell;
-pub mod storage;
-
-#[tauri::command]
-pub fn get_app_version() -> String {
-    env!("CARGO_PKG_VERSION").to_string()
-}
+pub mod storage_usage;
+pub mod workspace_watch;
