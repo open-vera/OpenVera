@@ -436,8 +436,8 @@ describe("useChatStore", () => {
     function openThree() {
       const chat = useChatStore();
       const first = chat.ensureActiveChatTab();
-      const second = chat.newTab("对话 2");
-      const third = chat.newTab("对话 3");
+      const second = chat.createChatTab();
+      const third = chat.createChatTab();
       return { chat, ids: [first, second, third] };
     }
 

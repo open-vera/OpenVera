@@ -63,4 +63,57 @@ describe("app-state host projection", () => {
       expect.objectContaining({ op: "host.app.replace_state" }),
     );
   });
+
+  describe("reorderOpenTabs", () => {
+    function session(id: string) {
+      return {
+        id,
+        projectId: null,
+        title: id,
+        messages: [],
+        createdAt: 1,
+        updatedAt: 1,
+      };
+    }
+
+    async function storeWithOpenTabs(ids: string[]) {
+      const { useAppStateStore } = await import("@/stores/app-state");
+      const store = useAppStateStore();
+      store.isLoaded = true;
+      // openTabIds only survive normalization when the session exists.
+      store.doc.sessions = Object.fromEntries(
+        ids.filter((id) => id !== "settings").map((id) => [id, session(id)]),
+      );
+      store.doc.openTabIds = [...ids];
+      hostCommand.mockClear();
+      return store;
+    }
+
+    it("applies a dragged tab order and persists it", async () => {
+      const store = await storeWithOpenTabs(["a", "b", "c"]);
+
+      store.reorderOpenTabs(["c", "a", "b"]);
+
+      expect(store.doc.openTabIds).toEqual(["c", "a", "b"]);
+      expect(hostCommand).toHaveBeenCalledWith(
+        expect.objectContaining({ op: "host.app.replace_state" }),
+      );
+    });
+
+    it("keeps ids the caller did not mention", async () => {
+      const store = await storeWithOpenTabs(["a", "b", "settings"]);
+
+      store.reorderOpenTabs(["b", "a"]);
+
+      expect(store.doc.openTabIds).toEqual(["b", "a", "settings"]);
+    });
+
+    it("does not persist an unchanged order", async () => {
+      const store = await storeWithOpenTabs(["a", "b"]);
+
+      store.reorderOpenTabs(["a", "b"]);
+
+      expect(hostCommand).not.toHaveBeenCalled();
+    });
+  });
 });

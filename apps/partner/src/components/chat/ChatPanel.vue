@@ -33,6 +33,13 @@ import SettingsPanel from "@/components/settings/SettingsPanel.vue";
 import { useAppStateStore } from "@/stores/app-state";
 import { buildUserMessageAnchors } from "@/utils/message-anchors";
 import { scrollTabIntoView } from "@/utils/scroll-tab-into-view";
+import {
+  activeTabDrag,
+  beginTabDrag,
+  clearTabDrag,
+  resolveTabReorderAt,
+  tabDropIndexAt,
+} from "@/utils/tab-dnd";
 
 const chat = useChatStore();
 const settings = useSettingsStore();
@@ -149,6 +156,32 @@ function runQueuedMessageNow(_messageId: string) {
 
 function tabTitle(tab: { kind: string; title: string }) {
   return tab.kind === "settings" ? uiText.value.settings : tab.title;
+}
+
+const tabDropIndex = ref<number | null>(null);
+
+function onTabDragStart(tabId: string, event: DragEvent) {
+  beginTabDrag("center", tabId, event.dataTransfer);
+}
+
+function onTabDragOver(event: DragEvent) {
+  if (!activeTabDrag()) return;
+  // Claim the drag so the webview shows a move affordance over the strip.
+  event.preventDefault();
+  tabDropIndex.value = tabDropIndexAt("center", event.clientX, event.clientY);
+}
+
+function onTabDragLeave() {
+  tabDropIndex.value = null;
+}
+
+function onTabDragEnd(event: DragEvent) {
+  tabDropIndex.value = null;
+  const reorder = resolveTabReorderAt("center", event.clientX, event.clientY);
+  clearTabDrag();
+  if (!reorder) return;
+  const order = chat.moveTab(reorder.tabId, reorder.insertionIndex);
+  if (order) appState.reorderOpenTabs(order);
 }
 
 function focusInputBar() {
@@ -313,9 +346,15 @@ watch(
 <template>
   <section class="chat-panel" data-shortcut-scope="center" data-chat-drop>
     <nav class="center-tabs" :aria-label="uiText.workspaceLabel">
-      <div ref="tabsScrollRef" class="center-tabs-scroll">
+      <div
+        ref="tabsScrollRef"
+        class="center-tabs-scroll"
+        data-tab-group="center"
+        @dragover="onTabDragOver"
+        @dragleave="onTabDragLeave"
+      >
         <button
-          v-for="tab in tabs"
+          v-for="(tab, index) in tabs"
           :key="tab.id"
           type="button"
           class="center-tab"
@@ -323,8 +362,13 @@ watch(
           :class="{
             active: tab.id === activeTab?.id,
             settings: tab.kind === 'settings',
+            'drop-before': tabDropIndex === index,
+            'drop-after': tabDropIndex === tabs.length && index === tabs.length - 1,
           }"
+          draggable="true"
           @click="selectTab(tab.id)"
+          @dragstart="onTabDragStart(tab.id, $event)"
+          @dragend="onTabDragEnd"
         >
           <svg
             v-if="tab.kind === 'settings'"
@@ -469,6 +513,24 @@ watch(
   max-width: 160px;
   padding: 0 10px;
   text-align: left;
+}
+
+.center-tab[draggable="true"] {
+  cursor: grab;
+}
+
+.center-tab[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+/* Insertion marker while dragging. Uses inset shadow because ::before is the
+   hover underline and ::after is the active-tab indicator on this element. */
+.center-tab.drop-before {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.center-tab.drop-after {
+  box-shadow: inset -2px 0 0 var(--accent);
 }
 
 .center-tab:hover,
