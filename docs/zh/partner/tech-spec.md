@@ -1,7 +1,9 @@
 # Partner — 技术方案文档
 
-> 版本：v0.1 · 2026-06-18 · 状态：草案  
-> 依赖文档：[PRD v0.7](./prd.md)
+> 版本：v0.2 · 2026-07-25 · 状态：部分过时  
+> **现行架构以 [host-architecture.md](./host-architecture.md) 为准**（Rust Workbench Host + Vue Shell + Node Extension Host）。  
+> 下文中「Orchestrator 在 WebView」「WASM 首选 Core」已废止，仅作历史参考。  
+> 依赖文档：[PRD v0.7](./prd.md) · [多项目布局方案](./multi-project-layout.md) · [Host 架构](./host-architecture.md)
 
 ---
 
@@ -95,12 +97,12 @@
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**关键设计决策**：
+**关键设计决策（已更新，见 [host-architecture.md](./host-architecture.md)）**：
 
-- Orchestrator 运行在 WebView 的 JS 线程中，不是独立进程
-- Agent Instance 同样运行在 WebView JS 线程（Worker 线程用于插件隔离）
-- 所有 OS 级别操作（文件、Shell、Keychain）通过 Tauri IPC 路由到 Rust
-- SQLite 通过 `tauri-plugin-sql` 在 Rust 侧读写，JS 侧通过 IPC 调用
+- ~~Orchestrator 运行在 WebView~~ → **Rust Workbench Host 拥有编排 / AppState / Workspace**
+- Vue Shell 只渲染投影；经 `host_boot` / `host_dispatch` / `host.patch` 通信
+- Node sidecar = Extension Host（Agent / LLM / LSP），由 Host 调度；**不上 WASM Core**
+- OS 操作（文件、Shell、Keychain、PTY）在 Rust 执行
 
 ### 2.2 目录结构
 

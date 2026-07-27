@@ -13,6 +13,21 @@ After each commit, append a summary to this file. Detailed content goes into `do
 
 | Date Batch | Summary | Detail |
 |---|---|---|
+| 2026-07-27 · 19:xx | feat(partner): Host 化落地 + turn 时序转录，修三个协议级缺陷 | [→](./changelog/2026-07-27-19-partner-host-turn-timeline.md) |
+| 2026-07-27 · 10:xx | fix(partner): 修复 ACL 拦截致功能大面积失效，历史迁移与死代码清理 | [→](./changelog/2026-07-27-10-partner-acl-recovery.md) |
+| 2026-07-25 · 17:xx | fix(partner): 大图附件自动压缩生成可预览缩略图 | [→](./changelog/2026-07-25-17-partner-image-compress.md) |
+| 2026-07-25 · 17:xx | feat(partner): VS Code 式 Workbench Host 推倒重来 | [→](./changelog/2026-07-25-17-partner-host.md) |
+| 2026-07-25 · 16:xx | fix(partner+core): 上下文用量对齐远端窗口，驱动本地压缩 | [→](./changelog/2026-07-25-16-partner-context-occupancy.md) |
+| 2026-07-25 · 16:xx | feat(partner): 底部终端 + 顶栏入口 + 会话 cwd | [→](./changelog/2026-07-25-16-partner-terminal.md) |
+| 2026-07-25 · 15:xx | feat(partner): 文件树右键（新建/显示/复制/剪切/重命名/删除） | [→](./changelog/2026-07-25-15-partner-file-ops.md) |
+| 2026-07-25 · 15:xx | feat(partner): 全局搜索（文件+会话，Cmd+P/侧栏共用） | [→](./changelog/2026-07-25-15-partner-quick-open.md) |
+| 2026-07-25 · 15:xx | feat(partner): Markdown 右键预览 | [→](./changelog/2026-07-25-15-partner-md-preview.md) |
+| 2026-07-25 · 15:xx | fix(partner): 模型下拉被输入栏裁切 | [→](./changelog/2026-07-25-15-partner-model-menu.md) |
+| 2026-07-25 · 15:xx | feat(partner): 上下文窗口圆环 + 运行统计 tooltip | [→](./changelog/2026-07-25-15-partner-context-usage.md) |
+| 2026-07-25 · 15:xx | feat(partner): 全局性能埋点（超时/卡死/掉帧） | [→](./changelog/2026-07-25-15-partner-perf.md) |
+| 2026-07-25 · 15:xx | feat(partner): 大模型设置对齐 Vera（改名/models/routing） | [→](./changelog/2026-07-25-15-partner-llm-align.md) |
+| 2026-07-25 · 14:xx | feat(partner): 多项目布局方案定稿 + P1 全局 app-state 数据层 | [→](./changelog/2026-07-25-14-multi-project.md) |
+| 2026-07-25 · 14:xx | ci(partner): PR 轻量检查 + tag/手动 macOS 打包 Release | [→](./changelog/2026-07-25-14-partner-ci.md) |
 | 2026-07-25 · 14:xx | feat(partner): 顶栏更紧凑、页签关闭交互、跟随主题隐藏通透度 | [→](./changelog/2026-07-25-14.md) |
 | 2026-07-25 · 12:xx | feat(partner): 主题/壁纸玻璃 UI、自定义色阶提取与浅色可读性 | [→](./changelog/2026-07-25-12.md) |
 | 2026-07-07 · 20:xx | feat(core+partner): OpenAI Responses API adapter，四层协议打通（core/sidecar/tauri/UI） | [→](./changelog/2026-07-07-20.md) |
