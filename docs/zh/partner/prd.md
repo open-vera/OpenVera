@@ -121,7 +121,7 @@ Partner 面向**所有人**，而不仅仅是技术人员。软件必须做到�
 │  │  长期记忆 (Long-term Memory)                    │    │
 │  │  SQLite 持久化 + 语义检索                       │    │
 │  │  按相关性召回 → findRelevantSegments() 按需注入 │    │
-│  │  实现: memory/memory-updater + storage/memory  │    │
+│  │  实现: memory/memory-updater + storage/memory-adapter│    │
 │  └──────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────┘
 ```
@@ -132,7 +132,7 @@ Partner 面向**所有人**，而不仅仅是技术人员。软件必须做到�
 |------|---------|------|
 | 工作记忆 | `context/window.ts` | `trimToWindow()` — 保留原始任务锚点 + 最近 N 轮，按 turn 粒度裁剪 |
 | 摘要记忆 | `context/compression.ts` | 分段压缩，每段提取 summary/decisions/findings/pending/topics（语义召回入口 `findRelevantSegments()`） |
-| 空闲压缩 | `context/idle-compression.ts` | 用户空闲时自动触发压缩（默认 314s），新用户输入可中断 |
+| 空闲压缩 | `context/idle-compression.ts` | `IdleCompressionTimer` 类 — 用户空闲时自动触发压缩（默认 314s），新用户输入可中断（`reset()`） |
 | 工具预算 | `context/tool-budget.ts` | 控制单条工具结果体积，防止工具输出撑爆上下文 |
 | 语义检索 | `compression.ts` | `findRelevantSegments()` — 从压缩段中按相关性召回 |
 
@@ -141,6 +141,7 @@ Partner 面向**所有人**，而不仅仅是技术人员。软件必须做到�
 - P0 直接复用 `@open-vera/core/context` 模块，无需重新实现
 - 如有必要，可将 context 模块抽象为独立的 **Context Manager Package**，供 Partner 和其他消费方共享
 - 长期记忆层复用 `memory/memory-updater` + `storage/memory-adapter`，通过 SQLite 持久化
+- 评估复用 Core `session/` 模块（`@open-vera/core/session`，含完整的会话生命周期与状态管理实现）作为隐式会话的底层支撑，避免完全自建
 
 #### 3.1.5 Agent 执行引擎
 
@@ -405,6 +406,12 @@ Partner (Tauri App)
 > 对于普通用户，日常使用时界面只有**中间对话流 + 按需预览**，左侧栏不会出现。
 > 文件树和 Git 变更仅在涉及开发项目时自然浮现，不增加普通用户的认知负担。
 
+**左侧栏显示机制**：左侧栏默认隐藏，满足以下条件时自动展开：
+- 用户主动打开项目文件夹
+- Agent 执行涉及文件读写的工具调用
+
+用户也可手动切换左侧栏的显示/隐藏。非开发场景下，界面保持纯粹的对话 + 预览体验。
+
 **右侧预览面板支持的格式**：
 
 | 类型 | 格式示例 | 说明 |
@@ -540,7 +547,7 @@ Partner (Tauri App)
 
 | # | 问题 | 决策 |
 |---|------|------|
-| 1 | OpenVera 集成方式 | WASM 直接调用，Rust 层零开销桥接 |
+| 1 | OpenVera 集成方式 | **目标** WASM 直接调用，Rust 层零开销桥接（待 Phase 2 spike 验证；不可行则回退 Node.js sidecar + IPC） |
 | 2 | 离线模型支持 | 暂不支持，仅在线 API |
 | 3 | 账号体系 | 暂不需要，纯本地 API Key 配置 |
 | 4 | 数据同步 | 暂不需要，单设备本地存储 |

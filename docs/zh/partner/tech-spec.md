@@ -380,6 +380,22 @@ Q1: OpenVera Core 的逻辑层（context/agent/plan/intent）能否脱离 @open-
               └─ 是 → 方案 A（WASM 直接调用）
 ```
 
+**ESM 依赖链风险分析**：
+
+Core 的 `package.json` 包含以下 Native/IO 依赖，可能通过 import 链污染目标编译模块：
+
+| 依赖包 | 类型 | 风险 | 验证方式 |
+|---------|------|------|----------|
+| `better-sqlite3` | Native addon | `storage/` 直接依赖，可能通过 `memory/` 间接拉入 | 检查 `agent/` → `memory/` → `storage/` import 链 |
+| `ink` + `react` | React 渲染栈 | `repl/` 依赖，逻辑层不应引用 | 检查 `agent/`/`plan/` 是否 import `repl/` |
+| `figlet` | 纯 JS | 仅 `main.ts` 启动时使用，风险低 | 确认不在逻辑层 import 图中 |
+| `@open-vera/plugin-runtime` | workspace 包 | `agent/` 直接依赖，需确认该包无 Native 依赖 | 检查 `plugin-runtime` 的依赖图 |
+
+**Spike 验证步骤**：
+1. 用 `esbuild --bundle --analyze` 分析 `context/`、`agent/`、`plan/` 的模块依赖图
+2. 确认逻辑层无任何 Native addon / Node.js built-in import
+3. 尝试用 `wasm-pack` 编译逻辑层，记录报错与解决成本
+
 ### 5.2 方案 A：WASM 直接调用（首选）
 
 ```
@@ -410,10 +426,13 @@ WASM 编译目标模块（仅逻辑层）：
 工具回调机制（WASM → Rust）：
 
 ```
-WASM 调 tool → 通过 wasm-bindgen extern JS → JS bridge → invoke Rust command
+WASM 调 tool → wasm-bindgen 绑定调用 JS 侧 __tool_dispatch() 函数
+  → JS 调用 @tauri-apps/api/core 的 invoke() 发送 Tauri IPC 请求
+  → Rust Command 执行工具 → 返回结果
+  → JS 侧将结果回传 WASM
 ```
 
-具体实现：在 WASM bindgen 绑定中注册 `__tool_dispatch` JS 函数，Agent 每次需要调用工具时同步调用该函数，由 Rust 执行后返回结果。
+具体实现：在 WASM bindgen 绑定中注册 `__tool_dispatch` JS 函数，Agent 每次需要调用工具时同步调用该函数。该函数内部通过 Tauri 的 `invoke()` API（而非 `wasm-bindgen` 的 `extern`）与 Rust 侧通信，因为工具执行需要 OS 级权限（文件、Shell 等），这些权限仅在 Tauri Rust Core 中具备。
 
 ### 5.3 方案 B：Node.js Sidecar（备选）
 
@@ -690,6 +709,21 @@ LIMIT 50;
 
 ---
 
+## 7.4 存储层复用策略
+
+Partner 的 SQLite 操作通过 `tauri-plugin-sql` 在 Rust 侧执行，而 Core 的 `storage/sqlite.ts` 和 `storage/memory-adapter.ts` 基于 `better-sqlite3`（Node.js Native addon）。两者不能直接复用，需明确边界：
+
+| 层 | 存储方案 | 说明 |
+|----|---------|------|
+| Partner 业务数据（messages、sessions、settings） | `tauri-plugin-sql`（Rust 侧） | Partner 自建 schema，不依赖 Core 存储 |
+| Core 长期记忆（memory_segments） | 复用 Core `memory-adapter` 接口，底层替换为 `tauri-plugin-sql` | 编写 `TauriMemoryAdapter` 实现 Core 的 `StorageAdapter` 接口，桥接 Tauri SQLite |
+| WASM 方案下 | Core 逻辑层不接触 SQLite，所有持久化通过回调由 JS/Rust 侧完成 | WASM 模块保持纯内存状态 |
+| Sidecar 方案下 | Core 可继续使用 `better-sqlite3`，Partner 业务数据仍走 `tauri-plugin-sql` | 两套 SQLite 实例，通过 IPC 同步 |
+
+**行动项**：Phase 2 需实现 `TauriMemoryAdapter`，将 Core 的 `MemoryStorageAdapter` 接口对接到 `tauri-plugin-sql`，确保 `memory-updater` 能透明工作。
+
+---
+
 ## 8. IPC 协议设计
 
 ### 8.1 Tauri Command 命名规范
@@ -786,9 +820,13 @@ Partner 直接复用 `@open-vera/core/context`，不重新实现。具体复用�
 | 模块 | 接口入口 | Partner 使用方式 |
 |------|---------|----------------|
 | `context/window.ts` | `trimToWindow(messages, opts)` | 每次发送前裁剪 |
-| `context/compression.ts` | `compressSegment(segment)` | 超阈值时压缩 |
-| `context/idle-compression.ts` | `IdleCompressor` 类 | 空闲 314s 自动触发 |
-| `context/tool-budget.ts` | `applyToolBudget(result)` | 工具输出截断 |
+| `context/compression.ts` | `compressMessages(messages, state, opts, adapter, model)` | 超阈值时压缩（主入口） |
+| `context/compression.ts` | `findRelevantSegments(state, query)` | 语义召回，按相关性检索压缩段 |
+| `context/compression.ts` | `microCompact(messages, state)` | 轻量压缩（不依赖 LLM） |
+| `context/compression.ts` | `createCompressionState()` | 初始化压缩状态 |
+| `context/idle-compression.ts` | `IdleCompressionTimer` 类 | 空闲 314s 自动触发，方法：`start()` / `reset()` / `destroy()` |
+| `context/tool-budget.ts` | `processToolResult(result, state)` | 单工具输出截断 |
+| `context/tool-budget.ts` | `enforcePerTurnBudget(state)` | 单轮累计预算控制 |
 
 ### 9.2 上下文构建流程
 
@@ -801,7 +839,7 @@ Partner 直接复用 `@open-vera/core/context`，不重新实现。具体复用�
 
 2. trimToWindow(messages, { maxTokens: contextWindowSize * 0.7 })
    └─ 保留 system prompt + 原始任务锚点 + 最近 N 轮
-   └─ 超出时触发 compressSegment
+   └─ 超出时触发 compressMessages
 
 3. 注入结构化摘要（summary/decisions/findings/pending）
 
@@ -812,21 +850,37 @@ Partner 直接复用 `@open-vera/core/context`，不重新实现。具体复用�
 
 ```typescript
 // orchestrator/agent-instance.ts
-class AgentInstance {
-  private idleCompressor: IdleCompressor
+import { IdleCompressionTimer } from '@open-vera/core/context'
+import type { IdleCompressionOptions } from '@open-vera/core/context'
 
-  constructor(sessionId: string) {
-    this.idleCompressor = new IdleCompressor({
+class AgentInstance {
+  private idleTimer: IdleCompressionTimer
+
+  constructor(sessionId: string, adapter: LLMAdapter, model: string) {
+    this.idleTimer = new IdleCompressionTimer({
       idleMs: 314_000,
-      onCompress: async (segments) => {
-        await this.persistMemorySegments(segments)
+      compression: { enabled: true, /* ... */ },
+      adapter,                              // LLM adapter，压缩时调用 LLM
+      model,                                // 压缩使用的模型名
+      onCompressed: async (result) => {
+        // OC7: 压缩完成后持久化结果
+        await this.persistMemorySegments(result.state)
+        await this.saveSessionMessages(result.messages)
+      },
+      onCancelled: () => {
+        // OC6: 用户输入中断时处理
       },
     })
   }
 
-  // 用户输入时重置空闲计时器
+  // Agent 响应完成后启动空闲计时
+  onResponseComplete(messages: Message[]) {
+    this.idleTimer.start(messages)
+  }
+
+  // 用户输入时重置空闲计时器（中断进行中的压缩）
   onUserInput() {
-    this.idleCompressor.interrupt()
+    this.idleTimer.reset()
   }
 }
 ```
@@ -882,8 +936,8 @@ class ToolRegistry {
 | `edit_file` | JS 端做字符串替换 → `write_file` | — |
 | `list_dir` | JS bridge → Tauri `fs_list_dir` | Rust `std::fs::read_dir` |
 | `bash` | JS bridge → Tauri `shell_execute` | Rust `Command::new` + sandbox |
-| `glob` | Rust 侧实现（glob crate） | — |
-| `grep` | Rust 侧实现（ripgrep 库） | — |
+| `glob` | 复用 Core TS 实现（`tools/glob.ts`） | JS 侧执行，通过 bridge 调用 |
+| `grep` | 复用 Core TS 实现（`tools/grep.ts`） | JS 侧执行，通过 bridge 调用 |
 | `browser` | Playwright via Node.js sidecar | — |
 | `web_search` | AnySearch Skill（Phase 4） | Tavily API + 百度 API |
 
@@ -1108,7 +1162,7 @@ import { vitePlugin as wasm } from '@wasm-tool/vite-plugin-wasm'
 
 | # | 风险 | 概率 | 影响 | 缓解措施 |
 |---|------|------|------|---------|
-| 1 | WASM 编译不可行 | 中 | 高 | Phase 2 立即做 spike；准备好 Node.js sidecar 方案，2 周内定案 |
+| 1 | WASM 编译不可行 | 中 | 高 | Phase 2 立即做 spike；准备好 Node.js sidecar 方案，2 周内定案。需重点验证 ESM 依赖链（`better-sqlite3`/`ink`/`react` 是否污染逻辑层，见 5.1） |
 | 2 | Tauri 2.x API 与现有 gateway-ui Vue 代码不兼容 | 低 | 中 | 提前搭骨架项目验证，bridge 层隔离 |
 | 3 | SQLite FTS5 中文分词效果差 | 中 | 中 | 接入 jieba-rs (Rust binding) 做预分词；或用 mmseg |
 | 4 | 多实例内存超 500MB | 中 | 中 | 强制 maxInstances=3；超限告警；AG 空闲内存释放策略 |
