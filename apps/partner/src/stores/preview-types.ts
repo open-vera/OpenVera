@@ -11,6 +11,8 @@ export type PreviewTab = {
   isDirty?: boolean;
   readOnly?: boolean;
   languageId?: PreviewLanguageId;
+  /** Source file size for image tabs; the data URL itself is ~33% larger. */
+  byteSize?: number;
 };
 
 const CODE_EXTENSIONS = new Set([
@@ -142,11 +144,7 @@ const BINARY_EXTENSIONS = new Set([
   "zip",
 ]);
 
-const BINARY_FILENAMES = new Set([
-  ".ds_store",
-  "thumbs.db",
-  "desktop.ini",
-]);
+const BINARY_FILENAMES = new Set([".ds_store", "thumbs.db", "desktop.ini"]);
 
 const CODE_FILENAMES = new Set([
   "license",
@@ -177,13 +175,34 @@ const CODE_FILENAME_PREFIXES = [
   "makefile.",
 ];
 
-export type FilePathKind = "code" | "binary" | "unknown";
+/**
+ * Raster formats the preview panel can render via a data URL.
+ * `svg` is deliberately absent — it stays text so it opens in the editor.
+ */
+const IMAGE_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "jpe",
+  "jfif",
+  "pjpeg",
+  "pjp",
+  "gif",
+  "webp",
+  "bmp",
+  "ico",
+  "avif",
+  "tif",
+  "tiff",
+]);
+
+export type FilePathKind = "code" | "image" | "binary" | "unknown";
 
 function fileNameFromPath(path: string): string {
   return path.split("/").pop()?.toLowerCase() ?? "";
 }
 
-/** Classify a path for preview: known text, known binary, or unrecognized. */
+/** Classify a path for preview: text, renderable image, binary, or unknown. */
 export function classifyFilePath(path: string): FilePathKind {
   const filename = fileNameFromPath(path);
   if (BINARY_FILENAMES.has(filename)) return "binary";
@@ -192,7 +211,13 @@ export function classifyFilePath(path: string): FilePathKind {
     return "code";
   }
   if (!filename.includes(".")) return "code";
+  // A leading-dot name with no further dot is a tool config, not an extension:
+  // `.prettierignore`, `.npmrc`, `.babelrc`, `.nvmrc`. Splitting on "." would
+  // yield "prettierignore" as the extension and land in `unknown`.
+  if (filename.startsWith(".") && !filename.slice(1).includes("."))
+    return "code";
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  if (IMAGE_EXTENSIONS.has(ext)) return "image";
   if (BINARY_EXTENSIONS.has(ext)) return "binary";
   if (CODE_EXTENSIONS.has(ext)) return "code";
   return "unknown";
@@ -202,6 +227,11 @@ export function isCodeFilePath(path: string): boolean {
   return classifyFilePath(path) === "code";
 }
 
+export function isImageFilePath(path: string): boolean {
+  return classifyFilePath(path) === "image";
+}
+
+/** True only for files with no preview at all (images are previewable). */
 export function isBinaryFilePath(path: string): boolean {
   return classifyFilePath(path) === "binary";
 }

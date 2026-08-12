@@ -36,7 +36,6 @@ export interface HostGitSummary {
 
 export interface HostProjectRuntime {
   entries: HostDirEntry[];
-  dirCache: Record<string, HostDirEntry[]>;
   gitChanges: HostGitChange[];
   gitSummary: HostGitSummary;
 }
@@ -71,6 +70,21 @@ export interface HostOrchestrator {
   maxConcurrency: number;
 }
 
+/** Sections a patch may leave out when the Shell's copy is already current. */
+export type HostStateSection = "sessions" | "projects" | "projectRuntime";
+
+export const HOST_PATCH_SECTIONS: readonly HostStateSection[] = [
+  "sessions",
+  "projects",
+  "projectRuntime",
+];
+
+export interface HostSectionRevisions {
+  sessions: number;
+  projects: number;
+  projectRuntime: number;
+}
+
 export interface HostState {
   protocolVersion: number;
   revision: number;
@@ -85,14 +99,36 @@ export interface HostState {
   projectRuntime: Record<string, HostProjectRuntime>;
   orchestrator: HostOrchestrator;
   booted: boolean;
+  sectionRevisions: HostSectionRevisions;
 }
+
+/**
+ * State document carried by a patch.
+ *
+ * The omittable sections are optional: a missing key means "unchanged, keep
+ * yours", which is only ever claimed via `HostPatch.omitted`.
+ */
+export type HostPatchState = Omit<HostState, HostStateSection> &
+  Partial<Pick<HostState, HostStateSection>>;
 
 export interface HostPatch {
   protocolVersion: number;
   revision: number;
   replace: boolean;
-  state: HostState;
+  /**
+   * Sections absent from `state` because the Host knows they did not change.
+   * An empty/missing list means `state` is complete, so an absent-and-unchanged
+   * section is never confused with a present-and-empty one.
+   */
+  omitted?: HostStateSection[];
+  state: HostPatchState;
 }
+
+/** What `applyPatch` needs: the patch minus the transport envelope. */
+export type HostPatchUpdate = Pick<
+  HostPatch,
+  "replace" | "revision" | "state" | "omitted"
+>;
 
 export interface HostCommandResult {
   ok: boolean;
@@ -107,11 +143,17 @@ export type HostCommand =
   | { op: "host.app.set_active_tab"; tabId: string | null }
   | { op: "host.app.open_tab"; tabId: string }
   | { op: "host.app.close_tab"; tabId: string }
+  | { op: "host.app.activate_session"; sessionId: string }
+  | { op: "host.app.reorder_tabs"; tabIds: string[] }
   | { op: "host.app.version" }
   | { op: "host.workspace.open"; path: string }
   | { op: "host.workspace.close"; projectId: string }
   | { op: "host.workspace.set_preview_project"; projectId: string | null }
-  | { op: "host.workspace.set_project_expanded"; projectId: string; expanded: boolean }
+  | {
+      op: "host.workspace.set_project_expanded";
+      projectId: string;
+      expanded: boolean;
+    }
   | { op: "host.workspace.list_dir"; path: string }
   | { op: "host.workspace.watch_dir"; path: string }
   | { op: "host.workspace.refresh_git"; projectId?: string | null }
@@ -171,6 +213,7 @@ export type HostCommand =
       workspaceRoot: string;
     }
   | { op: "host.lsp.stop"; languageId: string }
+  | { op: "host.lsp.status" }
   | {
       op: "host.lsp.symbol_search";
       workspaceRoot: string;
@@ -213,6 +256,7 @@ export type HostCommand =
   | { op: "host.fs.delete"; path: string }
   | { op: "host.fs.copy"; from: string; to: string }
   | { op: "host.fs.reveal"; path: string }
+  | { op: "host.fs.read_data_url"; path: string }
   | {
       op: "host.run_log.read";
       projectRoot: string;
@@ -232,7 +276,7 @@ export type HostCommand =
   | { op: "host.keychain.get"; service: string; key: string }
   | { op: "host.keychain.delete"; service: string; key: string }
   | { op: "host.keychain.default_service" }
-  | { op: "host.llm.inspect"; projectRoot?: string }
+  | { op: "host.llm.inspect"; projectRoot?: string; revealSecrets?: boolean }
   | { op: "host.llm.save"; projectRoot?: string; config: unknown }
   | {
       op: "host.llm.rename_provider";

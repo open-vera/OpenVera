@@ -11,6 +11,7 @@ import type {
 } from "../types/index.js";
 import type { ModelInfo } from "../types/model.js";
 import { createLogger } from "@open-vera/logger";
+import { resolveLlmRequestTimeoutMs } from "./timeouts.js";
 
 const log = createLogger("adapter:openai-responses");
 
@@ -26,46 +27,75 @@ type ResponseOutputItem = OpenAI.Responses.ResponseOutputItem;
 export class OpenAIResponsesAdapter implements LLMAdapter {
   private client: OpenAI;
 
-  constructor(apiKey?: string, baseUrl?: string, headers?: Record<string, string>) {
+  constructor(
+    apiKey?: string,
+    baseUrl?: string,
+    headers?: Record<string, string>
+  ) {
     this.client = new OpenAI({
       apiKey,
       baseURL: normalizeOpenAiBaseUrl(baseUrl),
       defaultHeaders: headers,
+      timeout: resolveLlmRequestTimeoutMs(),
     });
   }
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
     const startMs = Date.now();
     try {
-      const response = await this.client.responses.create({
+      const response = await this.client.responses.create(
+        {
         model: request.model,
         input: this.toResponseInput(request),
         tools: this.toResponseTools(request),
         store: false,
         ...(request.system ? { instructions: request.system } : {}),
-        ...(request.max_tokens != null ? { max_output_tokens: request.max_tokens } : {}),
-        ...(request.temperature != null ? { temperature: request.temperature } : {}),
+          ...(request.max_tokens != null
+            ? { max_output_tokens: request.max_tokens }
+            : {}),
+          ...(request.temperature != null
+            ? { temperature: request.temperature }
+            : {}),
+        },
+        // Without the signal a "stop" only flips a flag; the HTTP request runs
+        // to completion and the agent keeps spending tokens.
+        { signal: request.signal }
+      );
+      log.debug("complete done", {
+        model: request.model,
+        duration_ms: Date.now() - startMs,
+        usage: response.usage,
       });
-      log.debug("complete done", { model: request.model, duration_ms: Date.now() - startMs, usage: response.usage });
       return this.fromResponse(response);
     } catch (err) {
-      log.warn("complete failed", { model: request.model, duration_ms: Date.now() - startMs, error: String(err) });
+      log.warn("complete failed", {
+        model: request.model,
+        duration_ms: Date.now() - startMs,
+        error: String(err),
+      });
       throw err;
     }
   }
 
   async *stream(request: CompletionRequest): AsyncIterable<StreamEvent> {
     const startMs = Date.now();
-    const apiStream = await this.client.responses.create({
+    const apiStream = await this.client.responses.create(
+      {
       model: request.model,
       input: this.toResponseInput(request),
       tools: this.toResponseTools(request),
       store: false,
       stream: true,
       ...(request.system ? { instructions: request.system } : {}),
-      ...(request.max_tokens != null ? { max_output_tokens: request.max_tokens } : {}),
-      ...(request.temperature != null ? { temperature: request.temperature } : {}),
-    });
+        ...(request.max_tokens != null
+          ? { max_output_tokens: request.max_tokens }
+          : {}),
+        ...(request.temperature != null
+          ? { temperature: request.temperature }
+          : {}),
+      },
+      { signal: request.signal }
+    );
 
     let sawToolCall = false;
     let stopReason: StopReason = "end_turn";
@@ -98,7 +128,10 @@ export class OpenAIResponsesAdapter implements LLMAdapter {
               input_tokens: response.usage.input_tokens,
               output_tokens: response.usage.output_tokens,
               ...(response.usage.output_tokens_details?.reasoning_tokens != null
-                ? { reasoning_tokens: response.usage.output_tokens_details.reasoning_tokens }
+                ? {
+                    reasoning_tokens:
+                      response.usage.output_tokens_details.reasoning_tokens,
+                  }
                 : {}),
             };
           }
@@ -108,7 +141,8 @@ export class OpenAIResponsesAdapter implements LLMAdapter {
           break;
         }
         case "response.failed": {
-          const message = event.response.error?.message ?? "OpenAI response failed";
+          const message =
+            event.response.error?.message ?? "OpenAI response failed";
           throw new Error(message);
         }
         case "error":
@@ -121,7 +155,11 @@ export class OpenAIResponsesAdapter implements LLMAdapter {
       stop_reason: sawToolCall ? "tool_use" : stopReason,
       ...(usage ? { usage } : {}),
     };
-    log.debug("stream done", { model: request.model, duration_ms: Date.now() - startMs, usage });
+    log.debug("stream done", {
+      model: request.model,
+      duration_ms: Date.now() - startMs,
+      usage,
+    });
   }
 
   async listModels(): Promise<ModelInfo[]> {
@@ -147,7 +185,10 @@ export class OpenAIResponsesAdapter implements LLMAdapter {
       }
       if (msg.role === "assistant") {
         const text = msg.content
-          .filter((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text")
+          .filter(
+            (p): p is Extract<ContentPart, { type: "text" }> =>
+              p.type === "text"
+          )
           .map((p) => p.text)
           .join("");
         if (text) items.push({ role: "assistant", content: text });
@@ -183,7 +224,7 @@ export class OpenAIResponsesAdapter implements LLMAdapter {
   }
 
   private toResponseTools(
-    request: CompletionRequest,
+    request: CompletionRequest
   ): OpenAI.Responses.Tool[] | undefined {
     const tools = (request.tools ?? []).map((t) => ({
       type: "function" as const,
@@ -195,7 +236,9 @@ export class OpenAIResponsesAdapter implements LLMAdapter {
     return tools.length > 0 ? tools : undefined;
   }
 
-  private fromResponse(response: OpenAI.Responses.Response): CompletionResponse {
+  private fromResponse(
+    response: OpenAI.Responses.Response
+  ): CompletionResponse {
     const parts: ContentPart[] = [];
 
     for (const item of response.output ?? []) {
@@ -204,7 +247,10 @@ export class OpenAIResponsesAdapter implements LLMAdapter {
 
     const sawToolCall = parts.some((p) => p.type === "tool_call");
     let stopReason: StopReason = sawToolCall ? "tool_use" : "end_turn";
-    if (!sawToolCall && response.incomplete_details?.reason === "max_output_tokens") {
+    if (
+      !sawToolCall &&
+      response.incomplete_details?.reason === "max_output_tokens"
+    ) {
       stopReason = "max_tokens";
     }
 
@@ -224,14 +270,20 @@ export class OpenAIResponsesAdapter implements LLMAdapter {
             input_tokens: response.usage.input_tokens,
             output_tokens: response.usage.output_tokens,
             ...(response.usage.output_tokens_details?.reasoning_tokens != null
-              ? { reasoning_tokens: response.usage.output_tokens_details.reasoning_tokens }
+              ? {
+                  reasoning_tokens:
+                    response.usage.output_tokens_details.reasoning_tokens,
+                }
               : {}),
           }
         : undefined,
     };
   }
 
-  private collectOutputItem(item: ResponseOutputItem, parts: ContentPart[]): void {
+  private collectOutputItem(
+    item: ResponseOutputItem,
+    parts: ContentPart[]
+  ): void {
     if (item.type === "message") {
       for (const content of item.content) {
         if (content.type === "output_text" && content.text) {

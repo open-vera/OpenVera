@@ -32,7 +32,9 @@ function normalizeTab(value: unknown): PreviewTab | null {
   ) {
     return null;
   }
-  if (!["html", "pdf", "image", "media", "code", "markdown"].includes(value.kind)) {
+  if (
+    !["html", "pdf", "image", "media", "code", "markdown"].includes(value.kind)
+  ) {
     return null;
   }
   return {
@@ -42,10 +44,16 @@ function normalizeTab(value: unknown): PreviewTab | null {
     source: value.source,
     ...(typeof value.filePath === "string" ? { filePath: value.filePath } : {}),
     ...(typeof value.content === "string" ? { content: value.content } : {}),
-    ...(typeof value.savedContent === "string" ? { savedContent: value.savedContent } : {}),
+    ...(typeof value.savedContent === "string"
+      ? { savedContent: value.savedContent }
+      : {}),
     ...(typeof value.isDirty === "boolean" ? { isDirty: value.isDirty } : {}),
-    ...(typeof value.readOnly === "boolean" ? { readOnly: value.readOnly } : {}),
-    ...(typeof value.languageId === "string" ? { languageId: value.languageId } : {}),
+    ...(typeof value.readOnly === "boolean"
+      ? { readOnly: value.readOnly }
+      : {}),
+    ...(typeof value.languageId === "string"
+      ? { languageId: value.languageId }
+      : {}),
   } as PreviewTab;
 }
 
@@ -58,7 +66,7 @@ function parseSnapshot(value: unknown): PreviewSnapshot | null {
     typeof value.activeTabId === "string" &&
     tabs.some((tab) => tab.id === value.activeTabId)
       ? value.activeTabId
-      : tabs[0]?.id ?? null;
+      : (tabs[0]?.id ?? null);
   return {
     version: SNAPSHOT_VERSION,
     activeTabId,
@@ -106,6 +114,17 @@ export const usePreviewStore = defineStore("preview", {
       this.requestReveal();
       return true;
     },
+    /** Focus an already-open preview tab for this path, code or image. */
+    focusFile(filePath: string): boolean {
+      const existing = this.tabs.find(
+        (item) =>
+          item.id === `code:${filePath}` || item.id === `image:${filePath}`
+      );
+      if (!existing) return false;
+      this.activeTabId = existing.id;
+      this.requestReveal();
+      return true;
+    },
     openCodeFile(filePath: string, content: string) {
       const id = `code:${filePath}`;
       const existing = this.tabs.find((item) => item.id === id);
@@ -145,6 +164,28 @@ export const usePreviewStore = defineStore("preview", {
     /** Preview an in-memory image (e.g. pasted/attached chat image). */
     openImagePreview(options: { id?: string; name: string; dataUrl: string }) {
       this.openImageLightbox(options.dataUrl, options.name || "");
+    },
+    /** Open an image file from disk as a preview tab. `dataUrl` may be empty. */
+    openImageFile(filePath: string, dataUrl: string, byteSize?: number) {
+      const title = filePath.split("/").pop() ?? filePath;
+      this.openTab({
+        id: `image:${filePath}`,
+        title,
+        kind: "image",
+        source: filePath,
+        filePath,
+        content: dataUrl,
+        isDirty: false,
+        readOnly: true,
+        ...(byteSize === undefined ? {} : { byteSize }),
+      });
+    },
+    /** Fill in a restored image tab whose data URL was dropped on persist. */
+    setImageFileContent(filePath: string, dataUrl: string, byteSize?: number) {
+      const tab = this.tabs.find((item) => item.id === `image:${filePath}`);
+      if (!tab || tab.kind !== "image") return;
+      tab.content = dataUrl;
+      if (byteSize !== undefined) tab.byteSize = byteSize;
     },
     updateCodeFileContent(filePath: string, content: string) {
       const tab = this.tabs.find((item) => item.id === `code:${filePath}`);
@@ -190,8 +231,14 @@ export const usePreviewStore = defineStore("preview", {
     exportSnapshot(): PreviewSnapshot {
       return {
         version: SNAPSHOT_VERSION,
+        // Image data URLs are megabytes each and would bloat the persisted
+        // app-state; the tab is re-read from `filePath` when it becomes active.
+        tabs: this.tabs.map((tab) =>
+          tab.kind === "image" && tab.filePath
+            ? { ...tab, content: "" }
+            : { ...tab }
+        ),
         activeTabId: this.activeTabId,
-        tabs: this.tabs.map((tab) => ({ ...tab })),
       };
     },
     restoreSnapshot(snapshot: unknown): boolean {

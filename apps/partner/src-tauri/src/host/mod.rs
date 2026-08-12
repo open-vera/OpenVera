@@ -12,7 +12,7 @@ mod workspace;
 use std::sync::{Arc, Mutex};
 
 use protocol::{HostCommand, HostCommandResult, HostPatch, HOST_PATCH_EVENT};
-use state::HostState;
+use state::{HostState, SectionRevisions};
 use tauri::{AppHandle, Emitter, Listener, Manager, State};
 
 use crate::commands::pty::PtyManager;
@@ -46,14 +46,36 @@ impl HostHandle {
     }
 }
 
+/// Section revisions the Shell has already received.
+///
+/// There is exactly one Host per process, so a module-level cursor is enough;
+/// [`HostPatch::build`] stays a pure function so patch shaping is testable
+/// without touching this.
+static EMITTED_SECTIONS: Mutex<Option<SectionRevisions>> = Mutex::new(None);
+
+/// Forget what the Shell has, so the next patch carries every section again.
+///
+/// Needed whenever a fresh (or reloaded) Shell starts from an empty doc.
+pub fn reset_patch_cursor() {
+    if let Ok(mut cursor) = EMITTED_SECTIONS.lock() {
+        *cursor = None;
+    }
+}
+
 pub fn emit_state_patch(app: &AppHandle, state: &HostState, replace: bool) {
-    let patch = HostPatch {
-        protocol_version: protocol::HOST_PROTOCOL_VERSION,
-        revision: state.revision,
-        replace,
-        state: serde_json::to_value(state).unwrap_or_default(),
+    let patch = {
+        // Scoped: `app.emit` can run Rust listeners inline, and a listener that
+        // emits its own patch would deadlock on this cursor.
+        let cursor = EMITTED_SECTIONS.lock().expect("host patch cursor poisoned");
+        HostPatch::build(state, replace, cursor.as_ref())
     };
-    let _ = app.emit(HOST_PATCH_EVENT, patch);
+    if app.emit(HOST_PATCH_EVENT, patch).is_ok() {
+        // Advance only once the Shell has actually been handed the sections;
+        // advancing on a failed emit would keep them omitted, hence stale.
+        if let Ok(mut cursor) = EMITTED_SECTIONS.lock() {
+            *cursor = Some(state.section_revisions);
+        }
+    }
 }
 
 pub fn boot_host(app: &AppHandle, host: &HostHandle) -> Result<HostState, String> {
@@ -63,6 +85,7 @@ pub fn boot_host(app: &AppHandle, host: &HostHandle) -> Result<HostState, String
         state.bump();
         Ok::<HostState, String>(state.clone())
     })?;
+    reset_patch_cursor();
     host.emit_patch(app, true);
     Ok(snapshot)
 }
@@ -88,8 +111,9 @@ pub fn install_host_bridges(app: &AppHandle, host: HostHandle) {
         let host = host_fs.clone();
         let app = app_fs.clone();
         tauri::async_runtime::spawn(async move {
-            workspace::handle_fs_changed_unlocked(&app, &host, &root, &paths).await;
-            host.emit_patch(&app, true);
+            if workspace::handle_fs_changed_unlocked(&app, &host, &root, &paths).await {
+                host.emit_patch(&app, true);
+            }
         });
     });
 

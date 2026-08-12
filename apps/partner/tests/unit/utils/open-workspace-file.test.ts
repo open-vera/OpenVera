@@ -21,7 +21,10 @@ describe("openWorkspaceFile", () => {
     expect(confirm).not.toHaveBeenCalled();
     expect(alert).not.toHaveBeenCalled();
     expect(readFile).toHaveBeenCalledWith("/workspace/app.ts");
-    expect(openCodeFile).toHaveBeenCalledWith("/workspace/app.ts", "const x = 1;\n");
+    expect(openCodeFile).toHaveBeenCalledWith(
+      "/workspace/app.ts",
+      "const x = 1;\n"
+    );
   });
 
   it("rejects known binary files with an alert", async () => {
@@ -31,7 +34,7 @@ describe("openWorkspaceFile", () => {
     const confirm = vi.fn(() => true);
     const alert = vi.fn();
 
-    const opened = await openWorkspaceFile("/workspace/icon.png", {
+    const opened = await openWorkspaceFile("/workspace/archive.zip", {
       readFile,
       openCodeFile,
       focusExisting,
@@ -45,6 +48,65 @@ describe("openWorkspaceFile", () => {
     expect(confirm).not.toHaveBeenCalled();
     expect(readFile).not.toHaveBeenCalled();
     expect(openCodeFile).not.toHaveBeenCalled();
+  });
+
+  it("opens images through the data-url reader without prompting", async () => {
+    const readFile = vi.fn(async () => "bin");
+    const readFileDataUrl = vi.fn(async () => ({
+      dataUrl: "data:image/png;base64,AAA",
+      bytes: 3,
+    }));
+    const openCodeFile = vi.fn();
+    const openImageFile = vi.fn();
+    const focusExisting = vi.fn(() => false);
+    const confirm = vi.fn(() => false);
+    const alert = vi.fn();
+
+    const opened = await openWorkspaceFile("/workspace/icon.png", {
+      readFile,
+      readFileDataUrl,
+      openCodeFile,
+      openImageFile,
+      focusExisting,
+      confirm,
+      alert,
+    });
+
+    expect(opened).toBe(true);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(alert).not.toHaveBeenCalled();
+    expect(readFile).not.toHaveBeenCalled();
+    expect(openCodeFile).not.toHaveBeenCalled();
+    expect(readFileDataUrl).toHaveBeenCalledWith("/workspace/icon.png");
+    expect(openImageFile).toHaveBeenCalledWith(
+      "/workspace/icon.png",
+      "data:image/png;base64,AAA",
+      3
+    );
+  });
+
+  it("alerts when an image cannot be read", async () => {
+    const readFileDataUrl = vi.fn(async () => {
+      throw new Error("file too large");
+    });
+    const openImageFile = vi.fn();
+    const focusExisting = vi.fn(() => false);
+    const confirm = vi.fn(() => true);
+    const alert = vi.fn();
+
+    const opened = await openWorkspaceFile("/workspace/shot.webp", {
+      readFileDataUrl,
+      openImageFile,
+      focusExisting,
+      confirm,
+      alert,
+    });
+
+    expect(opened).toBe(false);
+    expect(openImageFile).not.toHaveBeenCalled();
+    expect(alert).toHaveBeenCalledOnce();
+    expect(String(alert.mock.calls[0]?.[0])).toContain("无法预览图片");
+    expect(String(alert.mock.calls[0]?.[0])).toContain("file too large");
   });
 
   it("rejects .DS_Store as binary with an alert", async () => {
@@ -110,9 +172,12 @@ describe("openWorkspaceFile", () => {
     expect(opened).toBe(true);
     expect(confirm).toHaveBeenCalledOnce();
     expect(confirm).toHaveBeenCalledWith(
-      expect.stringContaining("是否尝试以文本方式打开"),
+      expect.stringContaining("是否尝试以文本方式打开")
     );
-    expect(openCodeFile).toHaveBeenCalledWith("/workspace/weird.foo", "not really text");
+    expect(openCodeFile).toHaveBeenCalledWith(
+      "/workspace/weird.foo",
+      "not really text"
+    );
   });
 
   it("cancels when user declines unknown-type prompt", async () => {

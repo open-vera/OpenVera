@@ -66,13 +66,13 @@ export function lspPackageRoots(moduleUrl = import.meta.url): string[] {
  * package resolution from the sidecar install, then null (caller may fall back to PATH).
  */
 export function resolveTypescriptLanguageServerCli(
-  moduleUrl = import.meta.url,
+  moduleUrl = import.meta.url
 ): string | null {
   const candidates: string[] = [];
 
   for (const root of lspPackageRoots(moduleUrl)) {
     candidates.push(
-      join(root, "node_modules", "typescript-language-server", "lib", "cli.mjs"),
+      join(root, "node_modules", "typescript-language-server", "lib", "cli.mjs")
     );
   }
 
@@ -149,4 +149,5 @@ export type ActiveProxy = {
   port: number;
   child: ChildProcess;
   close: () => void;
+  startedAt: number;
 };

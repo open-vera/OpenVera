@@ -52,9 +52,7 @@ pub async fn open_project_unlocked(
     let entries = list_dir(root.clone()).await?;
     let views = to_views(&root, entries);
     host.with_mut(|state| {
-        let runtime = state.ensure_runtime(&project_id);
-        runtime.entries = views.clone();
-        runtime.dir_cache.insert(root.clone(), views);
+        state.ensure_runtime(&project_id).entries = views;
     });
 
     watch.start(app.clone(), root.clone())?;
@@ -81,13 +79,13 @@ pub async fn list_directory_unlocked(
     });
 
     if let Some((project_id, root_path)) = project {
-        host.with_mut(|state| {
-            let runtime = state.ensure_runtime(&project_id);
-            runtime.dir_cache.insert(dir.clone(), views.clone());
-            if root_path == dir {
-                runtime.entries = views.clone();
-            }
-        });
+        // Only the root listing is projected into Host state; deeper levels stay
+        // in the command result so expanding a folder costs no state broadcast.
+        if root_path == dir {
+            host.with_mut(|state| {
+                state.ensure_runtime(&project_id).entries = views.clone();
+            });
+        }
         let _ = watch.watch_dir(dir);
     }
 
@@ -194,43 +192,40 @@ pub fn emit_domain(app: &AppHandle, event: HostDomainEvent) {
     let _ = app.emit(HOST_EVENT, event);
 }
 
+/// Returns `true` when Host state changed and the Shell needs a state patch.
 pub async fn handle_fs_changed_unlocked(
     app: &AppHandle,
     host: &HostHandle,
     root: &str,
     paths: &[String],
-) {
+) -> bool {
     let project = host.with_mut(|state: &mut HostState| {
         state
             .project_by_root(root)
             .map(|p| (p.id.clone(), p.root_path.clone()))
     });
     let Some((project_id, root_path)) = project else {
-        return;
+        return false;
     };
     let root_norm = normalize_path(&root_path);
-    for path in paths {
-        let path = normalize_path(path);
-        if path == root_norm {
-            if let Ok(entries) = list_dir(root_path.clone()).await {
-                let views = to_views(&root_path, entries);
-                host.with_mut(|state| {
-                    let runtime = state.ensure_runtime(&project_id);
-                    runtime.entries = views.clone();
-                    runtime.dir_cache.insert(root_norm.clone(), views);
-                });
-            }
-        } else if let Ok(entries) = list_dir(path.clone()).await {
-            let views = to_views(&path, entries);
-            host.with_mut(|state| {
-                state
-                    .ensure_runtime(&project_id)
-                    .dir_cache
-                    .insert(path, views);
+    // Only the root listing lives in Host state; deeper levels are owned by the
+    // tree component, which re-lists them on demand.
+    let root_changed = paths.iter().any(|path| normalize_path(path) == root_norm);
+    let mut changed = false;
+    if root_changed {
+        if let Ok(entries) = list_dir(root_path.clone()).await {
+            let views = to_views(&root_path, entries);
+            changed = host.with_mut(|state| {
+                let runtime = state.ensure_runtime(&project_id);
+                if runtime.entries == views {
+                    return false;
+                }
+                runtime.entries = views;
+                state.bump();
+                true
             });
         }
     }
-    host.with_mut(|state| state.bump());
     emit_domain(
         app,
         HostDomainEvent::WorkspaceFsChanged {
@@ -238,4 +233,5 @@ pub async fn handle_fs_changed_unlocked(
             paths: paths.to_vec(),
         },
     );
+    changed
 }

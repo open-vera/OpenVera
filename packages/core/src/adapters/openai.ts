@@ -11,6 +11,7 @@ import type {
 } from "../types/index.js";
 import type { ModelInfo } from "../types/model.js";
 import { createLogger } from "@open-vera/logger";
+import { resolveLlmRequestTimeoutMs } from "./timeouts.js";
 
 const log = createLogger("adapter:openai");
 
@@ -19,15 +20,20 @@ export function mapOpenAiUsage(raw: unknown): Usage | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const usage = raw as Record<string, unknown>;
   const inputTokens = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0);
-  const outputTokens = Number(usage.completion_tokens ?? usage.output_tokens ?? 0);
-  if (!Number.isFinite(inputTokens) && !Number.isFinite(outputTokens)) return undefined;
+  const outputTokens = Number(
+    usage.completion_tokens ?? usage.output_tokens ?? 0
+  );
+  if (!Number.isFinite(inputTokens) && !Number.isFinite(outputTokens))
+    return undefined;
 
   const promptDetails =
-    usage.prompt_tokens_details && typeof usage.prompt_tokens_details === "object"
+    usage.prompt_tokens_details &&
+    typeof usage.prompt_tokens_details === "object"
       ? (usage.prompt_tokens_details as Record<string, unknown>)
       : undefined;
   const completionDetails =
-    usage.completion_tokens_details && typeof usage.completion_tokens_details === "object"
+    usage.completion_tokens_details &&
+    typeof usage.completion_tokens_details === "object"
       ? (usage.completion_tokens_details as Record<string, unknown>)
       : undefined;
 
@@ -36,13 +42,13 @@ export function mapOpenAiUsage(raw: unknown): Usage | undefined {
     usage.cache_read_input_tokens ??
       usage.prompt_cache_hit_tokens ??
       promptDetails?.cached_tokens ??
-      0,
+      0
   );
   const cacheWrite = Number(
-    usage.cache_creation_input_tokens ?? usage.cache_write_input_tokens ?? 0,
+    usage.cache_creation_input_tokens ?? usage.cache_write_input_tokens ?? 0
   );
   const reasoning = Number(
-    usage.reasoning_tokens ?? completionDetails?.reasoning_tokens ?? 0,
+    usage.reasoning_tokens ?? completionDetails?.reasoning_tokens ?? 0
   );
 
   const mapped: Usage = {
@@ -66,28 +72,46 @@ export function mapOpenAiUsage(raw: unknown): Usage | undefined {
 export class OpenAIAdapter implements LLMAdapter {
   private client: OpenAI;
 
-  constructor(apiKey?: string, baseUrl?: string, headers?: Record<string, string>) {
+  constructor(
+    apiKey?: string,
+    baseUrl?: string,
+    headers?: Record<string, string>
+  ) {
     this.client = new OpenAI({
       apiKey,
       baseURL: normalizeOpenAiBaseUrl(baseUrl),
       defaultHeaders: headers,
+      timeout: resolveLlmRequestTimeoutMs(),
     });
   }
 
   async complete(request: CompletionRequest): Promise<CompletionResponse> {
     const startMs = Date.now();
     try {
-      const response = await this.client.chat.completions.create({
+      const response = await this.client.chat.completions.create(
+        {
         model: request.model,
         max_tokens: request.max_tokens,
         temperature: request.temperature,
         messages: this.toOpenAIMessages(request),
         tools: this.toOpenAITools(request),
+        },
+        // Without the signal a "stop" only flips a flag; the HTTP request runs
+        // to completion and the agent keeps spending tokens.
+        { signal: request.signal }
+      );
+      log.debug("complete done", {
+        model: request.model,
+        duration_ms: Date.now() - startMs,
+        usage: response.usage,
       });
-      log.debug("complete done", { model: request.model, duration_ms: Date.now() - startMs, usage: response.usage });
       return this.fromOpenAIResponse(response);
     } catch (err) {
-      log.warn("complete failed", { model: request.model, duration_ms: Date.now() - startMs, error: String(err) });
+      log.warn("complete failed", {
+        model: request.model,
+        duration_ms: Date.now() - startMs,
+        error: String(err),
+      });
       throw err;
     }
   }
@@ -100,7 +124,8 @@ export class OpenAIAdapter implements LLMAdapter {
       { id: string; name: string; arguments: string }
     > = {};
 
-    const apiStream = await this.client.chat.completions.create({
+    const apiStream = await this.client.chat.completions.create(
+      {
       model: request.model,
       max_tokens: request.max_tokens,
       temperature: request.temperature,
@@ -108,7 +133,9 @@ export class OpenAIAdapter implements LLMAdapter {
       tools: this.toOpenAITools(request),
       stream: true,
       stream_options: { include_usage: true },
-    });
+      },
+      { signal: request.signal }
+    );
 
     let finishReason: string | null = null;
     let usage: Usage | undefined;
@@ -128,7 +155,10 @@ export class OpenAIAdapter implements LLMAdapter {
 
         // DeepSeek / OpenAI-compatible reasoning_content
         const deltaAny = delta as Record<string, unknown> | undefined;
-        if (typeof deltaAny?.reasoning_content === "string" && deltaAny.reasoning_content) {
+        if (
+          typeof deltaAny?.reasoning_content === "string" &&
+          deltaAny.reasoning_content
+        ) {
           yield { type: "thinking", text: deltaAny.reasoning_content };
         }
 
@@ -161,7 +191,11 @@ export class OpenAIAdapter implements LLMAdapter {
       stop_reason: finishReason === "tool_calls" ? "tool_use" : "end_turn",
       usage,
     };
-    log.debug("stream done", { model: request.model, duration_ms: Date.now() - startMs, usage });
+    log.debug("stream done", {
+      model: request.model,
+      duration_ms: Date.now() - startMs,
+      usage,
+    });
   }
 
   async listModels(): Promise<ModelInfo[]> {

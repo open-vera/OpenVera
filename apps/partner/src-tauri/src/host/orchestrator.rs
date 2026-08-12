@@ -203,24 +203,25 @@ pub fn abort_session(
     sidecar: &SidecarManager,
     session_id: &str,
 ) -> Result<(), String> {
-    let should_abort = host.with_mut(|state| {
+    host.with_mut(|state| {
         state.orchestrator.queue.retain(|t| t.session_id != session_id);
-        let running = state.orchestrator.running_session_id.as_deref() == Some(session_id);
-        if running {
+        if state.orchestrator.running_session_id.as_deref() == Some(session_id) {
             state.orchestrator.running_session_id = None;
             state.orchestrator.running_request_id = None;
         }
         state.bump();
-        running
     });
-    if should_abort {
-        let request_id = Uuid::new_v4().to_string();
-        sidecar.write_json(&json!({
-            "id": request_id,
-            "method": "agent.abort",
-            "params": { "sessionId": session_id },
-        }))?;
-    }
+
+    // Always forward the abort, even when the host no longer believes this
+    // session is running: after a sidecar restart or a lost `done` event the
+    // bookkeeping drifts, and a stop click must still reach the agent. The
+    // sidecar side is idempotent (unknown session is a no-op).
+    let request_id = Uuid::new_v4().to_string();
+    sidecar.write_json(&json!({
+        "id": request_id,
+        "method": "agent.abort",
+        "params": { "sessionId": session_id },
+    }))?;
     Ok(())
 }
 

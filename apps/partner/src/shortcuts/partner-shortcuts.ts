@@ -50,9 +50,11 @@ export const PARTNER_SHORTCUTS: Record<ShortcutId, ShortcutDefinition> = {
     description: "Create a new chat session for the current project.",
     run: ({ chat }) => {
       const appState = useAppStateStore();
-      const id = appState.createSession({ projectId: appState.previewProjectId });
-      const session = appState.getSession(id);
-      if (session) chat.ensureSessionTab(session);
+      void (async () => {
+        const id = await appState.createSession({ projectId: appState.previewProjectId });
+        const session = appState.getSession(id);
+        if (session) chat.ensureSessionTab(session);
+      })();
       return true;
     },
   },

@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod fs;
 pub mod keychain;
+pub mod media;
 pub mod pty;
 pub mod run_log;
 pub mod shell;

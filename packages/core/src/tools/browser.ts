@@ -191,8 +191,7 @@ export const browserTool: ToolDef<BrowserArgs> = {
       },
       selector: {
         type: "string",
-        description:
-          "CSS selector for click/type/waitForSelector actions",
+        description: "CSS selector for click/type/waitForSelector actions",
       },
       text: {
         type: "string",
@@ -200,8 +199,7 @@ export const browserTool: ToolDef<BrowserArgs> = {
       },
       expression: {
         type: "string",
-        description:
-          "JavaScript expression to evaluate (for evaluate action)",
+        description: "JavaScript expression to evaluate (for evaluate action)",
       },
       path: {
         type: "string",
@@ -230,12 +228,12 @@ export const browserTool: ToolDef<BrowserArgs> = {
       waitUntil: {
         type: "string",
         enum: ["load", "domcontentloaded", "networkidle"],
-        description:
-          "When to consider navigation complete (default 'load')",
+        description: "When to consider navigation complete (default 'load')",
       },
       cdpUrl: {
         type: "string",
-        description: "CDP endpoint URL for connect action (e.g., http://localhost:9222)",
+        description:
+          "CDP endpoint URL for connect action (e.g., http://localhost:9222)",
       },
       tabIndex: {
         type: "number",
@@ -243,7 +241,8 @@ export const browserTool: ToolDef<BrowserArgs> = {
       },
       sessionPath: {
         type: "string",
-        description: "File path for saveCookies/loadCookies/saveSession/loadSession",
+        description:
+          "File path for saveCookies/loadCookies/saveSession/loadSession",
       },
     },
     required: ["action"],
@@ -276,11 +275,13 @@ export const browserTool: ToolDef<BrowserArgs> = {
         const pw = await loadPlaywright();
         const browser = await pw.chromium.connectOverCDP(args.cdpUrl);
         const contexts = browser.contexts();
-        const context = contexts[0] ?? await browser.newContext({
+        const context =
+          contexts[0] ??
+          (await browser.newContext({
           viewport: { width, height },
-        });
+          }));
         const pages = context.pages();
-        const page = pages[0] ?? await context.newPage();
+        const page = pages[0] ?? (await context.newPage());
         const session: BrowserSession = {
           browser,
           context,
@@ -305,7 +306,10 @@ export const browserTool: ToolDef<BrowserArgs> = {
     if (args.action === "disconnect") {
       const session = sessions.get(ctx.sessionId);
       if (!session) {
-        return errorResult("UNKNOWN", "No active browser session to disconnect");
+        return errorResult(
+          "UNKNOWN",
+          "No active browser session to disconnect"
+        );
       }
       if (!session.isCdp) {
         return errorResult("UNKNOWN", "Current session is not a CDP session");
@@ -317,12 +321,7 @@ export const browserTool: ToolDef<BrowserArgs> = {
 
     let session: BrowserSession;
     try {
-      session = await getOrCreateSession(
-        ctx.sessionId,
-        headed,
-        width,
-        height
-      );
+      session = await getOrCreateSession(ctx.sessionId, headed, width, height);
     } catch (e: unknown) {
       return errorResult(
         "EXEC_ERROR",
@@ -336,7 +335,10 @@ export const browserTool: ToolDef<BrowserArgs> = {
       switch (args.action) {
         case "navigate": {
           if (!args.url) {
-            return errorResult("UNKNOWN", "url is required for navigate action");
+            return errorResult(
+              "UNKNOWN",
+              "url is required for navigate action"
+            );
           }
           const waitUntil = args.waitUntil ?? "load";
           const resp = await page.goto(args.url, {
@@ -373,10 +375,7 @@ export const browserTool: ToolDef<BrowserArgs> = {
             );
           }
           if (args.text == null) {
-            return errorResult(
-              "UNKNOWN",
-              "text is required for type action"
-            );
+            return errorResult("UNKNOWN", "text is required for type action");
           }
           await page.fill(args.selector, args.text, { timeout });
           return {
@@ -416,8 +415,10 @@ export const browserTool: ToolDef<BrowserArgs> = {
             );
           }
           const result = await page.evaluate((expr: string) => {
+            // Indirect eval: runs in the page's global scope, and keeps bundlers
+            // from deoptimizing the enclosing scope over a direct `eval(`.
             // eslint-disable-next-line no-eval
-            return eval(expr);
+            return (0, eval)(expr);
           }, args.expression);
           const serialized =
             typeof result === "string"
@@ -450,7 +451,10 @@ export const browserTool: ToolDef<BrowserArgs> = {
           session.pages.push(newPage);
           session.activePageIndex = session.pages.length - 1;
           if (args.url) {
-            await newPage.goto(args.url, { timeout, waitUntil: args.waitUntil ?? "load" });
+            await newPage.goto(args.url, {
+              timeout,
+              waitUntil: args.waitUntil ?? "load",
+            });
           }
           return {
             ok: true,
@@ -460,7 +464,10 @@ export const browserTool: ToolDef<BrowserArgs> = {
 
         case "switchTab": {
           if (args.tabIndex == null) {
-            return errorResult("UNKNOWN", "tabIndex is required for switchTab action");
+            return errorResult(
+              "UNKNOWN",
+              "tabIndex is required for switchTab action"
+            );
           }
           if (args.tabIndex < 0 || args.tabIndex >= session.pages.length) {
             return errorResult(
@@ -478,7 +485,10 @@ export const browserTool: ToolDef<BrowserArgs> = {
 
         case "closeTab": {
           if (args.tabIndex == null) {
-            return errorResult("UNKNOWN", "tabIndex is required for closeTab action");
+            return errorResult(
+              "UNKNOWN",
+              "tabIndex is required for closeTab action"
+            );
           }
           if (args.tabIndex < 0 || args.tabIndex >= session.pages.length) {
             return errorResult(
@@ -487,7 +497,10 @@ export const browserTool: ToolDef<BrowserArgs> = {
             );
           }
           if (session.pages.length === 1) {
-            return errorResult("UNKNOWN", "Cannot close the last tab. Use 'close' action instead.");
+            return errorResult(
+              "UNKNOWN",
+              "Cannot close the last tab. Use 'close' action instead."
+            );
           }
           await session.pages[args.tabIndex].close();
           session.pages.splice(args.tabIndex, 1);
@@ -519,11 +532,18 @@ export const browserTool: ToolDef<BrowserArgs> = {
 
         case "saveCookies": {
           if (!args.sessionPath) {
-            return errorResult("UNKNOWN", "sessionPath is required for saveCookies action");
+            return errorResult(
+              "UNKNOWN",
+              "sessionPath is required for saveCookies action"
+            );
           }
           const cookies = await session.context.cookies();
           await ensureDir(args.sessionPath);
-          await writeFile(args.sessionPath, JSON.stringify(cookies, null, 2), "utf-8");
+          await writeFile(
+            args.sessionPath,
+            JSON.stringify(cookies, null, 2),
+            "utf-8"
+          );
           return {
             ok: true,
             content: `Saved ${cookies.length} cookies to ${args.sessionPath}`,
@@ -532,7 +552,10 @@ export const browserTool: ToolDef<BrowserArgs> = {
 
         case "loadCookies": {
           if (!args.sessionPath) {
-            return errorResult("UNKNOWN", "sessionPath is required for loadCookies action");
+            return errorResult(
+              "UNKNOWN",
+              "sessionPath is required for loadCookies action"
+            );
           }
           const data = await readFile(args.sessionPath, "utf-8");
           const parsed = JSON.parse(data);
@@ -545,7 +568,10 @@ export const browserTool: ToolDef<BrowserArgs> = {
 
         case "saveSession": {
           if (!args.sessionPath) {
-            return errorResult("UNKNOWN", "sessionPath is required for saveSession action");
+            return errorResult(
+              "UNKNOWN",
+              "sessionPath is required for saveSession action"
+            );
           }
           const sessionCookies = await session.context.cookies();
           const sessionData = {
@@ -554,7 +580,11 @@ export const browserTool: ToolDef<BrowserArgs> = {
             activeTab: session.activePageIndex,
           };
           await ensureDir(args.sessionPath);
-          await writeFile(args.sessionPath, JSON.stringify(sessionData, null, 2), "utf-8");
+          await writeFile(
+            args.sessionPath,
+            JSON.stringify(sessionData, null, 2),
+            "utf-8"
+          );
           return {
             ok: true,
             content: `Session saved to ${args.sessionPath} (${sessionCookies.length} cookies, ${session.pages.length} tabs)`,
@@ -563,10 +593,17 @@ export const browserTool: ToolDef<BrowserArgs> = {
 
         case "loadSession": {
           if (!args.sessionPath) {
-            return errorResult("UNKNOWN", "sessionPath is required for loadSession action");
+            return errorResult(
+              "UNKNOWN",
+              "sessionPath is required for loadSession action"
+            );
           }
           const raw = await readFile(args.sessionPath, "utf-8");
-          const loaded = JSON.parse(raw) as { cookies?: unknown[]; tabs?: string[]; activeTab?: number };
+          const loaded = JSON.parse(raw) as {
+            cookies?: unknown[];
+            tabs?: string[];
+            activeTab?: number;
+          };
           if (loaded.cookies && Array.isArray(loaded.cookies)) {
             await session.context.addCookies(loaded.cookies as any[]);
           }
@@ -579,10 +616,15 @@ export const browserTool: ToolDef<BrowserArgs> = {
             // Open saved tabs
             for (const tabUrl of loaded.tabs.slice(1)) {
               const newP = await session.context.newPage();
-              await newP.goto(tabUrl, { timeout, waitUntil: "load" }).catch(() => {});
+              await newP
+                .goto(tabUrl, { timeout, waitUntil: "load" })
+                .catch(() => {});
               session.pages.push(newP);
             }
-            session.activePageIndex = Math.min(loaded.activeTab ?? 0, session.pages.length - 1);
+            session.activePageIndex = Math.min(
+              loaded.activeTab ?? 0,
+              session.pages.length - 1
+            );
           }
           return {
             ok: true,

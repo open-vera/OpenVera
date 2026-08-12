@@ -16,7 +16,10 @@ const mockCreate = vi.hoisted(() => vi.fn());
 const mockStream = vi.hoisted(() => vi.fn());
 const mockListModels = vi.hoisted(() => vi.fn());
 const MockAnthropic = vi.hoisted(() =>
-  vi.fn(function (this: Record<string, unknown>, _config: Record<string, unknown>) {
+  vi.fn(function (
+    this: Record<string, unknown>,
+    _config: Record<string, unknown>
+  ) {
     this.messages = {
       create: mockCreate,
       stream: mockStream,
@@ -34,17 +37,20 @@ vi.mock("@anthropic-ai/sdk", () => ({
 
 // Import after mock
 import { AnthropicAdapter } from "../anthropic.js";
+import { DEFAULT_LLM_REQUEST_TIMEOUT_MS } from "../timeouts.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeTextResponse(opts: {
+function makeTextResponse(
+  opts: {
   text?: string;
   stop_reason?: "end_turn" | "tool_use";
   input_tokens?: number;
   output_tokens?: number;
   cache_creation_input_tokens?: number | null;
   cache_read_input_tokens?: number | null;
-} = {}) {
+  } = {}
+) {
   return {
     id: "msg_1",
     model: "claude-sonnet-4-20250514",
@@ -87,7 +93,11 @@ function makeThinkingResponse() {
     type: "message" as const,
     role: "assistant" as const,
     content: [
-      { type: "thinking" as const, thinking: "Let me think..." },
+      {
+        type: "thinking" as const,
+        thinking: "Let me think...",
+        signature: "sig-thinking-1",
+      },
       { type: "text" as const, text: "Answer" },
     ],
     stop_reason: "end_turn" as const,
@@ -136,6 +146,7 @@ describe("AnthropicAdapter", () => {
         apiKey: "key-123",
         baseURL: "https://api.example.com",
         defaultHeaders: undefined,
+        timeout: DEFAULT_LLM_REQUEST_TIMEOUT_MS,
       });
     });
 
@@ -145,6 +156,7 @@ describe("AnthropicAdapter", () => {
         apiKey: undefined,
         baseURL: undefined,
         defaultHeaders: undefined,
+        timeout: DEFAULT_LLM_REQUEST_TIMEOUT_MS,
       });
     });
 
@@ -154,6 +166,7 @@ describe("AnthropicAdapter", () => {
         apiKey: "key-abc",
         baseURL: undefined,
         defaultHeaders: undefined,
+        timeout: DEFAULT_LLM_REQUEST_TIMEOUT_MS,
       });
     });
 
@@ -164,6 +177,7 @@ describe("AnthropicAdapter", () => {
         apiKey: "key-abc",
         baseURL: "https://api.example.com",
         defaultHeaders: headers,
+        timeout: DEFAULT_LLM_REQUEST_TIMEOUT_MS,
       });
     });
   });
@@ -224,8 +238,33 @@ describe("AnthropicAdapter", () => {
 
       const parts = res.message.content as ContentPart[];
       expect(parts).toHaveLength(2);
-      expect(parts[0]).toEqual({ type: "thinking", thinking: "Let me think..." });
+      expect(parts[0]).toEqual({
+        type: "thinking",
+        thinking: "Let me think...",
+        signature: "sig-thinking-1",
+      });
       expect(parts[1]).toEqual({ type: "text", text: "Answer" });
+    });
+
+    it("should preserve redacted thinking content blocks", async () => {
+      mockCreate.mockResolvedValueOnce({
+        ...makeTextResponse(),
+        content: [
+          { type: "redacted_thinking", data: "encrypted-reasoning" },
+          { type: "text", text: "Answer" },
+        ],
+      });
+
+      const adapter = new AnthropicAdapter("k");
+      const res = await adapter.complete({
+        model: "m",
+        messages: [{ role: "user", content: "Q" }],
+      });
+
+      expect(res.message.content).toEqual([
+        { type: "redacted_thinking", data: "encrypted-reasoning" },
+        { type: "text", text: "Answer" },
+      ]);
     });
 
     it("should default max_tokens to 8096", async () => {
@@ -259,6 +298,24 @@ describe("AnthropicAdapter", () => {
       );
     });
 
+    it("should include thinking_budget in non-streaming requests", async () => {
+      mockCreate.mockResolvedValueOnce(makeTextResponse());
+
+      const adapter = new AnthropicAdapter("k");
+      await adapter.complete({
+        model: "m",
+        messages: [{ role: "user", content: "x" }],
+        thinking_budget: 4000,
+      });
+
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          thinking: { type: "enabled", budget_tokens: 4000 },
+        }),
+        expect.anything()
+      );
+    });
+
     it("should pass signal", async () => {
       mockCreate.mockResolvedValueOnce(makeTextResponse());
       const ac = new AbortController();
@@ -270,10 +327,9 @@ describe("AnthropicAdapter", () => {
         signal: ac.signal,
       });
 
-      expect(mockCreate).toHaveBeenCalledWith(
-        expect.anything(),
-        { signal: ac.signal }
-      );
+      expect(mockCreate).toHaveBeenCalledWith(expect.anything(), {
+        signal: ac.signal,
+    });
     });
 
     it("should propagate API errors", async () => {
@@ -282,7 +338,10 @@ describe("AnthropicAdapter", () => {
 
       const adapter = new AnthropicAdapter("k");
       await expect(
-        adapter.complete({ model: "m", messages: [{ role: "user", content: "x" }] })
+        adapter.complete({
+          model: "m",
+          messages: [{ role: "user", content: "x" }],
+        })
       ).rejects.toThrow("Rate limited");
     });
 
@@ -347,7 +406,7 @@ describe("AnthropicAdapter", () => {
             }),
           ]),
         }),
-        expect.anything(),
+        expect.anything()
       );
     });
   });
@@ -359,7 +418,11 @@ describe("AnthropicAdapter", () => {
       mockStream.mockReturnValue(
         makeMockStream(
           [
-            { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hi" } },
+            {
+              type: "content_block_delta",
+              index: 0,
+              delta: { type: "text_delta", text: "Hi" },
+            },
           ],
           makeTextResponse()
         )
@@ -381,7 +444,11 @@ describe("AnthropicAdapter", () => {
       mockStream.mockReturnValue(
         makeMockStream(
           [
-            { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "Hmm..." } },
+            {
+              type: "content_block_delta",
+              index: 0,
+              delta: { type: "thinking_delta", thinking: "Hmm..." },
+            },
           ],
           makeTextResponse()
         )
@@ -397,6 +464,75 @@ describe("AnthropicAdapter", () => {
       }
 
       expect(events).toContainEqual({ type: "thinking", text: "Hmm..." });
+    });
+
+    it("should include the exact signed assistant message in done", async () => {
+      mockStream.mockReturnValue(
+        makeMockStream(
+          [
+            {
+              type: "content_block_start",
+              index: 1,
+              content_block: {
+                type: "tool_use",
+                id: "toolu_thinking",
+                name: "read_file",
+              },
+            },
+            {
+              type: "content_block_delta",
+              index: 1,
+              delta: {
+                type: "input_json_delta",
+                partial_json: '{"path":"/tmp/test"}',
+              },
+            },
+          ],
+          {
+            ...makeToolUseResponse(),
+            content: [
+              {
+                type: "thinking",
+                thinking: "I should inspect the file.",
+                signature: "sig-tool-loop",
+              },
+              {
+                type: "tool_use",
+                id: "toolu_thinking",
+                name: "read_file",
+                input: { path: "/tmp/test" },
+              },
+            ],
+          }
+        )
+      );
+
+      const adapter = new AnthropicAdapter("k");
+      const events: StreamEvent[] = [];
+      for await (const event of adapter.stream({
+        model: "deepseek-v4-flash",
+        messages: [{ role: "user", content: "inspect" }],
+      })) {
+        events.push(event);
+      }
+
+      const done = events.find((event) => event.type === "done");
+      expect(done?.message).toEqual({
+        role: "assistant",
+        content: [
+          {
+            type: "thinking",
+            thinking: "I should inspect the file.",
+            signature: "sig-tool-loop",
+          },
+          {
+            type: "tool_call",
+            id: "toolu_thinking",
+            name: "read_file",
+            arguments: '{"path":"/tmp/test"}',
+          },
+        ],
+      });
     });
 
     it("should accumulate tool_use arguments from input_json_delta", async () => {
@@ -659,11 +795,10 @@ describe("AnthropicAdapter", () => {
         // consume
       }
 
-      expect(mockStream).toHaveBeenCalledWith(
-        expect.anything(),
-        { signal: ac.signal }
-      );
+      expect(mockStream).toHaveBeenCalledWith(expect.anything(), {
+        signal: ac.signal,
     });
+  });
   });
 
   // ── listModels() ─────────────────────────────────────────────────────────
@@ -718,7 +853,9 @@ describe("AnthropicAdapter", () => {
         ],
       });
 
-      const callArgs = mockCreate.mock.calls[0][0] as { messages: Array<{ role: string }> };
+      const callArgs = mockCreate.mock.calls[0][0] as {
+        messages: Array<{ role: string }>;
+      };
       const roles = callArgs.messages.map((m) => m.role);
       expect(roles).not.toContain("system");
     });
@@ -739,9 +876,14 @@ describe("AnthropicAdapter", () => {
         ],
       });
 
-      const callArgs = mockCreate.mock.calls[0][0] as { messages: Array<Record<string, unknown>> };
+      const callArgs = mockCreate.mock.calls[0][0] as {
+        messages: Array<Record<string, unknown>>;
+      };
       const toolMsg = callArgs.messages.find(
-        (m) => Array.isArray(m.content) && (m.content as Array<Record<string, unknown>>)[0]?.type === "tool_result"
+        (m) =>
+          Array.isArray(m.content) &&
+          (m.content as Array<Record<string, unknown>>)[0]?.type ===
+            "tool_result"
       ) as { content: Array<Record<string, unknown>> };
       expect(toolMsg!.content[0]).toMatchObject({
         type: "tool_result",
@@ -781,7 +923,10 @@ describe("AnthropicAdapter", () => {
       });
 
       const callArgs = mockCreate.mock.calls[0][0] as {
-        messages: Array<{ role: string; content: Array<Record<string, unknown>> }>;
+        messages: Array<{
+          role: string;
+          content: Array<Record<string, unknown>>;
+        }>;
       };
       expect(callArgs.messages).toHaveLength(3);
       expect(callArgs.messages[1]?.role).toBe("assistant");
@@ -809,9 +954,11 @@ describe("AnthropicAdapter", () => {
         ],
       });
 
-      const callArgs = mockCreate.mock.calls[0][0] as { messages: Array<Record<string, unknown>> };
-      const toolMsg = callArgs.messages.find(
-        (m) => Array.isArray(m.content)
+      const callArgs = mockCreate.mock.calls[0][0] as {
+        messages: Array<Record<string, unknown>>;
+      };
+      const toolMsg = callArgs.messages.find((m) =>
+        Array.isArray(m.content)
       ) as { content: Array<Record<string, unknown>> };
       // Array content on tool messages is stringified to ""
       expect(toolMsg.content[0].content).toBe("");
@@ -839,10 +986,12 @@ describe("AnthropicAdapter", () => {
         ],
       });
 
-      const callArgs = mockCreate.mock.calls[0][0] as { messages: Array<Record<string, unknown>> };
-      const asstMsg = callArgs.messages.find(
-        (m) => m.role === "assistant"
-      ) as { content: Array<Record<string, unknown>> };
+      const callArgs = mockCreate.mock.calls[0][0] as {
+        messages: Array<Record<string, unknown>>;
+      };
+      const asstMsg = callArgs.messages.find((m) => m.role === "assistant") as {
+        content: Array<Record<string, unknown>>;
+      };
       expect(asstMsg.content[0]).toMatchObject({
         type: "tool_use",
         id: "tc1",
@@ -851,15 +1000,78 @@ describe("AnthropicAdapter", () => {
       expect(asstMsg.content[0].input).toEqual({ path: "/f" });
     });
 
+    it("should replay thinking blocks before tool calls", async () => {
+      mockCreate.mockResolvedValueOnce(makeTextResponse());
+
+      const adapter = new AnthropicAdapter("k");
+      await adapter.complete({
+        model: "deepseek-v4-flash",
+        messages: [
+          { role: "user", content: "inspect" },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "thinking",
+                thinking: "I need a tool.",
+                signature: "sig-replay",
+              },
+              {
+                type: "redacted_thinking",
+                data: "encrypted-reasoning",
+              },
+              {
+                type: "tool_call",
+                id: "toolu_replay",
+                name: "read_file",
+                arguments: '{"path":"/tmp/test"}',
+              },
+            ],
+          },
+          {
+            role: "tool",
+            tool_call_id: "toolu_replay",
+            content: "file contents",
+          },
+        ],
+      });
+
+      const callArgs = mockCreate.mock.calls[0][0] as {
+        messages: Array<{
+          role: string;
+          content: Array<Record<string, unknown>>;
+        }>;
+      };
+      expect(callArgs.messages[1]).toEqual({
+        role: "assistant",
+        content: [
+          {
+            type: "thinking",
+            thinking: "I need a tool.",
+            signature: "sig-replay",
+          },
+          {
+            type: "redacted_thinking",
+            data: "encrypted-reasoning",
+          },
+          {
+            type: "tool_use",
+            id: "toolu_replay",
+            name: "read_file",
+            input: { path: "/tmp/test" },
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+      });
+    });
+
     it("should handle empty content array in message", async () => {
       mockCreate.mockResolvedValueOnce(makeTextResponse());
 
       const adapter = new AnthropicAdapter("k");
       await adapter.complete({
         model: "m",
-        messages: [
-          { role: "user", content: [] as unknown as string },
-        ],
+        messages: [{ role: "user", content: [] as unknown as string }],
       });
 
       // Should not throw; the empty array will result in empty content
@@ -911,7 +1123,7 @@ describe("AnthropicAdapter", () => {
         model: "m",
         system: "system prompt",
         messages: Array.from({ length: 12 }, (_, index) => ({
-          role: index % 2 === 0 ? "user" as const : "assistant" as const,
+          role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
           content: `message ${index}`,
         })),
       });
@@ -920,9 +1132,10 @@ describe("AnthropicAdapter", () => {
         system?: Array<Record<string, unknown>>;
         messages: Array<{ content: Array<Record<string, unknown>> }>;
       };
-      const systemCacheBlocks = callArgs.system?.filter((block) => block.cache_control).length ?? 0;
+      const systemCacheBlocks =
+        callArgs.system?.filter((block) => block.cache_control).length ?? 0;
       const messageCacheBlocks = callArgs.messages.flatMap((message) =>
-        message.content.filter((block) => block.cache_control),
+        message.content.filter((block) => block.cache_control)
       ).length;
 
       expect(systemCacheBlocks + messageCacheBlocks).toBeLessThanOrEqual(4);
@@ -962,7 +1175,9 @@ describe("AnthropicAdapter", () => {
               description: "Search the web",
               input_schema: {
                 type: "object",
-                properties: { query: { type: "string", description: "Search query" } },
+                properties: {
+                  query: { type: "string", description: "Search query" },
+                },
                 required: ["query"],
               },
             },
@@ -1051,7 +1266,10 @@ describe("AnthropicAdapter", () => {
             role: "user",
             content: [
               { type: "text", text: "hello" },
-              { type: "image_url" as "text", image_url: { url: "http://example.com/img.png" } },
+              {
+                type: "image_url" as "text",
+                image_url: { url: "http://example.com/img.png" },
+              },
             ],
           },
         ],

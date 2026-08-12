@@ -1,6 +1,13 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
-import type { ChatErrorNotice, ChatTab, Message, TokenUsage, ToolCall, ToolResult } from "@/types";
+import type {
+  ChatErrorNotice,
+  ChatTab,
+  Message,
+  TokenUsage,
+  ToolCall,
+  ToolResult,
+} from "@/types";
 import { moveTabById } from "@/utils/tab-reorder";
 
 const DEFAULT_CHAT_TAB_ID = "chat:default";
@@ -103,14 +110,22 @@ export const useChatStore = defineStore("chat", () => {
   const tabs = ref<ChatTab[]>(fallbackChatTabs());
   const activeTabId = ref(DEFAULT_CHAT_TAB_ID);
 
-  const activeTab = computed(() => tabs.value.find((tab) => tab.id === activeTabId.value));
+  const activeTab = computed(() =>
+    tabs.value.find((tab) => tab.id === activeTabId.value)
+  );
   const activeChatTab = computed(() =>
-    tabs.value.find((tab) => tab.id === activeTabId.value && tab.kind === "chat"),
+    tabs.value.find(
+      (tab) => tab.id === activeTabId.value && tab.kind === "chat"
+    )
   );
   const messages = computed(() => activeChatTab.value?.messages ?? []);
-  const isAgentRunning = computed(() => activeChatTab.value?.isAgentRunning ?? false);
+  const isAgentRunning = computed(
+    () => activeChatTab.value?.isAgentRunning ?? false
+  );
   const lastError = computed(() => activeChatTab.value?.lastError ?? null);
-  const currentTokenCount = computed(() => activeChatTab.value?.currentTokenCount ?? 0);
+  const currentTokenCount = computed(
+    () => activeChatTab.value?.currentTokenCount ?? 0
+  );
   const estimatedCost = computed(() => activeChatTab.value?.estimatedCost ?? 0);
   const runUsage = computed(() => activeChatTab.value?.runUsage ?? null);
 
@@ -207,12 +222,17 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   function messagesForTab(tabId: string): Message[] {
-    return tabs.value.find((tab) => tab.id === tabId && tab.kind === "chat")?.messages ?? [];
+    return (
+      tabs.value.find((tab) => tab.id === tabId && tab.kind === "chat")
+        ?.messages ?? []
+    );
   }
 
   function append(message: Message, tabId?: string) {
     const resolvedTabId = tabId ?? ensureActiveChatTab();
-    const tab = tabs.value.find((item) => item.id === resolvedTabId && item.kind === "chat");
+    const tab = tabs.value.find(
+      (item) => item.id === resolvedTabId && item.kind === "chat"
+    );
     if (!tab) return;
     if (message.role === "user") {
       tab.lastError = null;
@@ -229,15 +249,23 @@ export const useChatStore = defineStore("chat", () => {
 
   function updateStreaming(id: string, delta: string, tabId?: string) {
     const resolvedTabId = tabId ?? ensureActiveChatTab();
-    const message = messagesForTab(resolvedTabId).find((item) => item.id === id);
+    const message = messagesForTab(resolvedTabId).find(
+      (item) => item.id === id
+    );
     if (message) {
       message.content += delta;
     }
   }
 
-  function appendToolCall(messageId: string, toolCall: ToolCall, tabId?: string) {
+  function appendToolCall(
+    messageId: string,
+    toolCall: ToolCall,
+    tabId?: string
+  ) {
     const resolvedTabId = tabId ?? ensureActiveChatTab();
-    const message = messagesForTab(resolvedTabId).find((item) => item.id === messageId);
+    const message = messagesForTab(resolvedTabId).find(
+      (item) => item.id === messageId
+    );
     if (!message || message.role !== "tool") return;
     message.toolCalls ??= [];
     message.toolCalls.push(toolCall);
@@ -246,12 +274,20 @@ export const useChatStore = defineStore("chat", () => {
       .join("\n");
   }
 
-  function appendToolResult(messageId: string, toolResult: ToolResult, tabId?: string) {
+  function appendToolResult(
+    messageId: string,
+    toolResult: ToolResult,
+    tabId?: string
+  ) {
     const resolvedTabId = tabId ?? ensureActiveChatTab();
-    const message = messagesForTab(resolvedTabId).find((item) => item.id === messageId);
+    const message = messagesForTab(resolvedTabId).find(
+      (item) => item.id === messageId
+    );
     if (!message || message.role !== "tool") return;
     message.toolResults ??= [];
-    const existing = message.toolResults.find((item) => item.id === toolResult.id);
+    const existing = message.toolResults.find(
+      (item) => item.id === toolResult.id
+    );
     if (existing) {
       Object.assign(existing, toolResult);
     } else {
@@ -261,7 +297,9 @@ export const useChatStore = defineStore("chat", () => {
 
   function finalizeMessage(id: string, tabId?: string) {
     const resolvedTabId = tabId ?? ensureActiveChatTab();
-    const message = messagesForTab(resolvedTabId).find((item) => item.id === id);
+    const message = messagesForTab(resolvedTabId).find(
+      (item) => item.id === id
+    );
     if (message) {
       message.isStreaming = false;
     }
@@ -270,22 +308,36 @@ export const useChatStore = defineStore("chat", () => {
   /** Stamp a segment (or the whole turn, via its last message) as finished. */
   function setMessageEndedAt(id: string, endedAt: number, tabId?: string) {
     const resolvedTabId = tabId ?? ensureActiveChatTab();
-    const message = messagesForTab(resolvedTabId).find((item) => item.id === id);
+    const message = messagesForTab(resolvedTabId).find(
+      (item) => item.id === id
+    );
     if (message) {
       message.endedAt = endedAt;
     }
   }
 
+  function setMessageUsage(id: string, usage: TokenUsage, tabId?: string) {
+    const resolvedTabId = tabId ?? ensureActiveChatTab();
+    const message = messagesForTab(resolvedTabId).find(
+      (item) => item.id === id
+    );
+    if (message) message.usage = usage;
+  }
+
   function closeTurn(turnId: string, endedAt: number, tabId?: string) {
     const resolvedTabId = tabId ?? ensureActiveChatTab();
-    const inTurn = messagesForTab(resolvedTabId).filter((item) => item.turnId === turnId);
+    const inTurn = messagesForTab(resolvedTabId).filter(
+      (item) => item.turnId === turnId
+    );
     const last = inTurn[inTurn.length - 1];
     if (last) last.endedAt = endedAt;
   }
 
   function markMessageError(id: string, content: string, tabId?: string) {
     const resolvedTabId = tabId ?? ensureActiveChatTab();
-    const message = messagesForTab(resolvedTabId).find((item) => item.id === id);
+    const message = messagesForTab(resolvedTabId).find(
+      (item) => item.id === id
+    );
     setLastError(content, resolvedTabId);
     if (message) {
       message.content = content;
@@ -296,7 +348,9 @@ export const useChatStore = defineStore("chat", () => {
 
   function clearMessageQueueStatus(messageId: string, tabId?: string) {
     const resolvedTabId = tabId ?? ensureActiveChatTab();
-    const message = messagesForTab(resolvedTabId).find((item) => item.id === messageId);
+    const message = messagesForTab(resolvedTabId).find(
+      (item) => item.id === messageId
+    );
     if (message?.queueStatus) {
       delete message.queueStatus;
     }
@@ -304,7 +358,9 @@ export const useChatStore = defineStore("chat", () => {
 
   function clearQueuedMessages(tabId?: string) {
     const resolvedTabId = tabId ?? ensureActiveChatTab();
-    const tab = tabs.value.find((item) => item.id === resolvedTabId && item.kind === "chat");
+    const tab = tabs.value.find(
+      (item) => item.id === resolvedTabId && item.kind === "chat"
+    );
     if (!tab) return;
     for (const message of tab.messages) {
       if (message.queueStatus === "queued" || message.queueStatus === "next") {
@@ -322,7 +378,9 @@ export const useChatStore = defineStore("chat", () => {
 
   function setLastError(message: string, tabId?: string) {
     const resolvedTabId = tabId ?? ensureActiveChatTab();
-    const tab = tabs.value.find((item) => item.id === resolvedTabId && item.kind === "chat");
+    const tab = tabs.value.find(
+      (item) => item.id === resolvedTabId && item.kind === "chat"
+    );
     if (!tab) return;
     tab.lastError = {
       id: crypto.randomUUID(),
@@ -333,7 +391,9 @@ export const useChatStore = defineStore("chat", () => {
 
   function clearLastError(tabId?: string) {
     const resolvedTabId = tabId ?? ensureActiveChatTab();
-    const tab = tabs.value.find((item) => item.id === resolvedTabId && item.kind === "chat");
+    const tab = tabs.value.find(
+      (item) => item.id === resolvedTabId && item.kind === "chat"
+    );
     if (tab) {
       tab.lastError = null;
     }
@@ -341,7 +401,9 @@ export const useChatStore = defineStore("chat", () => {
 
   function setAgentRunning(running: boolean, tabId?: string) {
     const resolvedTabId = tabId ?? ensureActiveChatTab();
-    const tab = tabs.value.find((item) => item.id === resolvedTabId && item.kind === "chat");
+    const tab = tabs.value.find(
+      (item) => item.id === resolvedTabId && item.kind === "chat"
+    );
     if (tab) {
       tab.isAgentRunning = running;
     }
@@ -349,7 +411,9 @@ export const useChatStore = defineStore("chat", () => {
 
   function updateRunUsage(usage: TokenUsage | null, tabId?: string) {
     const resolvedTabId = tabId ?? ensureActiveChatTab();
-    const tab = tabs.value.find((item) => item.id === resolvedTabId && item.kind === "chat");
+    const tab = tabs.value.find(
+      (item) => item.id === resolvedTabId && item.kind === "chat"
+    );
     if (!tab) return;
     if (usage === null) {
       // Keep last remote context-window occupancy across turns; clear only
@@ -380,13 +444,16 @@ export const useChatStore = defineStore("chat", () => {
     const total =
       usage.total_tokens ??
       usage.total ??
-      (usage.input_tokens ?? usage.input ?? 0) + (usage.output_tokens ?? usage.output ?? 0);
+      (usage.input_tokens ?? usage.input ?? 0) +
+        (usage.output_tokens ?? usage.output ?? 0);
     tab.currentTokenCount = total;
   }
 
   function setActiveTaskId(taskId: string | null, tabId?: string) {
     const resolvedTabId = tabId ?? ensureActiveChatTab();
-    const tab = tabs.value.find((item) => item.id === resolvedTabId && item.kind === "chat");
+    const tab = tabs.value.find(
+      (item) => item.id === resolvedTabId && item.kind === "chat"
+    );
     if (!tab) return;
     tab.activeTaskId = taskId;
     if (taskId) {
@@ -417,9 +484,11 @@ export const useChatStore = defineStore("chat", () => {
       .filter((tab) => tab.kind === "chat")
       .map(normalizeChatTab);
     const resolvedTabs = chatTabs.length ? chatTabs : fallbackChatTabs();
-    const activeChatId = resolvedTabs.some((tab) => tab.id === activeTabId.value)
+    const activeChatId = resolvedTabs.some(
+      (tab) => tab.id === activeTabId.value
+    )
       ? activeTabId.value
-      : resolvedTabs[0]?.id ?? DEFAULT_CHAT_TAB_ID;
+      : (resolvedTabs[0]?.id ?? DEFAULT_CHAT_TAB_ID);
 
     return {
       version: SNAPSHOT_VERSION,
@@ -429,7 +498,9 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   function exportTabSnapshot(tabId: string): ChatSnapshot | null {
-    const tab = tabs.value.find((item) => item.id === tabId && item.kind === "chat");
+    const tab = tabs.value.find(
+      (item) => item.id === tabId && item.kind === "chat"
+    );
     if (!tab) return null;
     return {
       version: SNAPSHOT_VERSION,
@@ -473,7 +544,10 @@ export const useChatStore = defineStore("chat", () => {
         activeTabId.value = existing.id;
         return existing.id;
       }
-      const restored = { ...normalizeChatTab(sourceTab), id: crypto.randomUUID() };
+      const restored = {
+        ...normalizeChatTab(sourceTab),
+        id: crypto.randomUUID(),
+      };
       tabs.value.push(restored);
       activeTabId.value = restored.id;
       return restored.id;
@@ -531,11 +605,11 @@ export const useChatStore = defineStore("chat", () => {
         lastTaskId?: string | null;
       }
     >,
-    nextActiveId: string | null,
+    nextActiveId: string | null
   ) {
     const keep = new Set(openTabIds);
     tabs.value = tabs.value.filter((tab) =>
-      tab.kind === "settings" ? keep.has(SETTINGS_TAB_ID) : keep.has(tab.id),
+      tab.kind === "settings" ? keep.has(SETTINGS_TAB_ID) : keep.has(tab.id)
     );
     for (const id of openTabIds) {
       if (id === SETTINGS_TAB_ID) {
@@ -594,6 +668,7 @@ export const useChatStore = defineStore("chat", () => {
     updateStreaming,
     finalizeMessage,
     setMessageEndedAt,
+    setMessageUsage,
     closeTurn,
     markMessageError,
     clearMessageQueueStatus,

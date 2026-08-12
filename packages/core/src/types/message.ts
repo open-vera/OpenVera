@@ -28,9 +28,25 @@ export interface ToolResultPart {
 export interface ThinkingPart {
   type: "thinking";
   thinking: string;
+  /**
+   * Provider-issued signature for replaying a thinking block in a tool loop.
+   * Anthropic-compatible APIs require this block to be passed back unchanged.
+   */
+  signature?: string;
 }
 
-export type ContentPart = TextPart | ImagePart | ToolCallPart | ToolResultPart | ThinkingPart;
+export interface RedactedThinkingPart {
+  type: "redacted_thinking";
+  data: string;
+}
+
+export type ContentPart =
+  | TextPart
+  | ImagePart
+  | ToolCallPart
+  | ToolResultPart
+  | ThinkingPart
+  | RedactedThinkingPart;
 
 export interface Message {
   role: Role;

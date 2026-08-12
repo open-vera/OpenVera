@@ -41,6 +41,11 @@ import type {
   VeraRoutingSettings,
 } from "@/types";
 import { resolveCatalogProtocol } from "@/utils/llm-protocol";
+import {
+  EDITOR_PREFERENCE_DEFAULTS,
+  normalizeEditorPreferences,
+  type EditorPreferences,
+} from "@/preview/editor-preferences";
 import type { VeraModelsRoutingSnapshot } from "@/utils/vera-config-edit";
 
 const UI_SETTINGS_STORAGE_KEY = "partner:ui-settings";
@@ -64,6 +69,7 @@ interface PersistedUiSettings {
   wallpaperOpacity?: number;
   wallpaperBlur?: number;
   customPaletteId?: CustomPaletteId | null;
+  editor?: unknown;
 }
 
 function readStoredUiSettings(): PersistedUiSettings | null {
@@ -106,11 +112,16 @@ function providerDefaults(id: LLMProviderId): LLMProvider {
 }
 
 function protocolFromEffective(config: EffectiveLlmConfig): LLMProtocol {
-  if (config.protocol === "openai-responses" || config.adapter === "openai-responses") {
+  if (
+    config.protocol === "openai-responses" ||
+    config.adapter === "openai-responses"
+  ) {
     return "openai-responses";
   }
-  if (config.protocol === "openai" || config.adapter === "openai") return "openai-compatible";
-  if (config.protocol === "gemini" || config.adapter === "gemini") return "gemini";
+  if (config.protocol === "openai" || config.adapter === "openai")
+    return "openai-compatible";
+  if (config.protocol === "gemini" || config.adapter === "gemini")
+    return "gemini";
   return "anthropic";
 }
 
@@ -140,6 +151,7 @@ export const useSettingsStore = defineStore("settings", {
     customPalettesLoading: false,
     maxInstances: 3,
     locale: "zh" as AppLocale,
+    editor: { ...EDITOR_PREFERENCE_DEFAULTS } as EditorPreferences,
     firstLaunchComplete: false,
     hasApiKey: false,
     isLoaded: false,
@@ -161,7 +173,9 @@ export const useSettingsStore = defineStore("settings", {
   getters: {
     activeCustomPalette(state): CustomPaletteVariant | null {
       if (state.theme !== "custom" || !state.customPaletteId) return null;
-      return state.customPalettes.find((p) => p.id === state.customPaletteId) ?? null;
+      return (
+        state.customPalettes.find((p) => p.id === state.customPaletteId) ?? null
+      );
     },
   },
   actions: {
@@ -175,7 +189,8 @@ export const useSettingsStore = defineStore("settings", {
       const routing = effective.routing;
       this.routing = {
         enabled: Boolean(routing?.enabled),
-        classifier: typeof routing?.classifier === "string" ? routing.classifier : "",
+        classifier:
+          typeof routing?.classifier === "string" ? routing.classifier : "",
         l0: typeof routing?.l0 === "string" ? routing.l0 : "",
         l1: typeof routing?.l1 === "string" ? routing.l1 : "",
         l2: typeof routing?.l2 === "string" ? routing.l2 : "",
@@ -183,7 +198,9 @@ export const useSettingsStore = defineStore("settings", {
     },
     currentWallpaperImageUrl(): string | null {
       const themeId =
-        this.theme === "custom" ? resolveThemeId("system") : resolveThemeId(this.theme);
+        this.theme === "custom"
+          ? resolveThemeId("system")
+          : resolveThemeId(this.theme);
       return resolveWallpaperImageUrl({
         mode: this.wallpaperMode,
         customDataUrl: this.wallpaperDataUrl,
@@ -216,7 +233,10 @@ export const useSettingsStore = defineStore("settings", {
       try {
         const variants = await extractCustomPalettes(imageUrl);
         this.customPalettes = variants;
-        if (this.customPaletteId && !variants.some((v) => v.id === this.customPaletteId)) {
+        if (
+          this.customPaletteId &&
+          !variants.some((v) => v.id === this.customPaletteId)
+        ) {
           this.customPaletteId = variants[0]?.id ?? null;
         }
         if (selectDefault && variants[0]) {
@@ -238,7 +258,8 @@ export const useSettingsStore = defineStore("settings", {
     async load(projectRoot?: string) {
       const storedUi = readStoredUiSettings();
       if (storedUi?.theme) this.theme = normalizeThemeId(storedUi.theme);
-      if (typeof storedUi?.maxInstances === "number") this.maxInstances = storedUi.maxInstances;
+      if (typeof storedUi?.maxInstances === "number")
+        this.maxInstances = storedUi.maxInstances;
       if (storedUi?.locale) this.locale = storedUi.locale;
       if (typeof storedUi?.firstLaunchComplete === "boolean") {
         this.firstLaunchComplete = storedUi.firstLaunchComplete;
@@ -250,7 +271,9 @@ export const useSettingsStore = defineStore("settings", {
         this.wallpaperMode = storedUi.wallpaperMode;
       }
       if (typeof storedUi?.wallpaperOpacity === "number") {
-        this.wallpaperOpacity = clampWallpaperOpacity(storedUi.wallpaperOpacity);
+        this.wallpaperOpacity = clampWallpaperOpacity(
+          storedUi.wallpaperOpacity
+        );
       }
       if (typeof storedUi?.wallpaperBlur === "number") {
         this.wallpaperBlur = clampWallpaperBlur(storedUi.wallpaperBlur);
@@ -261,6 +284,7 @@ export const useSettingsStore = defineStore("settings", {
         this.customPaletteId = null;
       }
       this.wallpaperDataUrl = readStoredWallpaperDataUrl();
+      this.editor = normalizeEditorPreferences(storedUi?.editor);
       // Follow-theme ignores stored clarity/blur and always uses theme defaults.
       this.syncThemeWallpaperDefaults();
       await this.refreshCustomPalettes();
@@ -291,7 +315,8 @@ export const useSettingsStore = defineStore("settings", {
         return;
       }
       const builtin = themeDefaultWallpaper(resolveThemeId(this.theme));
-      this.wallpaperOpacity = builtin?.defaultOpacity ?? DEFAULT_WALLPAPER_OPACITY;
+      this.wallpaperOpacity =
+        builtin?.defaultOpacity ?? DEFAULT_WALLPAPER_OPACITY;
     },
     setTheme(theme: AppThemeId) {
       const next = normalizeThemeId(theme);
@@ -399,6 +424,21 @@ export const useSettingsStore = defineStore("settings", {
       const effective = await inspectLlmConfig(undefined, null, false);
       this.hasApiKey = effective.apiKeyAvailable;
     },
+    /** Update one editor preference and persist the whole set. */
+    setEditorPreference<K extends keyof EditorPreferences>(
+      key: K,
+      value: EditorPreferences[K]
+    ) {
+      const next: EditorPreferences = { ...this.editor, [key]: value };
+      this.editor = normalizeEditorPreferences(next);
+      this.persistUi();
+    },
+
+    resetEditorPreferences() {
+      this.editor = { ...EDITOR_PREFERENCE_DEFAULTS };
+      this.persistUi();
+    },
+
     persistUi() {
       window.localStorage.setItem(
         UI_SETTINGS_STORAGE_KEY,
@@ -412,17 +452,19 @@ export const useSettingsStore = defineStore("settings", {
           wallpaperOpacity: this.wallpaperOpacity,
           wallpaperBlur: this.wallpaperBlur,
           customPaletteId: this.customPaletteId,
-        }),
+          editor: this.editor,
+        })
       );
     },
     async saveLlm(
       projectRoot?: string,
-      options?: { apiKey?: string; setAsDefault?: boolean },
+      options?: { apiKey?: string; setAsDefault?: boolean }
     ) {
       const model =
         this.provider.model.trim() ||
         this.defaultModel.trim() ||
-        this.modelAliases.find((item) => item.provider === this.provider.id)?.alias ||
+        this.modelAliases.find((item) => item.provider === this.provider.id)
+          ?.alias ||
         "";
       const effective = await saveVeraLlmConfig({
         projectRoot,
@@ -443,7 +485,11 @@ export const useSettingsStore = defineStore("settings", {
       this.persistUi();
       await this.saveLlm(projectRoot, { setAsDefault: options?.setAsDefault });
     },
-    async saveApiKey(value: string, projectRoot?: string, setAsDefault = false) {
+    async saveApiKey(
+      value: string,
+      projectRoot?: string,
+      setAsDefault = false
+    ) {
       const nextValue = value.trim();
       await this.saveLlm(projectRoot, { apiKey: nextValue, setAsDefault });
     },
@@ -464,7 +510,7 @@ export const useSettingsStore = defineStore("settings", {
     },
     async saveModelsRouting(
       projectRoot?: string,
-      snapshot?: Partial<VeraModelsRoutingSnapshot>,
+      snapshot?: Partial<VeraModelsRoutingSnapshot>
     ) {
       const models = (snapshot?.models ?? this.modelAliases).map((item) => ({
         alias: item.alias,
@@ -479,7 +525,9 @@ export const useSettingsStore = defineStore("settings", {
         defaultModel: snapshot?.defaultModel ?? this.defaultModel,
         routing: {
           enabled: Boolean(routing.enabled),
-          ...(routing.classifier ? { classifier: String(routing.classifier) } : {}),
+          ...(routing.classifier
+            ? { classifier: String(routing.classifier) }
+            : {}),
           ...(routing.l0 ? { l0: String(routing.l0) } : {}),
           ...(routing.l1 ? { l1: String(routing.l1) } : {}),
           ...(routing.l2 ? { l2: String(routing.l2) } : {}),
@@ -488,7 +536,9 @@ export const useSettingsStore = defineStore("settings", {
       this.applyModelsRoutingFromEffective(effective);
       return effective;
     },
-    async runtimeLlmConfig(projectRoot?: string): Promise<LLMRuntimeConfig | null> {
+    async runtimeLlmConfig(
+      projectRoot?: string
+    ): Promise<LLMRuntimeConfig | null> {
       const effective = await inspectLlmConfig(projectRoot, null, true);
       if (!effective.apiKeyValue) return null;
       return {

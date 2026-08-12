@@ -251,6 +251,8 @@ function summarizeContentForLog(content: Message["content"]): unknown {
         return { type: "text", length: part.text.length, preview: truncateForLog(part.text) };
       case "thinking":
         return { type: "thinking", length: part.thinking.length, preview: truncateForLog(part.thinking) };
+      case "redacted_thinking":
+        return { type: "redacted_thinking", length: part.data.length };
       case "tool_call":
         return {
           type: "tool_call",
@@ -785,6 +787,7 @@ interface StreamTurnResult {
   turnText: string;
   turnThinking: string;
   turnUsage: Usage | undefined;
+  turnMessage: Message | undefined;
   collectedToolCalls: Array<{ id: string; name: string; arguments: string }>;
 }
 
@@ -809,6 +812,7 @@ async function streamTurnWithReactiveCompact(
   let turnText = "";
   let turnThinking = "";
   let turnUsage: Usage | undefined;
+  let turnMessage: Message | undefined;
 
   try {
     await emitLlmRequest(request, options, eventBase);
@@ -823,10 +827,18 @@ async function streamTurnWithReactiveCompact(
         collectedToolCalls.push(event);
       } else if (event.type === "done") {
         turnUsage = event.usage;
+        turnMessage = event.message;
         if (event.usage) onUsage?.(event.usage);
       }
     }
-    const result = { status: "ok" as const, turnText, turnThinking, turnUsage, collectedToolCalls };
+    const result = {
+      status: "ok" as const,
+      turnText,
+      turnThinking,
+      turnUsage,
+      turnMessage,
+      collectedToolCalls,
+    };
     await emitLlmStreamResponse(result, options, eventBase);
     return result;
   } catch (err) {
@@ -1395,7 +1407,13 @@ export async function streamAgent(
         continue;
       }
       reactiveRetries = 0;
-      const { turnText, turnThinking, turnUsage, collectedToolCalls } = streamResult;
+      const {
+        turnText,
+        turnThinking,
+        turnUsage,
+        turnMessage,
+        collectedToolCalls,
+      } = streamResult;
 
       // ── onTurnEnd (before tool execution) ─────────────────────────────
       await hooks?.onTurnEnd?.(turn, turnUsage, turnText);
@@ -1436,15 +1454,19 @@ export async function streamAgent(
           arguments: tc.arguments,
         });
       }
-      // Filter out empty assistant messages that would cause API errors
-      if (assistantContent.length > 0 || turnText.trim()) {
-        messages.push({
+      // Prefer the provider's exact final message: Anthropic-compatible APIs
+      // require signed thinking blocks to survive the following tool round.
+      const assistantMessage: Message =
+        turnMessage ?? {
           role: "assistant",
           content:
             assistantContent.length === 1 && assistantContent[0]?.type === "text"
               ? turnText
               : assistantContent,
-        });
+        };
+      // Filter out empty assistant messages that would cause API errors
+      if (!shouldOmitEmptyAssistantMessage(assistantMessage)) {
+        messages.push(assistantMessage);
       }
       if (microCompactState) microCompactState = { ...microCompactState, lastAssistantTs: Date.now() };
 

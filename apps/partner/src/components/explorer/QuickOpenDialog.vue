@@ -245,7 +245,7 @@ function openSessionSource(source: SessionSearchSource): string | null {
       lastError: tab.lastError ?? null,
       projectId: appState.previewProjectId,
     });
-    appState.openSession(tab.id, { activate: true });
+    void appState.openSession(tab.id);
   }
   chat.selectTab(tabId);
   return tabId;

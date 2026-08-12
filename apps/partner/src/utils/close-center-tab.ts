@@ -26,7 +26,9 @@ export function closeCenterTabById(tabId: string): boolean {
       lastError: tab.lastError ?? null,
     });
   }
-  appState.closeOpenTab(tabId);
+  // Host owns the tab strip; the optimistic local removal below is what the
+  // immediately following syncFromOpenTabIds reads.
+  void appState.closeOpenTab(tabId);
   chat.closeTab(tabId);
   chat.syncFromOpenTabIds(
     appState.openTabIds,

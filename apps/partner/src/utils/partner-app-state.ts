@@ -223,10 +223,15 @@ export function normalizePartnerAppState(raw: unknown): PartnerAppState {
     openTabIds.unshift(activeTabId);
   }
 
+  // An explicit null means "no project scoped" (a session outside any project)
+  // and must survive normalization — falling back to projects[0] would make the
+  // explorer snap to an unrelated project on every projection.
   const previewProjectId =
     typeof raw.previewProjectId === "string" && projectIds.has(raw.previewProjectId)
       ? raw.previewProjectId
-      : projects[0]?.id ?? null;
+      : raw.previewProjectId === null
+        ? null
+        : projects[0]?.id ?? null;
 
   return {
     version: PARTNER_APP_STATE_VERSION,
@@ -491,6 +496,44 @@ export function listProjectSessions(
   return Object.values(state.sessions)
     .filter((session) => session.projectId === projectId)
     .sort(compareSessionsByRecency);
+}
+
+/** Tab and preview fields the Workbench Host owns exclusively. */
+export interface HostOwnedTabState {
+  openTabIds: string[];
+  activeTabId: string | null;
+  previewProjectId: string | null;
+}
+
+/**
+ * Rebase Host-owned tab/preview fields onto a Shell snapshot.
+ *
+ * `host.app.replace_state` carries the whole document, so a Shell write that
+ * only meant to sync chat content would otherwise regress an activation that
+ * landed on the Host after this snapshot was taken. Host wins for the active
+ * tab and preview project; tabs the Shell opened but the Host has not seen yet
+ * are appended rather than dropped.
+ */
+export function rebaseHostOwnedTabState(
+  local: PartnerAppState,
+  host: HostOwnedTabState,
+): PartnerAppState {
+  const openTabIds = [...host.openTabIds];
+  for (const id of local.openTabIds) {
+    if (!openTabIds.includes(id)) openTabIds.push(id);
+  }
+  const activeTabId =
+    host.activeTabId && openTabIds.includes(host.activeTabId)
+      ? host.activeTabId
+      : local.activeTabId && openTabIds.includes(local.activeTabId)
+        ? local.activeTabId
+        : openTabIds[0] ?? null;
+  return {
+    ...local,
+    openTabIds,
+    activeTabId,
+    previewProjectId: host.previewProjectId,
+  };
 }
 
 export type { PartnerSessionsSnapshot };

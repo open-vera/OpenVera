@@ -1,7 +1,10 @@
 import type { EffectiveLlmConfig, LLMRuntimeConfig } from "@/types";
 import { hostDispatch } from "@/shell";
 
-export async function approveAgentTool(callId: string, approved: boolean): Promise<void> {
+export async function approveAgentTool(
+  callId: string,
+  approved: boolean
+): Promise<void> {
   await hostDispatch({
     op: "host.agent.tool_approval",
     callId,
@@ -37,11 +40,12 @@ export async function getSidecarStatus(): Promise<boolean> {
 export async function inspectLlmConfig(
   projectRoot?: string,
   _llmConfig?: LLMRuntimeConfig | null,
-  _revealSecrets?: boolean,
+  revealSecrets?: boolean
 ): Promise<EffectiveLlmConfig> {
   return hostDispatch<EffectiveLlmConfig>({
     op: "host.llm.inspect",
     projectRoot,
+    revealSecrets,
   });
 }
 

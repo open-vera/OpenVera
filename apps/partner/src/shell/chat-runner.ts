@@ -47,7 +47,7 @@ class ChatRunner {
         isStreaming: true,
         turnId: this.activeTurnId,
       },
-      this.activeChatTabId,
+      this.activeChatTabId
     );
     this.activeAssistantId = id;
     return id;
@@ -72,14 +72,18 @@ class ChatRunner {
         toolCalls: [],
         turnId: this.activeTurnId,
       },
-      this.activeChatTabId,
+      this.activeChatTabId
     );
     this.activeProgressId = id;
     return id;
   }
 
   /** Add a step to the current tool segment (agent_thinking, approvals, …). */
-  private appendProgressStep(name: string, input: Record<string, unknown> = {}, id?: string) {
+  private appendProgressStep(
+    name: string,
+    input: Record<string, unknown> = {},
+    id?: string
+  ) {
     const segmentId = this.ensureToolSegment();
     if (!segmentId || !this.activeChatTabId) return;
     const callId = id ?? crypto.randomUUID();
@@ -87,7 +91,7 @@ class ChatRunner {
     useChatStore().appendToolCall(
       segmentId,
       { id: callId, name, input },
-      this.activeChatTabId,
+      this.activeChatTabId
     );
   }
 
@@ -100,7 +104,11 @@ class ChatRunner {
         if (!chunk) return;
         const assistantId = this.ensureTextSegment();
         if (!assistantId || !this.activeChatTabId) return;
-        useChatStore().updateStreaming(assistantId, chunk, this.activeChatTabId);
+        useChatStore().updateStreaming(
+          assistantId,
+          chunk,
+          this.activeChatTabId
+        );
       }),
       await listen<{ name?: string; callId?: string; input?: unknown }>(
         "agent:stream:tool_call",
@@ -108,9 +116,9 @@ class ChatRunner {
           this.appendProgressStep(
             event.payload.name ?? "tool",
             (event.payload.input as Record<string, unknown>) ?? {},
-            event.payload.callId,
+            event.payload.callId
           );
-        },
+        }
       ),
       await listen<{
         callId?: string;
@@ -121,7 +129,8 @@ class ChatRunner {
         if (!this.activeChatTabId) return;
         const callId = event.payload.callId ?? "";
         // Route to the segment that issued the call — text may have resumed since.
-        const segmentId = this.segmentByCallId.get(callId) ?? this.ensureToolSegment();
+        const segmentId =
+          this.segmentByCallId.get(callId) ?? this.ensureToolSegment();
         if (!segmentId) return;
         useChatStore().appendToolResult(
           segmentId,
@@ -131,7 +140,7 @@ class ChatRunner {
             isError: event.payload.isError,
             fileChange: event.payload.fileChange,
           },
-          this.activeChatTabId,
+          this.activeChatTabId
         );
       }),
       await listen<{
@@ -157,7 +166,7 @@ class ChatRunner {
             allowDir: event.payload.allowDir,
             input: event.payload.input,
           },
-          callId,
+          callId
         );
       }),
       await listen("agent:stream:ready", () => {
@@ -171,18 +180,42 @@ class ChatRunner {
       // Token usage / TTFT / duration for the usage rings (composer + progress panel).
       await listen<{ usage?: TokenUsage }>("agent:stream:usage", (event) => {
         if (!this.activeChatTabId || !event.payload.usage) return;
-        useChatStore().updateRunUsage(event.payload.usage, this.activeChatTabId);
+        useChatStore().updateRunUsage(
+          event.payload.usage,
+          this.activeChatTabId
+        );
       }),
       await listen<{ usage?: TokenUsage }>("agent:stream:done", (event) => {
         if (this.activeChatTabId && event.payload?.usage) {
-          useChatStore().updateRunUsage(event.payload.usage, this.activeChatTabId);
+          useChatStore().updateRunUsage(
+            event.payload.usage,
+            this.activeChatTabId
+          );
         }
         this.finishRun();
       }),
       await listen<{ message?: string }>("agent:stream:error", (event) => {
         this.failRun(event.payload.message ?? "agent error");
-      }),
+      })
     );
+  }
+
+  /**
+   * The tab this run belongs to, or the active chat tab as a fallback.
+   *
+   * A run loses its tab binding whenever the tab tree is rebuilt mid-flight
+   * (`syncFromOpenTabIds`) or the page reloads. Without the fallback the whole
+   * finish/fail path becomes a no-op and the send button stays stuck on "stop".
+   */
+  private targetChatTabId(): string | null {
+    const chat = useChatStore();
+    if (
+      this.activeChatTabId &&
+      chat.tabs.some((tab) => tab.id === this.activeChatTabId)
+    ) {
+      return this.activeChatTabId;
+    }
+    return chat.tabs.find((tab) => tab.kind === "chat")?.id ?? null;
   }
 
   private finishRun() {
@@ -193,13 +226,28 @@ class ChatRunner {
         chat.finalizeMessage(this.activeAssistantId, this.activeChatTabId);
       }
       if (this.activeProgressId) {
-        chat.setMessageEndedAt(this.activeProgressId, endedAt, this.activeChatTabId);
+        const usage = chat.tabs.find(
+          (tab) => tab.id === this.activeChatTabId && tab.kind === "chat"
+        )?.runUsage;
+        if (usage) {
+          chat.setMessageUsage(
+            this.activeProgressId,
+            usage,
+            this.activeChatTabId
+          );
+        }
+        chat.setMessageEndedAt(
+          this.activeProgressId,
+          endedAt,
+          this.activeChatTabId
+        );
       }
       if (this.activeTurnId) {
         chat.closeTurn(this.activeTurnId, endedAt, this.activeChatTabId);
       }
-      chat.setAgentRunning(false, this.activeChatTabId);
     }
+    const target = this.targetChatTabId();
+    if (target) chat.setAgentRunning(false, target);
     this.resetRunState();
   }
 
@@ -213,14 +261,16 @@ class ChatRunner {
         chat.markMessageError(
           assistantId,
           formatErrorMessage(message),
-          this.activeChatTabId,
+          this.activeChatTabId
         );
       }
       if (this.activeTurnId) {
         chat.closeTurn(this.activeTurnId, endedAt, this.activeChatTabId);
       }
-      chat.setAgentRunning(false, this.activeChatTabId);
     }
+    // Always release the run lock, even when this run has no tab binding left.
+    const target = this.targetChatTabId();
+    if (target) chat.setAgentRunning(false, target);
     this.resetRunState();
   }
 
@@ -235,7 +285,7 @@ class ChatRunner {
   async sendMessage(
     text: string,
     projectRoot?: string,
-    attachments: ChatAttachment[] = [],
+    attachments: ChatAttachment[] = []
   ): Promise<void> {
     await this.ensureListening();
     const chat = useChatStore();
@@ -250,7 +300,9 @@ class ChatRunner {
     const displayText = text.trim() || "请查看附件内容。";
     const resolvedRoot =
       projectRoot ?? host.previewProject?.rootPath ?? undefined;
-    const activePreviewTab = preview.tabs.find((tab) => tab.id === preview.activeTabId);
+    const activePreviewTab = preview.tabs.find(
+      (tab) => tab.id === preview.activeTabId
+    );
     const openFilePaths = preview.tabs
       .map((tab) => tab.filePath)
       .filter((path): path is string => Boolean(path));
@@ -261,10 +313,14 @@ class ChatRunner {
     });
 
     let sessionId = host.doc.activeTabId;
-    if (!sessionId || sessionId === "settings" || !host.doc.sessions[sessionId]) {
+    if (
+      !sessionId ||
+      sessionId === "settings" ||
+      !host.doc.sessions[sessionId]
+    ) {
       const created = await host.createSession(
         host.doc.previewProjectId,
-        displayText.slice(0, 40),
+        displayText.slice(0, 40)
       );
       sessionId = created.sessionId;
     }
@@ -279,7 +335,7 @@ class ChatRunner {
         attachments,
         timestamp: Date.now(),
       },
-      chatTabId,
+      chatTabId
     );
 
     const progressId = crypto.randomUUID();
@@ -300,10 +356,12 @@ class ChatRunner {
         role: "tool",
         content: "agent_start({})",
         timestamp: Date.now(),
-        toolCalls: [{ id: crypto.randomUUID(), name: "agent_start", input: {} }],
+        toolCalls: [
+          { id: crypto.randomUUID(), name: "agent_start", input: {} },
+        ],
         turnId,
       },
-      chatTabId,
+      chatTabId
     );
 
     try {
@@ -323,10 +381,13 @@ class ChatRunner {
     const host = useHostStore();
     const sessionId =
       host.doc.orchestrator.runningSessionId ?? host.doc.activeTabId;
-    if (sessionId && sessionId !== "settings") {
-      void host.abortSession(sessionId);
-    }
+    // Release the UI first: a stop click must never look like a no-op, even if
+    // the host or sidecar refuses the abort.
     this.failRun("已中止");
+    if (!sessionId || sessionId === "settings") return;
+    void host.abortSession(sessionId).catch((error: unknown) => {
+      console.warn("[ChatRunner] abort request failed:", error);
+    });
   }
 
   dispose(): void {

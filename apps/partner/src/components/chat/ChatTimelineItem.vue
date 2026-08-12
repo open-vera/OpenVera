@@ -49,7 +49,7 @@ function asChangesItem(item: ChatDisplayItem) {
     :running="props.running"
     :variant="props.variant"
     :show-logs="true"
-    :usage="props.usage ?? null"
+    :usage="props.usage ?? asToolItem(props.item)!.usage ?? null"
     @open-logs="emit('open-logs')"
   />
   <TurnChangesPanel

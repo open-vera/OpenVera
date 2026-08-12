@@ -1,4 +1,8 @@
-import { handleAgentAbort, handleAgentRun, inspectEffectiveLlmConfig } from "./agent-run.js";
+import {
+  handleAgentAbort,
+  handleAgentRun,
+  inspectEffectiveLlmConfig,
+} from "./agent-run.js";
 import {
   listConfiguredProviders,
   listProviderModels,
@@ -24,7 +28,7 @@ const pendingTools = new Map<
 function bridgeTool(
   callId: string,
   name: string,
-  args: Record<string, unknown>,
+  args: Record<string, unknown>
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -65,7 +69,7 @@ async function handleRequest(request: RpcRequest): Promise<void> {
     await handleAgentRun(
       request.id,
       request.params as unknown as AgentRunParams,
-      bridgeTool,
+      bridgeTool
     );
     return;
   }
@@ -91,8 +95,8 @@ async function handleRequest(request: RpcRequest): Promise<void> {
         inspectEffectiveLlmConfig(
           params.projectRoot,
           params.llmConfig,
-          Boolean(params.revealSecrets),
-        ),
+          Boolean(params.revealSecrets)
+        )
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -104,7 +108,7 @@ async function handleRequest(request: RpcRequest): Promise<void> {
     try {
       const { handleLspStart } = await import("./lsp/handler.js");
       const result = await handleLspStart(
-        request.params as { languageId: string; workspaceRoot: string },
+        request.params as { languageId: string; workspaceRoot: string }
       );
       writeResult(request.id, result);
     } catch (error) {
@@ -119,6 +123,11 @@ async function handleRequest(request: RpcRequest): Promise<void> {
     writeResult(request.id, { ok: true });
     return;
   }
+  if (request.method === "lsp.status") {
+    const { handleLspStatus } = await import("./lsp/handler.js");
+    writeResult(request.id, handleLspStatus());
+    return;
+  }
   if (request.method === "lsp.symbolSearch") {
     try {
       const { handleSymbolSearch } = await import("./lsp/symbol-search.js");
@@ -127,7 +136,7 @@ async function handleRequest(request: RpcRequest): Promise<void> {
           workspaceRoot: string;
           query: string;
           limit?: number;
-        },
+        }
       );
       writeResult(request.id, result);
     } catch (error) {
@@ -155,9 +164,13 @@ async function handleRequest(request: RpcRequest): Promise<void> {
         providerId: string;
         protocol?: string;
       };
-      const models = await listProviderModels(params.projectRoot, params.providerId, {
+      const models = await listProviderModels(
+        params.projectRoot,
+        params.providerId,
+        {
         protocol: params.protocol,
-      });
+        }
+      );
       writeResult(request.id, { models });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -175,7 +188,7 @@ async function handleRequest(request: RpcRequest): Promise<void> {
       const result = await testProviderConnection(
         params.projectRoot,
         params.providerId,
-        { protocol: params.protocol },
+        { protocol: params.protocol }
       );
       writeResult(request.id, result);
     } catch (error) {
@@ -186,7 +199,12 @@ async function handleRequest(request: RpcRequest): Promise<void> {
   }
   if (request.method === "ping") {
     writeResult(request.id, { ok: true });
+    return;
   }
+  // Never fall through silently: the host would block until its RPC timeout and
+  // report "sidecar rpc timed out", hiding the real cause — which is usually a
+  // stale staged bundle that predates the method the app is calling.
+  writeError(request.id, `unknown method: ${request.method}`);
 }
 
 async function main(): Promise<void> {
@@ -224,7 +242,7 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   process.stderr.write(
-    `[partner-sidecar] fatal: ${err instanceof Error ? err.message : String(err)}\n`,
+    `[partner-sidecar] fatal: ${err instanceof Error ? err.message : String(err)}\n`
   );
   process.exit(1);
 });

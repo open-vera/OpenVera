@@ -41,7 +41,7 @@ function previewOf(session: PartnerSessionRecord): string {
 }
 
 function toggleProject(project: PartnerProjectRecord) {
-  appState.toggleProjectExpanded(project.id);
+  void appState.toggleProjectExpanded(project.id);
 }
 
 function onSelect(sessionId: string) {

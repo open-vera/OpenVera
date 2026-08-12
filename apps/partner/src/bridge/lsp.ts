@@ -12,7 +12,7 @@ export interface LspStartResult {
 export async function startLsp(
   languageId: PreviewLanguageId,
   workspaceRoot: string,
-  _filePath: string,
+  _filePath: string
 ): Promise<LspStartResult> {
   const data = await hostDispatch<Record<string, unknown>>({
     op: "host.lsp.start",
@@ -36,13 +36,36 @@ export async function stopLsp(serverId: string): Promise<void> {
 export async function lspSymbolSearch(
   workspaceRoot: string,
   query: string,
-  _limit = 80,
+  _limit = 80
 ): Promise<LspSymbolSearchEntry[]> {
-  const data = await hostDispatch<LspSymbolSearchEntry[] | { items?: LspSymbolSearchEntry[] }>({
+  const data = await hostDispatch<
+    LspSymbolSearchEntry[] | { items?: LspSymbolSearchEntry[] }
+  >({
     op: "host.lsp.symbol_search",
     workspaceRoot,
     query,
   });
   if (Array.isArray(data)) return data;
   return data.items ?? [];
+}
+
+export interface LspServerStatus {
+  languageId: string;
+  /** Resolved launch command, useful when a server fails to start. */
+  command: string;
+  running: boolean;
+  serverId?: string;
+  wsUrl?: string;
+  port?: number;
+  pid?: number;
+  startedAt?: number;
+  exitCode?: number;
+}
+
+/** Every language Partner can start, annotated with the live child process. */
+export async function lspStatus(): Promise<LspServerStatus[]> {
+  const data = await hostDispatch<{ servers?: LspServerStatus[] }>({
+    op: "host.lsp.status",
+  });
+  return data.servers ?? [];
 }

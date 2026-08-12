@@ -1,4 +1,4 @@
-import { defaultWindowIcon } from "@tauri-apps/api/app";
+import { Image } from "@tauri-apps/api/image";
 import { Menu } from "@tauri-apps/api/menu";
 import { TrayIcon } from "@tauri-apps/api/tray";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -13,6 +13,7 @@ import {
   type TraySessionItem,
   type TraySessionMenuItem,
 } from "./tray-menu-model.js";
+import trayLineArtUrl from "@/assets/tray-line-art.png";
 
 const TRAY_ID = "partner-main-tray";
 
@@ -43,7 +44,7 @@ function collectTraySessions(): TraySessionItem[] {
   const runningById = new Map(
     chat.tabs
       .filter((tab) => tab.kind === "chat")
-      .map((tab) => [tab.id, tab.isAgentRunning] as const),
+      .map((tab) => [tab.id, tab.isAgentRunning] as const)
   );
 
   return Object.values(appState.sessions).map((session) => ({
@@ -58,7 +59,9 @@ function menuSignature(items: TrayMenuModelItem[]): string {
   return JSON.stringify(items);
 }
 
-function toNativeMenuItems(items: TrayMenuModelItem[]): Array<Record<string, unknown>> {
+function toNativeMenuItems(
+  items: TrayMenuModelItem[]
+): Array<Record<string, unknown>> {
   const native: Array<Record<string, unknown>> = [];
 
   for (const item of items) {
@@ -120,7 +123,9 @@ function toNativeMenuItems(items: TrayMenuModelItem[]): Array<Record<string, unk
   return native;
 }
 
-function sessionMenuOptions(item: TraySessionMenuItem): Record<string, unknown> {
+function sessionMenuOptions(
+  item: TraySessionMenuItem
+): Record<string, unknown> {
   return {
     id: item.id,
     text: item.text,
@@ -134,7 +139,8 @@ function sessionMenuOptions(item: TraySessionMenuItem): Record<string, unknown> 
 
 async function buildMenu(): Promise<{ menu: Menu; signature: string }> {
   const settings = useSettingsStore();
-  const labels = settings.locale === "en" ? TRAY_MENU_LABELS_EN : TRAY_MENU_LABELS_ZH;
+  const labels =
+    settings.locale === "en" ? TRAY_MENU_LABELS_EN : TRAY_MENU_LABELS_ZH;
   const model = buildTrayMenuModel(collectTraySessions(), { labels });
   const signature = menuSignature(model);
   const menu = await Menu.new({
@@ -144,7 +150,9 @@ async function buildMenu(): Promise<{ menu: Menu; signature: string }> {
   return { menu, signature };
 }
 
-export async function initPartnerTray(nextHandlers: PartnerTrayHandlers): Promise<void> {
+export async function initPartnerTray(
+  nextHandlers: PartnerTrayHandlers
+): Promise<void> {
   if (!isTauriRuntime()) return;
   handlers = nextHandlers;
   if (trayIcon) {
@@ -155,7 +163,9 @@ export async function initPartnerTray(nextHandlers: PartnerTrayHandlers): Promis
   try {
     const { menu, signature } = await buildMenu();
     lastMenuSignature = signature;
-    const icon = await defaultWindowIcon();
+    const icon = await Image.fromBytes(
+      await (await fetch(trayLineArtUrl)).arrayBuffer()
+    );
     trayIcon = await TrayIcon.new({
       id: TRAY_ID,
       icon: icon ?? undefined,

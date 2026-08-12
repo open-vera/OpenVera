@@ -55,7 +55,7 @@ Vera = Harness 为内核的 agent runtime。两层结构：
 
 ### 1. 测试与质量
 
-- **覆盖率 ≥ 90%**：运行 `pnpm --filter @vera/core run test:coverage`，确认 lines 覆盖率不低于 90%
+- **覆盖率达标**：运行 `pnpm --filter @open-vera/core run test:coverage`，整体 lines ≥ 70%，核心模块（`tools/` `storage/` `adapters/` `config/` `memory/` `context/` `utils/`）≥ 80%（与下文「测试规范」同一标准）
 - **无 error 级别质量问题**：运行 `bash .claude/skills/quality-scan/scan.sh`，oxlint / sonarjs 不允许任何 `error` 级别发现（warning 可接受）
 - 新增业务逻辑必须有对应 unit test；纯类型定义、配置文件、文档除外
 

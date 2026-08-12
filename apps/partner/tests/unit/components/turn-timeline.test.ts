@@ -14,7 +14,9 @@ import {
 
 const BASE = 1_700_000_000_000;
 
-function buildTurn(options: { streaming?: boolean; endedAt?: number } = {}): ChatTurnEntry {
+function buildTurn(
+  options: { streaming?: boolean; endedAt?: number } = {}
+): ChatTurnEntry {
   const messages: Message[] = [
     { id: "u1", role: "user", content: "装一下 playwright", timestamp: BASE },
     {
@@ -23,17 +25,27 @@ function buildTurn(options: { streaming?: boolean; endedAt?: number } = {}): Cha
       content: "bash",
       timestamp: BASE + 1,
       turnId: "turn-1",
-      toolCalls: [{ id: "c1", name: "bash", input: { cmd: "pnpm add -D playwright" } }],
+      toolCalls: [
+        { id: "c1", name: "bash", input: { cmd: "pnpm add -D playwright" } },
+      ],
       toolResults: [{ id: "c1", output: "added 1 package" }],
     },
-    { id: "a1", role: "assistant", content: "先装依赖。", timestamp: BASE + 2, turnId: "turn-1" },
+    {
+      id: "a1",
+      role: "assistant",
+      content: "先装依赖。",
+      timestamp: BASE + 2,
+      turnId: "turn-1",
+    },
     {
       id: "t2",
       role: "tool",
       content: "bash",
       timestamp: BASE + 3,
       turnId: "turn-1",
-      toolCalls: [{ id: "c2", name: "bash", input: { cmd: "npx playwright install" } }],
+      toolCalls: [
+        { id: "c2", name: "bash", input: { cmd: "npx playwright install" } },
+      ],
     },
     {
       id: "a2",
@@ -51,16 +63,26 @@ function buildTurn(options: { streaming?: boolean; endedAt?: number } = {}): Cha
   return turn;
 }
 
-function mountTurn(turn: ChatTurnEntry, running: boolean) {
+function mountTurn(
+  turn: ChatTurnEntry,
+  running: boolean,
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+  }
+) {
   return mount(TurnTimeline, {
-    props: { turn, running, locale: "zh-CN" },
+    props: { turn, running, usage, locale: "zh-CN" },
     global: { stubs: { MarkdownRenderer: true } },
   });
 }
 
 /** Assistant text renders through the async markdown worker, so read the props. */
 function bubbleTexts(wrapper: ReturnType<typeof mountTurn>): string[] {
-  return wrapper.findAllComponents(MessageBubble).map((bubble) => bubble.props().message.content);
+  return wrapper
+    .findAllComponents(MessageBubble)
+    .map((bubble) => bubble.props().message.content);
 }
 
 describe("TurnTimeline", () => {
@@ -92,6 +114,19 @@ describe("TurnTimeline", () => {
     wrapper.unmount();
   });
 
+  it("keeps logs and usage actions visible after the process is collapsed", () => {
+    const wrapper = mountTurn(buildTurn({ endedAt: BASE + 4_000 }), false, {
+      input_tokens: 120,
+      output_tokens: 30,
+      total_tokens: 150,
+    });
+
+    expect(wrapper.text()).toContain("日志");
+    expect(wrapper.text()).toContain("统计");
+    expect(wrapper.findAllComponents(ToolProgressPanel)).toHaveLength(0);
+    wrapper.unmount();
+  });
+
   it("reveals the full process when the header is clicked", async () => {
     const wrapper = mountTurn(buildTurn({ endedAt: BASE + 4_000 }), false);
 
@@ -106,7 +141,13 @@ describe("TurnTimeline", () => {
   it("renders nothing but the answer when a turn has no process items", () => {
     const messages: Message[] = [
       { id: "u1", role: "user", content: "hi", timestamp: BASE },
-      { id: "a1", role: "assistant", content: "你好", timestamp: BASE + 1, turnId: "turn-9" },
+      {
+        id: "a1",
+        role: "assistant",
+        content: "你好",
+        timestamp: BASE + 1,
+        turnId: "turn-9",
+      },
     ];
     const entries = buildChatTimelineEntries(buildChatDisplayItems(messages));
     const turn = entries.find((entry) => entry.type === "turn");

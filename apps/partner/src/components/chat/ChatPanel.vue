@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
-import { computed, nextTick, onMounted, ref, watch, type ComponentPublicInstance } from "vue";
+import {
+  computed,
+  nextTick,
+  onMounted,
+  ref,
+  watch,
+  type ComponentPublicInstance,
+} from "vue";
 import { readRunLog, type RunLogView } from "@/bridge";
 import { measureAsync } from "@/perf";
 import { useChatStore } from "@/stores/chat";
@@ -33,20 +40,15 @@ import SettingsPanel from "@/components/settings/SettingsPanel.vue";
 import { useAppStateStore } from "@/stores/app-state";
 import { buildUserMessageAnchors } from "@/utils/message-anchors";
 import { scrollTabIntoView } from "@/utils/scroll-tab-into-view";
-import {
-  activeTabDrag,
-  beginTabDrag,
-  clearTabDrag,
-  resolveTabReorderAt,
-  tabDropIndexAt,
-} from "@/utils/tab-dnd";
+import { startPointerTabDrag } from "@/utils/tab-dnd";
 
 const chat = useChatStore();
 const settings = useSettingsStore();
 const preview = usePreviewStore();
 const workspace = useWorkspaceStore();
 const appState = useAppStateStore();
-const { activeTab, messages, isAgentRunning, tabs, runUsage } = storeToRefs(chat);
+const { activeTab, messages, isAgentRunning, tabs, runUsage } =
+  storeToRefs(chat);
 const chatRunner = getChatRunner();
 const messagesRef = ref<HTMLElement | null>(null);
 const tabsScrollRef = ref<HTMLElement | null>(null);
@@ -55,11 +57,11 @@ const shouldStickToBottom = ref(true);
 const itemElements = new Map<string, HTMLElement>();
 
 const displayLocale = computed<"zh-CN" | "en-US">(() =>
-  settings.locale === "zh" ? "zh-CN" : "en-US",
+  settings.locale === "zh" ? "zh-CN" : "en-US"
 );
 
 const allDisplayItems = computed<ChatDisplayItem[]>(() =>
-  buildChatDisplayItems(messages.value),
+  buildChatDisplayItems(messages.value)
 );
 
 const displayItems = computed<ChatDisplayItem[]>(() => {
@@ -68,12 +70,12 @@ const displayItems = computed<ChatDisplayItem[]>(() => {
   return allDisplayItems.value.filter(
     (item) =>
       item.type !== "tool-progress" ||
-      hasVisibleToolProgress(item.toolCalls, displayLocale.value),
+      hasVisibleToolProgress(item.toolCalls, displayLocale.value)
   );
 });
 
 const timelineEntries = computed<ChatTimelineEntry[]>(() =>
-  buildChatTimelineEntries(displayItems.value),
+  buildChatTimelineEntries(displayItems.value)
 );
 
 /** The turn the agent is currently working on — the last one, while running. */
@@ -114,14 +116,16 @@ const uiText = computed(() => {
 });
 
 function createNewChat() {
-  const id = appState.createSession({ projectId: appState.previewProjectId });
-  const session = appState.getSession(id);
-  if (session) chat.ensureSessionTab(session);
-  focusInputBar();
+  void (async () => {
+    const id = await appState.createSession({ projectId: appState.previewProjectId });
+    const session = appState.getSession(id);
+    if (session) chat.ensureSessionTab(session);
+    focusInputBar();
+  })();
 }
 
 function selectTab(tabId: string) {
-  appState.selectTab(tabId);
+  void appState.selectTab(tabId);
   if (tabId === "settings") {
     chat.openSettingsTab();
   } else {
@@ -160,28 +164,20 @@ function tabTitle(tab: { kind: string; title: string }) {
 
 const tabDropIndex = ref<number | null>(null);
 
-function onTabDragStart(tabId: string, event: DragEvent) {
-  beginTabDrag("center", tabId, event.dataTransfer);
-}
-
-function onTabDragOver(event: DragEvent) {
-  if (!activeTabDrag()) return;
-  // Claim the drag so the webview shows a move affordance over the strip.
-  event.preventDefault();
-  tabDropIndex.value = tabDropIndexAt("center", event.clientX, event.clientY);
-}
-
-function onTabDragLeave() {
-  tabDropIndex.value = null;
-}
-
-function onTabDragEnd(event: DragEvent) {
-  tabDropIndex.value = null;
-  const reorder = resolveTabReorderAt("center", event.clientX, event.clientY);
-  clearTabDrag();
-  if (!reorder) return;
-  const order = chat.moveTab(reorder.tabId, reorder.insertionIndex);
+function commitTabReorder(tabId: string, insertionIndex: number) {
+  const order = chat.moveTab(tabId, insertionIndex);
   if (order) appState.reorderOpenTabs(order);
+}
+
+function onTabPointerDown(tabId: string, event: PointerEvent) {
+  // Let the close affordance keep its own click.
+  if ((event.target as HTMLElement | null)?.closest(".tab-close")) return;
+  startPointerTabDrag("center", tabId, event, {
+    onPreview: (index) => {
+      tabDropIndex.value = index;
+    },
+    onCommit: (index) => commitTabReorder(tabId, index),
+  });
 }
 
 function focusInputBar() {
@@ -196,7 +192,10 @@ function scrollActiveCenterTabIntoView() {
   });
 }
 
-function setItemElement(key: string, element: Element | ComponentPublicInstance | null) {
+function setItemElement(
+  key: string,
+  element: Element | ComponentPublicInstance | null
+) {
   if (element instanceof HTMLElement) {
     itemElements.set(key, element);
   } else {
@@ -211,9 +210,12 @@ function itemKeyForMessageId(messageId: string): string {
   // so anchor on the turn container instead.
   if (message.turnId) return `turn:${message.turnId}`;
   if (message.role !== "tool") return message.id;
-  return displayItems.value.find(
-    (item) => item.type === "tool-progress" && item.messageIds.includes(messageId),
-  )?.key ?? `tools:${message.id}`;
+  return (
+    displayItems.value.find(
+      (item) =>
+        item.type === "tool-progress" && item.messageIds.includes(messageId)
+    )?.key ?? `tools:${message.id}`
+  );
 }
 
 function jumpToMessage(messageId: string) {
@@ -230,7 +232,9 @@ function jumpToMessage(messageId: string) {
   });
 }
 
-const userMessageAnchors = computed(() => buildUserMessageAnchors(messages.value));
+const userMessageAnchors = computed(() =>
+  buildUserMessageAnchors(messages.value)
+);
 
 function isNearBottom(element: HTMLElement): boolean {
   return element.scrollHeight - element.scrollTop - element.clientHeight < 80;
@@ -255,7 +259,10 @@ function scheduleScrollToBottom(force = false) {
   });
 }
 
-async function onSubmit(payload: { text: string; attachments: ChatAttachment[] }) {
+async function onSubmit(payload: {
+  text: string;
+  attachments: ChatAttachment[];
+}) {
   shouldStickToBottom.value = true;
   await chatRunner.sendMessage(payload.text, undefined, payload.attachments);
   scheduleScrollToBottom(true);
@@ -268,18 +275,29 @@ async function openRunLog() {
     "openRunLog",
     async () => {
       if (!workspace.rootPath) {
-        preview.openCodeFile("partner-run-log.txt", "尚未选择工作区，无法定位运行日志。\n");
+        preview.openCodeFile(
+          "partner-run-log.txt",
+          "尚未选择工作区，无法定位运行日志。\n"
+        );
         return;
       }
-      const taskId = activeTab.value?.kind === "chat"
-        ? activeTab.value.activeTaskId ?? activeTab.value.lastTaskId
+      const taskId =
+        activeTab.value?.kind === "chat"
+          ? (activeTab.value.activeTaskId ?? activeTab.value.lastTaskId)
         : null;
       let view: RunLogView;
       try {
-        view = await readRunLog(workspace.rootPath, taskId, RUN_LOG_OPEN_MAX_BYTES);
+        view = await readRunLog(
+          workspace.rootPath,
+          taskId,
+          RUN_LOG_OPEN_MAX_BYTES
+        );
       } catch (error) {
         const label = `${workspace.rootPath} (task: ${taskId ?? "未知"})`;
-        preview.openCodeFile("partner-run-log.txt", formatRunLogReadFailure(label, error));
+        preview.openCodeFile(
+          "partner-run-log.txt",
+          formatRunLogReadFailure(label, error)
+        );
         console.warn("[ChatPanel] failed to open run log:", error);
         return;
       }
@@ -291,13 +309,17 @@ async function openRunLog() {
         view.path,
         view.truncated
           ? [
-              formatRunLogTruncationNotice(view.path, view.content.length, view.totalBytes),
+              formatRunLogTruncationNotice(
+                view.path,
+                view.content.length,
+                view.totalBytes
+              ),
               view.content,
             ].join("\n")
-          : view.content,
+          : view.content
       );
     },
-    { warnMs: 100, errorMs: 800, timeoutMs: 15_000 },
+    { warnMs: 100, errorMs: 800, timeoutMs: 15_000 }
   );
 }
 
@@ -319,7 +341,7 @@ watch(
     void nextTick(() => {
       requestAnimationFrame(scrollActiveCenterTabIntoView);
     });
-  },
+  }
 );
 
 watch(
@@ -328,7 +350,7 @@ watch(
     void nextTick(() => {
       requestAnimationFrame(scrollActiveCenterTabIntoView);
     });
-  },
+  }
 );
 
 watch(
@@ -339,7 +361,7 @@ watch(
     isAgentRunning.value,
   ],
   () => scheduleScrollToBottom(),
-  { flush: "post" },
+  { flush: "post" }
 );
 </script>
 
@@ -350,8 +372,6 @@ watch(
         ref="tabsScrollRef"
         class="center-tabs-scroll"
         data-tab-group="center"
-        @dragover="onTabDragOver"
-        @dragleave="onTabDragLeave"
       >
         <button
           v-for="(tab, index) in tabs"
@@ -363,12 +383,11 @@ watch(
             active: tab.id === activeTab?.id,
             settings: tab.kind === 'settings',
             'drop-before': tabDropIndex === index,
-            'drop-after': tabDropIndex === tabs.length && index === tabs.length - 1,
+            'drop-after':
+              tabDropIndex === tabs.length && index === tabs.length - 1,
           }"
-          draggable="true"
           @click="selectTab(tab.id)"
-          @dragstart="onTabDragStart(tab.id, $event)"
-          @dragend="onTabDragEnd"
+          @pointerdown="onTabPointerDown(tab.id, $event)"
         >
           <svg
             v-if="tab.kind === 'settings'"
@@ -382,7 +401,11 @@ watch(
             />
           </svg>
           <span class="tab-title">{{ tabTitle(tab) }}</span>
-          <span v-if="tab.isAgentRunning" class="running-dot" :aria-label="uiText.running" />
+          <span
+            v-if="tab.isAgentRunning"
+            class="running-dot"
+            :aria-label="uiText.running"
+          />
           <span class="tab-close" @click.stop="closeTab(tab.id)">×</span>
         </button>
       </div>
@@ -402,7 +425,11 @@ watch(
       <SettingsPanel />
     </div>
 
-    <div v-else class="chat-workspace" :class="{ 'is-empty': !messages.length }">
+    <div
+      v-else
+      class="chat-workspace"
+      :class="{ 'is-empty': !messages.length }"
+    >
       <div class="messages-shell">
         <div ref="messagesRef" class="messages" @scroll="onMessagesScroll">
           <template v-for="entry in timelineEntries" :key="entry.key">

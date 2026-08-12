@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import { syncCaller, syncLog } from "@/utils/sync-log";
 
 const WORKSPACE_ROOT_KEY_PREFIX = "partner:workspace-root";
 
@@ -28,6 +29,13 @@ export const useWorkspaceStore = defineStore("workspace", {
       return value;
     },
     setRoot(path: string) {
+      if (this.rootPath !== path) {
+        syncLog("workspace.setRoot", {
+          from: this.rootPath,
+          to: path,
+          by: syncCaller(),
+        });
+      }
       this.rootPath = path;
       if (path) {
         storage()?.setItem(this.storageKey(), path);

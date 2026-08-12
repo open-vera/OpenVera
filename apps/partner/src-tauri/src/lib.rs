@@ -1,6 +1,7 @@
 mod commands;
 mod host;
 mod paths;
+mod persist_writer;
 mod sidecar;
 
 use commands::pty::PtyManager;
@@ -101,8 +102,27 @@ pub fn run() {
             host::host_boot,
             host::host_dispatch,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| flush_app_state(&event));
+}
+
+/// Durability boundary for the throttled app-state writer: up to
+/// `persist_writer::THROTTLE_INTERVAL` of state (active tab, layout, session
+/// content) only exists in memory, so every path that ends the session — quit,
+/// programmatic exit, closing the last window — has to force it out.
+fn flush_app_state(event: &tauri::RunEvent) {
+    let ending = match event {
+        tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => true,
+        tauri::RunEvent::WindowEvent { event, .. } => matches!(
+            event,
+            tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed
+        ),
+        _ => false,
+    };
+    if ending {
+        let _ = persist_writer::flush_now();
+    }
 }
 
 fn build_menu(handle: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {

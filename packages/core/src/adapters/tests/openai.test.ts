@@ -13,7 +13,10 @@ import type {
 const mockCreate = vi.hoisted(() => vi.fn());
 const mockListModels = vi.hoisted(() => vi.fn());
 const MockOpenAI = vi.hoisted(() =>
-  vi.fn(function (this: Record<string, unknown>, _config: Record<string, unknown>) {
+  vi.fn(function (
+    this: Record<string, unknown>,
+    _config: Record<string, unknown>
+  ) {
     this.chat = {
       completions: {
         create: mockCreate,
@@ -32,10 +35,12 @@ vi.mock("openai", () => ({
 
 // Import after mock
 import { mapOpenAiUsage, OpenAIAdapter } from "../openai.js";
+import { DEFAULT_LLM_REQUEST_TIMEOUT_MS } from "../timeouts.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeChatCompletion(opts: {
+function makeChatCompletion(
+  opts: {
   content?: string | null;
   tool_calls?: Array<{
     id: string;
@@ -45,7 +50,8 @@ function makeChatCompletion(opts: {
   finish_reason?: string;
   prompt_tokens?: number;
   completion_tokens?: number;
-} = {}) {
+  } = {}
+) {
   const content = "content" in opts ? opts.content : "Hello";
   return {
     id: "chatcmpl-1",
@@ -108,6 +114,7 @@ describe("OpenAIAdapter", () => {
         apiKey: "sk-123",
         baseURL: "https://api.openai.com/v1",
         defaultHeaders: undefined,
+        timeout: DEFAULT_LLM_REQUEST_TIMEOUT_MS,
       });
     });
 
@@ -117,6 +124,7 @@ describe("OpenAIAdapter", () => {
         apiKey: undefined,
         baseURL: undefined,
         defaultHeaders: undefined,
+        timeout: DEFAULT_LLM_REQUEST_TIMEOUT_MS,
       });
     });
 
@@ -126,6 +134,7 @@ describe("OpenAIAdapter", () => {
         apiKey: "sk-only",
         baseURL: undefined,
         defaultHeaders: undefined,
+        timeout: DEFAULT_LLM_REQUEST_TIMEOUT_MS,
       });
     });
 
@@ -136,6 +145,7 @@ describe("OpenAIAdapter", () => {
         apiKey: "key",
         baseURL: "https://api.openai.com/v1",
         defaultHeaders: headers,
+        timeout: DEFAULT_LLM_REQUEST_TIMEOUT_MS,
       });
     });
 
@@ -145,6 +155,7 @@ describe("OpenAIAdapter", () => {
         apiKey: "sk-123",
         baseURL: "https://gateway.example.com/v1",
         defaultHeaders: undefined,
+        timeout: DEFAULT_LLM_REQUEST_TIMEOUT_MS,
       });
     });
   });
@@ -153,7 +164,9 @@ describe("OpenAIAdapter", () => {
 
   describe("complete", () => {
     it("should return a text response", async () => {
-      mockCreate.mockResolvedValueOnce(makeChatCompletion({ content: "Hi there" }));
+      mockCreate.mockResolvedValueOnce(
+        makeChatCompletion({ content: "Hi there" })
+      );
 
       const adapter = new OpenAIAdapter("k");
       const req: CompletionRequest = {
@@ -230,7 +243,8 @@ describe("OpenAIAdapter", () => {
       });
 
       expect(mockCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ temperature: 0.7 })
+        expect.objectContaining({ temperature: 0.7 }),
+        { signal: undefined }
       );
     });
 
@@ -258,8 +272,25 @@ describe("OpenAIAdapter", () => {
       });
 
       expect(mockCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ max_tokens: 200 })
+        expect.objectContaining({ max_tokens: 200 }),
+        { signal: undefined }
       );
+    });
+
+    it("should forward the abort signal so a stop cancels the HTTP request", async () => {
+      mockCreate.mockResolvedValueOnce(makeChatCompletion());
+      const controller = new AbortController();
+
+      const adapter = new OpenAIAdapter("k");
+      await adapter.complete({
+        model: "m",
+        messages: [{ role: "user", content: "x" }],
+        signal: controller.signal,
+      });
+
+      expect(mockCreate).toHaveBeenCalledWith(expect.any(Object), {
+        signal: controller.signal,
+      });
     });
 
     it("should omit max_tokens when not set", async () => {
@@ -280,7 +311,10 @@ describe("OpenAIAdapter", () => {
 
       const adapter = new OpenAIAdapter("k");
       await expect(
-        adapter.complete({ model: "m", messages: [{ role: "user", content: "x" }] })
+        adapter.complete({
+          model: "m",
+          messages: [{ role: "user", content: "x" }],
+        })
       ).rejects.toThrow("401 Unauthorized");
     });
 
@@ -296,9 +330,7 @@ describe("OpenAIAdapter", () => {
             message: {
               role: "assistant",
               content: null,
-              tool_calls: [
-                { id: "t1", type: "retrieval", retrieval: {} },
-              ],
+              tool_calls: [{ id: "t1", type: "retrieval", retrieval: {} }],
             },
             finish_reason: "stop",
           },
@@ -349,9 +381,28 @@ describe("OpenAIAdapter", () => {
     it("should yield text deltas from delta.content", async () => {
       mockCreate.mockResolvedValue(
         makeChunkStream([
-          { id: "chunk1", object: "chat.completion.chunk", created: 1, model: "m", choices: [{ index: 0, delta: { content: "Hi" } }] },
-          { id: "chunk2", object: "chat.completion.chunk", created: 1, model: "m", choices: [{ index: 0, delta: { content: " there" } }] },
-          { id: "chunk3", object: "chat.completion.chunk", created: 1, model: "m", choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 } },
+          {
+            id: "chunk1",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [{ index: 0, delta: { content: "Hi" } }],
+          },
+          {
+            id: "chunk2",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [{ index: 0, delta: { content: " there" } }],
+          },
+          {
+            id: "chunk3",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+            usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+          },
         ])
       );
 
@@ -372,12 +423,28 @@ describe("OpenAIAdapter", () => {
       mockCreate.mockResolvedValue(
         makeChunkStream([
           {
-            id: "c1", object: "chat.completion.chunk", created: 1, model: "m",
-            choices: [{ index: 0, delta: { role: "assistant", reasoning_content: "Let me think..." } }],
+            id: "c1",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [
+              {
+                index: 0,
+                delta: {
+                  role: "assistant",
+                  reasoning_content: "Let me think...",
+          },
+              },
+            ],
           },
           {
-            id: "c2", object: "chat.completion.chunk", created: 1, model: "m",
-            choices: [{ index: 0, delta: { content: "Answer" }, finish_reason: "stop" }],
+            id: "c2",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [
+              { index: 0, delta: { content: "Answer" }, finish_reason: "stop" },
+            ],
             usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 },
           },
         ])
@@ -392,19 +459,30 @@ describe("OpenAIAdapter", () => {
         events.push(e);
       }
 
-      expect(events).toContainEqual({ type: "thinking", text: "Let me think..." });
+      expect(events).toContainEqual({
+        type: "thinking",
+        text: "Let me think...",
+    });
     });
 
     it("should skip empty string reasoning_content", async () => {
       mockCreate.mockResolvedValue(
         makeChunkStream([
           {
-            id: "c1", object: "chat.completion.chunk", created: 1, model: "m",
+            id: "c1",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
             choices: [{ index: 0, delta: { reasoning_content: "" } }],
           },
           {
-            id: "c2", object: "chat.completion.chunk", created: 1, model: "m",
-            choices: [{ index: 0, delta: { content: "OK" }, finish_reason: "stop" }],
+            id: "c2",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [
+              { index: 0, delta: { content: "OK" }, finish_reason: "stop" },
+            ],
             usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
           },
         ])
@@ -427,12 +505,20 @@ describe("OpenAIAdapter", () => {
       mockCreate.mockResolvedValue(
         makeChunkStream([
           {
-            id: "c1", object: "chat.completion.chunk", created: 1, model: "m",
+            id: "c1",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
             choices: [{ index: 0, delta: { reasoning_content: 123 } }],
           },
           {
-            id: "c2", object: "chat.completion.chunk", created: 1, model: "m",
-            choices: [{ index: 0, delta: { content: "OK" }, finish_reason: "stop" }],
+            id: "c2",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [
+              { index: 0, delta: { content: "OK" }, finish_reason: "stop" },
+            ],
             usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
           },
         ])
@@ -454,8 +540,12 @@ describe("OpenAIAdapter", () => {
       mockCreate.mockResolvedValue(
         makeChunkStream([
           {
-            id: "c1", object: "chat.completion.chunk", created: 1, model: "m",
-            choices: [{
+            id: "c1",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [
+              {
               index: 0,
               delta: {
                 tool_calls: [
@@ -467,11 +557,16 @@ describe("OpenAIAdapter", () => {
                   },
                 ],
               },
-            }],
+          },
+            ],
           },
           {
-            id: "c2", object: "chat.completion.chunk", created: 1, model: "m",
-            choices: [{
+            id: "c2",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [
+              {
               index: 0,
               delta: {
                 tool_calls: [
@@ -481,11 +576,16 @@ describe("OpenAIAdapter", () => {
                   },
                 ],
               },
-            }],
+          },
+            ],
           },
           {
-            id: "c3", object: "chat.completion.chunk", created: 1, model: "m",
-            choices: [{
+            id: "c3",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [
+              {
               index: 0,
               delta: {
                 tool_calls: [
@@ -496,8 +596,13 @@ describe("OpenAIAdapter", () => {
                 ],
               },
               finish_reason: "tool_calls",
-            }],
-            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          },
+            ],
+            usage: {
+              prompt_tokens: 10,
+              completion_tokens: 5,
+              total_tokens: 15,
+            },
           },
         ])
       );
@@ -525,23 +630,42 @@ describe("OpenAIAdapter", () => {
       mockCreate.mockResolvedValue(
         makeChunkStream([
           {
-            id: "c1", object: "chat.completion.chunk", created: 1, model: "m",
-            choices: [{
+            id: "c1",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [
+              {
               index: 0,
               delta: {
-                tool_calls: [{ index: 0, id: "call_a", type: "function", function: { name: "f1", arguments: "" } }],
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: "call_a",
+                      type: "function",
+                      function: { name: "f1", arguments: "" },
               },
-            }],
+                  ],
+          },
+              },
+            ],
           },
           {
-            id: "c2", object: "chat.completion.chunk", created: 1, model: "m",
-            choices: [{
+            id: "c2",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [
+              {
               index: 0,
               delta: {
-                tool_calls: [{ index: 0, function: { arguments: '{"a":1}' } }],
+                  tool_calls: [
+                    { index: 0, function: { arguments: '{"a":1}' } },
+                  ],
               },
               finish_reason: "tool_calls",
-            }],
+              },
+            ],
             usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
           },
         ])
@@ -564,8 +688,13 @@ describe("OpenAIAdapter", () => {
       mockCreate.mockResolvedValue(
         makeChunkStream([
           {
-            id: "c1", object: "chat.completion.chunk", created: 1, model: "m",
-            choices: [{ index: 0, delta: { content: "Done" }, finish_reason: "stop" }],
+            id: "c1",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [
+              { index: 0, delta: { content: "Done" }, finish_reason: "stop" },
+            ],
             usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
           },
         ])
@@ -588,7 +717,10 @@ describe("OpenAIAdapter", () => {
       mockCreate.mockResolvedValue(
         makeChunkStream([
           {
-            id: "c1", object: "chat.completion.chunk", created: 1, model: "m",
+            id: "c1",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
             choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
             usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
           },
@@ -612,8 +744,13 @@ describe("OpenAIAdapter", () => {
       mockCreate.mockResolvedValue(
         makeChunkStream([
           {
-            id: "c1", object: "chat.completion.chunk", created: 1, model: "m",
-            choices: [{ index: 0, delta: { content: "OK" }, finish_reason: "stop" }],
+            id: "c1",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [
+              { index: 0, delta: { content: "OK" }, finish_reason: "stop" },
+            ],
             usage: {
               prompt_tokens: 5,
               completion_tokens: 10,
@@ -645,7 +782,9 @@ describe("OpenAIAdapter", () => {
             object: "chat.completion.chunk",
             created: 1,
             model: "m",
-            choices: [{ index: 0, delta: { content: "OK" }, finish_reason: "stop" }],
+            choices: [
+              { index: 0, delta: { content: "OK" }, finish_reason: "stop" },
+            ],
             usage: {
               prompt_tokens: 5100,
               completion_tokens: 91,
@@ -654,7 +793,7 @@ describe("OpenAIAdapter", () => {
               prompt_tokens_details: { cached_tokens: 3800 },
             },
           },
-        ]),
+        ])
       );
 
       const adapter = new OpenAIAdapter("k");
@@ -681,7 +820,7 @@ describe("OpenAIAdapter", () => {
           completion_tokens: 10,
           prompt_tokens_details: { cached_tokens: 40 },
           cache_creation_input_tokens: 5,
-        }),
+        })
       ).toEqual({
         input_tokens: 100,
         output_tokens: 10,
@@ -695,8 +834,13 @@ describe("OpenAIAdapter", () => {
       mockCreate.mockResolvedValue(
         makeChunkStream([
           {
-            id: "c1", object: "chat.completion.chunk", created: 1, model: "m",
-            choices: [{ index: 0, delta: { content: "OK" }, finish_reason: "stop" }],
+            id: "c1",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [
+              { index: 0, delta: { content: "OK" }, finish_reason: "stop" },
+            ],
             usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
           },
         ])
@@ -717,7 +861,13 @@ describe("OpenAIAdapter", () => {
 
     it("should propagate stream errors", async () => {
       async function* errorStream() {
-        yield { id: "c1", object: "chat.completion.chunk", created: 1, model: "m", choices: [{ index: 0, delta: { content: "a" } }] };
+        yield {
+          id: "c1",
+          object: "chat.completion.chunk",
+          created: 1,
+          model: "m",
+          choices: [{ index: 0, delta: { content: "a" } }],
+        };
         throw new Error("Stream broken");
       }
       mockCreate.mockResolvedValue(errorStream());
@@ -739,8 +889,13 @@ describe("OpenAIAdapter", () => {
       mockCreate.mockResolvedValue(
         makeChunkStream([
           {
-            id: "c1", object: "chat.completion.chunk", created: 1, model: "m",
-            choices: [{ index: 0, delta: { content: "Hi" }, finish_reason: "stop" }],
+            id: "c1",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [
+              { index: 0, delta: { content: "Hi" }, finish_reason: "stop" },
+            ],
           },
         ])
       );
@@ -762,8 +917,13 @@ describe("OpenAIAdapter", () => {
       mockCreate.mockResolvedValue(
         makeChunkStream([
           {
-            id: "c1", object: "chat.completion.chunk", created: 1, model: "m",
-            choices: [{ index: 0, delta: { content: "OK" }, finish_reason: "stop" }],
+            id: "c1",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [
+              { index: 0, delta: { content: "OK" }, finish_reason: "stop" },
+            ],
             usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
           },
         ])
@@ -781,7 +941,8 @@ describe("OpenAIAdapter", () => {
         expect.objectContaining({
           stream: true,
           stream_options: { include_usage: true },
-        })
+        }),
+        { signal: undefined }
       );
     });
   });
@@ -826,8 +987,13 @@ describe("OpenAIAdapter", () => {
         messages: [{ role: "user", content: "Hi" }],
       });
 
-      const call = mockCreate.mock.calls[0][0] as { messages: Array<{ role: string; content: string }> };
-      expect(call.messages[0]).toEqual({ role: "system", content: "You are a bot" });
+      const call = mockCreate.mock.calls[0][0] as {
+        messages: Array<{ role: string; content: string }>;
+      };
+      expect(call.messages[0]).toEqual({
+        role: "system",
+        content: "You are a bot",
+    });
     });
 
     it("should keep existing system messages in messages array", async () => {
@@ -842,7 +1008,9 @@ describe("OpenAIAdapter", () => {
         ],
       });
 
-      const call = mockCreate.mock.calls[0][0] as { messages: Array<{ role: string; content: string }> };
+      const call = mockCreate.mock.calls[0][0] as {
+        messages: Array<{ role: string; content: string }>;
+      };
       expect(call.messages[0]).toEqual({ role: "system", content: "Rule 1" });
     });
 
@@ -861,7 +1029,9 @@ describe("OpenAIAdapter", () => {
         ],
       });
 
-      const call = mockCreate.mock.calls[0][0] as { messages: Array<{ role: string; content: string }> };
+      const call = mockCreate.mock.calls[0][0] as {
+        messages: Array<{ role: string; content: string }>;
+      };
       expect(call.messages[0]).toEqual({ role: "system", content: "" });
     });
 
@@ -877,7 +1047,9 @@ describe("OpenAIAdapter", () => {
         ],
       });
 
-      const call = mockCreate.mock.calls[0][0] as { messages: Array<Record<string, unknown>> };
+      const call = mockCreate.mock.calls[0][0] as {
+        messages: Array<Record<string, unknown>>;
+      };
       const toolMsg = call.messages[1];
       expect(toolMsg).toEqual({
         role: "tool",
@@ -901,7 +1073,9 @@ describe("OpenAIAdapter", () => {
         ],
       });
 
-      const call = mockCreate.mock.calls[0][0] as { messages: Array<Record<string, unknown>> };
+      const call = mockCreate.mock.calls[0][0] as {
+        messages: Array<Record<string, unknown>>;
+      };
       expect(call.messages[0].content).toBe("");
     });
 
@@ -915,16 +1089,24 @@ describe("OpenAIAdapter", () => {
           {
             role: "user",
             content: [
-              { type: "image_url", image_url: { url: "data:image/png;base64,abc123" } },
+              {
+                type: "image_url",
+                image_url: { url: "data:image/png;base64,abc123" },
+              },
               { type: "text", text: "describe this image" },
             ],
           },
         ],
       });
 
-      const call = mockCreate.mock.calls[0][0] as { messages: Array<Record<string, unknown>> };
+      const call = mockCreate.mock.calls[0][0] as {
+        messages: Array<Record<string, unknown>>;
+      };
       expect(call.messages[0].content).toEqual([
-        { type: "image_url", image_url: { url: "data:image/png;base64,abc123" } },
+        {
+          type: "image_url",
+          image_url: { url: "data:image/png;base64,abc123" },
+        },
         { type: "text", text: "describe this image" },
       ]);
     });
@@ -952,11 +1134,15 @@ describe("OpenAIAdapter", () => {
         ],
       });
 
-      const call = mockCreate.mock.calls[0][0] as { messages: Array<Record<string, unknown>> };
+      const call = mockCreate.mock.calls[0][0] as {
+        messages: Array<Record<string, unknown>>;
+      };
       const asst = call.messages[0] as Record<string, unknown>;
       expect(asst.role).toBe("assistant");
       expect(asst.content).toHaveLength(1);
-      expect((asst.tool_calls as Array<Record<string, unknown>>)[0]).toMatchObject({
+      expect(
+        (asst.tool_calls as Array<Record<string, unknown>>)[0]
+      ).toMatchObject({
         id: "tc1",
         type: "function",
         function: { name: "search", arguments: '{"q":"test"}' },
@@ -980,9 +1166,13 @@ describe("OpenAIAdapter", () => {
         ],
       });
 
-      const call = mockCreate.mock.calls[0][0] as { messages: Array<Record<string, unknown>> };
+      const call = mockCreate.mock.calls[0][0] as {
+        messages: Array<Record<string, unknown>>;
+      };
       expect(call.messages[0].role).toBe("user");
-      const content = call.messages[0].content as Array<Record<string, unknown>>;
+      const content = call.messages[0].content as Array<
+        Record<string, unknown>
+      >;
       expect(content).toHaveLength(2);
       expect(content[0].text).toBe("Part 1");
     });
@@ -1013,7 +1203,9 @@ describe("OpenAIAdapter", () => {
         ],
       });
 
-      const call = mockCreate.mock.calls[0][0] as { tools: Array<Record<string, unknown>> };
+      const call = mockCreate.mock.calls[0][0] as {
+        tools: Array<Record<string, unknown>>;
+      };
       expect(call.tools).toHaveLength(1);
       expect(call.tools[0]).toEqual({
         type: "function",
@@ -1051,8 +1243,12 @@ describe("OpenAIAdapter", () => {
       mockCreate.mockResolvedValue(
         makeChunkStream([
           {
-            id: "c1", object: "chat.completion.chunk", created: 1, model: "m",
-            choices: [{
+            id: "c1",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [
+              {
               index: 0,
               delta: {
                 tool_calls: [
@@ -1064,11 +1260,16 @@ describe("OpenAIAdapter", () => {
                   },
                 ],
               },
-            }],
+          },
+            ],
           },
           {
-            id: "c2", object: "chat.completion.chunk", created: 1, model: "m",
-            choices: [{
+            id: "c2",
+            object: "chat.completion.chunk",
+            created: 1,
+            model: "m",
+            choices: [
+              {
               index: 0,
               delta: {
                 tool_calls: [
@@ -1079,7 +1280,8 @@ describe("OpenAIAdapter", () => {
                 ],
                 finish_reason: "tool_calls",
               },
-            }],
+              },
+            ],
             usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
           },
         ])

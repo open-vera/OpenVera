@@ -69,7 +69,10 @@ export async function appendFile(path: string, content: string): Promise<void> {
 }
 
 export async function pathInfo(path: string): Promise<PathInfo> {
-  const info = await hostDispatch<RawPathInfo>({ op: "host.fs.path_info", path });
+  const info = await hostDispatch<RawPathInfo>({
+    op: "host.fs.path_info",
+    path,
+  });
   return {
     path: info.path,
     isDir: info.isDir ?? info.is_dir ?? false,
@@ -105,6 +108,19 @@ export async function revealInOs(path: string): Promise<void> {
   await hostDispatch({ op: "host.fs.reveal", path });
 }
 
+export interface MediaFileView {
+  path: string;
+  mimeType: string;
+  /** `data:<mime>;base64,...`, ready to use as an `<img src>`. */
+  dataUrl: string;
+  bytes: number;
+}
+
+/** Read a binary asset (image) as a data URL. Host caps the file size. */
+export async function readFileDataUrl(path: string): Promise<MediaFileView> {
+  return hostDispatch<MediaFileView>({ op: "host.fs.read_data_url", path });
+}
+
 export type RunLogSource = "global" | "legacy-project" | "missing";
 
 export interface RunLogView {
@@ -125,7 +141,7 @@ export interface RunLogView {
 export async function readRunLog(
   projectRoot: string,
   taskId?: string | null,
-  maxBytes?: number,
+  maxBytes?: number
 ): Promise<RunLogView> {
   return hostDispatch<RunLogView>({
     op: "host.run_log.read",
@@ -156,7 +172,7 @@ export interface StorageUsageReport {
 
 /** Read-only footprint scan; the host runs the walk on a blocking thread. */
 export async function scanStorageUsage(
-  projectRoot?: string | null,
+  projectRoot?: string | null
 ): Promise<StorageUsageReport> {
   return hostDispatch<StorageUsageReport>({
     op: "host.storage.usage",
@@ -169,7 +185,7 @@ export async function searchFiles(
   query: string,
   limit = 80,
   include?: string,
-  exclude?: string,
+  exclude?: string
 ): Promise<FileSearchEntry[]> {
   const entries = await hostDispatch<RawFileSearchEntry[]>({
     op: "host.fs.search_files",
@@ -190,7 +206,7 @@ export async function searchContent(
   query: string,
   limit = 80,
   include?: string,
-  exclude?: string,
+  exclude?: string
 ): Promise<FileContentSearchEntry[]> {
   const entries = await hostDispatch<RawFileContentSearchEntry[]>({
     op: "host.fs.search_content",
@@ -213,7 +229,7 @@ export async function replaceContent(
   query: string,
   replacement: string,
   include?: string,
-  exclude?: string,
+  exclude?: string
 ): Promise<number> {
   return hostDispatch<number>({
     op: "host.fs.replace_content",
@@ -230,7 +246,7 @@ export async function executeShell(
   args: string[] = [],
   cwd?: string,
   timeoutMs?: number,
-  confirmed = false,
+  confirmed = false
 ): Promise<ShellOutput> {
   const output = await hostDispatch<RawShellOutput>({
     op: "host.shell.execute",
@@ -250,19 +266,22 @@ export async function executeShell(
 export async function storeSecret(
   service: string,
   key: string,
-  value: string,
+  value: string
 ): Promise<void> {
   await hostDispatch({ op: "host.keychain.store", service, key, value });
 }
 
 export async function getSecret(
   service: string,
-  key: string,
+  key: string
 ): Promise<string | null> {
   return hostDispatch<string | null>({ op: "host.keychain.get", service, key });
 }
 
-export async function deleteSecret(service: string, key: string): Promise<void> {
+export async function deleteSecret(
+  service: string,
+  key: string
+): Promise<void> {
   await hostDispatch({ op: "host.keychain.delete", service, key });
 }
 

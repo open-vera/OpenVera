@@ -22,24 +22,61 @@ import {
 import { getModelContextLimit } from "@open-vera/core/context";
 import type { PlanEvent } from "@open-vera/core/plan";
 import type { Message, Usage } from "@open-vera/core/types";
-import { createToolRegistry, type SecurityPlugin, type ToolHost, type ToolResult } from "@open-vera/core/tools";
+import {
+  createToolRegistry,
+  type SecurityPlugin,
+  type ToolHost,
+  type ToolResult,
+} from "@open-vera/core/tools";
 import { runInteractiveTurn } from "@open-vera/openvera";
-import type { AgentRunParams, PartnerLlmConfig, StreamEvent } from "./protocol.js";
+import type {
+  AgentRunParams,
+  PartnerLlmConfig,
+  StreamEvent,
+} from "./protocol.js";
 import { writeEvent } from "./protocol.js";
 import { extractFileChange } from "./file-change.js";
 import { appendGatewayErrorHeaders } from "./gateway-error-headers.js";
-import { createRunMetricsTracker, type PartnerUsagePayload } from "./run-metrics.js";
+import {
+  createRunMetricsTracker,
+  type PartnerUsagePayload,
+} from "./run-metrics.js";
 import { appendRunLogLine } from "./run-log.js";
 import { waitForToolApproval } from "./tool-approval.js";
 
 const SYSTEM_PROMPT =
   "You are Partner, a helpful AI assistant running on the user's desktop. " +
   "Answer in the user's language. Use tools when they help complete the task.";
+const AGENT_IDLE_TIMEOUT_MS = 30_000;
+
+function abortAfterIdle(
+  controller: AbortController,
+  timeoutMs: number,
+  message: string
+): { touch: () => void; dispose: () => void; readonly didTimeout: boolean } {
+  let timer: ReturnType<typeof setTimeout>;
+  let timedOut = false;
+  const schedule = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort(new Error(message));
+    }, timeoutMs);
+  };
+  schedule();
+  return {
+    touch: schedule,
+    dispose: () => clearTimeout(timer),
+    get didTimeout() {
+      return timedOut;
+    },
+  };
+}
 
 type ToolBridge = (
   callId: string,
   name: string,
-  args: Record<string, unknown>,
+  args: Record<string, unknown>
 ) => Promise<string>;
 
 interface LlmEnvironment {
@@ -76,7 +113,7 @@ const requestTaskIds = new Map<string, string>();
 
 function appendRunLog(
   projectRoot: string,
-  record: Record<string, unknown>,
+  record: Record<string, unknown>
 ): void {
   try {
     const taskId =
@@ -87,7 +124,9 @@ function appendRunLog(
           : undefined;
     appendRunLogLine(projectRoot, record, taskId);
   } catch (error) {
-    process.stderr.write(`[partner-sidecar] failed to write run log: ${String(error)}\n`);
+    process.stderr.write(
+      `[partner-sidecar] failed to write run log: ${String(error)}\n`
+    );
   }
 }
 
@@ -98,7 +137,7 @@ function previewText(value: unknown, limit = 500): string {
 
 function buildAdapter(
   projectRoot: string,
-  llmConfig?: PartnerLlmConfig,
+  llmConfig?: PartnerLlmConfig
 ): LlmEnvironment | undefined {
   const fileConfig = loadConfig(undefined, projectRoot);
 
@@ -122,7 +161,10 @@ function buildAdapter(
         ? { default_provider: provider, default_model: llmConfig.model }
         : {}),
     };
-    const service = new LlmService({ config, apiKeyOverride: llmConfig.apiKey });
+    const service = new LlmService({
+      config,
+      apiKeyOverride: llmConfig.apiKey,
+    });
     const selected = llmConfig.model
       ? service.selectAdapter({
           purpose: "chat",
@@ -142,7 +184,8 @@ function buildAdapter(
   const selected = service.selectAdapter({ purpose: "chat" });
   const providerConfig = fileConfig.providers?.[selected.provider];
   const apiKey =
-    providerConfig?.api_key ?? resolveEnvKey(selected.adapterType, selected.provider);
+    providerConfig?.api_key ??
+    resolveEnvKey(selected.adapterType, selected.provider);
   if (!apiKey) return undefined;
   return {
     adapter: selected.adapter,
@@ -154,7 +197,7 @@ function buildAdapter(
 
 async function createPartnerToolRuntime(
   projectRoot: string,
-  llm: LlmEnvironment,
+  llm: LlmEnvironment
 ): Promise<PartnerToolRuntime> {
   const { toolHost, loadPlugins, security } = createToolRegistry({
     cwd: projectRoot,
@@ -172,16 +215,36 @@ async function createPartnerToolRuntime(
   };
 }
 
+function describeToolError(error: unknown): string {
+  if (typeof error === "string") return error;
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object") {
+    const record = error as Record<string, unknown>;
+    if (typeof record.message === "string" && record.message)
+      return record.message;
+    // A structured error stringifies to "[object Object]", which tells the model
+    // nothing and sends it into a retry spiral.
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return "unserializable error";
+    }
+  }
+  return String(error);
+}
+
 function formatToolResult(result: ToolResult): string {
   if (result.ok) return result.content;
-  const reason = result.error?.message ?? result.content;
+  const reason = result.error
+    ? describeToolError(result.error)
+    : result.content;
   return `Tool failed: ${reason}\n\n${result.content}`;
 }
 
 function resolvePartnerClassifier(
   projectRoot: string,
   llm: LlmEnvironment,
-  _llmConfig?: PartnerLlmConfig,
+  _llmConfig?: PartnerLlmConfig
 ): { adapter: LLMAdapter; model: string } {
   // Routing always comes from Vera settings.json; Partner llmConfig only overlays credentials.
   const fileConfig = loadConfig(undefined, projectRoot);
@@ -189,13 +252,13 @@ function resolvePartnerClassifier(
   if (routing?.enabled) {
     const classifierTarget = resolveClassifierTarget(
       fileConfig,
-      resolveDefaultTarget(fileConfig),
+      resolveDefaultTarget(fileConfig)
     );
     return {
       adapter: llm.service.buildAdapter(
         classifierTarget.provider,
         classifierTarget.model,
-        { purpose: "routing" },
+        { purpose: "routing" }
       ),
       model: classifierTarget.model,
     };
@@ -206,7 +269,7 @@ function resolvePartnerClassifier(
 
 function runtimeConfigSummary(
   projectRoot: string,
-  llmConfig?: PartnerLlmConfig,
+  llmConfig?: PartnerLlmConfig
 ): RuntimeConfigSummary {
   if (llmConfig?.apiKey && llmConfig.model) {
     return {
@@ -239,14 +302,14 @@ function runtimeConfigSummary(
   };
 }
 
-function formatModelError(error: unknown, summary: RuntimeConfigSummary): string {
+function formatModelError(
+  error: unknown,
+  summary: RuntimeConfigSummary
+): string {
   const raw = error instanceof Error ? error.message : String(error);
   const lower = raw.toLowerCase();
   let message = raw;
-  if (
-    raw.includes("403") &&
-    lower.includes("api key scenario mismatch")
-  ) {
+  if (raw.includes("403") && lower.includes("api key scenario mismatch")) {
     message = [
       "模型服务拒绝了当前请求：API Key 与所选模型/协议场景不匹配。",
       "",
@@ -261,8 +324,13 @@ function formatModelError(error: unknown, summary: RuntimeConfigSummary): string
       "3. 模型 ID 是否是这个 Key 有权限调用的模型。",
       "",
       `原始错误：${raw}`,
-    ].filter(Boolean).join("\n");
-  } else if (lower.includes("cache_control") && lower.includes("maximum of 4")) {
+    ]
+      .filter(Boolean)
+      .join("\n");
+  } else if (
+    lower.includes("cache_control") &&
+    lower.includes("maximum of 4")
+  ) {
     message = [
       "模型请求参数不合法：Anthropic 最多允许 4 个 cache_control 块。",
       "",
@@ -281,7 +349,7 @@ function formatModelError(error: unknown, summary: RuntimeConfigSummary): string
 export function inspectEffectiveLlmConfig(
   projectRoot: string,
   llmConfig?: PartnerLlmConfig,
-  revealSecrets = false,
+  revealSecrets = false
 ): Record<string, unknown> {
   const resolvedRoot = resolveAgentProjectRoot(projectRoot);
   const projectPath = projectConfigPath(resolvedRoot);
@@ -311,12 +379,17 @@ export function inspectEffectiveLlmConfig(
   }
 
   const configLocation = resolveConfigLocation(undefined, resolvedRoot);
-  const config = loadConfigForInspection(configLocation.path, configLocation.exists);
+  const config = loadConfigForInspection(
+    configLocation.path,
+    configLocation.exists
+  );
   const target = resolveDefaultTarget(config);
   const providerConfig = resolveProviderModelConfig(config, target);
   const configuredKey = Boolean(providerConfig.api_key);
   const envKeyName = envVarFor(providerConfig.adapter, target.provider);
-  const envKeyAvailable = Boolean(resolveEnvKey(providerConfig.adapter, target.provider));
+  const envKeyAvailable = Boolean(
+    resolveEnvKey(providerConfig.adapter, target.provider)
+  );
   const models = listInspectModelAliases(config);
   const routing = {
     enabled: Boolean(config.routing?.enabled),
@@ -327,8 +400,16 @@ export function inspectEffectiveLlmConfig(
   };
 
   return {
-    source: configLocation.exists ? "vera-config" : envKeyAvailable ? "environment" : "missing",
-    sourceLabel: configLocation.exists ? "Vera config" : envKeyAvailable ? "Environment" : "Not configured",
+    source: configLocation.exists
+      ? "vera-config"
+      : envKeyAvailable
+        ? "environment"
+        : "missing",
+    sourceLabel: configLocation.exists
+      ? "Vera config"
+      : envKeyAvailable
+        ? "Environment"
+        : "Not configured",
     projectRoot: resolvedRoot,
     provider: target.provider,
     adapter: providerConfig.adapter,
@@ -336,9 +417,19 @@ export function inspectEffectiveLlmConfig(
     model: target.model,
     apiBaseUrl: providerConfig.base_url ?? "",
     apiKeyAvailable: configuredKey || envKeyAvailable,
-    apiKeySource: configuredKey ? "vera-config" : envKeyAvailable ? "environment" : "missing",
-    apiKeySourceLabel: configuredKey ? "Vera config api_key" : envKeyAvailable ? envKeyName : "Not found",
-    ...(revealSecrets && configuredKey ? { apiKeyValue: providerConfig.api_key } : {}),
+    apiKeySource: configuredKey
+      ? "vera-config"
+      : envKeyAvailable
+        ? "environment"
+        : "missing",
+    apiKeySourceLabel: configuredKey
+      ? "Vera config api_key"
+      : envKeyAvailable
+        ? envKeyName
+        : "Not found",
+    ...(revealSecrets && configuredKey
+      ? { apiKeyValue: providerConfig.api_key }
+      : {}),
     ...(revealSecrets && !configuredKey && envKeyAvailable
       ? { apiKeyValue: resolveEnvKey(providerConfig.adapter, target.provider) }
       : {}),
@@ -356,7 +447,7 @@ export function inspectEffectiveLlmConfig(
 }
 
 function stringifyModelRef(
-  reference: string | { provider: string; model: string } | undefined,
+  reference: string | { provider: string; model: string } | undefined
 ): string | null {
   if (!reference) return null;
   if (typeof reference === "string") return reference;
@@ -387,7 +478,7 @@ function loadConfigForInspection(path: string, exists: boolean): VeraConfig {
 }
 
 function adapterTypeForProtocol(
-  protocol: string,
+  protocol: string
 ): "anthropic" | "openai" | "openai-responses" | "gemini" {
   if (protocol === "openai-compatible") return "openai";
   if (protocol === "openai-responses") return "openai-responses";
@@ -399,14 +490,17 @@ function resolveAgentProjectRoot(projectRoot: string): string {
   return resolve(projectRoot);
 }
 
-function hasLlmCredentials(projectRoot: string, llmConfig?: PartnerLlmConfig): boolean {
+function hasLlmCredentials(
+  projectRoot: string,
+  llmConfig?: PartnerLlmConfig
+): boolean {
   if (llmConfig?.apiKey) return true;
   const { exists } = resolveConfigLocation(undefined, projectRoot);
   if (exists) return true;
   return Boolean(
     process.env.ANTHROPIC_API_KEY ||
       process.env.OPENAI_API_KEY ||
-      process.env.GEMINI_API_KEY,
+    process.env.GEMINI_API_KEY
   );
 }
 
@@ -421,9 +515,18 @@ function ensureSession(sessionId: string): SessionState {
 export async function handleAgentRun(
   requestId: string,
   params: AgentRunParams,
-  _bridgeTool: ToolBridge,
+  _bridgeTool: ToolBridge
 ): Promise<void> {
-  const { sessionId, instanceId, message, history = [], projectRoot, llmConfig, taskId, agentMode } = params;
+  const {
+    sessionId,
+    instanceId,
+    message,
+    history = [],
+    projectRoot,
+    llmConfig,
+    taskId,
+    agentMode,
+  } = params;
   if (taskId) {
     requestTaskIds.set(requestId, taskId);
   }
@@ -494,6 +597,11 @@ export async function handleAgentRun(
   session.abortController?.abort();
   const abortController = new AbortController();
   session.abortController = abortController;
+  const idleTimeout = abortAfterIdle(
+    abortController,
+    AGENT_IDLE_TIMEOUT_MS,
+    "模型长时间未响应，已自动取消本次请求。请重试。"
+  );
 
   writeEvent({ id: requestId, type: "ready", data: { instanceId } });
   appendRunLog(resolvedRoot, {
@@ -513,6 +621,7 @@ export async function handleAgentRun(
     let harnessError: string | undefined;
 
     const onUsage = (value: Usage) => {
+      idleTimeout.touch();
       usage = metrics.recordUsage(value);
       if (usage.context_used > 0) {
         session.lastContextUsed = usage.context_used;
@@ -533,8 +642,9 @@ export async function handleAgentRun(
 
     const executeToolCall = async (
       name: string,
-      args: Record<string, unknown>,
+      args: Record<string, unknown>
     ): Promise<ToolResult> => {
+      idleTimeout.touch();
       metrics.recordToolUse();
       const callId = randomUUID();
       const toolInput = {
@@ -570,7 +680,11 @@ export async function handleAgentRun(
         defaultModel: built.model,
       };
 
-      let toolResult = await toolRuntime.toolHost.execute(name, toolInput, toolCtx);
+      let toolResult = await toolRuntime.toolHost.execute(
+        name,
+        toolInput,
+        toolCtx
+      );
       while (toolResult.needsConfirm) {
         const confirm = toolResult.needsConfirm;
         const approvalCallId = randomUUID();
@@ -616,7 +730,7 @@ export async function handleAgentRun(
         toolResult = await toolRuntime.toolHost.execute(
           confirm.retry.name,
           confirm.retry.args,
-          toolCtx,
+          toolCtx
         );
       }
 
@@ -648,6 +762,7 @@ export async function handleAgentRun(
     };
 
     const onHarnessEvent = (event: PlanEvent) => {
+      idleTimeout.touch();
       switch (event.type) {
         case "plan_ready":
           appendRunLog(resolvedRoot, {
@@ -741,7 +856,9 @@ export async function handleAgentRun(
       },
       compressionState: {
         segments: [],
-        ...(session.lastContextUsed ? { lastContextUsed: session.lastContextUsed } : {}),
+        ...(session.lastContextUsed
+          ? { lastContextUsed: session.lastContextUsed }
+          : {}),
       },
       microCompactOptions: {
         enabled: true,
@@ -787,6 +904,7 @@ export async function handleAgentRun(
         });
       },
       onDelta: (delta) => {
+        idleTimeout.touch();
         metrics.markFirstDelta();
         if (!firstDeltaLogged) {
           firstDeltaLogged = true;
@@ -828,6 +946,10 @@ export async function handleAgentRun(
     });
   } catch (err) {
     if (abortController.signal.aborted) {
+      const abortMessage =
+        idleTimeout.didTimeout && abortController.signal.reason instanceof Error
+          ? abortController.signal.reason.message
+          : "";
       usage = metrics.snapshot();
       appendRunLog(resolvedRoot, {
         requestId,
@@ -836,11 +958,19 @@ export async function handleAgentRun(
         event: "aborted",
         usage,
       });
+      if (abortMessage) {
       writeEvent({
         id: requestId,
+          type: "error",
+          data: { instanceId, message: abortMessage },
+        });
+      } else {
+        writeEvent({
+          id: requestId,
         type: "done",
         data: { instanceId, text: "", usage },
       });
+      }
       return;
     }
     const messageText = formatModelError(err, runtimeSummary);
@@ -851,8 +981,13 @@ export async function handleAgentRun(
       event: "error",
       message: messageText,
     });
-    writeEvent({ id: requestId, type: "error", data: { instanceId, message: messageText } });
+    writeEvent({
+      id: requestId,
+      type: "error",
+      data: { instanceId, message: messageText },
+    });
   } finally {
+    idleTimeout.dispose();
     if (session.abortController === abortController) {
       session.abortController = null;
     }

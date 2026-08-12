@@ -2,12 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   activeTabDrag,
-  beginTabDrag,
   clearTabDrag,
-  resolveTabReorderAt,
+  startPointerTabDrag,
   tabBoundsIn,
-  tabDropIndexAt,
-  TAB_REORDER_MIME,
+  tabDropIndexNear,
 } from "@/utils/tab-dnd";
 
 /**
@@ -20,7 +18,9 @@ function mountStrip(group: string, tabIds: string[]) {
       ${tabIds.map((id) => `<button data-tab-id="${id}"></button>`).join("")}
     </div>
   `;
-  const container = document.querySelector<HTMLElement>(`[data-tab-group="${group}"]`);
+  const container = document.querySelector<HTMLElement>(
+    `[data-tab-group="${group}"]`
+  );
   if (!container) throw new Error("strip not mounted");
   vi.spyOn(container, "getBoundingClientRect").mockReturnValue({
     left: 0,
@@ -34,7 +34,9 @@ function mountStrip(group: string, tabIds: string[]) {
     toJSON: () => ({}),
   } as DOMRect);
 
-  container.querySelectorAll<HTMLElement>("[data-tab-id]").forEach((element, index) => {
+  container
+    .querySelectorAll<HTMLElement>("[data-tab-id]")
+    .forEach((element, index) => {
     vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
       left: index * 100,
       right: index * 100 + 100,
@@ -56,35 +58,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("beginTabDrag", () => {
-  it("records the dragged tab and attaches a payload", () => {
-    const setData = vi.fn();
-    beginTabDrag("center", "tab-1", { setData } as unknown as DataTransfer);
-
-    expect(activeTabDrag()).toEqual({ group: "center", tabId: "tab-1" });
-    expect(setData).toHaveBeenCalledWith(TAB_REORDER_MIME, "tab-1");
-  });
-
-  it("works without a dataTransfer", () => {
-    beginTabDrag("preview", "tab-2", null);
-    expect(activeTabDrag()?.tabId).toBe("tab-2");
-  });
-
-  it("hands out a copy so callers cannot mutate the state", () => {
-    beginTabDrag("center", "tab-1");
-    const snapshot = activeTabDrag();
-    if (snapshot) snapshot.tabId = "hacked";
-
-    expect(activeTabDrag()?.tabId).toBe("tab-1");
-  });
-
-  it("clears back to null", () => {
-    beginTabDrag("center", "tab-1");
-    clearTabDrag();
-    expect(activeTabDrag()).toBeNull();
-  });
-});
-
 describe("tabBoundsIn", () => {
   it("reads bounds in DOM order", () => {
     mountStrip("center", ["a", "b"]);
@@ -100,55 +73,183 @@ describe("tabBoundsIn", () => {
   });
 });
 
-describe("tabDropIndexAt", () => {
+describe("tabDropIndexNear", () => {
   beforeEach(() => {
     mountStrip("center", ["a", "b", "c"]);
   });
 
-  it("maps a point inside the strip to an insertion index", () => {
-    expect(tabDropIndexAt("center", 10, 18)).toBe(0);
-    expect(tabDropIndexAt("center", 160, 18)).toBe(2);
-    expect(tabDropIndexAt("center", 290, 18)).toBe(3);
+  it("tolerates vertical drift below and above the strip", () => {
+    expect(tabDropIndexNear("center", 10, 70)).toBe(0);
+    expect(tabDropIndexNear("center", 10, -30)).toBe(0);
   });
 
-  it("rejects points outside the strip", () => {
-    expect(tabDropIndexAt("center", 10, 200)).toBeNull();
-    expect(tabDropIndexAt("center", 500, 18)).toBeNull();
-    expect(tabDropIndexAt("center", -5, 18)).toBeNull();
+  it("gives up once the pointer leaves the slack band", () => {
+    expect(tabDropIndexNear("center", 10, 200)).toBeNull();
+    expect(tabDropIndexNear("center", 10, -200)).toBeNull();
   });
 
-  it("rejects an unmounted group", () => {
-    expect(tabDropIndexAt("preview", 10, 18)).toBeNull();
+  it("clamps horizontally instead of bailing out", () => {
+    expect(tabDropIndexNear("center", -500, 18)).toBe(0);
+    expect(tabDropIndexNear("center", 5000, 18)).toBe(3);
   });
+
+  it("honours a custom slack", () => {
+    expect(tabDropIndexNear("center", 10, 60, 10)).toBeNull();
+    expect(tabDropIndexNear("center", 10, 40, 10)).toBe(0);
+});
 });
 
-describe("resolveTabReorderAt", () => {
+describe("startPointerTabDrag", () => {
+  function press(element: HTMLElement, x: number, y: number, button = 0) {
+    return {
+      button,
+      clientX: x,
+      clientY: y,
+      pointerId: 1,
+      currentTarget: element,
+      target: element,
+    } as unknown as PointerEvent;
+  }
+
+  function move(x: number, y: number) {
+    window.dispatchEvent(
+      new window.PointerEvent("pointermove", { clientX: x, clientY: y })
+    );
+  }
+
+  let strip: HTMLElement;
+  let tab: HTMLElement;
+  let preview: number[] | null[];
+  let committed: number[];
+  let handlers: {
+    onPreview: (i: number | null) => void;
+    onCommit: (i: number) => void;
+  };
+
   beforeEach(() => {
-    mountStrip("center", ["a", "b", "c"]);
+    strip = mountStrip("center", ["a", "b", "c"]);
+    tab = strip.querySelector<HTMLElement>('[data-tab-id="a"]')!;
+    preview = [];
+    committed = [];
+    handlers = {
+      onPreview: (index) => {
+        (preview as (number | null)[]).push(index);
+      },
+      onCommit: (index) => committed.push(index),
+    };
   });
 
-  it("resolves the dragged tab and its landing index", () => {
-    beginTabDrag("center", "c");
+  afterEach(() => {
+    // Tests that never release the pointer would otherwise leave live
+    // listeners behind and double-commit in the next test.
+    window.dispatchEvent(new window.PointerEvent("pointercancel"));
+  });
 
-    expect(resolveTabReorderAt("center", 10, 18)).toEqual({
-      tabId: "c",
-      insertionIndex: 0,
+  it("ignores a press that never moves, so clicks still select", () => {
+    startPointerTabDrag("center", "a", press(tab, 10, 18), handlers);
+    window.dispatchEvent(new window.PointerEvent("pointerup"));
+
+    expect(committed).toEqual([]);
+    expect(activeTabDrag()).toBeNull();
     });
+
+  it("ignores movement below the threshold", () => {
+    startPointerTabDrag("center", "a", press(tab, 10, 18), handlers);
+    move(12, 18);
+
+    expect(activeTabDrag()).toBeNull();
   });
 
-  it("refuses a drag from another group", () => {
-    beginTabDrag("preview", "file-1");
+  it("commits the landing index once past the threshold", () => {
+    startPointerTabDrag("center", "a", press(tab, 10, 18), handlers);
+    move(260, 18);
+    expect(activeTabDrag()).toEqual({ group: "center", tabId: "a" });
+    window.dispatchEvent(new window.PointerEvent("pointerup"));
 
-    expect(resolveTabReorderAt("center", 10, 18)).toBeNull();
+    expect(committed).toEqual([3]);
+    expect(activeTabDrag()).toBeNull();
   });
 
-  it("refuses when no drag is in flight", () => {
-    expect(resolveTabReorderAt("center", 10, 18)).toBeNull();
+  it("reports a live insertion marker while dragging", () => {
+    startPointerTabDrag("center", "a", press(tab, 10, 18), handlers);
+    move(120, 18);
+    move(260, 18);
+
+    expect(preview.slice(0, 2)).toEqual([1, 3]);
   });
 
-  it("refuses a release outside the strip so other drop targets can act", () => {
-    beginTabDrag("center", "c");
+  it("cancels on Escape without committing", () => {
+    startPointerTabDrag("center", "a", press(tab, 10, 18), handlers);
+    move(260, 18);
+    window.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "Escape" })
+    );
+    window.dispatchEvent(new window.PointerEvent("pointerup"));
 
-    expect(resolveTabReorderAt("center", 10, 400)).toBeNull();
+    expect(committed).toEqual([]);
+    expect(activeTabDrag()).toBeNull();
+  });
+
+  it("cancels when the platform takes over with a native drag", () => {
+    startPointerTabDrag("center", "a", press(tab, 10, 18), handlers);
+    move(260, 18);
+    window.dispatchEvent(new window.PointerEvent("pointercancel"));
+
+    expect(committed).toEqual([]);
+});
+
+  it("ignores non-primary buttons", () => {
+    startPointerTabDrag("center", "a", press(tab, 10, 18, 2), handlers);
+    move(260, 18);
+    window.dispatchEvent(new window.PointerEvent("pointerup"));
+
+    expect(committed).toEqual([]);
+  });
+
+  it("does not commit when released outside the slack band", () => {
+    startPointerTabDrag("center", "a", press(tab, 10, 18), handlers);
+    move(260, 400);
+    window.dispatchEvent(new window.PointerEvent("pointerup"));
+
+    expect(committed).toEqual([]);
+  });
+
+  it("hands an off-strip release to onDropOutside with the release point", () => {
+    const outside: Array<[number, number]> = [];
+    startPointerTabDrag("center", "a", press(tab, 10, 18), {
+      ...handlers,
+      onDropOutside: (x, y) => outside.push([x, y]),
+    });
+    move(260, 400);
+    window.dispatchEvent(
+      new window.PointerEvent("pointerup", { clientX: 260, clientY: 400 })
+    );
+
+    expect(committed).toEqual([]);
+    expect(outside).toEqual([[260, 400]]);
+  });
+
+  it("does not call onDropOutside when the drop lands on the strip", () => {
+    const outside: Array<[number, number]> = [];
+    startPointerTabDrag("center", "a", press(tab, 10, 18), {
+      ...handlers,
+      onDropOutside: (x, y) => outside.push([x, y]),
+    });
+    move(260, 18);
+    window.dispatchEvent(new window.PointerEvent("pointerup"));
+
+    expect(committed).toEqual([3]);
+    expect(outside).toEqual([]);
+  });
+
+  it("does not call onDropOutside for a press that never dragged", () => {
+    const outside: Array<[number, number]> = [];
+    startPointerTabDrag("center", "a", press(tab, 10, 18), {
+      ...handlers,
+      onDropOutside: (x, y) => outside.push([x, y]),
+    });
+    window.dispatchEvent(new window.PointerEvent("pointerup"));
+
+    expect(outside).toEqual([]);
   });
 });

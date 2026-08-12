@@ -23,7 +23,9 @@ export {
 export { FileStore, createFileStore } from "./file-store.js";
 export type { FileStoreOptions } from "./file-store.js";
 
-export { SqliteStorageProvider } from "./sqlite.js";
+// Type-only on purpose: see the note on SQLiteSessionBackend in ../session/index.ts.
+// Construct it via `import("./sqlite.js")` so better-sqlite3 stays lazy.
+export type { SqliteStorageProvider } from "./sqlite.js";
 
 export {
   UserDataStore,
@@ -42,8 +44,14 @@ export type {
   UserDataToolSet,
 } from "./user-data.js";
 
-export { SessionStorageAdapter, migrateJsonlToSqlite } from "./session-adapter.js";
-export type { SessionFilter, MigrationVerificationResult } from "./session-adapter.js";
+export {
+  SessionStorageAdapter,
+  migrateJsonlToSqlite,
+} from "./session-adapter.js";
+export type {
+  SessionFilter,
+  MigrationVerificationResult,
+} from "./session-adapter.js";
 
 export { MemoryStorageAdapter } from "./memory-adapter.js";
 
@@ -74,8 +82,15 @@ export { OssObjectStore } from "./oss-adapter.js";
 export { S3ObjectStore } from "./s3-adapter.js";
 export { TosObjectStore } from "./tos-adapter.js";
 
-export { ArtifactUploader, createArtifactUploader } from "./artifact-uploader.js";
-export type { ArtifactUploaderOptions, UploadedArtifact, UploadReport } from "./artifact-uploader.js";
+export {
+  ArtifactUploader,
+  createArtifactUploader,
+} from "./artifact-uploader.js";
+export type {
+  ArtifactUploaderOptions,
+  UploadedArtifact,
+  UploadReport,
+} from "./artifact-uploader.js";
 
 export {
   ContentUploader,

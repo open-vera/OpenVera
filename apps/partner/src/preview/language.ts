@@ -19,6 +19,7 @@ export type PreviewLanguageId =
   | "jsonl"
   | "css"
   | "html"
+  | "svg"
   | "markdown"
   | "python"
   | "rust"
@@ -47,7 +48,7 @@ const EXTENSION_MAP: Record<string, PreviewLanguageId> = {
   html: "html",
   htm: "html",
   xml: "html",
-  svg: "html",
+  svg: "svg",
   md: "markdown",
   mdx: "markdown",
   txt: "plaintext",
@@ -106,7 +107,9 @@ function extensionFromFileName(fileName: string): string {
   return fileName.slice(dot + 1).toLowerCase();
 }
 
-export function detectLanguageFromShebang(content: string): PreviewLanguageId | null {
+export function detectLanguageFromShebang(
+  content: string
+): PreviewLanguageId | null {
   const firstLine = content.split(/\r?\n/, 1)[0]?.trim() ?? "";
   if (!firstLine.startsWith("#!")) return null;
   const lower = firstLine.toLowerCase();
@@ -135,7 +138,7 @@ export function detectLanguageFromPath(filePath: string): PreviewLanguageId {
 /** Prefer path/filename, then shebang when the path alone is plaintext. */
 export function detectLanguage(
   filePath: string,
-  content?: string,
+  content?: string
 ): PreviewLanguageId {
   const fromPath = detectLanguageFromPath(filePath);
   if (fromPath !== "plaintext") return fromPath;
@@ -145,7 +148,9 @@ export function detectLanguage(
   return "plaintext";
 }
 
-export function languageSupportFor(id: PreviewLanguageId): LanguageSupport | null {
+export function languageSupportFor(
+  id: PreviewLanguageId
+): LanguageSupport | null {
   switch (id) {
     case "typescript":
       return javascript({ typescript: true });
@@ -158,6 +163,8 @@ export function languageSupportFor(id: PreviewLanguageId): LanguageSupport | nul
     case "css":
       return css();
     case "html":
+      return html();
+    case "svg":
       return html();
     case "markdown":
       return markdown();

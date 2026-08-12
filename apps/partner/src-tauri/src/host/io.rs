@@ -14,6 +14,7 @@ use crate::commands::fs::{
 use crate::commands::keychain::{
     default_service_name, delete_secret, get_secret, store_secret,
 };
+use crate::commands::media::read_file_data_url;
 use crate::commands::run_log::read_run_log;
 use crate::commands::shell::execute_shell;
 use crate::commands::storage_usage::scan_storage_usage;
@@ -106,6 +107,15 @@ pub async fn dispatch_io(
             Ok(()) => HostCommandResult::empty_ok(),
             Err(error) => HostCommandResult::err(error),
         },
+        HostCommand::FsReadDataUrl { path } => {
+            // Reading + base64 on a blocking thread: a 16MB asset would
+            // otherwise stall an async worker for the whole encode.
+            match tauri::async_runtime::spawn_blocking(move || read_file_data_url(path)).await {
+                Ok(Ok(view)) => HostCommandResult::ok(json!(view)),
+                Ok(Err(error)) => HostCommandResult::err(error),
+                Err(error) => HostCommandResult::err(error.to_string()),
+            }
+        }
         HostCommand::RunLogRead {
             project_root,
             task_id,
@@ -155,8 +165,11 @@ pub async fn dispatch_io(
         HostCommand::KeychainDefaultService => {
             HostCommandResult::ok(json!(default_service_name()))
         }
-        HostCommand::LlmInspect { project_root } => {
-            match inspect_llm_config(project_root, None, Some(false)).await {
+        HostCommand::LlmInspect {
+            project_root,
+            reveal_secrets,
+        } => {
+            match inspect_llm_config(project_root, None, reveal_secrets).await {
                 Ok(value) => HostCommandResult::ok(value),
                 Err(error) => HostCommandResult::err(error),
             }

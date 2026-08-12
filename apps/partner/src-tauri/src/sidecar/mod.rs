@@ -68,6 +68,10 @@ impl SidecarManager {
             "[partner] spawning sidecar: {} {:?} (cwd={:?})",
             launch.program, launch.args, launch.cwd
         );
+        // A previous run (dev restart, crash, or a pre-reap broken-pipe
+        // recovery) can leave sidecars alive; they still hold LSP servers and
+        // browsers. Clear them before claiming the slot.
+        kill_stale_sidecars(&launch);
 
         let (child, stdout, child_stdin) = spawn_sidecar_process(&launch)?;
         let stdin = Arc::new(Mutex::new(child_stdin));
@@ -142,6 +146,9 @@ impl SidecarManager {
             let mut child_guard = self.child.lock().map_err(|error| error.to_string())?;
             if let Some(mut stale_child) = child_guard.take() {
                 let _ = stale_child.kill();
+                // Reap it: without the wait the killed process lingers as a
+                // zombie, and one leaks per broken-pipe restart.
+                let _ = stale_child.wait();
             }
             *child_guard = Some(child);
         }
@@ -262,6 +269,56 @@ impl SidecarWriter {
     }
 }
 
+/// PIDs of sidecar processes left over from a previous app run.
+///
+/// Dev restarts (and every broken-pipe recovery before this was reaped) leave
+/// the old `node partner-sidecar.mjs` behind; they accumulate and keep holding
+/// LSP servers and browser processes. Matching on the fully-qualified script
+/// path keeps other projects' sidecars out of the blast radius.
+fn stale_sidecar_pids(ps_output: &str, script_path: &str, self_pid: u32) -> Vec<u32> {
+    if script_path.is_empty() {
+        return Vec::new();
+    }
+    ps_output
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim_start();
+            let (pid, command) = trimmed.split_once(char::is_whitespace)?;
+            let pid: u32 = pid.parse().ok()?;
+            if pid == self_pid {
+                return None;
+            }
+            command.contains(script_path).then_some(pid)
+        })
+        .collect()
+}
+
+#[cfg(unix)]
+fn kill_stale_sidecars(launch: &SidecarLaunch) {
+    let script_path = launch
+        .args
+        .iter()
+        .find(|arg| arg.ends_with(".mjs") || arg.ends_with(".cjs"))
+        .cloned()
+        .unwrap_or_else(|| launch.program.clone());
+
+    let Ok(output) = Command::new("ps").args(["-ax", "-o", "pid=,command="]).output() else {
+        return;
+    };
+    let listing = String::from_utf8_lossy(&output.stdout);
+    let pids = stale_sidecar_pids(&listing, &script_path, std::process::id());
+    if pids.is_empty() {
+        return;
+    }
+    eprintln!("[partner] reaping {} stale sidecar process(es)", pids.len());
+    for pid in pids {
+        let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
+    }
+}
+
+#[cfg(not(unix))]
+fn kill_stale_sidecars(_launch: &SidecarLaunch) {}
+
 fn spawn_sidecar_process(
     launch: &SidecarLaunch,
 ) -> Result<(Child, ChildStdout, Option<ChildStdin>), String> {
@@ -315,11 +372,13 @@ fn read_stdout_loop(
     tool_approvals: Arc<Mutex<HashMap<String, mpsc::Sender<bool>>>>,
 ) {
     let reader = BufReader::new(stdout);
+    let mut closed_reason: Option<String> = None;
     for line in reader.lines() {
         let line = match line {
             Ok(value) => value,
             Err(error) => {
                 eprintln!("[partner] sidecar stdout closed: {error}");
+                closed_reason = Some(error.to_string());
                 break;
             }
         };
@@ -328,6 +387,47 @@ fn read_stdout_loop(
         {
             eprintln!("[partner] sidecar dispatch error: {error}");
         }
+    }
+    // EOF or a read error means the sidecar is gone. Staying silent here leaves
+    // every in-flight run stuck on "running" with no output and no error, and
+    // leaves RPC callers blocked until their timeout.
+    let reason = closed_reason.unwrap_or_else(|| "sidecar stdout reached EOF".to_string());
+    release_pending_rpc(&rpc_pending, &reason);
+    release_pending_approvals(&tool_approvals);
+    let _ = app.emit(
+        "agent:stream:error",
+        json!({
+            "requestId": Value::Null,
+            "instanceId": Value::Null,
+            "message": format!("Agent 后端进程已退出（{reason}）"),
+        }),
+    );
+    let _ = app.emit("agent:sidecar_exited", json!({ "reason": reason }));
+}
+
+/// Unblock anyone waiting on an RPC reply that can never arrive.
+fn release_pending_rpc(
+    rpc_pending: &Arc<Mutex<HashMap<String, mpsc::Sender<Value>>>>,
+    reason: &str,
+) {
+    let Ok(mut pending) = rpc_pending.lock() else {
+        return;
+    };
+    for (id, sender) in pending.drain() {
+        let _ = sender.send(json!({
+            "id": id,
+            "error": { "message": format!("sidecar exited: {reason}") },
+        }));
+    }
+}
+
+/// Deny outstanding tool approvals so tool calls fail fast instead of hanging.
+fn release_pending_approvals(tool_approvals: &Arc<Mutex<HashMap<String, mpsc::Sender<bool>>>>) {
+    let Ok(mut pending) = tool_approvals.lock() else {
+        return;
+    };
+    for (_, sender) in pending.drain() {
+        let _ = sender.send(false);
     }
 }
 

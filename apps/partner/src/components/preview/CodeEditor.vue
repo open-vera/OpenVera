@@ -8,9 +8,21 @@ import { showMinimap } from "@replit/codemirror-minimap";
 import { search, searchKeymap } from "@codemirror/search";
 import type { Extension } from "@codemirror/state";
 import { Compartment, EditorState, Prec } from "@codemirror/state";
-import { EditorView, keymap, lineNumbers, type ViewUpdate } from "@codemirror/view";
+import {
+  EditorView,
+  keymap,
+  lineNumbers,
+  type ViewUpdate,
+} from "@codemirror/view";
 import { basicSetup } from "codemirror";
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import {
+  computed,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  watch,
+} from "vue";
 import { writeFile } from "@/bridge";
 import { canFormatLanguage, formatPreviewDocument } from "@/preview/format";
 import { pathToFileUri } from "@/preview/file-uri";
@@ -35,6 +47,8 @@ import {
 import { connectLspTransport } from "@/preview/lsp-transport";
 import { resolveImportPathAtOffset } from "@/preview/resolve-import";
 import { partnerEditorHighlight, partnerEditorTheme } from "@/preview/theme";
+import type { EditorPreferences } from "@/preview/editor-preferences";
+import { useSettingsStore } from "@/stores/settings";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 import {
   basenamePath,
@@ -56,6 +70,8 @@ const emit = defineEmits<{
   change: [content: string];
   saved: [content: string];
 }>();
+
+const settings = useSettingsStore();
 
 const containerRef = ref<HTMLDivElement | null>(null);
 const currentContent = ref(props.content);
@@ -90,9 +106,13 @@ let lspReady = false;
 
 const isDirty = computed(() => currentContent.value !== savedContent.value);
 const previewLanguage = computed(() => {
-  return props.languageId ?? detectLanguage(props.filePath, currentContent.value);
+  return (
+    props.languageId ?? detectLanguage(props.filePath, currentContent.value)
+  );
 });
-const previewKind = computed(() => previewKindForLanguage(previewLanguage.value));
+const previewKind = computed(() =>
+  previewKindForLanguage(previewLanguage.value)
+);
 const supportsDocumentPreview = computed(() => previewKind.value !== null);
 
 function applyLspPosition(target: EditorView, line: number, character: number) {
@@ -110,7 +130,10 @@ function applyPendingNavigation(target: EditorView) {
   applyLspPosition(target, pending.line, pending.character);
 }
 
-async function openImportFallback(target: EditorView, offset: number): Promise<boolean> {
+async function openImportFallback(
+  target: EditorView,
+  offset: number
+): Promise<boolean> {
   if (!props.workspaceRoot) return false;
   const path = await resolveImportPathAtOffset({
     doc: target.state.doc.toString(),
@@ -134,7 +157,7 @@ function partnerJumpToDefinition(target: EditorView): boolean {
     void openImportFallback(target, offset).then((opened) => {
       if (!opened) {
         console.warn(
-          "[CodeEditor] Go to definition unavailable (LSP not ready / no import path).",
+          "[CodeEditor] Go to definition unavailable (LSP not ready / no import path)."
         );
       }
     });
@@ -164,7 +187,11 @@ function partnerJumpToDefinition(target: EditorView): boolean {
                 line: location.line,
                 character: location.character,
               })
-            : offsetFromLspPosition(target.state.doc, location.line, location.character);
+            : offsetFromLspPosition(
+                target.state.doc,
+                location.line,
+                location.character
+              );
           target.dispatch({
             selection: { anchor: pos },
             scrollIntoView: true,
@@ -187,7 +214,7 @@ function partnerJumpToDefinition(target: EditorView): boolean {
       .catch(async (error: unknown) => {
         plugin.reportError("Find definition failed", error);
         await openImportFallback(target, offset);
-      }),
+      })
   );
   return true;
 }
@@ -246,7 +273,11 @@ async function formatDocument(language: PreviewLanguageId): Promise<void> {
   formatError.value = "";
   const content = view.state.doc.toString();
   try {
-    const formatted = await formatPreviewDocument(props.filePath, language, content);
+    const formatted = await formatPreviewDocument(
+      props.filePath,
+      language,
+      content
+    );
     if (formatted === content || !view) return;
     view.dispatch({
       changes: {
@@ -307,7 +338,9 @@ function syncSearchPanel(view: EditorView) {
 
 function syncFloatingMinimap(view: EditorView) {
   const editorRoot = view.dom;
-  const minimap = editorRoot.querySelector<HTMLElement>(".partner-floating-minimap");
+  const minimap = editorRoot.querySelector<HTMLElement>(
+    ".partner-floating-minimap"
+  );
   if (!minimap || minimap.parentElement === editorRoot) return;
   minimap.removeAttribute("style");
   editorRoot.appendChild(minimap);
@@ -319,29 +352,57 @@ function onViewUpdate(update: ViewUpdate) {
   syncFloatingMinimap(update.view);
 }
 
+const preferenceCompartment = new Compartment();
+
+function minimapExtension(): Extension {
+  return showMinimap.compute(["doc"], () => ({
+    create: () => {
+      const dom = document.createElement("div");
+      dom.className = "partner-floating-minimap";
+      return { dom };
+    },
+    displayText: "characters",
+    showOverlay: "always",
+    eventHandlers: {
+      contextmenu: (event) => {
+        event.preventDefault();
+      },
+    },
+  }));
+}
+
+/** Extensions driven by Settings › 编辑器; swapped via `preferenceCompartment`. */
+function preferenceExtensions(prefs: EditorPreferences): Extension[] {
+  return [
+    EditorView.theme({ "&": { fontSize: `${prefs.fontSize}px` } }),
+    EditorState.tabSize.of(prefs.tabSize),
+    prefs.lineNumbers ? lineNumbers() : [],
+    prefs.minimap ? minimapExtension() : [],
+    prefs.wordWrap
+      ? [
+          EditorView.lineWrapping,
+          // partnerEditorTheme pins `white-space: pre` and a min width so long
+          // lines scroll horizontally; wrapping has to undo both.
+          EditorView.theme({
+            ".cm-content": { whiteSpace: "pre-wrap", minWidth: "0" },
+            ".cm-line": { whiteSpace: "pre-wrap" },
+          }),
+        ]
+      : [],
+  ];
+}
+
 function buildExtensions(language: PreviewLanguageId): Extension[] {
   const languageSupport = languageSupportFor(language);
   const extensions: Extension[] = [
     basicSetup,
     partnerEditorTheme,
     partnerEditorHighlight,
-    lineNumbers(),
+    // Preference-driven pieces live in a compartment so changing them
+    // reconfigures the running view instead of recreating it (which would lose
+    // scroll position, selection, undo history and the LSP connection).
+    preferenceCompartment.of(preferenceExtensions(settings.editor)),
     search({ top: true }),
-    showMinimap.compute(["doc"], () => ({
-      create: () => {
-        const dom = document.createElement("div");
-        dom.className = "partner-floating-minimap";
-        return { dom };
-      },
-      displayText: "characters",
-      showOverlay: "always",
-      eventHandlers: {
-        contextmenu: (event) => {
-          event.preventDefault();
-        },
-      },
-    })),
-    // Keep long lines intact; panel scrolls horizontally instead of wrapping.
     EditorState.readOnly.of(Boolean(props.readOnly)),
     EditorView.editable.of(!props.readOnly),
     EditorView.domEventHandlers({
@@ -370,7 +431,10 @@ function buildExtensions(language: PreviewLanguageId): Extension[] {
         // Cmd/Ctrl+click — IDE-style go to definition
         const modClick = (event.metaKey || event.ctrlKey) && event.button === 0;
         // Plain click on an import string also jumps (Partner UX).
-        const pos = editorView.posAtCoords({ x: event.clientX, y: event.clientY });
+        const pos = editorView.posAtCoords({
+          x: event.clientX,
+          y: event.clientY,
+        });
         if (pos == null) return false;
 
         if (!modClick) {
@@ -382,10 +446,12 @@ function buildExtensions(language: PreviewLanguageId): Extension[] {
             /['"][^'"]+['"]/.test(lineText);
           if (!looksLikeImport) return false;
           const local = pos - line.from;
-          const inString = [...lineText.matchAll(/['"][^'"]*['"]/g)].some((match) => {
-            const start = match.index ?? 0;
-            return local >= start && local <= start + match[0].length;
-          });
+          const inString = [...lineText.matchAll(/['"][^'"]*['"]/g)].some(
+            (match) => {
+              const start = match.index ?? 0;
+              return local >= start && local <= start + match[0].length;
+            }
+          );
           if (!inString) return false;
         }
 
@@ -414,14 +480,18 @@ function buildExtensions(language: PreviewLanguageId): Extension[] {
 
 async function connectLsp(
   language: PreviewLanguageId,
-  runId: number,
+  runId: number
 ): Promise<Extension[]> {
   if (!props.enableLsp || !isLspSupported(language) || !props.workspaceRoot) {
     return [];
   }
 
   try {
-    const result = await startLsp(language, props.workspaceRoot, props.filePath);
+    const result = await startLsp(
+      language,
+      props.workspaceRoot,
+      props.filePath
+    );
     if (runId !== mountRunId) {
       void stopLsp(result.serverId);
       return [];
@@ -461,7 +531,7 @@ async function connectLsp(
             run: partnerJumpToDefinition,
             preventDefault: true,
           },
-        ]),
+        ])
       ),
     ];
   } catch (error) {
@@ -553,7 +623,18 @@ watch(
   () => {
     documentPreviewOpen.value = false;
     void mountEditor();
-  },
+  }
+);
+
+watch(
+  () => ({ ...settings.editor }),
+  (prefs) => {
+    if (!view) return;
+    view.dispatch({
+      effects: preferenceCompartment.reconfigure(preferenceExtensions(prefs)),
+    });
+    syncFloatingMinimap(view);
+  }
 );
 
 watch(
@@ -576,7 +657,7 @@ watch(
     isApplyingExternalContent = false;
     currentContent.value = content;
     savedContent.value = nextSavedContent ?? content;
-  },
+  }
 );
 </script>
 
@@ -584,8 +665,12 @@ watch(
   <div class="code-editor">
     <header class="toolbar">
       <span class="path" :title="filePath">{{ filePath }}</span>
-      <span v-if="saveError" class="save-error" :title="saveError">保存失败</span>
-      <span v-if="formatError" class="format-error" :title="formatError">格式化失败</span>
+      <span v-if="saveError" class="save-error" :title="saveError"
+        >保存失败</span
+      >
+      <span v-if="formatError" class="format-error" :title="formatError"
+        >格式化失败</span
+      >
       <div
         v-if="supportsDocumentPreview"
         class="view-switch"
@@ -631,11 +716,25 @@ watch(
         title="HTML preview"
       />
     </div>
+    <div
+      v-else-if="documentPreviewOpen && previewKind === 'svg'"
+      class="document-preview-pane svg-preview-pane"
+      @contextmenu="showContextMenu($event, previewLanguage)"
+    >
+      <iframe
+        class="svg-preview-frame"
+        sandbox=""
+        referrerpolicy="no-referrer"
+        :srcdoc="currentContent"
+        title="SVG preview"
+      />
+    </div>
     <pre
       v-else-if="documentPreviewOpen && previewKind === 'text'"
       class="document-preview-pane text-preview-pane"
       @contextmenu="showContextMenu($event, previewLanguage)"
-    >{{ currentContent }}</pre>
+      >{{ currentContent }}</pre
+    >
     <div
       v-if="contextMenu.visible"
       class="editor-context-menu"
@@ -760,14 +859,16 @@ watch(
   line-height: 1.65;
 }
 
-.html-preview-pane {
+.html-preview-pane,
+.svg-preview-pane {
   display: flex;
   overflow: hidden;
   padding: 0;
   background: #fff;
 }
 
-.html-preview-frame {
+.html-preview-frame,
+.svg-preview-frame {
   flex: 1;
   width: 100%;
   height: 100%;
@@ -792,7 +893,10 @@ watch(
   padding: 4px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--surface-elevated-solid, var(--surface-solid, var(--surface)));
+  background: var(
+    --surface-elevated-solid,
+    var(--surface-solid, var(--surface))
+  );
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   box-shadow: 0 8px 24px rgb(0 0 0 / 35%);

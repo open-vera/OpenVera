@@ -40,7 +40,15 @@ const TEXT_EXTENSIONS = new Set([
 ]);
 
 function extensionFor(name: string): string {
+  // A leading-dot config file (.prettierrc, .npmrc) has no extension; splitting
+  // on "." would report the whole name and misclassify it as binary.
+  if (name.startsWith(".") && !name.slice(1).includes(".")) return "";
   return name.split(".").pop()?.toLowerCase() ?? "";
+}
+
+/** Leading-dot tool configs are text even though they carry no extension. */
+function isDotfileConfig(name: string): boolean {
+  return name.startsWith(".") && !name.slice(1).includes(".");
 }
 
 function inferKind(file: File): ChatAttachmentKind {
@@ -57,6 +65,7 @@ function inferKind(file: File): ChatAttachmentKind {
   ) {
     return "text";
   }
+  if (isDotfileConfig(file.name)) return "text";
   return TEXT_EXTENSIONS.has(extensionFor(file.name)) ? "text" : "binary";
 }
 
@@ -64,7 +73,9 @@ function readAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.addEventListener("load", () => resolve(String(reader.result ?? "")));
-    reader.addEventListener("error", () => reject(reader.error ?? new Error("Failed to read file")));
+    reader.addEventListener("error", () =>
+      reject(reader.error ?? new Error("Failed to read file"))
+    );
     reader.readAsDataURL(file);
   });
 }
@@ -73,7 +84,7 @@ function readAsDataUrl(file: File): Promise<string> {
 export function imagePreviewDimensions(
   width: number,
   height: number,
-  maxEdge: number = MAX_IMAGE_PREVIEW_EDGE,
+  maxEdge: number = MAX_IMAGE_PREVIEW_EDGE
 ): { width: number; height: number; scale: number } {
   const safeWidth = Math.max(1, Math.round(width));
   const safeHeight = Math.max(1, Math.round(height));
@@ -125,14 +136,18 @@ async function decodeImageSource(file: File): Promise<DecodedImageSource> {
 export async function compressImageToDataUrl(
   file: File,
   maxBytes: number = MAX_INLINE_DATA_URL_BYTES,
-  maxEdge: number = MAX_IMAGE_PREVIEW_EDGE,
+  maxEdge: number = MAX_IMAGE_PREVIEW_EDGE
 ): Promise<string | null> {
   if (typeof document === "undefined") return null;
 
   let source: DecodedImageSource | null = null;
   try {
     source = await decodeImageSource(file);
-    let { width, height } = imagePreviewDimensions(source.width, source.height, maxEdge);
+    let { width, height } = imagePreviewDimensions(
+      source.width,
+      source.height,
+      maxEdge
+    );
 
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
@@ -186,8 +201,12 @@ function uniquePaths(paths: string[]): string[] {
 
 function displayPath(path: string, projectRoot?: string): string {
   if (!projectRoot) return path;
-  const normalizedRoot = projectRoot.endsWith("/") ? projectRoot : `${projectRoot}/`;
-  return path.startsWith(normalizedRoot) ? path.slice(normalizedRoot.length) : path;
+  const normalizedRoot = projectRoot.endsWith("/")
+    ? projectRoot
+    : `${projectRoot}/`;
+  return path.startsWith(normalizedRoot)
+    ? path.slice(normalizedRoot.length)
+    : path;
 }
 
 function formatOpenFileContext(context?: OpenFileContext): string | null {
@@ -202,17 +221,23 @@ function formatOpenFileContext(context?: OpenFileContext): string | null {
   const activeLine = activeFilePath
     ? `Active file: ${displayPath(activeFilePath, context?.projectRoot)}`
     : null;
-  const openLines = paths.map((path) => `- ${displayPath(path, context?.projectRoot)}`);
+  const openLines = paths.map(
+    (path) => `- ${displayPath(path, context?.projectRoot)}`
+  );
 
   return [
     "The following files are already open in the workspace. Their contents are not inlined; use these paths as context hints when relevant:",
     activeLine,
     "Open files:",
     ...openLines,
-  ].filter((line): line is string => Boolean(line)).join("\n");
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
 }
 
-export async function createChatAttachment(file: File): Promise<ChatAttachment> {
+export async function createChatAttachment(
+  file: File
+): Promise<ChatAttachment> {
   const kind = inferKind(file);
   const base = {
     id: crypto.randomUUID(),
@@ -253,11 +278,16 @@ export async function createChatAttachment(file: File): Promise<ChatAttachment> 
   return base;
 }
 
-export async function createChatAttachments(files: Iterable<File>): Promise<ChatAttachment[]> {
+export async function createChatAttachments(
+  files: Iterable<File>
+): Promise<ChatAttachment[]> {
   return Promise.all(Array.from(files, createChatAttachment));
 }
 
-export function createPathAttachment(path: string, isDir: boolean): ChatAttachment {
+export function createPathAttachment(
+  path: string,
+  isDir: boolean
+): ChatAttachment {
   const name = basenamePath(path);
   return {
     id: crypto.randomUUID(),
@@ -269,7 +299,9 @@ export function createPathAttachment(path: string, isDir: boolean): ChatAttachme
   };
 }
 
-export function createSelectionAttachment(payload: PartnerSelectionPayload): ChatAttachment {
+export function createSelectionAttachment(
+  payload: PartnerSelectionPayload
+): ChatAttachment {
   const raw = payload.content;
   const truncated = raw.length > MAX_INLINE_TEXT_CHARS;
   return {
@@ -287,7 +319,7 @@ export function createSelectionAttachment(payload: PartnerSelectionPayload): Cha
 }
 
 export async function createChatAttachmentsFromPaths(
-  paths: string[],
+  paths: string[]
 ): Promise<ChatAttachment[]> {
   const unique = uniquePaths(paths);
   const attachments = await Promise.all(
@@ -298,13 +330,13 @@ export async function createChatAttachmentsFromPaths(
       } catch {
         return createPathAttachment(path, false);
       }
-    }),
+    })
   );
   return attachments;
 }
 
 export function createChatAttachmentsFromDragItems(
-  items: PartnerPathDragItem[],
+  items: PartnerPathDragItem[]
 ): ChatAttachment[] {
   const seen = new Set<string>();
   const attachments: ChatAttachment[] = [];
@@ -319,20 +351,20 @@ export function createChatAttachmentsFromDragItems(
 
 export function mergeChatAttachments(
   existing: ChatAttachment[],
-  incoming: ChatAttachment[],
+  incoming: ChatAttachment[]
 ): ChatAttachment[] {
   const seenPaths = new Set(
     existing
       .map((item) => item.path)
-      .filter((path): path is string => Boolean(path)),
+      .filter((path): path is string => Boolean(path))
   );
   const seenSelectionKeys = new Set(
     existing
       .filter((item) => item.kind === "selection")
       .map(
         (item) =>
-          `${item.path ?? ""}:${item.startLine ?? 0}:${item.endLine ?? 0}:${item.content ?? ""}`,
-      ),
+          `${item.path ?? ""}:${item.startLine ?? 0}:${item.endLine ?? 0}:${item.content ?? ""}`
+      )
   );
 
   const next = [...existing];
@@ -385,7 +417,7 @@ export function attachmentDisplayName(attachment: ChatAttachment): string {
 
 export function attachmentLabel(
   attachment: ChatAttachment,
-  locale: "zh" | "en" = "zh",
+  locale: "zh" | "en" = "zh"
 ): string {
   if (attachment.kind === "image") {
     const size = formatBytes(attachment.size);
@@ -412,7 +444,7 @@ export function attachmentLabel(
 export function buildAgentMessageContent(
   text: string,
   attachments: ChatAttachment[],
-  openFileContext?: OpenFileContext,
+  openFileContext?: OpenFileContext
 ): string {
   const trimmed = text.trim();
   const contextBlock = formatOpenFileContext(openFileContext);
@@ -425,7 +457,9 @@ export function buildAgentMessageContent(
       `mimeType: ${attachment.mimeType}`,
       `size: ${formatBytes(attachment.size)}`,
       attachment.path ? `path: ${attachment.path}` : null,
-      attachment.kind === "selection" && attachment.startLine && attachment.endLine
+      attachment.kind === "selection" &&
+      attachment.startLine &&
+      attachment.endLine
         ? `lines: ${attachment.startLine}-${attachment.endLine}`
         : null,
     ]
@@ -469,5 +503,7 @@ export function buildAgentMessageContent(
       ? "The user attached the following context. Use it for the request:"
       : null,
     ...blocks,
-  ].filter((block): block is string => Boolean(block)).join("\n\n");
+  ]
+    .filter((block): block is string => Boolean(block))
+    .join("\n\n");
 }

@@ -28,6 +28,7 @@ vi.mock("@google/generative-ai", () => ({
 
 // Import after mock
 import { GeminiAdapter } from "../gemini.js";
+import { DEFAULT_LLM_REQUEST_TIMEOUT_MS } from "../timeouts.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -128,7 +129,9 @@ describe("GeminiAdapter", () => {
   describe("complete", () => {
     it("should return a text response", async () => {
       const { chat } = setupMockChat();
-      mockSendMessage.mockResolvedValueOnce({ response: makeGeminiTextResponse("Hi there") });
+      mockSendMessage.mockResolvedValueOnce({
+        response: makeGeminiTextResponse("Hi there"),
+      });
 
       const adapter = new GeminiAdapter("k");
       const res = await adapter.complete({
@@ -178,7 +181,9 @@ describe("GeminiAdapter", () => {
 
     it("should pass system instruction to model", async () => {
       const { chat } = setupMockChat();
-      mockSendMessage.mockResolvedValueOnce({ response: makeGeminiTextResponse("OK") });
+      mockSendMessage.mockResolvedValueOnce({
+        response: makeGeminiTextResponse("OK"),
+      });
 
       const adapter = new GeminiAdapter("k");
       await adapter.complete({
@@ -194,7 +199,9 @@ describe("GeminiAdapter", () => {
 
     it("should pass tools as functionDeclarations", async () => {
       const { chat } = setupMockChat();
-      mockSendMessage.mockResolvedValueOnce({ response: makeGeminiTextResponse("OK") });
+      mockSendMessage.mockResolvedValueOnce({
+        response: makeGeminiTextResponse("OK"),
+      });
 
       const adapter = new GeminiAdapter("k");
       await adapter.complete({
@@ -223,7 +230,9 @@ describe("GeminiAdapter", () => {
                   description: "Search",
                   parameters: {
                     type: "object",
-                    properties: { query: { type: "string", description: "Query" } },
+                    properties: {
+                      query: { type: "string", description: "Query" },
+                    },
                     required: ["query"],
                   },
                 },
@@ -236,7 +245,9 @@ describe("GeminiAdapter", () => {
 
     it("should not pass tools when empty", async () => {
       const { chat } = setupMockChat();
-      mockSendMessage.mockResolvedValueOnce({ response: makeGeminiTextResponse("OK") });
+      mockSendMessage.mockResolvedValueOnce({
+        response: makeGeminiTextResponse("OK"),
+      });
 
       const adapter = new GeminiAdapter("k");
       await adapter.complete({
@@ -245,7 +256,10 @@ describe("GeminiAdapter", () => {
         tools: [],
       });
 
-      const call = mockGetGenerativeModel.mock.calls[0][0] as Record<string, unknown>;
+      const call = mockGetGenerativeModel.mock.calls[0][0] as Record<
+        string,
+        unknown
+      >;
       expect(call.tools).toBeUndefined();
     });
 
@@ -345,10 +359,14 @@ describe("GeminiAdapter", () => {
       mockSendMessageStream.mockResolvedValueOnce({
         stream: makeStreamChunks([
           {
-            candidates: [{ content: { role: "model", parts: [{ text: "Hello" }] } }],
+            candidates: [
+              { content: { role: "model", parts: [{ text: "Hello" }] } },
+            ],
           },
           {
-            candidates: [{ content: { role: "model", parts: [{ text: " world" }] } }],
+            candidates: [
+              { content: { role: "model", parts: [{ text: " world" }] } },
+            ],
           },
         ]),
         response: makeGeminiTextResponse("Hello world"),
@@ -457,7 +475,9 @@ describe("GeminiAdapter", () => {
       mockSendMessageStream.mockResolvedValueOnce({
         stream: makeStreamChunks([
           {
-            candidates: [{ content: { role: "model", parts: [{ text: "OK" }] } }],
+            candidates: [
+              { content: { role: "model", parts: [{ text: "OK" }] } },
+            ],
           },
         ]),
         response: makeGeminiTextResponse("OK"),
@@ -481,7 +501,9 @@ describe("GeminiAdapter", () => {
       mockSendMessageStream.mockResolvedValueOnce({
         stream: makeStreamChunks([
           {
-            candidates: [{ content: { role: "model", parts: [{ text: "Hi" }] } }],
+            candidates: [
+              { content: { role: "model", parts: [{ text: "Hi" }] } },
+            ],
           },
         ]),
         response: {
@@ -512,7 +534,9 @@ describe("GeminiAdapter", () => {
       mockSendMessageStream.mockResolvedValueOnce({
         stream: makeStreamChunks([
           {
-            candidates: [{ content: { role: "model", parts: [{ text: "Hi" }] } }],
+            candidates: [
+              { content: { role: "model", parts: [{ text: "Hi" }] } },
+            ],
           },
         ]),
         response: { candidates: [] },
@@ -536,7 +560,9 @@ describe("GeminiAdapter", () => {
       mockSendMessageStream.mockResolvedValueOnce({
         stream: makeStreamChunks([
           {
-            candidates: [{ content: { role: "model", parts: [{ text: "Hi" }] } }],
+            candidates: [
+              { content: { role: "model", parts: [{ text: "Hi" }] } },
+            ],
           },
         ]),
         response: {
@@ -566,7 +592,9 @@ describe("GeminiAdapter", () => {
         stream: makeStreamChunks([
           { candidates: undefined },
           {
-            candidates: [{ content: { role: "model", parts: [{ text: "After empty" }] } }],
+            candidates: [
+              { content: { role: "model", parts: [{ text: "After empty" }] } },
+            ],
           },
         ]),
         response: makeGeminiTextResponse("After empty"),
@@ -590,7 +618,9 @@ describe("GeminiAdapter", () => {
         stream: makeStreamChunks([
           { candidates: [{}] },
           {
-            candidates: [{ content: { role: "model", parts: [{ text: "content" }] } }],
+            candidates: [
+              { content: { role: "model", parts: [{ text: "content" }] } },
+            ],
           },
         ]),
         response: makeGeminiTextResponse("content"),
@@ -611,7 +641,9 @@ describe("GeminiAdapter", () => {
     it("should propagate stream errors", async () => {
       const { chat } = setupMockChat();
       async function* errorStream() {
-        yield { candidates: [{ content: { role: "model", parts: [{ text: "a" }] } }] };
+        yield {
+          candidates: [{ content: { role: "model", parts: [{ text: "a" }] } }],
+        };
         throw new Error("Stream broken");
       }
       mockSendMessageStream.mockResolvedValueOnce({
@@ -643,7 +675,9 @@ describe("GeminiAdapter", () => {
       });
 
       await expect(async () => {
-        for await (const _ of iter) { /* should not reach */ }
+        for await (const _ of iter) {
+          /* should not reach */
+        }
       }).rejects.toThrow("Send failed");
     });
   });
@@ -656,8 +690,16 @@ describe("GeminiAdapter", () => {
         ok: true,
         json: async () => ({
           models: [
-            { name: "models/gemini-2.5-flash", displayName: "Gemini 2.5 Flash", inputTokenLimit: 1_000_000 },
-            { name: "models/gemini-2.5-pro", displayName: "Gemini 2.5 Pro", inputTokenLimit: 2_000_000 },
+            {
+              name: "models/gemini-2.5-flash",
+              displayName: "Gemini 2.5 Flash",
+              inputTokenLimit: 1_000_000,
+            },
+            {
+              name: "models/gemini-2.5-pro",
+              displayName: "Gemini 2.5 Pro",
+              inputTokenLimit: 2_000_000,
+            },
           ],
         }),
       });
@@ -690,11 +732,15 @@ describe("GeminiAdapter", () => {
       vi.stubGlobal("fetch", mockFetch);
 
       const adapter = new GeminiAdapter("bad-key");
-      await expect(adapter.listModels()).rejects.toThrow(/Gemini request failed: 401/);
+      await expect(adapter.listModels()).rejects.toThrow(
+        /Gemini request failed: 401/
+      );
     });
 
     it("should throw AdapterRequestError on network failure", async () => {
-      const mockFetch = vi.fn().mockRejectedValueOnce(new Error("Network error"));
+      const mockFetch = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Network error"));
       vi.stubGlobal("fetch", mockFetch);
 
       const adapter = new GeminiAdapter("key");
@@ -746,7 +792,9 @@ describe("GeminiAdapter", () => {
   describe("history conversion (via complete)", () => {
     it("should filter out system messages from history", async () => {
       const { chat } = setupMockChat();
-      mockSendMessage.mockResolvedValueOnce({ response: makeGeminiTextResponse("OK") });
+      mockSendMessage.mockResolvedValueOnce({
+        response: makeGeminiTextResponse("OK"),
+      });
 
       const adapter = new GeminiAdapter("k");
       await adapter.complete({
@@ -758,14 +806,18 @@ describe("GeminiAdapter", () => {
       });
 
       // startChat should have been called; history should not contain system role
-      const startChatCall = mockStartChat.mock.calls[0][0] as { history: Array<{ role: string }> };
+      const startChatCall = mockStartChat.mock.calls[0][0] as {
+        history: Array<{ role: string }>;
+      };
       const roles = startChatCall.history.map((h) => h.role);
       expect(roles).not.toContain("system");
     });
 
     it("should convert tool messages to functionResponse", async () => {
       const { chat } = setupMockChat();
-      mockSendMessage.mockResolvedValueOnce({ response: makeGeminiTextResponse("OK") });
+      mockSendMessage.mockResolvedValueOnce({
+        response: makeGeminiTextResponse("OK"),
+      });
 
       const adapter = new GeminiAdapter("k");
       await adapter.complete({
@@ -792,7 +844,9 @@ describe("GeminiAdapter", () => {
 
     it("should convert tool message with ContentPart array to functionResponse", async () => {
       const { chat } = setupMockChat();
-      mockSendMessage.mockResolvedValueOnce({ response: makeGeminiTextResponse("OK") });
+      mockSendMessage.mockResolvedValueOnce({
+        response: makeGeminiTextResponse("OK"),
+      });
 
       const adapter = new GeminiAdapter("k");
       await adapter.complete({
@@ -811,12 +865,16 @@ describe("GeminiAdapter", () => {
         history: Array<{ parts: Array<Record<string, unknown>> }>;
       };
       // String content on tool messages is stringified to ""
-      expect(startChatCall.history[0].parts[0].functionResponse.response.content).toBe("");
+      expect(
+        startChatCall.history[0].parts[0].functionResponse.response.content
+      ).toBe("");
     });
 
     it("should convert assistant role to model role", async () => {
       const { chat } = setupMockChat();
-      mockSendMessage.mockResolvedValueOnce({ response: makeGeminiTextResponse("OK") });
+      mockSendMessage.mockResolvedValueOnce({
+        response: makeGeminiTextResponse("OK"),
+      });
 
       const adapter = new GeminiAdapter("k");
       await adapter.complete({
@@ -837,7 +895,9 @@ describe("GeminiAdapter", () => {
 
     it("should convert assistant messages with tool_call content parts", async () => {
       const { chat } = setupMockChat();
-      mockSendMessage.mockResolvedValueOnce({ response: makeGeminiTextResponse("OK") });
+      mockSendMessage.mockResolvedValueOnce({
+        response: makeGeminiTextResponse("OK"),
+      });
 
       const adapter = new GeminiAdapter("k");
       await adapter.complete({
@@ -873,7 +933,9 @@ describe("GeminiAdapter", () => {
 
     it("should convert assistant messages with tool_result content parts", async () => {
       const { chat } = setupMockChat();
-      mockSendMessage.mockResolvedValueOnce({ response: makeGeminiTextResponse("OK") });
+      mockSendMessage.mockResolvedValueOnce({
+        response: makeGeminiTextResponse("OK"),
+      });
 
       const adapter = new GeminiAdapter("k");
       await adapter.complete({
@@ -907,7 +969,9 @@ describe("GeminiAdapter", () => {
 
     it("should handle mixed content parts in user message", async () => {
       const { chat } = setupMockChat();
-      mockSendMessage.mockResolvedValueOnce({ response: makeGeminiTextResponse("OK") });
+      mockSendMessage.mockResolvedValueOnce({
+        response: makeGeminiTextResponse("OK"),
+      });
 
       const adapter = new GeminiAdapter("k");
       await adapter.complete({
@@ -934,7 +998,9 @@ describe("GeminiAdapter", () => {
 
     it("should use last message as the sendMessage parts (not history)", async () => {
       const { chat } = setupMockChat();
-      mockSendMessage.mockResolvedValueOnce({ response: makeGeminiTextResponse("OK") });
+      mockSendMessage.mockResolvedValueOnce({
+        response: makeGeminiTextResponse("OK"),
+      });
 
       const adapter = new GeminiAdapter("k");
       await adapter.complete({
@@ -950,15 +1016,22 @@ describe("GeminiAdapter", () => {
       };
       // History should only contain the first message (not the last)
       expect(startChatCall.history).toHaveLength(1);
-      expect(startChatCall.history[0].parts[0]).toMatchObject({ text: "First" });
+      expect(startChatCall.history[0].parts[0]).toMatchObject({
+        text: "First",
+      });
 
       // Last message is sent via sendMessage
-      expect(mockSendMessage).toHaveBeenCalledWith([{ text: "Last" }]);
+      expect(mockSendMessage).toHaveBeenCalledWith([{ text: "Last" }], {
+        signal: undefined,
+        timeout: DEFAULT_LLM_REQUEST_TIMEOUT_MS,
+    });
     });
 
     it("should handle empty messages array (only last message used)", async () => {
       const { chat } = setupMockChat();
-      mockSendMessage.mockResolvedValueOnce({ response: makeGeminiTextResponse("OK") });
+      mockSendMessage.mockResolvedValueOnce({
+        response: makeGeminiTextResponse("OK"),
+      });
 
       const adapter = new GeminiAdapter("k");
       await adapter.complete({
@@ -971,7 +1044,31 @@ describe("GeminiAdapter", () => {
         history: Array<Record<string, unknown>>;
       };
       expect(startChatCall.history).toHaveLength(0);
-      expect(mockSendMessage).toHaveBeenCalledWith([{ text: "Only message" }]);
+      expect(mockSendMessage).toHaveBeenCalledWith([{ text: "Only message" }], {
+        signal: undefined,
+        timeout: DEFAULT_LLM_REQUEST_TIMEOUT_MS,
+    });
+  });
+
+    it("should forward the abort signal so a stop cancels the HTTP request", async () => {
+      const { chat } = setupMockChat();
+      mockSendMessage.mockResolvedValueOnce({
+        response: makeGeminiTextResponse("OK"),
+      });
+      const controller = new AbortController();
+      void chat;
+
+      const adapter = new GeminiAdapter("k");
+      await adapter.complete({
+        model: "m",
+        messages: [{ role: "user", content: "Hi" }],
+        signal: controller.signal,
+      });
+
+      expect(mockSendMessage).toHaveBeenCalledWith(expect.any(Array), {
+        signal: controller.signal,
+        timeout: DEFAULT_LLM_REQUEST_TIMEOUT_MS,
+      });
     });
   });
 
@@ -980,7 +1077,9 @@ describe("GeminiAdapter", () => {
   describe("flatMap fallback (unrecognized content parts)", () => {
     it("should skip unrecognized ContentPart types in toGeminiHistory", async () => {
       const { chat } = setupMockChat();
-      mockSendMessage.mockResolvedValueOnce({ response: makeGeminiTextResponse("OK") });
+      mockSendMessage.mockResolvedValueOnce({
+        response: makeGeminiTextResponse("OK"),
+      });
 
       const adapter = new GeminiAdapter("k");
       await adapter.complete({

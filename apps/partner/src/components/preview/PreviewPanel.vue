@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { readFile } from "@/bridge";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
+import { readFile, readFileDataUrl } from "@/bridge";
 import ProjectExplorer, {
   type ExplorerView,
 } from "@/components/explorer/ProjectExplorer.vue";
@@ -16,7 +23,6 @@ import PanelToggleButton from "@/components/ui/PanelToggleButton.vue";
 import { isDiffPreview } from "@/preview/diff";
 import { confirmDialog } from "@/utils/native-dialog";
 import { scrollTabIntoView } from "@/utils/scroll-tab-into-view";
-import { activeTabDrag, tabDropIndexAt } from "@/utils/tab-dnd";
 
 const explorerOpen = defineModel<boolean>("explorerOpen", { default: true });
 const editorOpen = defineModel<boolean>("editorOpen", { default: true });
@@ -41,7 +47,7 @@ let fileRefreshTimer: number | undefined;
 let isRefreshingFiles = false;
 
 const activeTab = computed(() =>
-  tabs.value.find((tab) => tab.id === activeTabId.value),
+  tabs.value.find((tab) => tab.id === activeTabId.value)
 );
 const showEditor = computed(() => editorOpen.value && tabs.value.length > 0);
 
@@ -62,7 +68,7 @@ const uiText = computed(() =>
         collapseExplorer: "收起文件树",
         expandExplorer: "展开文件树",
         collapsePreview: "收起文件与预览",
-      },
+      }
 );
 
 function selectExplorerView(view: ExplorerView) {
@@ -82,17 +88,6 @@ function selectTab(id: string) {
 }
 
 const tabDropIndex = ref<number | null>(null);
-
-function onTabDragOver(event: DragEvent) {
-  if (!activeTabDrag()) return;
-  // Claim the drag so the webview shows a move affordance over the strip.
-  event.preventDefault();
-  tabDropIndex.value = tabDropIndexAt("preview", event.clientX, event.clientY);
-}
-
-function onTabDragLeave() {
-  tabDropIndex.value = null;
-}
 
 function reorderTab(tabId: string, insertionIndex: number) {
   tabDropIndex.value = null;
@@ -137,7 +132,7 @@ async function closeTab(id: string) {
   const tab = tabs.value.find((item) => item.id === id);
   if (tab?.isDirty) {
     const shouldClose = await confirmDialog(
-      `${tab.title} 有未保存的修改，确认关闭并丢弃这些修改吗？`,
+      `${tab.title} 有未保存的修改，确认关闭并丢弃这些修改吗？`
     );
     if (!shouldClose) return;
   }
@@ -147,7 +142,8 @@ async function closeTab(id: string) {
 async function refreshOpenCodeTabsFromDisk() {
   if (isRefreshingFiles) return;
   const cleanCodeTabs = tabs.value.filter(
-    (tab) => tab.kind === "code" && tab.filePath && !tab.isDirty && !tab.readOnly,
+    (tab) =>
+      tab.kind === "code" && tab.filePath && !tab.isDirty && !tab.readOnly
   );
   if (cleanCodeTabs.length === 0) return;
 
@@ -162,7 +158,7 @@ async function refreshOpenCodeTabsFromDisk() {
         } catch {
           // Files can disappear or be temporarily unavailable while tools run.
         }
-      }),
+      })
     );
   } finally {
     isRefreshingFiles = false;
@@ -196,7 +192,7 @@ watch(
     void nextTick(() => {
       requestAnimationFrame(scrollActiveTabIntoView);
     });
-  },
+  }
 );
 
 watch(
@@ -205,7 +201,24 @@ watch(
     if (count > 0 && (previous === 0 || previous === undefined)) {
       editorOpen.value = true;
     }
+  }
+);
+
+/** Image data URLs are intentionally omitted from persisted preview state. */
+watch(
+  () => activeTab.value,
+  (tab) => {
+    if (tab?.kind !== "image" || !tab.filePath || tab.content) return;
+    void readFileDataUrl(tab.filePath)
+      .then((media) => {
+        // The user may have switched or closed the tab while the file was read.
+        preview.setImageFileContent(tab.filePath!, media.dataUrl, media.bytes);
+      })
+      .catch((error: unknown) => {
+        console.warn("[PreviewPanel] failed to restore image preview:", error);
+      });
   },
+  { immediate: true }
 );
 
 watch(
@@ -215,7 +228,7 @@ watch(
       appState.saveProjectPreview(previewProject.value.id, snapshot);
     }
   },
-  { deep: true },
+  { deep: true }
 );
 </script>
 
@@ -237,7 +250,9 @@ watch(
           <PanelToggleButton
             side="left"
             :open="explorerOpen"
-            :title="explorerOpen ? uiText.collapseExplorer : uiText.expandExplorer"
+            :title="
+              explorerOpen ? uiText.collapseExplorer : uiText.expandExplorer
+            "
             @click="toggleExplorer"
           />
           <nav class="activity-bar" :aria-label="uiText.sidebar">
@@ -302,8 +317,6 @@ watch(
             class="tabs"
             data-tab-group="preview"
             @scroll="updateTabScrollHints"
-            @dragover="onTabDragOver"
-            @dragleave="onTabDragLeave"
           >
             <PreviewTab
               v-for="(tab, index) in tabs"
@@ -314,10 +327,13 @@ watch(
               :dirty="tab.isDirty"
               :active="tab.id === activeTabId"
               :drop-before="tabDropIndex === index"
-              :drop-after="tabDropIndex === tabs.length && index === tabs.length - 1"
+              :drop-after="
+                tabDropIndex === tabs.length && index === tabs.length - 1
+              "
               @select="selectTab(tab.id)"
               @close="closeTab(tab.id)"
               @reorder="reorderTab(tab.id, $event)"
+              @preview-drop="tabDropIndex = $event"
             />
           </nav>
           <button
@@ -361,7 +377,11 @@ watch(
               :content="activeTab.content"
             />
             <CodeEditor
-              v-else-if="activeTab?.kind === 'code' && activeTab.filePath && activeTab.content != null"
+              v-else-if="
+                activeTab?.kind === 'code' &&
+                activeTab.filePath &&
+                activeTab.content != null
+              "
               :file-path="activeTab.filePath"
               :content="activeTab.content"
               :saved-content="activeTab.savedContent"
@@ -369,7 +389,9 @@ watch(
               :language-id="activeTab.languageId"
               :enable-lsp="preview.lspEnabled"
               :read-only="activeTab.readOnly"
-              @change="preview.updateCodeFileContent(activeTab.filePath, $event)"
+              @change="
+                preview.updateCodeFileContent(activeTab.filePath, $event)
+              "
               @saved="preview.markCodeFileSaved(activeTab.filePath, $event)"
             />
             <div
@@ -378,15 +400,10 @@ watch(
             >
               <img :src="activeTab.content" :alt="activeTab.title" />
             </div>
-            <p v-else class="placeholder">
-              {{ activeTab?.kind }} 预览尚未实现
-            </p>
+            <p v-else class="placeholder">{{ activeTab?.kind }} 预览尚未实现</p>
           </div>
         </div>
-        <p
-          v-else-if="!explorerOpen"
-          class="placeholder empty-body"
-        >
+        <p v-else-if="!explorerOpen" class="placeholder empty-body">
           {{ uiText.expandExplorer }}
         </p>
       </div>
@@ -592,9 +609,11 @@ watch(
   height: 100%;
   padding: 16px;
   overflow: auto;
-  background:
-    linear-gradient(45deg, color-mix(in srgb, var(--surface) 70%, transparent) 25%, transparent 25%) 0 0 / 16px 16px,
-    linear-gradient(-45deg, color-mix(in srgb, var(--surface) 70%, transparent) 25%, transparent 25%) 0 0 / 16px 16px;
+  /* Images need an opaque canvas: a patterned/translucent background becomes
+     visible through transparent pixels and reads as image corruption. */
+  background: var(--surface-inset-solid, var(--surface-inset));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .image-preview img {

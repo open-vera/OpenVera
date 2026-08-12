@@ -13,7 +13,10 @@ import type {
 const mockCreate = vi.hoisted(() => vi.fn());
 const mockListModels = vi.hoisted(() => vi.fn());
 const MockOpenAI = vi.hoisted(() =>
-  vi.fn(function (this: Record<string, unknown>, _config: Record<string, unknown>) {
+  vi.fn(function (
+    this: Record<string, unknown>,
+    _config: Record<string, unknown>
+  ) {
     this.responses = {
       create: mockCreate,
     };
@@ -30,17 +33,20 @@ vi.mock("openai", () => ({
 
 // Import after mock
 import { OpenAIResponsesAdapter } from "../openai-responses.js";
+import { DEFAULT_LLM_REQUEST_TIMEOUT_MS } from "../timeouts.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeResponse(opts: {
+function makeResponse(
+  opts: {
   output?: Array<Record<string, unknown>>;
   input_tokens?: number;
   output_tokens?: number;
   reasoning_tokens?: number;
   incomplete_reason?: string;
   usage?: null;
-} = {}) {
+  } = {}
+) {
   return {
     id: "resp_1",
     object: "response" as const,
@@ -56,7 +62,9 @@ function makeResponse(opts: {
         content: [{ type: "output_text", text: "Hello", annotations: [] }],
       },
     ],
-    incomplete_details: opts.incomplete_reason ? { reason: opts.incomplete_reason } : null,
+    incomplete_details: opts.incomplete_reason
+      ? { reason: opts.incomplete_reason }
+      : null,
     usage:
       opts.usage === null
         ? undefined
@@ -65,7 +73,11 @@ function makeResponse(opts: {
             output_tokens: opts.output_tokens ?? 5,
             total_tokens: (opts.input_tokens ?? 10) + (opts.output_tokens ?? 5),
             ...(opts.reasoning_tokens != null
-              ? { output_tokens_details: { reasoning_tokens: opts.reasoning_tokens } }
+              ? {
+                  output_tokens_details: {
+                    reasoning_tokens: opts.reasoning_tokens,
+                  },
+                }
               : {}),
           },
   };
@@ -90,7 +102,10 @@ async function* makeEventStream(
   for (const e of events) yield e;
 }
 
-async function collect(adapter: OpenAIResponsesAdapter, req: CompletionRequest): Promise<StreamEvent[]> {
+async function collect(
+  adapter: OpenAIResponsesAdapter,
+  req: CompletionRequest
+): Promise<StreamEvent[]> {
   const events: StreamEvent[] = [];
   for await (const e of adapter.stream(req)) events.push(e);
   return events;
@@ -111,11 +126,16 @@ describe("OpenAIResponsesAdapter", () => {
   describe("constructor", () => {
     it("should pass apiKey, baseURL and headers to OpenAI client", () => {
       const headers = { "X-Test": "enabled" };
-      new OpenAIResponsesAdapter("sk-123", "https://api.openai.com/v1", headers);
+      new OpenAIResponsesAdapter(
+        "sk-123",
+        "https://api.openai.com/v1",
+        headers
+      );
       expect(MockOpenAI).toHaveBeenCalledWith({
         apiKey: "sk-123",
         baseURL: "https://api.openai.com/v1",
         defaultHeaders: headers,
+        timeout: DEFAULT_LLM_REQUEST_TIMEOUT_MS,
       });
     });
 
@@ -125,6 +145,7 @@ describe("OpenAIResponsesAdapter", () => {
         apiKey: undefined,
         baseURL: undefined,
         defaultHeaders: undefined,
+        timeout: DEFAULT_LLM_REQUEST_TIMEOUT_MS,
       });
     });
   });
@@ -170,7 +191,13 @@ describe("OpenAIResponsesAdapter", () => {
               id: "msg_1",
               role: "assistant",
               status: "completed",
-              content: [{ type: "output_text", text: "Let me check...", annotations: [] }],
+              content: [
+                {
+                  type: "output_text",
+                  text: "Let me check...",
+                  annotations: [],
+            },
+              ],
             },
             makeFunctionCallItem(),
           ],
@@ -250,8 +277,21 @@ describe("OpenAIResponsesAdapter", () => {
           max_output_tokens: 200,
           temperature: 0.7,
           store: false,
-        })
+        }),
+        { signal: undefined }
       );
+    });
+
+    it("should forward the abort signal so a stop cancels the HTTP request", async () => {
+      mockCreate.mockResolvedValueOnce(makeResponse());
+      const controller = new AbortController();
+
+      const adapter = new OpenAIResponsesAdapter("k");
+      await adapter.complete({ ...USER_REQ, signal: controller.signal });
+
+      expect(mockCreate).toHaveBeenCalledWith(expect.any(Object), {
+        signal: controller.signal,
+      });
     });
 
     it("should omit instructions/max_output_tokens/temperature when not set", async () => {
@@ -270,7 +310,9 @@ describe("OpenAIResponsesAdapter", () => {
       mockCreate.mockRejectedValueOnce(new Error("401 Unauthorized"));
 
       const adapter = new OpenAIResponsesAdapter("k");
-      await expect(adapter.complete(USER_REQ)).rejects.toThrow("401 Unauthorized");
+      await expect(adapter.complete(USER_REQ)).rejects.toThrow(
+        "401 Unauthorized"
+      );
     });
   });
 
@@ -294,7 +336,10 @@ describe("OpenAIResponsesAdapter", () => {
     it("should yield reasoning summary deltas as thinking", async () => {
       mockCreate.mockResolvedValue(
         makeEventStream([
-          { type: "response.reasoning_summary_text.delta", delta: "Let me think..." },
+          {
+            type: "response.reasoning_summary_text.delta",
+            delta: "Let me think...",
+          },
           { type: "response.output_text.delta", delta: "Answer" },
           { type: "response.completed", response: makeResponse() },
         ])
@@ -303,7 +348,10 @@ describe("OpenAIResponsesAdapter", () => {
       const adapter = new OpenAIResponsesAdapter("k");
       const events = await collect(adapter, USER_REQ);
 
-      expect(events).toContainEqual({ type: "thinking", text: "Let me think..." });
+      expect(events).toContainEqual({
+        type: "thinking",
+        text: "Let me think...",
+    });
     });
 
     it("should yield complete tool_call from output_item.done", async () => {
@@ -335,7 +383,13 @@ describe("OpenAIResponsesAdapter", () => {
         makeEventStream([
           {
             type: "response.output_item.done",
-            item: { type: "message", id: "msg_1", role: "assistant", status: "completed", content: [] },
+            item: {
+              type: "message",
+              id: "msg_1",
+              role: "assistant",
+              status: "completed",
+              content: [],
+          },
           },
           { type: "response.completed", response: makeResponse() },
         ])
@@ -352,7 +406,11 @@ describe("OpenAIResponsesAdapter", () => {
           { type: "response.output_text.delta", delta: "OK" },
           {
             type: "response.completed",
-            response: makeResponse({ input_tokens: 5, output_tokens: 10, reasoning_tokens: 3 }),
+            response: makeResponse({
+              input_tokens: 5,
+              output_tokens: 10,
+              reasoning_tokens: 3,
+            }),
           },
         ])
       );
@@ -362,7 +420,11 @@ describe("OpenAIResponsesAdapter", () => {
 
       const done = events.find((e) => e.type === "done");
       expect(done!.stop_reason).toBe("end_turn");
-      expect(done!.usage).toEqual({ input_tokens: 5, output_tokens: 10, reasoning_tokens: 3 });
+      expect(done!.usage).toEqual({
+        input_tokens: 5,
+        output_tokens: 10,
+        reasoning_tokens: 3,
+    });
     });
 
     it("should yield max_tokens stop_reason on incomplete response", async () => {
@@ -385,9 +447,7 @@ describe("OpenAIResponsesAdapter", () => {
 
     it("should handle stream without usage", async () => {
       mockCreate.mockResolvedValue(
-        makeEventStream([
-          { type: "response.output_text.delta", delta: "Hi" },
-        ])
+        makeEventStream([{ type: "response.output_text.delta", delta: "Hi" }])
       );
 
       const adapter = new OpenAIResponsesAdapter("k");
@@ -402,7 +462,10 @@ describe("OpenAIResponsesAdapter", () => {
         makeEventStream([
           {
             type: "response.failed",
-            response: { ...makeResponse(), error: { code: "server_error", message: "boom" } },
+            response: {
+              ...makeResponse(),
+              error: { code: "server_error", message: "boom" },
+          },
           },
         ])
       );
@@ -414,7 +477,12 @@ describe("OpenAIResponsesAdapter", () => {
     it("should throw on error event", async () => {
       mockCreate.mockResolvedValue(
         makeEventStream([
-          { type: "error", code: "rate_limit", message: "too fast", param: null },
+          {
+            type: "error",
+            code: "rate_limit",
+            message: "too fast",
+            param: null,
+          },
         ])
       );
 
@@ -424,14 +492,17 @@ describe("OpenAIResponsesAdapter", () => {
 
     it("should request stream with store:false", async () => {
       mockCreate.mockResolvedValue(
-        makeEventStream([{ type: "response.completed", response: makeResponse() }])
+        makeEventStream([
+          { type: "response.completed", response: makeResponse() },
+        ])
       );
 
       const adapter = new OpenAIResponsesAdapter("k");
       await collect(adapter, USER_REQ);
 
       expect(mockCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ stream: true, store: false })
+        expect.objectContaining({ stream: true, store: false }),
+        { signal: undefined }
       );
     });
   });
@@ -469,7 +540,9 @@ describe("OpenAIResponsesAdapter", () => {
         ],
       });
 
-      const call = mockCreate.mock.calls[0][0] as { input: Array<Record<string, unknown>> };
+      const call = mockCreate.mock.calls[0][0] as {
+        input: Array<Record<string, unknown>>;
+      };
       expect(call.input).toEqual([
         { role: "system", content: "Rule 1" },
         { role: "user", content: "Hi" },
@@ -489,7 +562,9 @@ describe("OpenAIResponsesAdapter", () => {
         ],
       });
 
-      const call = mockCreate.mock.calls[0][0] as { input: Array<Record<string, unknown>> };
+      const call = mockCreate.mock.calls[0][0] as {
+        input: Array<Record<string, unknown>>;
+      };
       expect(call.input[1]).toEqual({
         type: "function_call_output",
         call_id: "call_1",
@@ -508,15 +583,25 @@ describe("OpenAIResponsesAdapter", () => {
             role: "assistant",
             content: [
               { type: "text", text: "Using tool" },
-              { type: "tool_call", id: "call_1", name: "search", arguments: '{"q":"test"}' },
+              {
+                type: "tool_call",
+                id: "call_1",
+                name: "search",
+                arguments: '{"q":"test"}',
+              },
             ],
           },
           { role: "tool", tool_call_id: "call_1", content: "found" },
         ],
       });
 
-      const call = mockCreate.mock.calls[0][0] as { input: Array<Record<string, unknown>> };
-      expect(call.input[0]).toEqual({ role: "assistant", content: "Using tool" });
+      const call = mockCreate.mock.calls[0][0] as {
+        input: Array<Record<string, unknown>>;
+      };
+      expect(call.input[0]).toEqual({
+        role: "assistant",
+        content: "Using tool",
+      });
       expect(call.input[1]).toEqual({
         type: "function_call",
         call_id: "call_1",
@@ -535,13 +620,20 @@ describe("OpenAIResponsesAdapter", () => {
           {
             role: "assistant",
             content: [
-              { type: "tool_call", id: "call_1", name: "search", arguments: "{}" },
+              {
+                type: "tool_call",
+                id: "call_1",
+                name: "search",
+                arguments: "{}",
+              },
             ],
           },
         ],
       });
 
-      const call = mockCreate.mock.calls[0][0] as { input: Array<Record<string, unknown>> };
+      const call = mockCreate.mock.calls[0][0] as {
+        input: Array<Record<string, unknown>>;
+      };
       expect(call.input).toHaveLength(1);
       expect(call.input[0].type).toBe("function_call");
     });
@@ -556,18 +648,27 @@ describe("OpenAIResponsesAdapter", () => {
           {
             role: "user",
             content: [
-              { type: "image_url", image_url: { url: "data:image/png;base64,abc123" } },
+              {
+                type: "image_url",
+                image_url: { url: "data:image/png;base64,abc123" },
+              },
               { type: "text", text: "describe this image" },
             ],
           },
         ],
       });
 
-      const call = mockCreate.mock.calls[0][0] as { input: Array<Record<string, unknown>> };
+      const call = mockCreate.mock.calls[0][0] as {
+        input: Array<Record<string, unknown>>;
+      };
       expect(call.input[0]).toEqual({
         role: "user",
         content: [
-          { type: "input_image", image_url: "data:image/png;base64,abc123", detail: "auto" },
+          {
+            type: "input_image",
+            image_url: "data:image/png;base64,abc123",
+            detail: "auto",
+          },
           { type: "input_text", text: "describe this image" },
         ],
       });
@@ -594,7 +695,9 @@ describe("OpenAIResponsesAdapter", () => {
         ],
       });
 
-      const call = mockCreate.mock.calls[0][0] as { tools: Array<Record<string, unknown>> };
+      const call = mockCreate.mock.calls[0][0] as {
+        tools: Array<Record<string, unknown>>;
+      };
       expect(call.tools).toEqual([
         {
           type: "function",

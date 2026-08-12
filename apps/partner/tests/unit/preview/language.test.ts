@@ -15,6 +15,7 @@ describe("preview/language", () => {
     expect(detectLanguageFromPath("/src/main.ts")).toBe("typescript");
     expect(detectLanguageFromPath("README.md")).toBe("markdown");
     expect(detectLanguageFromPath("/app/index.html")).toBe("html");
+    expect(detectLanguageFromPath("/assets/logo.svg")).toBe("svg");
     expect(detectLanguageFromPath("/notes/readme.txt")).toBe("plaintext");
     expect(detectLanguageFromPath("/logs/2026-07-07.jsonl")).toBe("jsonl");
   });
@@ -22,25 +23,31 @@ describe("preview/language", () => {
   it("detects shell from extension and git-hook filenames", () => {
     expect(detectLanguageFromPath("/scripts/setup.sh")).toBe("shell");
     expect(detectLanguageFromPath("/scripts/run.bash")).toBe("shell");
-    expect(detectLanguageFromPath("/Users/yang.zhou/workspace/open-vera/.hooks/pre-commit")).toBe(
-      "shell",
-    );
+    expect(
+      detectLanguageFromPath(
+        "/Users/yang.zhou/workspace/open-vera/.hooks/pre-commit"
+      )
+    ).toBe("shell");
     expect(detectLanguageFromPath("/repo/.git/hooks/pre-push")).toBe("shell");
   });
 
   it("uses basename extension when path directories contain dots", () => {
-    expect(detectLanguageFromPath("/Users/yang.zhou/workspace/app/main.ts")).toBe(
-      "typescript",
+    expect(
+      detectLanguageFromPath("/Users/yang.zhou/workspace/app/main.ts")
+    ).toBe("typescript");
+    expect(detectLanguageFromPath("/Users/yang.zhou/workspace/Makefile")).toBe(
+      "plaintext"
     );
-    expect(detectLanguageFromPath("/Users/yang.zhou/workspace/Makefile")).toBe("plaintext");
   });
 
   it("falls back to shebang when filename is ambiguous", () => {
-    expect(detectLanguageFromShebang("#!/usr/bin/env bash\nset -e\n")).toBe("shell");
-    expect(detectLanguageFromShebang("#!/bin/sh\necho hi\n")).toBe("shell");
-    expect(detectLanguage("bin/custom-tool", "#!/usr/bin/env python3\nprint(1)\n")).toBe(
-      "python",
+    expect(detectLanguageFromShebang("#!/usr/bin/env bash\nset -e\n")).toBe(
+      "shell"
     );
+    expect(detectLanguageFromShebang("#!/bin/sh\necho hi\n")).toBe("shell");
+    expect(
+      detectLanguage("bin/custom-tool", "#!/usr/bin/env python3\nprint(1)\n")
+    ).toBe("python");
     expect(detectLanguage("bin/custom-tool", "plain text\n")).toBe("plaintext");
   });
 
@@ -50,7 +57,9 @@ describe("preview/language", () => {
   });
 
   it("detects and highlights config markup languages", () => {
-    expect(detectLanguageFromPath("/repo/node_modules/.modules.yaml")).toBe("yaml");
+    expect(detectLanguageFromPath("/repo/node_modules/.modules.yaml")).toBe(
+      "yaml"
+    );
     expect(detectLanguageFromPath("/.github/workflows/ci.yml")).toBe("yaml");
     expect(detectLanguageFromPath("/src-tauri/Cargo.toml")).toBe("toml");
     expect(detectLanguageFromPath("/etc/app.ini")).toBe("ini");
@@ -58,6 +67,7 @@ describe("preview/language", () => {
     expect(languageSupportFor("yaml")).not.toBeNull();
     expect(languageSupportFor("toml")).not.toBeNull();
     expect(languageSupportFor("ini")).not.toBeNull();
+    expect(languageSupportFor("svg")).not.toBeNull();
     expect(isLspSupported("yaml")).toBe(false);
   });
 
@@ -72,7 +82,9 @@ describe("preview/language", () => {
     expect(isCodeFilePath("/workspace/LICENSE")).toBe(true);
     expect(isCodeFilePath("/workspace/Makefile")).toBe(true);
     expect(isCodeFilePath("/workspace/node_modules/.bin/tsc")).toBe(true);
-    expect(isCodeFilePath("/workspace/node_modules/cross-env/src/bin/cross-env")).toBe(true);
+    expect(
+      isCodeFilePath("/workspace/node_modules/cross-env/src/bin/cross-env")
+    ).toBe(true);
   });
 
   it("allows previewable module and markup variants", () => {
@@ -87,7 +99,9 @@ describe("preview/language", () => {
 
   it("allows common text, config, lock and data files", () => {
     expect(isCodeFilePath("/workspace/Cargo.lock")).toBe(true);
-    expect(isCodeFilePath("/workspace/partner-runs/2026-07-07.jsonl")).toBe(true);
+    expect(isCodeFilePath("/workspace/partner-runs/2026-07-07.jsonl")).toBe(
+      true
+    );
     expect(isCodeFilePath("/workspace/app.log")).toBe(true);
     expect(isCodeFilePath("/workspace/notes.txt")).toBe(true);
     expect(isCodeFilePath("/workspace/schema.graphql")).toBe(true);
@@ -136,7 +150,37 @@ describe("preview/language", () => {
     expect(classifyFilePath("/workspace/.DS_Store")).toBe("binary");
     expect(classifyFilePath("/workspace/Thumbs.db")).toBe("binary");
     expect(classifyFilePath("/workspace/weird.foo")).toBe("unknown");
-    expect(classifyFilePath("/workspace/icon.png")).toBe("binary");
+    expect(classifyFilePath("/workspace/archive.zip")).toBe("binary");
     expect(classifyFilePath("/workspace/app.ts")).toBe("code");
+  });
+
+  it("classifies renderable rasters as image, and svg as code", () => {
+    expect(classifyFilePath("/workspace/icon.png")).toBe("image");
+    expect(classifyFilePath("/workspace/Hero.JPG")).toBe("image");
+    expect(classifyFilePath("/workspace/anim.gif")).toBe("image");
+    expect(classifyFilePath("/workspace/shot.webp")).toBe("image");
+    expect(classifyFilePath("/workspace/photo.jfif")).toBe("image");
+    expect(classifyFilePath("/workspace/icon.svg")).toBe("code");
+  });
+
+  it("treats leading-dot tool configs as text, not unknown extensions", () => {
+    // The name after the dot is not an extension; these used to prompt
+    // "not a known text type" on every open.
+    expect(classifyFilePath("/workspace/.prettierignore")).toBe("code");
+    expect(classifyFilePath("/workspace/.prettierrc")).toBe("code");
+    expect(classifyFilePath("/workspace/.npmrc")).toBe("code");
+    expect(classifyFilePath("/workspace/.nvmrc")).toBe("code");
+    expect(classifyFilePath("/workspace/.babelrc")).toBe("code");
+    expect(classifyFilePath("/workspace/.eslintignore")).toBe("code");
+  });
+
+  it("still resolves dotfiles that do carry an extension by that extension", () => {
+    expect(classifyFilePath("/workspace/.prettierrc.json")).toBe("code");
+    expect(classifyFilePath("/workspace/.eslintrc.yml")).toBe("code");
+    expect(classifyFilePath("/workspace/.hidden.png")).toBe("image");
+  });
+
+  it("keeps known binary dotfiles binary", () => {
+    expect(classifyFilePath("/workspace/.ds_store")).toBe("binary");
   });
 });

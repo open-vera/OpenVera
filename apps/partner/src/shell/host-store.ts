@@ -1,6 +1,6 @@
 import { acceptHMRUpdate, defineStore } from "pinia";
 import { hostBoot, hostDispatch, subscribeHostEvent, subscribeHostPatch } from "./host-client";
-import type { HostCommand, HostState } from "./types";
+import type { HostCommand, HostPatchUpdate, HostState } from "./types";
 
 function emptyHostState(): HostState {
   return {
@@ -29,7 +29,36 @@ function emptyHostState(): HostState {
       maxConcurrency: 1,
     },
     booted: false,
+    sectionRevisions: { sessions: 0, projects: 0, projectRuntime: 0 },
   };
+}
+
+/**
+ * Fold a patch into the current document.
+ *
+ * The Host omits sections whose content did not change (sessions alone are ~99%
+ * of the payload), so an absent key means "keep what you have". Assigning
+ * `patch.state` wholesale would silently empty the session tree.
+ */
+export function mergeHostPatch(
+  current: HostState,
+  patch: HostPatchUpdate,
+): HostState {
+  const omitted = new Set<string>(patch.omitted ?? []);
+  const next: Record<string, unknown> = { ...current };
+  for (const [key, value] of Object.entries(patch.state ?? {})) {
+    // A section the Host declared omitted is absent by contract; ignoring any
+    // value found under it keeps one authoritative source per key.
+    if (omitted.has(key) || value === undefined) continue;
+    next[key] = value;
+  }
+  const fallback = emptyHostState() as unknown as Record<string, unknown>;
+  for (const section of omitted) {
+    // Nothing to carry forward (patch arrived before the first snapshot): use
+    // the empty shape rather than leaving getters to read `undefined`.
+    if (next[section] === undefined) next[section] = fallback[section];
+  }
+  return next as unknown as HostState;
 }
 
 let unlistenPatch: (() => void) | undefined;
@@ -61,9 +90,9 @@ export const useHostStore = defineStore("partner-host", {
     },
   },
   actions: {
-    applyPatch(patch: { replace: boolean; state: HostState; revision: number }) {
+    applyPatch(patch: HostPatchUpdate) {
       if (patch.replace || patch.revision >= this.doc.revision) {
-        this.doc = patch.state;
+        this.doc = mergeHostPatch(this.doc, patch);
       }
     },
 

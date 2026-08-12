@@ -4,6 +4,7 @@ import type { TokenUsage } from "@/types";
 import { turnDurationMs, type ChatTurnEntry } from "@/utils/chat-timeline";
 import { formatDurationMs } from "@/utils/context-usage";
 import ChatTimelineItem from "./ChatTimelineItem.vue";
+import ContextUsageRing from "./ContextUsageRing.vue";
 
 const props = defineProps<{
   turn: ChatTurnEntry;
@@ -32,27 +33,36 @@ watch(
   (running, wasRunning) => {
     // A new run reuses the component; drop a stale manual expand.
     if (running && !wasRunning) userExpanded.value = null;
-  },
+  }
 );
 
 const isZh = computed(() =>
-  (props.locale ?? navigator.language).toLowerCase().startsWith("zh"),
+  (props.locale ?? navigator.language).toLowerCase().startsWith("zh")
 );
 
 const processItems = computed(() => props.turn.processItems);
-const liveItem = computed(() => processItems.value[processItems.value.length - 1] ?? null);
+const turnUsage = computed(() => {
+  for (let index = processItems.value.length - 1; index >= 0; index -= 1) {
+    const item = processItems.value[index];
+    if (item?.type === "tool-progress" && item.usage) return item.usage;
+  }
+  return props.usage ?? null;
+});
+const liveItem = computed(
+  () => processItems.value[processItems.value.length - 1] ?? null
+);
 const visibleItems = computed(() => {
   if (expanded.value) return processItems.value;
   if (!props.running) return [];
   return liveItem.value ? [liveItem.value] : [];
 });
 const hiddenCount = computed(() =>
-  Math.max(0, processItems.value.length - visibleItems.value.length),
+  Math.max(0, processItems.value.length - visibleItems.value.length)
 );
 
 const durationLabel = computed(() => {
   const explicit = turnDurationMs(props.turn);
-  const fromUsage = props.usage?.duration_ms;
+  const fromUsage = turnUsage.value?.duration_ms;
   const ms = explicit ?? (typeof fromUsage === "number" ? fromUsage : null);
   return ms === null ? null : formatDurationMs(ms);
 });
@@ -78,21 +88,34 @@ const isLastItem = (index: number) => index === visibleItems.value.length - 1;
 function toggle() {
   userExpanded.value = !expanded.value;
 }
+
+function onOpenLogs() {
+  emit("open-logs");
+}
 </script>
 
 <template>
   <section class="turn" :class="{ running: props.running, expanded }">
-    <button
-      v-if="processItems.length"
-      type="button"
-      class="turn-header"
-      :aria-expanded="expanded"
-      @click="toggle"
-    >
-      <span v-if="props.running" class="turn-dot" aria-hidden="true" />
-      <span class="turn-title">{{ headerText }}</span>
-      <span class="turn-chevron" aria-hidden="true">{{ expanded ? "⌄" : "›" }}</span>
-    </button>
+    <div v-if="processItems.length" class="turn-summary">
+      <button
+        type="button"
+        class="turn-header"
+        :aria-expanded="expanded"
+        @click="toggle"
+      >
+        <span v-if="props.running" class="turn-dot" aria-hidden="true" />
+        <span class="turn-title">{{ headerText }}</span>
+        <span class="turn-chevron" aria-hidden="true">{{
+          expanded ? "⌄" : "›"
+        }}</span>
+      </button>
+      <div class="turn-actions">
+        <button type="button" class="turn-action" @click="onOpenLogs">
+          {{ isZh ? "日志" : "Logs" }}
+        </button>
+        <ContextUsageRing mode="turn" :usage="turnUsage" :locale="locale" />
+      </div>
+    </div>
 
     <div v-if="visibleItems.length" class="turn-body">
       <ChatTimelineItem
@@ -101,25 +124,17 @@ function toggle() {
         :item="item"
         :running="props.running && isLastItem(index)"
         :variant="props.running && !expanded ? 'live' : 'history'"
-        :usage="props.usage ?? null"
+        :usage="turnUsage"
         @promote-queued="emit('promote-queued', $event)"
         @run-queued-now="emit('run-queued-now', $event)"
         @open-logs="emit('open-logs')"
       />
-      <button
-        v-if="hiddenText"
-        type="button"
-        class="turn-more"
-        @click="toggle"
-      >
+      <button v-if="hiddenText" type="button" class="turn-more" @click="toggle">
         {{ hiddenText }}
       </button>
     </div>
 
-    <ChatTimelineItem
-      v-if="props.turn.changes"
-      :item="props.turn.changes"
-    />
+    <ChatTimelineItem v-if="props.turn.changes" :item="props.turn.changes" />
     <ChatTimelineItem
       v-if="props.turn.finalMessage"
       :item="{
@@ -159,6 +174,36 @@ function toggle() {
     background 140ms ease,
     border-color 140ms ease,
     color 140ms ease;
+}
+
+.turn-summary {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+}
+
+.turn-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.turn-action {
+  height: 22px;
+  border: none;
+  border-radius: 999px;
+  padding: 0 8px;
+  background: color-mix(in srgb, var(--surface-hover) 68%, transparent);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.turn-action:hover {
+  color: var(--text);
+  background: var(--surface-hover);
 }
 
 .turn-header:hover {

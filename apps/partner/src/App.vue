@@ -30,6 +30,7 @@ import {
 } from "@/tray/partner-tray";
 import { closeFocusedWorkAreaTab } from "@/shortcuts/partner-shortcuts";
 import { useHostStore } from "@/shell";
+import { syncLog } from "@/utils/sync-log";
 const preview = usePreviewStore();
 const host = useHostStore();
 const chat = useChatStore();
@@ -193,13 +194,11 @@ function restoreLayout() {
 function setLeftOpen(open: boolean) {
   leftOpen.value = open;
   persistLayout();
-  schedulePersistHost();
 }
 
 function setPreviewOpen(open: boolean) {
   previewOpen.value = open;
   persistLayout();
-  schedulePersistHost();
 }
 
 function persistLayout() {
@@ -212,16 +211,10 @@ function persistLayout() {
 function stopResize() {
   if (resizing.value) {
     persistLayout();
-    schedulePersistHost();
   }
   resizing.value = null;
   window.removeEventListener("pointermove", onPointerMove);
   window.removeEventListener("pointerup", stopResize);
-}
-
-function schedulePersistHost() {
-  if (!appState.isLoaded) return;
-  appState.schedulePersist();
 }
 
 function maxPreviewWidth(viewportWidth = window.innerWidth): number {
@@ -238,7 +231,6 @@ function ensureComfortablePreviewWidth() {
   if (previewWidth.value >= target) return;
   previewWidth.value = target;
   persistLayout();
-  schedulePersistHost();
 }
 
 function onPointerMove(event: PointerEvent) {
@@ -302,11 +294,26 @@ function syncChatFromAppState() {
     Object.keys(appState.sessions).length === 0 &&
     appState.openTabIds.length === 0
   ) {
-    const id = appState.createSession({ projectId: appState.previewProjectId });
-    const created = appState.getSession(id);
-    if (created) chat.ensureSessionTab(created);
+    void createSessionInPreviewProject();
     return;
   }
+  projectChatFromAppState();
+}
+
+/**
+ * Mirror the Host-owned tab strip into the chat store.
+ *
+ * Split out of {@link syncChatFromAppState} so patch-driven projection can never
+ * take the "no sessions yet" branch and create a session per patch.
+ */
+function projectChatFromAppState() {
+  syncLog("app.projectChat", {
+    activeTabId: appState.activeTabId,
+    openTabIds: appState.openTabIds.join("+"),
+    previewProjectId: appState.previewProjectId,
+    chatActiveBefore: chat.activeTabId,
+    chatTabsBefore: chat.tabs.map((tab) => tab.id).join("+"),
+  });
   chat.syncFromOpenTabIds(
     appState.openTabIds,
     appState.sessions,
@@ -317,6 +324,26 @@ function syncChatFromAppState() {
   }
 }
 
+let creatingSession = false;
+
+/**
+ * Create a chat in the current preview project and focus it.
+ *
+ * Guarded: session creation is a Host round trip now, and both the empty-state
+ * projection and the tray can ask for one before the first reply lands.
+ */
+async function createSessionInPreviewProject() {
+  if (creatingSession) return;
+  creatingSession = true;
+  try {
+    const id = await appState.createSession({ projectId: appState.previewProjectId });
+    const created = appState.getSession(id);
+    if (created) chat.ensureSessionTab(created);
+  } finally {
+    creatingSession = false;
+  }
+}
+
 function onJumpMessage(messageId: string) {
   chatPanelRef.value?.jumpToMessage(messageId);
 }
@@ -324,20 +351,18 @@ function onJumpMessage(messageId: string) {
 function openSettings() {
   // Open the chat settings tab first so UI responds even if Host persist is slow.
   chat.openSettingsTab();
-  appState.openSettingsTab();
+  void appState.openSettingsTab();
 }
 
 function selectSessionFromTray(sessionId: string) {
   const sessionRecord = appState.getSession(sessionId);
   if (!sessionRecord) return;
-  appState.openSession(sessionId, { activate: true });
+  void appState.openSession(sessionId);
   chat.ensureSessionTab(sessionRecord);
 }
 
 function createChatFromTray() {
-  const id = appState.createSession({ projectId: appState.previewProjectId });
-  const created = appState.getSession(id);
-  if (created) chat.ensureSessionTab(created);
+  void createSessionInPreviewProject();
 }
 
 onMounted(async () => {
@@ -460,19 +485,45 @@ watch(
     modelCatalog.reset();
     void settings.load(projectRoot);
     void modelCatalog.loadProviders(projectRoot, true);
-    void appState.load().then(() => {
-      appState.ensureProject(projectRoot);
-      appState.syncFromHost();
-      syncChatFromAppState();
-      schedulePersistHost();
-    });
   },
 );
+
+/**
+ * Signature of the Host-owned slice the Shell projects.
+ *
+ * Patches also carry git/dir/orchestrator churn (several per second while an
+ * agent runs), so re-projecting on every revision would re-normalize the whole
+ * document for changes the tab strip does not care about.
+ */
+const hostTabSignature = computed(() => {
+  const doc = host.doc;
+  return [
+    doc.activeTabId ?? "",
+    doc.previewProjectId ?? "",
+    doc.openTabIds.join(","),
+    doc.projects.map((project) => `${project.id}:${project.expanded ? 1 : 0}`).join(","),
+    Object.keys(doc.sessions).length,
+  ].join("|");
+});
+
+// Host is the single writer for tabs/sessions/preview project: re-project when
+// it changes instead of re-reading Host state on root changes, which used to
+// race the fire-and-forget write of the click that changed the root and
+// silently revert the activation.
+watch(hostTabSignature, (signature, previous) => {
+  if (!appState.isLoaded) return;
+  syncLog("app.hostTabSignature", { from: previous ?? "", to: signature });
+  appState.syncFromHost();
+  projectChatFromAppState();
+});
 
 watch(
   () => chat.exportSnapshot(),
   () => {
-    schedulePersistHost();
+    syncLog("app.chatSnapshotChanged", {
+      chatActive: chat.activeTabId,
+      chatTabs: chat.tabs.map((tab) => tab.id).join("+"),
+    });
     if (!appState.isLoaded) return;
     for (const tab of chat.tabs) {
       if (tab.kind !== "chat") continue;
@@ -500,15 +551,8 @@ watch(
   { deep: true },
 );
 
-watch(
-  () => preview.exportSnapshot(),
-  () => schedulePersistHost(),
-  { deep: true },
-);
-
 watch([explorerOpen, editorOpen], () => {
   persistLayout();
-  schedulePersistHost();
 });
 
 // Opening a file/log/diff should expand a collapsed right workspace and widen if cramped.
@@ -526,7 +570,6 @@ watch(
 
 watch([terminalOpen, terminalHeight], () => {
   persistLayout();
-  schedulePersistHost();
 });
 </script>
 

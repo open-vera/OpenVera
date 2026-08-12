@@ -1,6 +1,15 @@
-import type { FileChange, Message, ToolCall, ToolResult } from "@/types";
+import type {
+  FileChange,
+  Message,
+  TokenUsage,
+  ToolCall,
+  ToolResult,
+} from "@/types";
 import { formatChatTime, shouldShowChatTime } from "@/utils/chat-time";
-import { isVisibleToolProgressStep, summarizeToolCall } from "@/utils/tool-progress";
+import {
+  isVisibleToolProgressStep,
+  summarizeToolCall,
+} from "@/utils/tool-progress";
 import { aggregateTurnFileChanges } from "@/utils/turn-file-changes";
 
 export type ChatDisplayItem =
@@ -15,8 +24,14 @@ export type ChatDisplayItem =
       endedAt?: number;
       toolCalls: ToolCall[];
       toolResults: ToolResult[];
+      usage?: TokenUsage;
     }
-  | { type: "turn-changes"; key: string; turnId?: string; changes: FileChange[] };
+  | {
+      type: "turn-changes";
+      key: string;
+      turnId?: string;
+      changes: FileChange[];
+    };
 
 /**
  * A turn is one agent run. Its process items (narration between tool batches +
@@ -44,7 +59,7 @@ export type ChatTimelineEntry =
 
 export function hasVisibleToolProgress(
   toolCalls: ToolCall[],
-  locale: "zh-CN" | "en-US",
+  locale: "zh-CN" | "en-US"
 ): boolean {
   return toolCalls
     .map((toolCall) => summarizeToolCall(toolCall, locale))
@@ -58,7 +73,10 @@ export function hasVisibleToolProgress(
  */
 export function buildChatDisplayItems(messages: Message[]): ChatDisplayItem[] {
   const items: ChatDisplayItem[] = [];
-  let activeToolGroup: Extract<ChatDisplayItem, { type: "tool-progress" }> | null = null;
+  let activeToolGroup: Extract<
+    ChatDisplayItem,
+    { type: "tool-progress" }
+  > | null = null;
   let pendingToolResults: ToolResult[] | null = null;
   let pendingToolGroupKey: string | null = null;
   let pendingTurnId: string | undefined;
@@ -73,14 +91,22 @@ export function buildChatDisplayItems(messages: Message[]): ChatDisplayItem[] {
     });
   };
 
-  const pushTurnChanges = (key: string, toolResults: ToolResult[] | null, turnId?: string) => {
+  const pushTurnChanges = (
+    key: string,
+    toolResults: ToolResult[] | null,
+    turnId?: string
+  ) => {
     const changes = aggregateTurnFileChanges(toolResults ?? undefined);
     if (!changes.length) return;
     items.push({ type: "turn-changes", key, turnId, changes });
   };
 
   for (const message of messages) {
-    if (message.role === "assistant" && message.isStreaming && !message.content.trim()) {
+    if (
+      message.role === "assistant" &&
+      message.isStreaming &&
+      !message.content.trim()
+    ) {
       continue;
     }
 
@@ -105,6 +131,7 @@ export function buildChatDisplayItems(messages: Message[]): ChatDisplayItem[] {
       activeToolGroup.messageIds.push(message.id);
       activeToolGroup.toolCalls.push(...message.toolCalls);
       activeToolGroup.toolResults.push(...(message.toolResults ?? []));
+      if (message.usage) activeToolGroup.usage = message.usage;
       if (message.endedAt) activeToolGroup.endedAt = message.endedAt;
       lastVisibleTimestamp = message.timestamp;
       continue;
@@ -116,7 +143,11 @@ export function buildChatDisplayItems(messages: Message[]): ChatDisplayItem[] {
     activeToolGroup = null;
 
     if (message.role !== "assistant" && toolResultsForTurn && toolGroupKey) {
-      pushTurnChanges(`changes:${toolGroupKey}`, toolResultsForTurn, toolTurnId);
+      pushTurnChanges(
+        `changes:${toolGroupKey}`,
+        toolResultsForTurn,
+        toolTurnId
+      );
       pendingToolResults = null;
       pendingToolGroupKey = null;
     }
@@ -138,14 +169,22 @@ export function buildChatDisplayItems(messages: Message[]): ChatDisplayItem[] {
       toolResultsForTurn &&
       toolGroupKey
     ) {
-      pushTurnChanges(`changes:${toolGroupKey}`, toolResultsForTurn, toolTurnId);
+      pushTurnChanges(
+        `changes:${toolGroupKey}`,
+        toolResultsForTurn,
+        toolTurnId
+      );
       pendingToolResults = null;
       pendingToolGroupKey = null;
     }
   }
 
   if (pendingToolResults && pendingToolGroupKey) {
-    pushTurnChanges(`changes:${pendingToolGroupKey}`, pendingToolResults, pendingTurnId);
+    pushTurnChanges(
+      `changes:${pendingToolGroupKey}`,
+      pendingToolResults,
+      pendingTurnId
+    );
   }
 
   return items;
@@ -155,7 +194,11 @@ export function buildChatDisplayItems(messages: Message[]): ChatDisplayItem[] {
 function extractFinalMessage(turn: ChatTurnEntry): void {
   for (let index = turn.processItems.length - 1; index >= 0; index -= 1) {
     const candidate = turn.processItems[index];
-    if (candidate && candidate.type === "message" && candidate.message.role === "assistant") {
+    if (
+      candidate &&
+      candidate.type === "message" &&
+      candidate.message.role === "assistant"
+    ) {
       turn.finalMessage = candidate.message;
       turn.processItems.splice(index, 1);
       return;
@@ -167,7 +210,9 @@ function extractFinalMessage(turn: ChatTurnEntry): void {
  * Group items by `turnId`. Items without one (user messages, time separators,
  * legacy sessions recorded before segmentation) stay standalone.
  */
-export function buildChatTimelineEntries(items: ChatDisplayItem[]): ChatTimelineEntry[] {
+export function buildChatTimelineEntries(
+  items: ChatDisplayItem[]
+): ChatTimelineEntry[] {
   const entries: ChatTimelineEntry[] = [];
   const turns = new Map<string, ChatTurnEntry>();
   let openTurn: ChatTurnEntry | null = null;

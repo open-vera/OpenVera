@@ -83,7 +83,7 @@ async function toggleOpen() {
 }
 
 function selectEntry(entry: HistoryEntry) {
-  appState.selectTab(entry.sessionId);
+  void appState.selectTab(entry.sessionId);
   const session = appState.getSession(entry.sessionId);
   if (session) chat.ensureSessionTab(session);
   open.value = false;

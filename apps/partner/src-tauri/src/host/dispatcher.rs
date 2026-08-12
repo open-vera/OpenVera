@@ -28,6 +28,14 @@ pub async fn dispatch(
             HostCommandResult::ok(serde_json::to_value(&*state).unwrap_or(json!({})))
         }
         HostCommand::AppReplaceState { document } => {
+            // Deliberately does not read current Host state: this arm calls
+            // `host.emit_patch`, which locks, so holding a guard here would
+            // deadlock (see arms_holding_the_state_guard_never_call_emit_patch).
+            eprintln!(
+                "[ProjectSync] replace_state incoming activeTabId={:?} previewProjectId={:?}",
+                document.get("activeTabId"),
+                document.get("previewProjectId")
+            );
             host.with_mut(|state| {
                 super::persist::apply_document(state, &document);
                 state.bump();
@@ -50,6 +58,10 @@ pub async fn dispatch(
         }
         HostCommand::AppSetActiveTab { tab_id } => {
             let mut state = host.lock();
+            eprintln!(
+                "[ProjectSync] set_active_tab {:?} -> {:?}",
+                state.active_tab_id, tab_id
+            );
             state.active_tab_id = tab_id;
             state.bump();
             let _ = persist::save_from(&state);
@@ -58,6 +70,10 @@ pub async fn dispatch(
         }
         HostCommand::AppOpenTab { tab_id } => {
             let mut state = host.lock();
+            eprintln!(
+                "[ProjectSync] open_tab {tab_id} (active was {:?})",
+                state.active_tab_id
+            );
             if !state.open_tab_ids.contains(&tab_id) {
                 state.open_tab_ids.push(tab_id.clone());
             }
@@ -78,7 +94,54 @@ pub async fn dispatch(
             super::emit_state_patch(app, &state, true);
             HostCommandResult::empty_ok()
         }
+        HostCommand::AppActivateSession { session_id } => {
+            let mut state = host.lock();
+            let Some(session) = state.sessions.get(&session_id) else {
+                return HostCommandResult::err("unknown session");
+            };
+            let project_id = session.project_id.clone();
+            eprintln!(
+                "[ProjectSync] activate_session {session_id} (active was {:?}, preview {:?} -> {:?})",
+                state.active_tab_id, state.preview_project_id, project_id
+            );
+            if !state.open_tab_ids.contains(&session_id) {
+                state.open_tab_ids.push(session_id.clone());
+            }
+            state.active_tab_id = Some(session_id);
+            // A project-less session keeps the current preview project: it has no
+            // tree of its own, and clearing it would collapse the files column.
+            if project_id.is_some() {
+                state.preview_project_id = project_id;
+            }
+            state.bump();
+            let _ = persist::save_from(&state);
+            super::emit_state_patch(app, &state, true);
+            HostCommandResult::empty_ok()
+        }
+        HostCommand::AppReorderTabs { tab_ids } => {
+            let mut state = host.lock();
+            // Only a permutation: ids the Shell does not know about keep their
+            // relative place at the end instead of being closed by a reorder.
+            let mut next: Vec<String> = tab_ids
+                .into_iter()
+                .filter(|id| state.open_tab_ids.contains(id))
+                .collect();
+            for id in &state.open_tab_ids {
+                if !next.contains(id) {
+                    next.push(id.clone());
+                }
+            }
+            if next == state.open_tab_ids {
+                return HostCommandResult::empty_ok();
+            }
+            state.open_tab_ids = next;
+            state.bump();
+            let _ = persist::save_from(&state);
+            super::emit_state_patch(app, &state, true);
+            HostCommandResult::empty_ok()
+        }
         HostCommand::WorkspaceOpen { path } => {
+            eprintln!("[ProjectSync] workspace.open {path} — this claims the preview project");
             match workspace::open_project_unlocked(app, host, watch.inner(), &path).await {
                 Ok(project_id) => {
                     let _ = host.with_mut(|state| persist::save_from(state));
@@ -107,6 +170,10 @@ pub async fn dispatch(
         }
         HostCommand::WorkspaceSetPreviewProject { project_id } => {
             let mut state = host.lock();
+            eprintln!(
+                "[ProjectSync] set_preview_project {:?} -> {:?}",
+                state.preview_project_id, project_id
+            );
             state.preview_project_id = project_id;
             state.bump();
             let _ = persist::save_from(&state);
@@ -129,10 +196,10 @@ pub async fn dispatch(
         }
         HostCommand::WorkspaceListDir { path } => {
             match workspace::list_directory_unlocked(host, watch.inner(), &path).await {
-                Ok(entries) => {
-                    host.emit_patch(app, true);
-                    HostCommandResult::ok(json!(entries))
-                }
+                // Entries travel back in the command result; broadcasting the
+                // whole Host state here would make every folder expand pay for a
+                // full-state serialize + Shell re-render.
+                Ok(entries) => HostCommandResult::ok(json!(entries)),
                 Err(error) => HostCommandResult::err(error),
             }
         }
@@ -239,11 +306,13 @@ pub async fn dispatch(
             Err(error) => HostCommandResult::err(error),
         },
         HostCommand::SessionAbort { session_id } => {
-            match orchestrator::abort_session(host, sidecar.inner(), &session_id) {
-                Ok(()) => {
-                    host.emit_patch(app, true);
-                    HostCommandResult::empty_ok()
-                }
+            let outcome = orchestrator::abort_session(host, sidecar.inner(), &session_id);
+            // The orchestrator already cleared its running state, so Shell must
+            // learn about it even when forwarding to the sidecar failed —
+            // otherwise the stop button stays stuck on "running" forever.
+            host.emit_patch(app, true);
+            match outcome {
+                Ok(()) => HostCommandResult::empty_ok(),
                 Err(error) => HostCommandResult::err(error),
             }
         }
@@ -271,6 +340,10 @@ pub async fn dispatch(
                 }
                 project.preview.active_tab_id = Some(format!("file:{path}"));
                 project.updated_at = now_ms();
+                eprintln!(
+                    "[ProjectSync] document.open {path} claims preview project {:?} -> {project_id}",
+                    state.preview_project_id
+                );
                 state.preview_project_id = Some(project_id);
                 state.bump();
                 let _ = persist::save_from(&state);
@@ -383,6 +456,10 @@ pub async fn dispatch(
                 Err(error) => HostCommandResult::err(error),
             }
         }
+        HostCommand::LspStatus => match sidecar.call_rpc("lsp.status", json!({})) {
+            Ok(value) => HostCommandResult::ok(value),
+            Err(error) => HostCommandResult::err(error),
+        },
         HostCommand::LspSymbolSearch {
             workspace_root,
             query,

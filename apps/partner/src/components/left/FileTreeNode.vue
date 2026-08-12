@@ -299,6 +299,16 @@ async function onClick(event?: MouseEvent) {
   );
 }
 
+/**
+ * WebKit still runs word/paragraph selection on multi-click even when an
+ * ancestor sets `user-select: none`, so toggling a folder fast (expand →
+ * collapse) leaves the row text highlighted — and the highlight then grows over
+ * the freshly inserted child rows because they land inside the live range.
+ */
+function onRowMouseDown(event: MouseEvent) {
+  if (event.detail > 1) event.preventDefault();
+}
+
 function onRowKeydown(event: KeyboardEvent) {
   if (isRenaming.value) return;
   if (event.key === "Enter" || event.key === " ") {
@@ -456,6 +466,7 @@ function cancelCreate() {
       :aria-expanded="entry.isDir ? expanded : undefined"
       :draggable="!isRenaming"
       @click.left="onClick"
+      @mousedown="onRowMouseDown"
       @keydown="onRowKeydown"
       @contextmenu="onContextMenu"
       @dragstart="onDragStart"
@@ -538,6 +549,8 @@ function cancelCreate() {
   text-align: left;
   cursor: pointer;
   box-sizing: border-box;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .row:hover {
@@ -601,6 +614,8 @@ function cancelCreate() {
   background: var(--bg, #1e1e1e);
   outline: none;
   box-shadow: none;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .lazy-sentinel {

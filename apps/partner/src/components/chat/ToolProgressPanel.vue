@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { approveAgentTool } from "@/bridge/agent";
 import type { TokenUsage, ToolCall, ToolResult } from "@/types";
-import { measureSync } from "@/perf";
 import {
   compactToolProgress,
   foldRepeatedLines,
@@ -19,7 +18,6 @@ import {
   truncateDisplayText,
   type ToolProgressStep,
 } from "@/utils/tool-progress";
-import ContextUsageRing from "./ContextUsageRing.vue";
 import MarkdownRenderer from "./MarkdownRenderer.vue";
 
 const props = defineProps<{
@@ -36,23 +34,23 @@ const props = defineProps<{
   variant?: "live" | "history";
 }>();
 
-const emit = defineEmits<{
-  "open-logs": [];
-}>();
-
-const expanded = ref(false);
-const approvalStates = ref<Record<string, "pending" | "approved" | "denied" | "error">>({});
+const approvalStates = ref<
+  Record<string, "pending" | "approved" | "denied" | "error">
+>({});
 const expandedResultIds = ref<Set<string>>(new Set());
 
 const RESULT_COLLAPSED_MAX_HEIGHT = 160;
 const RESULT_COMPACT_MAX_HEIGHT = 96;
 
-const isLive = computed(() => props.variant === "live" && !expanded.value);
+const isLive = computed(() => props.variant === "live");
+const expanded = computed(() => !isLive.value);
 const locale = computed(() => navigator.language);
 const steps = computed(() =>
-  props.toolCalls.map((toolCall) => summarizeToolCall(toolCall, locale.value)),
+  props.toolCalls.map((toolCall) => summarizeToolCall(toolCall, locale.value))
 );
-const progressSteps = computed(() => steps.value.filter(isVisibleToolProgressStep));
+const progressSteps = computed(() =>
+  steps.value.filter(isVisibleToolProgressStep)
+);
 const groups = computed(() => groupToolProgress(progressSteps.value));
 const visibleGroups = computed(() => {
   if (expanded.value) return groups.value;
@@ -63,10 +61,10 @@ const visibleGroups = computed(() => {
 const totalSteps = computed(() => progressSteps.value.length);
 const hasVisibleSteps = computed(() => totalSteps.value > 0);
 const visibleStepCount = computed(() =>
-  visibleGroups.value.reduce((count, group) => count + group.steps.length, 0),
+  visibleGroups.value.reduce((count, group) => count + group.steps.length, 0)
 );
 const hiddenStepCount = computed(() =>
-  expanded.value ? 0 : Math.max(0, totalSteps.value - visibleStepCount.value),
+  expanded.value ? 0 : Math.max(0, totalSteps.value - visibleStepCount.value)
 );
 const resultByCallId = computed(() => {
   const items = new Map<string, ToolResult>();
@@ -78,39 +76,14 @@ const resultByCallId = computed(() => {
 const isZh = computed(() => locale.value.toLowerCase().startsWith("zh"));
 const headerText = computed(() => {
   if (isLive.value) {
-    return isZh.value ? `执行中 · ${totalSteps.value} 步` : `Running · ${totalSteps.value} steps`;
+    return isZh.value
+      ? `执行中 · ${totalSteps.value} 步`
+      : `Running · ${totalSteps.value} steps`;
   }
   return isZh.value
     ? `已执行 ${totalSteps.value} 个步骤`
     : `${totalSteps.value} steps completed`;
 });
-const toggleText = computed(() => {
-  if (isZh.value) {
-    if (expanded.value) return "收起";
-    return isLive.value ? "详情" : "展开全部";
-  }
-  if (expanded.value) return "Collapse";
-  return isLive.value ? "Details" : "Expand all";
-});
-const logsText = computed(() => (isZh.value ? "日志" : "Logs"));
-
-function toggleExpanded() {
-  measureSync(
-    expanded.value ? "toolProgress.collapse" : "toolProgress.expandAll",
-    () => {
-      expanded.value = !expanded.value;
-    },
-    {
-      warnMs: 32,
-      errorMs: 200,
-      meta: { stepCount: totalSteps.value },
-    },
-  );
-}
-
-function onOpenLogs() {
-  emit("open-logs");
-}
 
 function rawString(input: Record<string, unknown>, key: string): string {
   const value = input[key];
@@ -119,7 +92,9 @@ function rawString(input: Record<string, unknown>, key: string): string {
 
 function rawStringArray(input: Record<string, unknown>, key: string): string[] {
   const value = input[key];
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 function isApprovalStep(step: ToolProgressStep): boolean {
@@ -135,7 +110,10 @@ function stepDetailText(step: ToolProgressStep): string {
 }
 
 function usesMonoDetail(step: ToolProgressStep): boolean {
-  return isShellProgressStep(step) || Boolean(step.rawInput.cmd || step.rawInput.command);
+  return (
+    isShellProgressStep(step) ||
+    Boolean(step.rawInput.cmd || step.rawInput.command)
+  );
 }
 
 function approvalCallId(step: ToolProgressStep): string {
@@ -166,7 +144,8 @@ function toolResult(step: ToolProgressStep): ToolResult | undefined {
 
 function resultText(result: ToolResult): string {
   const text = foldRepeatedLines(result.output.trim());
-  if (!text) return result.isError ? "命令执行失败，无输出" : "命令执行成功，无输出";
+  if (!text)
+    return result.isError ? "命令执行失败，无输出" : "命令执行成功，无输出";
   return text;
 }
 
@@ -182,17 +161,23 @@ function displayResultText(stepId: string, result: ToolResult): string {
     return truncateDisplayText(full, TOOL_RESULT_MARKDOWN_MAX_CHARS).text;
   }
   if (!expanded.value) {
-    return truncateDisplayText(full, TOOL_RESULT_COMPACT_PREVIEW_MAX_CHARS).text;
+    return truncateDisplayText(full, TOOL_RESULT_COMPACT_PREVIEW_MAX_CHARS)
+      .text;
   }
   return truncateDisplayText(full, TOOL_RESULT_PREVIEW_MAX_CHARS).text;
 }
 
 function resultPreviewMaxHeight(stepId: string): number | undefined {
   if (isResultExpanded(stepId)) return undefined;
-  return expanded.value ? RESULT_COLLAPSED_MAX_HEIGHT : RESULT_COMPACT_MAX_HEIGHT;
+  return expanded.value
+    ? RESULT_COLLAPSED_MAX_HEIGHT
+    : RESULT_COMPACT_MAX_HEIGHT;
 }
 
-function shouldRenderResultMarkdown(step: ToolProgressStep, result: ToolResult): boolean {
+function shouldRenderResultMarkdown(
+  step: ToolProgressStep,
+  result: ToolResult
+): boolean {
   if (isTerminalOutput(step)) return false;
   if (!isResultExpanded(step.id)) return false;
   return resultText(result).length <= TOOL_RESULT_MARKDOWN_MAX_CHARS;
@@ -220,7 +205,8 @@ function toggleResultExpand(stepId: string): void {
 function onResultClick(stepId: string, event: MouseEvent): void {
   const target = event.target as HTMLElement | null;
   if (target?.closest("a")) return;
-  if (isResultExpanded(stepId) && target?.closest(".tool-result-content")) return;
+  if (isResultExpanded(stepId) && target?.closest(".tool-result-content"))
+    return;
   const selection = window.getSelection()?.toString().trim();
   if (selection) return;
   toggleResultExpand(stepId);
@@ -249,44 +235,20 @@ async function resolveApproval(step: ToolProgressStep, approved: boolean) {
     console.warn("[ToolApproval] failed to resolve approval:", error);
   }
 }
-
-watch(
-  () => props.running,
-  (running) => {
-    if (!running) {
-      expanded.value = false;
-      expandedResultIds.value = new Set();
-    }
-  },
-);
 </script>
 
 <template>
-  <section v-if="hasVisibleSteps" class="tool-progress" :class="{ completed: !running, expanded }">
-    <div class="tool-progress-header">
-      <div class="header-left">
-        <button type="button" class="header-title-button" @click="toggleExpanded">
-          <span class="header-title">{{ headerText }}</span>
-        </button>
-        <button
-          v-if="showLogs"
-          type="button"
-          class="header-log-button"
-          @click="onOpenLogs"
-        >
-          {{ logsText }}
-        </button>
-        <ContextUsageRing mode="turn" :usage="usage" :locale="locale" />
-      </div>
-      <div class="header-right">
-        <button type="button" class="header-meta" @click="toggleExpanded">
-          {{ toggleText }}
-        </button>
-      </div>
-    </div>
-
+  <section
+    v-if="hasVisibleSteps"
+    class="tool-progress"
+    :class="{ completed: !running, expanded }"
+  >
     <div v-if="visibleGroups.length" class="progress-groups">
-      <div v-if="expanded && hiddenStepCount > 0" class="progress-ellipsis" aria-label="Earlier steps omitted">
+      <div
+        v-if="expanded && hiddenStepCount > 0"
+        class="progress-ellipsis"
+        aria-label="Earlier steps omitted"
+      >
         ...
       </div>
       <section
@@ -308,7 +270,8 @@ watch(
                   collapsed: !expanded,
                   mono: usesMonoDetail(step),
                 }"
-              >{{ stepDetailText(step) }}</pre>
+                >{{ stepDetailText(step) }}</pre
+              >
               <span
                 v-if="expanded && isShellProgressStep(step) && shellCwd(step)"
                 class="step-cwd"
@@ -320,10 +283,14 @@ watch(
                 type="button"
                 class="tool-result live"
                 :class="{ error: toolResult(step)?.isError }"
-                @click="toggleExpanded"
+                @click="onResultClick(step.id, $event)"
               >
-                <span class="tool-result-label">{{ resultLabel(toolResult(step)!) }}</span>
-                <span class="tool-result-line">{{ liveResultSummary(toolResult(step)!) }}</span>
+                <span class="tool-result-label">{{
+                  resultLabel(toolResult(step)!)
+                }}</span>
+                <span class="tool-result-line">{{
+                  liveResultSummary(toolResult(step)!)
+                }}</span>
               </button>
               <button
                 v-else-if="toolResult(step)"
@@ -357,10 +324,9 @@ watch(
                     v-if="shouldRenderResultMarkdown(step, toolResult(step)!)"
                     :content="displayResultText(step.id, toolResult(step)!)"
                   />
-                  <pre
-                    v-else
-                    class="tool-result-output"
-                  >{{ displayResultText(step.id, toolResult(step)!) }}</pre>
+                  <pre v-else class="tool-result-output">{{
+                    displayResultText(step.id, toolResult(step)!)
+                  }}</pre>
                 </div>
               </button>
             </span>
@@ -396,13 +362,22 @@ watch(
                 >
                   {{ isZh ? "拒绝" : "Deny" }}
                 </button>
-                <span v-if="approvalState(step) === 'approved'" class="approval-status">
+                <span
+                  v-if="approvalState(step) === 'approved'"
+                  class="approval-status"
+                >
                   {{ isZh ? "已授权" : "Allowed" }}
                 </span>
-                <span v-else-if="approvalState(step) === 'denied'" class="approval-status">
+                <span
+                  v-else-if="approvalState(step) === 'denied'"
+                  class="approval-status"
+                >
                   {{ isZh ? "已拒绝" : "Denied" }}
                 </span>
-                <span v-else-if="approvalState(step) === 'error'" class="approval-status error">
+                <span
+                  v-else-if="approvalState(step) === 'error'"
+                  class="approval-status error"
+                >
                   {{ isZh ? "提交失败" : "Failed" }}
                 </span>
               </span>
@@ -854,5 +829,4 @@ watch(
 .approval-status.error {
   color: var(--danger-muted);
 }
-
 </style>

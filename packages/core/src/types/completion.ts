@@ -40,4 +40,13 @@ export type StreamEvent =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
   | { type: "tool_call"; id: string; name: string; arguments: string }
-  | { type: "done"; stop_reason: StopReason; usage?: Usage };
+  | {
+      type: "done";
+      stop_reason: StopReason;
+      usage?: Usage;
+      /**
+       * Exact provider response for history replay. Anthropic-compatible tool
+       * loops must preserve signed thinking blocks from this message.
+       */
+      message?: Message;
+    };

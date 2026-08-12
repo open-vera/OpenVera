@@ -1,5 +1,9 @@
 import { LlmService, resolveEnvKey } from "@open-vera/core/adapters";
-import { loadConfig, normalizeModels, resolveDefaultProviderName } from "@open-vera/core/config";
+import {
+  loadConfig,
+  normalizeModels,
+  resolveDefaultProviderName,
+} from "@open-vera/core/config";
 import type { VeraConfig } from "@open-vera/core/config";
 
 export interface CatalogProvider {
@@ -16,7 +20,7 @@ export interface CatalogModel {
   displayName?: string;
 }
 
-const TEST_CONNECTION_TIMEOUT_MS = 10_000;
+const TEST_CONNECTION_TIMEOUT_MS = 30_000;
 
 function protocolForAdapter(adapter: string): string {
   if (adapter === "openai") return "openai-compatible";
@@ -32,12 +36,18 @@ function adapterForProtocol(protocol: string): string {
   return "anthropic";
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+function withTimeout<T>(
+  work: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
   return new Promise((resolve, reject) => {
+    const controller = new AbortController();
     const timer = setTimeout(() => {
+      controller.abort();
       reject(new Error(message));
     }, timeoutMs);
-    void promise.then(
+    void work(controller.signal).then(
       (value) => {
         clearTimeout(timer);
         resolve(value);
@@ -45,7 +55,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
       (error: unknown) => {
         clearTimeout(timer);
         reject(error instanceof Error ? error : new Error(String(error)));
-      },
+      }
     );
   });
 }
@@ -53,7 +63,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
 function withProtocolOverride(
   config: VeraConfig,
   providerId: string,
-  protocol?: string,
+  protocol?: string
 ): VeraConfig {
   const normalized = protocol?.trim();
   if (!normalized) return config;
@@ -74,7 +84,7 @@ function withProtocolOverride(
 function providerHasApiKey(
   config: VeraConfig,
   providerId: string,
-  adapter: string,
+  adapter: string
 ): boolean {
   const provider = config.providers?.[providerId];
   const configuredKey = provider?.api_key?.trim();
@@ -89,7 +99,9 @@ function adapterNotRegisteredMessage(protocol?: string): string {
   return "当前运行环境未加载所选协议对应的适配器，请重启 Partner 触发 sidecar 重建。";
 }
 
-export function listConfiguredProviders(projectRoot: string): CatalogProvider[] {
+export function listConfiguredProviders(
+  projectRoot: string
+): CatalogProvider[] {
   const config = loadConfig(undefined, projectRoot);
   const defaultProvider = resolveDefaultProviderName(config);
   const providers = config.providers ?? {};
@@ -105,7 +117,7 @@ export function listConfiguredProviders(projectRoot: string): CatalogProvider[] 
       const defaultModel =
         id === defaultProvider && typeof config.default_model === "string"
           ? config.default_model
-          : providerModels[0] ?? "";
+          : (providerModels[0] ?? "");
       return {
         id,
         adapter,
@@ -124,7 +136,7 @@ export function listConfiguredProviders(projectRoot: string): CatalogProvider[] 
 
 function configuredModelsForProvider(
   config: VeraConfig,
-  providerId: string,
+  providerId: string
 ): CatalogModel[] {
   return Object.entries(normalizeModels(config))
     .filter(([, model]) => model.provider === providerId)
@@ -137,10 +149,14 @@ function configuredModelsForProvider(
 export async function listProviderModels(
   projectRoot: string,
   providerId: string,
-  options?: { protocol?: string },
+  options?: { protocol?: string }
 ): Promise<CatalogModel[]> {
   const baseConfig = loadConfig(undefined, projectRoot);
-  const config = withProtocolOverride(baseConfig, providerId, options?.protocol);
+  const config = withProtocolOverride(
+    baseConfig,
+    providerId,
+    options?.protocol
+  );
   const provider = config.providers?.[providerId];
   if (!provider) {
     throw new Error(`Unknown provider: ${providerId}`);
@@ -149,32 +165,10 @@ export async function listProviderModels(
     throw new Error(`Provider ${providerId} has no API key configured`);
   }
 
-  const service = new LlmService({ config });
-  try {
-    const remote = await withTimeout(
-      service.listModels(providerId),
-      TEST_CONNECTION_TIMEOUT_MS,
-      "同步远程模型超时",
-    );
-    if (remote.length > 0) {
-      return remote.map((model) => ({
-        id: model.id,
-        displayName: model.display_name,
-      }));
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("No LLM adapter registered")) {
-      throw new Error(adapterNotRegisteredMessage(options?.protocol));
-    }
-    process.stderr.write(
-      `[partner-sidecar] listModels failed for ${providerId}: ${message}\n`,
-    );
-  }
-
   const fallback = configuredModelsForProvider(config, providerId);
   if (fallback.length > 0) return fallback;
 
+  const service = new LlmService({ config });
   const targetModel = service.resolveModel({ provider: providerId }).model;
   return [{ id: targetModel }];
 }
@@ -182,16 +176,22 @@ export async function listProviderModels(
 export async function testProviderConnection(
   projectRoot: string,
   providerId: string,
-  options?: { protocol?: string },
+  options?: { protocol?: string }
 ): Promise<{ ok: boolean; modelCount: number; message: string }> {
   try {
     const baseConfig = loadConfig(undefined, projectRoot);
-    const config = withProtocolOverride(baseConfig, providerId, options?.protocol);
+    const config = withProtocolOverride(
+      baseConfig,
+      providerId,
+      options?.protocol
+    );
     const provider = config.providers?.[providerId];
     if (!provider) {
       throw new Error(`Unknown provider: ${providerId}`);
     }
-    if (!providerHasApiKey(config, providerId, provider.adapter ?? "anthropic")) {
+    if (
+      !providerHasApiKey(config, providerId, provider.adapter ?? "anthropic")
+    ) {
       throw new Error(`Provider ${providerId} has no API key configured`);
     }
 
@@ -203,27 +203,30 @@ export async function testProviderConnection(
     });
 
     await withTimeout(
+      (signal) =>
       selection.adapter.complete({
         model: target.model,
         messages: [{ role: "user", content: "ping" }],
         max_tokens: 1,
+          signal,
       }),
       TEST_CONNECTION_TIMEOUT_MS,
-      "连接测试超时，请检查网络或 API Base URL",
+      "连接测试超时，请检查网络或 API Base URL"
     );
 
     let modelCount = configuredModelsForProvider(config, providerId).length;
     try {
       const remote = await withTimeout(
-        service.listModels(providerId),
+        () => service.listModels(providerId),
         5_000,
-        "listModels timed out",
+        "listModels timed out"
       );
       if (remote.length > 0) modelCount = remote.length;
     } catch (listError) {
-      const message = listError instanceof Error ? listError.message : String(listError);
+      const message =
+        listError instanceof Error ? listError.message : String(listError);
       process.stderr.write(
-        `[partner-sidecar] listModels after test failed for ${providerId}: ${message}\n`,
+        `[partner-sidecar] listModels after test failed for ${providerId}: ${message}\n`
       );
     }
 

@@ -30,7 +30,7 @@ const mockTerminal = {
 
 const mockAppState = {
   previewProjectId: "proj-1" as string | null,
-  createSession: vi.fn(() => "session-new"),
+  createSession: vi.fn(async () => "session-new"),
   getSession: vi.fn((id: string) =>
     id === "session-new"
       ? {
@@ -178,7 +178,7 @@ describe("PARTNER_SHORTCUTS", () => {
     expect(closeActiveCenterTabOrQuit).not.toHaveBeenCalled();
   });
 
-  it("creates a session for the current project on mod+n", () => {
+  it("creates a session for the current project on mod+n", async () => {
     const ensureSessionTab = vi.fn();
     mockAppState.createSession.mockClear();
     mockAppState.getSession.mockClear();
@@ -194,8 +194,11 @@ describe("PARTNER_SHORTCUTS", () => {
 
     expect(handled).toBe(true);
     expect(mockAppState.createSession).toHaveBeenCalledWith({ projectId: "proj-1" });
-    expect(ensureSessionTab).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "session-new" }),
+    // Creation is a Host round trip now; the tab is focused once it resolves.
+    await vi.waitFor(() =>
+      expect(ensureSessionTab).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "session-new" }),
+      ),
     );
   });
 

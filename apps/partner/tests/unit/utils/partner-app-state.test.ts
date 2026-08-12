@@ -7,6 +7,7 @@ import {
   migrateLegacyToPartnerAppState,
   normalizePartnerAppState,
   projectIdFromRootPath,
+  rebaseHostOwnedTabState,
   projectNameFromRootPath,
   resolvePartnerAppState,
   SETTINGS_TAB_ID,
@@ -326,5 +327,89 @@ describe("partner-app-state", () => {
     });
     expect(Object.keys(twice.sessions)).toEqual(Object.keys(once.sessions));
     expect(twice.sessions.s1?.messages).toHaveLength(1);
+  });
+
+  describe("previewProjectId normalization", () => {
+    function stateWith(previewProjectId: unknown) {
+      return {
+        version: 4,
+        projects: [
+          {
+            id: "p1",
+            rootPath: "/repo/one",
+            name: "one",
+            expanded: true,
+            preview: { version: 1, activeTabId: null, tabs: [] },
+            updatedAt: 1,
+          },
+        ],
+        sessions: {},
+        openTabIds: [],
+        activeTabId: null,
+        previewProjectId,
+        layout: { leftWidth: 240, previewWidth: 640 },
+        updatedAt: 1,
+      };
+    }
+
+    it("keeps an explicit null instead of inventing a project", () => {
+      expect(normalizePartnerAppState(stateWith(null)).previewProjectId).toBeNull();
+    });
+
+    it("falls back to the first project for a missing or unknown value", () => {
+      expect(normalizePartnerAppState(stateWith(undefined)).previewProjectId).toBe("p1");
+      expect(normalizePartnerAppState(stateWith("ghost")).previewProjectId).toBe("p1");
+    });
+  });
+
+  describe("rebaseHostOwnedTabState", () => {
+    function local() {
+      const state = createEmptyPartnerAppState();
+      state.openTabIds = ["a", "b"];
+      state.activeTabId = "a";
+      state.previewProjectId = "p-local";
+      return state;
+    }
+
+    it("takes the Host active tab and preview project", () => {
+      const rebased = rebaseHostOwnedTabState(local(), {
+        openTabIds: ["a", "b"],
+        activeTabId: "b",
+        previewProjectId: "p-host",
+      });
+      expect(rebased.activeTabId).toBe("b");
+      expect(rebased.previewProjectId).toBe("p-host");
+    });
+
+    it("appends tabs the Host has not seen yet instead of dropping them", () => {
+      const state = local();
+      state.openTabIds = ["a", "b", "fresh"];
+      const rebased = rebaseHostOwnedTabState(state, {
+        openTabIds: ["b", "a"],
+        activeTabId: "a",
+        previewProjectId: null,
+      });
+      expect(rebased.openTabIds).toEqual(["b", "a", "fresh"]);
+    });
+
+    it("keeps the local active tab when the Host points at a closed one", () => {
+      const rebased = rebaseHostOwnedTabState(local(), {
+        openTabIds: ["a", "b"],
+        activeTabId: "gone",
+        previewProjectId: null,
+      });
+      expect(rebased.activeTabId).toBe("a");
+    });
+
+    it("falls back to the first open tab when neither side has a valid one", () => {
+      const state = local();
+      state.activeTabId = null;
+      const rebased = rebaseHostOwnedTabState(state, {
+        openTabIds: ["a", "b"],
+        activeTabId: null,
+        previewProjectId: null,
+      });
+      expect(rebased.activeTabId).toBe("a");
+    });
   });
 });

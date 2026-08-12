@@ -7,7 +7,6 @@ import ProjectSessionTree from "@/components/left/ProjectSessionTree.vue";
 import PanelToggleButton from "@/components/ui/PanelToggleButton.vue";
 import { useAppStateStore } from "@/stores/app-state";
 import { useChatStore } from "@/stores/chat";
-import { usePreviewStore } from "@/stores/preview";
 import { useSettingsStore } from "@/stores/settings";
 import { useTerminalStore } from "@/stores/terminal";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -19,7 +18,6 @@ const emit = defineEmits<{
 
 const appState = useAppStateStore();
 const chat = useChatStore();
-const preview = usePreviewStore();
 const settings = useSettingsStore();
 const terminal = useTerminalStore();
 const workspace = useWorkspaceStore();
@@ -61,36 +59,27 @@ const terminalButtonTitle = computed(() => {
   return `${base} (${shortcut})`;
 });
 
+/**
+ * Activate a session.
+ *
+ * Only the Host is written: the workspace root, preview project and preview
+ * snapshot all follow the Host patch. Setting the root here instead used to
+ * re-trigger the projection while this activation was still in flight, which
+ * reverted the click.
+ */
 function selectSession(sessionId: string) {
   const session = appState.getSession(sessionId);
   if (!session) return;
-  appState.openSession(sessionId, { activate: true });
+  void appState.openSession(sessionId);
   chat.ensureSessionTab(session);
-  if (session.projectId) {
-    const project = appState.projects.find((item) => item.id === session.projectId);
-    if (project && workspace.rootPath !== project.rootPath) {
-      workspace.setRoot(project.rootPath);
-    }
-    if (project?.preview) {
-      preview.restoreSnapshot(project.preview);
-    }
-  }
 }
 
 function createSession(projectId: string | null) {
-  const id = appState.createSession({
-    projectId,
-    title: undefined,
-  });
-  const session = appState.getSession(id);
-  if (!session) return;
-  chat.ensureSessionTab(session);
-  if (projectId) {
-    const project = appState.projects.find((item) => item.id === projectId);
-    if (project && workspace.rootPath !== project.rootPath) {
-      workspace.setRoot(project.rootPath);
-    }
-  }
+  void (async () => {
+    const id = await appState.createSession({ projectId });
+    const session = appState.getSession(id);
+    if (session) chat.ensureSessionTab(session);
+  })();
 }
 
 function onNewChat() {

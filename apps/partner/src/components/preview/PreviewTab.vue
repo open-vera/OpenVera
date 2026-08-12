@@ -1,11 +1,7 @@
 <script setup lang="ts">
 import { deliverComposerPathDrop } from "@/utils/composer-drop";
-import {
-  clearActivePartnerDrag,
-  finishPartnerPathsDragAt,
-  setPartnerPathsDrag,
-} from "@/utils/partner-dnd";
-import { beginTabDrag, clearTabDrag, resolveTabReorderAt } from "@/utils/tab-dnd";
+import { isPointOverChatDropZone } from "@/utils/partner-dnd";
+import { startPointerTabDrag } from "@/utils/tab-dnd";
 
 const props = defineProps<{
   tabId: string;
@@ -21,36 +17,26 @@ const emit = defineEmits<{
   select: [];
   close: [];
   reorder: [insertionIndex: number];
+  previewDrop: [insertionIndex: number | null];
 }>();
 
-function onDragStart(event: DragEvent) {
-  beginTabDrag("preview", props.tabId, event.dataTransfer);
-  if (!props.filePath || !event.dataTransfer) return;
-  setPartnerPathsDrag(event.dataTransfer, [
-    { path: props.filePath, isDir: false },
-  ]);
-}
-
 /**
- * Tauri native DnD often swallows HTML5 `drop`; finish via dragend + hit-test.
- * A release inside the tab strip reorders; anywhere else keeps the existing
- * "drop this file path into the composer" behaviour.
+ * One pointer gesture, two outcomes: released over the tab strip reorders,
+ * released over the composer drops the file path into it. HTML5 drag is not used
+ * here — see `tab-dnd.ts` for why it cannot work on these elements.
  */
-function onDragEnd(event: DragEvent) {
-  const reorder = resolveTabReorderAt("preview", event.clientX, event.clientY);
-  clearTabDrag();
-  if (reorder) {
-    clearActivePartnerDrag();
-    emit("reorder", reorder.insertionIndex);
-    return;
-  }
-
-  const items = finishPartnerPathsDragAt(event.clientX, event.clientY);
-  if (items?.length) {
-    deliverComposerPathDrop(items.map((item) => item.path));
-    return;
-  }
-  clearActivePartnerDrag();
+function onPointerDown(event: PointerEvent) {
+  // Let the close affordance keep its own click.
+  if ((event.target as HTMLElement | null)?.closest(".close")) return;
+  startPointerTabDrag("preview", props.tabId, event, {
+    onPreview: (index) => emit("previewDrop", index),
+    onCommit: (index) => emit("reorder", index),
+    onDropOutside: (clientX, clientY) => {
+      if (!props.filePath) return;
+      if (!isPointOverChatDropZone(clientX, clientY)) return;
+      deliverComposerPathDrop([props.filePath]);
+    },
+  });
 }
 </script>
 
@@ -60,10 +46,8 @@ function onDragEnd(event: DragEvent) {
     class="tab"
     :class="{ active, 'drop-before': dropBefore, 'drop-after': dropAfter }"
     :data-tab-id="tabId"
-    draggable="true"
     @click="emit('select')"
-    @dragstart="onDragStart"
-    @dragend="onDragEnd"
+    @pointerdown="onPointerDown"
   >
     <span class="title">
       <span v-if="dirty" class="dirty-dot" aria-label="未保存" />

@@ -61,6 +61,87 @@ describe("streamAgent context updates", () => {
     expect(managed[managed.length - 1]).toMatchObject({ role: "assistant", content: "done" });
   });
 
+  it("replays signed thinking from the exact provider message in tool loops", async () => {
+    const requests: Message[][] = [];
+    let call = 0;
+    const adapter: LLMAdapter = {
+      complete: vi.fn(),
+      stream: (request) => {
+        requests.push([...request.messages]);
+        call++;
+        if (call === 1) {
+          return events([
+            { type: "thinking", text: "I need to inspect the file." },
+            {
+              type: "tool_call",
+              id: "tool-thinking",
+              name: "read_file",
+              arguments: JSON.stringify({ path: "/tmp/test" }),
+            },
+            {
+              type: "done",
+              stop_reason: "tool_use",
+              message: {
+                role: "assistant",
+                content: [
+                  {
+                    type: "thinking",
+                    thinking: "I need to inspect the file.",
+                    signature: "sig-deepseek-v4-flash",
+                  },
+                  {
+                    type: "tool_call",
+                    id: "tool-thinking",
+                    name: "read_file",
+                    arguments: JSON.stringify({ path: "/tmp/test" }),
+                  },
+                ],
+              },
+            },
+          ]);
+        }
+        return events([
+          { type: "text", text: "inspection complete" },
+          { type: "done", stop_reason: "end_turn" },
+        ]);
+      },
+    };
+
+    await streamAgent(
+      "inspect",
+      {
+        adapter,
+        model: "deepseek-v4-flash",
+        tools: [
+          {
+            name: "read_file",
+            description: "read file",
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+        onToolCall: () => "file contents",
+      },
+      () => {},
+    );
+
+    const assistant = requests[1]!.find(
+      (message) => message.role === "assistant",
+    );
+    expect(assistant?.content).toEqual([
+      {
+        type: "thinking",
+        thinking: "I need to inspect the file.",
+        signature: "sig-deepseek-v4-flash",
+      },
+      {
+        type: "tool_call",
+        id: "tool-thinking",
+        name: "read_file",
+        arguments: '{"path":"/tmp/test"}',
+      },
+    ]);
+  });
+
   it("returns only the final no-tool assistant text from a tool loop", async () => {
     let call = 0;
     const adapter: LLMAdapter = {

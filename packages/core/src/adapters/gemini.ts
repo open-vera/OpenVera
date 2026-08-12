@@ -15,6 +15,7 @@ import type {
 import type { ModelInfo } from "../types/model.js";
 import { AdapterRequestError } from "../errors.js";
 import { createLogger } from "@open-vera/logger";
+import { resolveLlmRequestTimeoutMs } from "./timeouts.js";
 
 const log = createLogger("adapter:gemini");
 
@@ -31,11 +32,23 @@ export class GeminiAdapter implements LLMAdapter {
     const startMs = Date.now();
     try {
       const { chat, lastParts } = this.buildChat(request);
-      const result = await chat.sendMessage(lastParts);
-      log.debug("complete done", { model: request.model, duration_ms: Date.now() - startMs });
+      // Without the signal a "stop" only flips a flag; the HTTP request runs to
+      // completion and the agent keeps spending tokens.
+      const result = await chat.sendMessage(lastParts, {
+        signal: request.signal,
+        timeout: resolveLlmRequestTimeoutMs(),
+      });
+      log.debug("complete done", {
+        model: request.model,
+        duration_ms: Date.now() - startMs,
+      });
       return this.fromGeminiResponse(result.response);
     } catch (err) {
-      log.warn("complete failed", { model: request.model, duration_ms: Date.now() - startMs, error: String(err) });
+      log.warn("complete failed", {
+        model: request.model,
+        duration_ms: Date.now() - startMs,
+        error: String(err),
+      });
       throw err;
     }
   }
@@ -43,7 +56,10 @@ export class GeminiAdapter implements LLMAdapter {
   async *stream(request: CompletionRequest): AsyncIterable<StreamEvent> {
     const startMs = Date.now();
     const { chat, lastParts } = this.buildChat(request);
-    const result = await chat.sendMessageStream(lastParts);
+    const result = await chat.sendMessageStream(lastParts, {
+      signal: request.signal,
+      timeout: resolveLlmRequestTimeoutMs(),
+    });
 
     const toolCalls: ContentPart[] = [];
 
@@ -89,7 +105,11 @@ export class GeminiAdapter implements LLMAdapter {
       stop_reason: toolCalls.length > 0 ? "tool_use" : "end_turn",
       usage,
     };
-    log.debug("stream done", { model: request.model, duration_ms: Date.now() - startMs, usage });
+    log.debug("stream done", {
+      model: request.model,
+      duration_ms: Date.now() - startMs,
+      usage,
+    });
   }
 
   async listModels(): Promise<ModelInfo[]> {

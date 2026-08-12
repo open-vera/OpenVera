@@ -84,6 +84,8 @@ export interface Message {
   turnId?: string;
   /** Segment / turn end time, set when the segment stops accepting events. */
   endedAt?: number;
+  /** Final usage for this tool segment, retained after the live run ends. */
+  usage?: TokenUsage;
 }
 
 export interface ChatTab {
@@ -127,7 +129,11 @@ export interface LayoutSnapshot {
 }
 
 export type LLMProviderId = string;
-export type LLMProtocol = "anthropic" | "openai-compatible" | "openai-responses" | "gemini";
+export type LLMProtocol =
+  | "anthropic"
+  | "openai-compatible"
+  | "openai-responses"
+  | "gemini";
 export type AppLocale = "zh" | "en";
 export type AgentRunMode = "agent" | "chat" | "plan";
 export type { AppThemeId, ResolvedThemeId } from "@/theme";

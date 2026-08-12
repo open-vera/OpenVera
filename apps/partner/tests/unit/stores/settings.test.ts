@@ -1,6 +1,10 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useSettingsStore } from "@/stores/settings";
+import {
+  EDITOR_PREFERENCE_DEFAULTS,
+  MAX_EDITOR_FONT_SIZE,
+} from "@/preview/editor-preferences";
 
 const localValues = new Map<string, string>();
 const inspectLlmConfigMock = vi.fn();
@@ -21,7 +25,8 @@ vi.mock("@/bridge", () => ({
   inspectLlmConfig: (...args: unknown[]) => inspectLlmConfigMock(...args),
   saveVeraLlmConfig: (...args: unknown[]) => saveVeraLlmConfigMock(...args),
   renameVeraProvider: (...args: unknown[]) => renameVeraProviderMock(...args),
-  saveVeraModelsRouting: (...args: unknown[]) => saveVeraModelsRoutingMock(...args),
+  saveVeraModelsRouting: (...args: unknown[]) =>
+    saveVeraModelsRoutingMock(...args),
 }));
 
 describe("useSettingsStore", () => {
@@ -49,12 +54,14 @@ describe("useSettingsStore", () => {
       models: [{ alias: "claude-sonnet", provider: "anthropic" }],
       routing: { enabled: false },
     });
-    saveVeraLlmConfigMock.mockImplementation(async (params: SaveVeraLlmConfigParams) => ({
+    saveVeraLlmConfigMock.mockImplementation(
+      async (params: SaveVeraLlmConfigParams) => ({
       source: "vera-config",
       sourceLabel: "Vera config",
       projectRoot: params.projectRoot ?? "/repo",
       provider: params.provider,
-      adapter: params.protocol === "openai-compatible" ? "openai" : params.protocol,
+        adapter:
+          params.protocol === "openai-compatible" ? "openai" : params.protocol,
       protocol: params.protocol,
       model: params.model,
       apiBaseUrl: params.apiBaseUrl,
@@ -62,7 +69,8 @@ describe("useSettingsStore", () => {
       apiKeySource: params.apiKey ? "vera-config" : "missing",
       apiKeySourceLabel: params.apiKey ? "Vera config api_key" : "Not found",
       configExists: true,
-    }));
+      })
+    );
     vi.stubGlobal("document", {
       documentElement: {
         dataset: {} as DOMStringMap,
@@ -154,13 +162,13 @@ describe("useSettingsStore", () => {
     await settings.saveApiKey("secret-key", "/repo");
     expect(settings.hasApiKey).toBe(true);
     expect(saveVeraLlmConfigMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ apiKey: "secret-key", projectRoot: "/repo" }),
+      expect.objectContaining({ apiKey: "secret-key", projectRoot: "/repo" })
     );
 
     await settings.saveApiKey("", "/repo");
     expect(settings.hasApiKey).toBe(false);
     expect(saveVeraLlmConfigMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ apiKey: "", projectRoot: "/repo" }),
+      expect.objectContaining({ apiKey: "", projectRoot: "/repo" })
     );
   });
 
@@ -178,13 +186,19 @@ describe("useSettingsStore", () => {
 
     settings.setTheme("midnight");
     await settings.save();
-    expect(localValues.get("partner:ui-settings")).toContain('"theme":"midnight"');
-    expect((document.documentElement.dataset as DOMStringMap).theme).toBe("midnight");
+    expect(localValues.get("partner:ui-settings")).toContain(
+      '"theme":"midnight"'
+    );
+    expect((document.documentElement.dataset as DOMStringMap).theme).toBe(
+      "midnight"
+    );
 
     localValues.set("partner:ui-settings", JSON.stringify({ theme: "dark" }));
     await settings.load();
     expect(settings.theme).toBe("github-dark");
-    expect((document.documentElement.dataset as DOMStringMap).theme).toBe("github-dark");
+    expect((document.documentElement.dataset as DOMStringMap).theme).toBe(
+      "github-dark"
+    );
   });
 
   it("persists wallpaper mode and applies book texture", async () => {
@@ -195,8 +209,12 @@ describe("useSettingsStore", () => {
     await settings.save();
 
     expect(localValues.get("partner:ui-settings")).toContain('"theme":"book"');
-    expect(localValues.get("partner:ui-settings")).toContain('"wallpaperMode":"theme"');
-    expect((document.documentElement.dataset as DOMStringMap).wallpaper).toBe("on");
+    expect(localValues.get("partner:ui-settings")).toContain(
+      '"wallpaperMode":"theme"'
+    );
+    expect((document.documentElement.dataset as DOMStringMap).wallpaper).toBe(
+      "on"
+    );
   });
 
   it("resets clarity and blur to theme defaults when following theme", () => {
@@ -218,7 +236,9 @@ describe("useSettingsStore", () => {
     settings.setAgentMode("plan");
     await settings.save();
 
-    expect(localValues.get("partner:ui-settings")).toContain('"agentMode":"plan"');
+    expect(localValues.get("partner:ui-settings")).toContain(
+      '"agentMode":"plan"'
+    );
   });
 
   it("builds runtime llm config from effective secrets", async () => {
@@ -291,5 +311,49 @@ describe("useSettingsStore", () => {
 
     expect(settings.provider.protocol).toBe("openai-compatible");
     expect(settings.provider.model).toBe("deepseek-v4-flash");
+  });
+
+  describe("editor preferences", () => {
+    it("starts from the defaults", () => {
+      const settings = useSettingsStore();
+      expect(settings.editor).toEqual(EDITOR_PREFERENCE_DEFAULTS);
+});
+
+    it("updates one preference without touching the rest", () => {
+      const settings = useSettingsStore();
+
+      settings.setEditorPreference("wordWrap", true);
+
+      expect(settings.editor).toEqual({
+        ...EDITOR_PREFERENCE_DEFAULTS,
+        wordWrap: true,
+      });
+    });
+
+    it("sanitizes an out-of-range value on write", () => {
+      const settings = useSettingsStore();
+
+      settings.setEditorPreference("fontSize", 999);
+
+      expect(settings.editor.fontSize).toBe(MAX_EDITOR_FONT_SIZE);
+    });
+
+    it("persists the preferences to local storage", () => {
+      const settings = useSettingsStore();
+
+      settings.setEditorPreference("tabSize", 4);
+
+      const stored = JSON.parse(localValues.get("partner:ui-settings") ?? "{}");
+      expect(stored.editor.tabSize).toBe(4);
+    });
+
+    it("restores the defaults", () => {
+      const settings = useSettingsStore();
+      settings.setEditorPreference("minimap", false);
+
+      settings.resetEditorPreferences();
+
+      expect(settings.editor).toEqual(EDITOR_PREFERENCE_DEFAULTS);
+    });
   });
 });

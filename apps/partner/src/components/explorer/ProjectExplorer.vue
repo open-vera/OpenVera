@@ -12,7 +12,6 @@ import {
   searchFiles,
 } from "@/bridge";
 import { useHostStore } from "@/shell";
-import { useAppStateStore } from "@/stores/app-state";
 import { isBinaryFilePath, usePreviewStore } from "@/stores/preview";
 import { openWorkspaceFile } from "@/utils/open-workspace-file";
 import { useSettingsStore } from "@/stores/settings";
@@ -47,6 +46,7 @@ import GitChanges from "../left/GitChanges.vue";
 import type { GitSummary } from "../left/GitChanges.vue";
 import { measureAsync, recordPerfEvent } from "@/perf";
 import { alertDialog } from "@/utils/native-dialog";
+import { syncCaller, syncLog } from "@/utils/sync-log";
 import {
   createFileInDir,
   createFolderInDir,
@@ -650,6 +650,12 @@ async function loadWorkspace(
     isLoading.value = true;
   }
   loadError.value = "";
+  syncLog("explorer.loadWorkspace", {
+    path,
+    soft: Boolean(options.soft),
+    currentRoot: workspace.rootPath,
+    by: syncCaller(),
+  });
   const started = performance.now();
   try {
     if (!host.booted) {
@@ -684,13 +690,8 @@ async function loadWorkspace(
     }
     if (!options.soft) {
       treeEpoch.value += 1;
-      try {
-        const store = useAppStateStore();
-        const projectId = store.ensureProject(path);
-        store.setPreviewProject(projectId);
-      } catch (syncError) {
-        console.warn("[ProjectExplorer] failed to sync project into app-state:", syncError);
-      }
+      // `host.workspace.open` above already upserted the project and made it the
+      // preview project — mirroring that in the Shell would be a second writer.
       syncGitFromHost();
     }
     console.info(
@@ -733,9 +734,24 @@ function syncGitFromHost() {
 
 function applyHostWorkspaceProjection() {
   const project = host.previewProject;
-  if (!project) return;
+  if (!project) {
+    syncLog("explorer.projection.skip", {
+      reason: "no preview project",
+      currentRoot: workspace.rootPath,
+    });
+    return;
+  }
   const runtime = host.doc.projectRuntime[project.id];
-  if (!runtime) return;
+  // No runtime yet (project restored from disk but never opened this run): the
+  // preview-project watcher loads it, which is what primes the runtime.
+  if (!runtime) {
+    syncLog("explorer.projection.skip", {
+      reason: "no runtime",
+      projectId: project.id,
+      root: project.rootPath,
+    });
+    return;
+  }
   const root = project.rootPath;
   if (workspace.rootPath !== root) {
     workspace.setRoot(root);
@@ -749,6 +765,24 @@ function applyHostWorkspaceProjection() {
   }
   syncGitFromHost();
 }
+
+// Follow the Host's preview project. Activating a session in another project
+// changes it, and the tree has to load that root even when the Host has no
+// runtime for it yet.
+watch(
+  () => host.previewProject?.rootPath ?? "",
+  (root, previousRoot) => {
+    if (!root) return;
+    if (normalizeFsPath(root) === normalizeFsPath(workspace.rootPath)) return;
+    syncLog("explorer.previewProjectChanged", {
+      from: previousRoot ?? "",
+      to: root,
+      currentRoot: workspace.rootPath,
+    });
+    activeView.value = activeView.value === "search" ? "files" : activeView.value;
+    void loadWorkspace(root);
+  },
+);
 
 function stopSearchTimer() {
   if (searchTimer) {

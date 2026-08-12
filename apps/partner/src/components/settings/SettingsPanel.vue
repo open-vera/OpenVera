@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { homeDir, join } from "@tauri-apps/api/path";
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
 import { inspectLlmConfig, readFile } from "@/bridge";
 import {
   listLlmProviderModels,
@@ -42,6 +49,7 @@ import {
   type SectionOffset,
 } from "@/utils/section-nav";
 import StorageUsageSection from "./StorageUsageSection.vue";
+import EditorSettingsSection from "./EditorSettingsSection.vue";
 
 const settings = useSettingsStore();
 const workspace = useWorkspaceStore();
@@ -53,7 +61,10 @@ const revealApiKey = ref(false);
 const loadedApiKey = ref<string | null>(null);
 const status = ref("");
 const error = ref("");
-const connectionTestFeedback = ref<{ type: "success" | "error"; message: string } | null>(null);
+const connectionTestFeedback = ref<{
+  type: "success" | "error";
+  message: string;
+} | null>(null);
 /** Effective Vera settings.json path (project wins over global when present). */
 const settingsJsonPath = ref("");
 const globalSettingsJsonPath = ref("");
@@ -93,15 +104,18 @@ let blurApplyTimer: number | undefined;
 const modelAliasOptions = computed(() =>
   settings.modelAliases.map((item) => ({
     value: item.alias,
-    label: item.model && item.model !== item.alias ? `${item.alias} → ${item.model}` : item.alias,
-  })),
+    label:
+      item.model && item.model !== item.alias
+        ? `${item.alias} → ${item.model}`
+        : item.alias,
+  }))
 );
 
 const providerSelectOptions = computed(() =>
   providerProfiles.value.map((item) => ({
     value: item.id,
     label: item.id,
-  })),
+  }))
 );
 
 function upstreamModelOptions(providerId: string): PartnerSelectOption[] {
@@ -117,7 +131,10 @@ function upstreamModelOptions(providerId: string): PartnerSelectOption[] {
 
 function ensureProviderModelOptions(providerId: string) {
   if (!providerId) return;
-  void modelCatalog.ensureProviderModels(workspace.rootPath || undefined, providerId);
+  void modelCatalog.ensureProviderModels(
+    workspace.rootPath || undefined,
+    providerId
+  );
 }
 
 function ensureAliasProviderModels() {
@@ -131,15 +148,15 @@ function ensureAliasProviderModels() {
 }
 
 const INSPECT_TIMEOUT_MS = 5_000;
-const REMOTE_MODEL_TIMEOUT_MS = 12_000;
+const REMOTE_MODEL_TIMEOUT_MS = 35_000;
 const WALLPAPER_BLUR_DEBOUNCE_MS = 120;
 
 const protocolOptions = LLM_PROTOCOL_OPTIONS;
 const providerProfiles = computed(() => modelCatalog.providers);
 const editingIsDefault = computed(
   () =>
-    providerProfiles.value.find((item) => item.id === settings.provider.id)?.isDefault ??
-    false,
+    providerProfiles.value.find((item) => item.id === settings.provider.id)
+      ?.isDefault ?? false
 );
 
 const localeOptions: Array<{ value: AppLocale; label: string }> = [
@@ -148,7 +165,9 @@ const localeOptions: Array<{ value: AppLocale; label: string }> = [
 ];
 
 const themeOptions = THEME_OPTIONS;
-const builtinWallpapers = BUILTIN_WALLPAPER_ORDER.map((id) => BUILTIN_WALLPAPERS[id]);
+const builtinWallpapers = BUILTIN_WALLPAPER_ORDER.map(
+  (id) => BUILTIN_WALLPAPERS[id]
+);
 
 const wallpaperPreviewUrl = computed(() => {
   if (settings.wallpaperMode === "custom" && settings.wallpaperDataUrl) {
@@ -163,7 +182,8 @@ const wallpaperPreviewUrl = computed(() => {
 /** Tuning + custom scales only when a concrete wallpaper is chosen (not follow-theme / none). */
 const showWallpaperTuning = computed(
   () =>
-    settings.wallpaperMode === "custom" || isBuiltinWallpaperId(settings.wallpaperMode),
+    settings.wallpaperMode === "custom" ||
+    isBuiltinWallpaperId(settings.wallpaperMode)
 );
 const showCustomPalettes = showWallpaperTuning;
 
@@ -173,7 +193,7 @@ function wallpaperBuiltinLabel(id: (typeof BUILTIN_WALLPAPER_ORDER)[number]) {
 }
 
 const localeSelectOptions = computed<PartnerSelectOption[]>(() =>
-  localeOptions.map((option) => ({ value: option.value, label: option.label })),
+  localeOptions.map((option) => ({ value: option.value, label: option.label }))
 );
 
 const themeSelectOptions = computed<PartnerSelectOption[]>(() =>
@@ -181,11 +201,11 @@ const themeSelectOptions = computed<PartnerSelectOption[]>(() =>
     value: option.id,
     label: settings.locale === "en" ? option.labelEn : option.labelZh,
     preview: option.preview,
-  })),
+  }))
 );
 
 const themeSelectValue = computed(() =>
-  settings.theme === "custom" ? "" : settings.theme,
+  settings.theme === "custom" ? "" : settings.theme
 );
 
 const themeTriggerOption = computed<PartnerSelectOption | null>(() => {
@@ -200,7 +220,11 @@ const themeTriggerOption = computed<PartnerSelectOption | null>(() => {
       preview: palette.preview,
     };
   }
-  return themeSelectOptions.value.find((option) => option.value === settings.theme) ?? null;
+  return (
+    themeSelectOptions.value.find(
+      (option) => option.value === settings.theme
+    ) ?? null
+  );
 });
 
 const wallpaperSelectGroups = computed<PartnerSelectGroup[]>(() => [
@@ -228,7 +252,7 @@ const protocolSelectOptions = computed<PartnerSelectOption[]>(() =>
   protocolOptions.map((option) => ({
     value: option.value,
     label: option.label,
-  })),
+  }))
 );
 
 const customPaletteSelectOptions = computed<PartnerSelectOption[]>(() =>
@@ -236,18 +260,21 @@ const customPaletteSelectOptions = computed<PartnerSelectOption[]>(() =>
     value: palette.id,
     label: settings.locale === "en" ? palette.labelEn : palette.labelZh,
     preview: palette.preview,
-  })),
+  }))
 );
 
 const customPaletteSelectValue = computed(() =>
-  settings.theme === "custom" && settings.customPaletteId ? settings.customPaletteId : "",
+  settings.theme === "custom" && settings.customPaletteId
+    ? settings.customPaletteId
+    : ""
 );
 
 const copy = computed(() => {
   if (settings.locale === "en") {
     return {
       title: "Settings",
-      description: "Appearance stays in Partner. LLM profiles are stored in Vera settings.json.",
+      description:
+        "Appearance stays in Partner. LLM profiles are stored in Vera settings.json.",
       appearanceTitle: "Appearance",
       appearanceHint: "Language, theme, and wallpaper for this Partner window.",
       llmTitle: "LLM Providers",
@@ -278,19 +305,22 @@ const copy = computed(() => {
       customPalettesEmpty: "Choose a background image to extract custom scales",
       customPalettesPlaceholder: "Choose a custom scale",
       providersLabel: "Profiles",
-      providersHint: "Click any provider to edit it. Runtime still uses the default until you enable another.",
+      providersHint:
+        "Click any provider to edit it. Runtime still uses the default until you enable another.",
       newProvider: "New",
       newProviderPrompt: "Provider id (e.g. gateway, deepseek, work-claude):",
       defaultBadge: "Default",
       setDefault: "Enable",
       alreadyDefault: "Enabled",
       editingDefault: "Editing the enabled runtime provider",
-      editingOther: "Browsing this profile — click “Enable” to use it at runtime",
+      editingOther:
+        "Browsing this profile — click “Enable” to use it at runtime",
       protocol: "Protocol",
       protocolHint: "Match the request format of the service",
       apiBaseHint: "Official or compatible service endpoint",
       providerId: "Provider id",
-      providerIdHint: "Key in settings.json providers; rename updates all references",
+      providerIdHint:
+        "Key in settings.json providers; rename updates all references",
       model: "Model",
       modelHint: "Upstream model id for an alias",
       modelsRoutingTitle: "Models & routing",
@@ -312,7 +342,8 @@ const copy = computed(() => {
       routingL1: "L1 (default)",
       routingL2: "L2 (complex)",
       addAsAlias: "Add as alias",
-      keySaved: "Saved — masked below; click Show to reveal (default only), or type a new key",
+      keySaved:
+        "Saved — masked below; click Show to reveal (default only), or type a new key",
       keyMissing: "No key saved yet",
       keyReplacePlaceholder: "Type a new key to replace",
       keyPlaceholder: "Enter API Key",
@@ -339,15 +370,19 @@ const copy = computed(() => {
       testFailed: "Connection failed",
       testTimeout: "Connection test timed out. Check network or API base URL.",
       modelListTitle: "Available Models",
-      modelListHint: "Configured models load instantly; remote models sync from the provider API.",
+      modelListHint:
+        "Configured models load instantly; remote models sync from the provider API.",
       loadingModels: "Loading model list...",
-      modelListTimeout: "Remote model sync timed out. Showing configured models only.",
+      modelListTimeout:
+        "Remote model sync timed out. Showing configured models only.",
       modelListEmpty: "No models found for this provider.",
       modelSourceConfig: "config",
       modelSourceRemote: "remote",
       hideModels: "Hide",
-      emptyProviders: "No providers in settings.json yet. Create one to get started.",
-      emptyModels: "No model aliases yet. Add one or pick from the remote list.",
+      emptyProviders:
+        "No providers in settings.json yet. Create one to get started.",
+      emptyModels:
+        "No model aliases yet. Add one or pick from the remote list.",
     };
   }
   return {
@@ -364,7 +399,8 @@ const copy = computed(() => {
     themeHint: "预设配色；若选用下方自定义色阶，此处会取消勾选",
     themeCustom: "自定义",
     wallpaper: "背景图",
-    wallpaperHint: "跟随主题时使用主题默认效果；选择内置/自定义背景后可调通透度与模糊",
+    wallpaperHint:
+      "跟随主题时使用主题默认效果；选择内置/自定义背景后可调通透度与模糊",
     wallpaperTheme: "跟随主题",
     wallpaperNone: "无",
     wallpaperBuiltinGroup: "内置背景",
@@ -382,7 +418,8 @@ const copy = computed(() => {
     customPalettesEmpty: "选择背景图后可提取自定义色阶",
     customPalettesPlaceholder: "选择自定义色阶",
     providersLabel: "Provider 配置",
-    providersHint: "可随意点选查看/编辑；运行时仍用当前默认，需手动点「启用」才会切换。",
+    providersHint:
+      "可随意点选查看/编辑；运行时仍用当前默认，需手动点「启用」才会切换。",
     newProvider: "新建",
     newProviderPrompt: "Provider 标识（如 gateway、deepseek、work-claude）：",
     defaultBadge: "默认",
@@ -416,7 +453,8 @@ const copy = computed(() => {
     routingL1: "L1（默认）",
     routingL2: "L2（复杂）",
     addAsAlias: "添加为别名",
-    keySaved: "已保存（默认掩码；点「显示」可查看当前默认项密钥，或输入新值覆盖）",
+    keySaved:
+      "已保存（默认掩码；点「显示」可查看当前默认项密钥，或输入新值覆盖）",
     keyMissing: "尚未保存密钥",
     keyReplacePlaceholder: "输入新密钥以覆盖",
     keyPlaceholder: "输入 API Key",
@@ -426,16 +464,20 @@ const copy = computed(() => {
     saved: "已自动保存",
     keySavedStatus: "密钥已自动保存到 Vera settings.json",
     refresh: "刷新",
-    inspectTimeout: "读取超时。如果应用已在运行，请重启 Partner，让新的 sidecar 命令生效。",
+    inspectTimeout:
+      "读取超时。如果应用已在运行，请重启 Partner，让新的 sidecar 命令生效。",
     editJson: "编辑 JSON",
-    editJsonProjectHint: "当前生效的是项目配置（.vera/settings.json），点击将编辑它。",
+    editJsonProjectHint:
+      "当前生效的是项目配置（.vera/settings.json），点击将编辑它。",
     editJsonGlobal: "编辑全局配置",
     configPathMissing: "找不到 settings.json 路径。",
     testConnection: "测试连接",
     viewModels: "查看模型列表",
     testingConnection: "正在测试连接…",
     testSuccess: (count: number) =>
-      count > 0 ? `连接成功，发现 ${count} 个模型。` : "连接成功，但未返回模型列表。",
+      count > 0
+        ? `连接成功，发现 ${count} 个模型。`
+        : "连接成功，但未返回模型列表。",
     testFailed: "连接失败",
     testTimeout: "连接测试超时，请检查网络或 API Base URL。",
     modelListTitle: "可用模型",
@@ -451,13 +493,17 @@ const copy = computed(() => {
   };
 });
 
-const SECTION_IDS = ["appearance", "llm", "storage"] as const;
+const SECTION_IDS = ["appearance", "llm", "editor", "storage"] as const;
 type SectionId = (typeof SECTION_IDS)[number];
 
 const navItems = computed<Array<{ id: SectionId; label: string }>>(() => [
   { id: "appearance", label: copy.value.appearanceTitle },
   { id: "llm", label: copy.value.llmTitle },
-  { id: "storage", label: settings.locale === "en" ? "Cache & storage" : "缓存与存储" },
+  { id: "editor", label: settings.locale === "en" ? "Editor" : "编辑器" },
+  {
+    id: "storage",
+    label: settings.locale === "en" ? "Cache & storage" : "缓存与存储",
+  },
 ]);
 
 const scrollRef = ref<HTMLElement | null>(null);
@@ -470,7 +516,7 @@ function setSectionRef(id: SectionId, element: unknown) {
     element instanceof HTMLElement
       ? element
       : (element as { $el?: unknown } | null)?.$el instanceof HTMLElement
-        ? ((element as { $el: HTMLElement }).$el)
+        ? (element as { $el: HTMLElement }).$el
         : null;
   if (host) sectionRefs.set(id, host);
   else sectionRefs.delete(id);
@@ -490,13 +536,17 @@ function sectionOffsets(): SectionOffset[] {
 function syncActiveSection() {
   const container = scrollRef.value;
   if (!container) return;
-  activeSection.value = pickActiveSection(sectionOffsets(), container.scrollTop, {
+  activeSection.value = pickActiveSection(
+    sectionOffsets(),
+    container.scrollTop,
+    {
     atBottom: isScrolledToBottom(
       container.scrollTop,
       container.clientHeight,
-      container.scrollHeight,
+        container.scrollHeight
     ),
-  }) as SectionId;
+}
+  ) as SectionId;
 }
 
 function onSettingsScroll() {
@@ -531,7 +581,10 @@ function clearStatus() {
   error.value = "";
 }
 
-function mergeModels(configured: CatalogModel[], remote: CatalogModel[]): CatalogModel[] {
+function mergeModels(
+  configured: CatalogModel[],
+  remote: CatalogModel[]
+): CatalogModel[] {
   if (!remote.length) return configured;
   const seen = new Set(remote.map((model) => model.id));
   const extras = configured.filter((model) => !seen.has(model.id));
@@ -558,7 +611,8 @@ function scheduleAppearanceSave() {
 }
 
 function scheduleLlmSave() {
-  if (!isReady.value || isSavingConfig.value || isSwitchingProvider.value) return;
+  if (!isReady.value || isSavingConfig.value || isSwitchingProvider.value)
+    return;
   clearStatus();
   status.value = copy.value.saving;
   if (saveTimer) {
@@ -579,7 +633,8 @@ async function saveConfig(setAsDefault = false) {
     await resolveSettingsJsonPath();
     status.value = copy.value.saved;
   } catch (saveError) {
-    error.value = saveError instanceof Error ? saveError.message : String(saveError);
+    error.value =
+      saveError instanceof Error ? saveError.message : String(saveError);
   } finally {
     isSavingConfig.value = false;
   }
@@ -618,13 +673,14 @@ async function commitProviderRename() {
     await settings.renameProvider(
       settings.provider.id,
       next,
-      workspace.rootPath || undefined,
+      workspace.rootPath || undefined
     );
     providerIdDraft.value = settings.provider.id;
     await modelCatalog.loadProviders(workspace.rootPath || undefined, true);
     status.value = copy.value.saved;
   } catch (renameError) {
-    error.value = renameError instanceof Error ? renameError.message : String(renameError);
+    error.value =
+      renameError instanceof Error ? renameError.message : String(renameError);
     providerIdDraft.value = settings.provider.id;
   } finally {
     isSavingConfig.value = false;
@@ -632,7 +688,8 @@ async function commitProviderRename() {
 }
 
 function scheduleModelsRoutingSave() {
-  if (!isReady.value || isSavingConfig.value || isSwitchingProvider.value) return;
+  if (!isReady.value || isSavingConfig.value || isSwitchingProvider.value)
+    return;
   clearStatus();
   status.value = copy.value.saving;
   if (modelsRoutingTimer) {
@@ -645,7 +702,8 @@ function scheduleModelsRoutingSave() {
         await settings.saveModelsRouting(workspace.rootPath || undefined);
         status.value = copy.value.saved;
       } catch (saveError) {
-        error.value = saveError instanceof Error ? saveError.message : String(saveError);
+        error.value =
+          saveError instanceof Error ? saveError.message : String(saveError);
       } finally {
         isSavingConfig.value = false;
       }
@@ -667,7 +725,9 @@ function addModelAlias() {
 }
 
 function removeModelAlias(alias: string) {
-  settings.modelAliases = settings.modelAliases.filter((item) => item.alias !== alias);
+  settings.modelAliases = settings.modelAliases.filter(
+    (item) => item.alias !== alias
+  );
   if (settings.defaultModel === alias) {
     settings.defaultModel = settings.modelAliases[0]?.alias ?? "";
   }
@@ -694,7 +754,9 @@ async function makeProviderDefault() {
   await saveConfig(true);
 }
 
-async function resolveGlobalSettingsPath(fromInspect?: string | null): Promise<string> {
+async function resolveGlobalSettingsPath(
+  fromInspect?: string | null
+): Promise<string> {
   if (fromInspect) return fromInspect;
   try {
     return await join(await homeDir(), ".vera", "settings.json");
@@ -711,7 +773,7 @@ async function resolveSettingsJsonPath() {
     const config = await withTimeout(
       inspectLlmConfig(workspace.rootPath || undefined, null, false),
       INSPECT_TIMEOUT_MS,
-      copy.value.inspectTimeout,
+      copy.value.inspectTimeout
     );
     const scope =
       config.configScope === "project" ||
@@ -722,7 +784,9 @@ async function resolveSettingsJsonPath() {
         : "";
     configScope.value = scope;
     settingsJsonPath.value = config.configPath || projectFallback;
-    globalSettingsJsonPath.value = await resolveGlobalSettingsPath(config.globalConfigPath);
+    globalSettingsJsonPath.value = await resolveGlobalSettingsPath(
+      config.globalConfigPath
+    );
   } catch {
     configScope.value = "";
     settingsJsonPath.value = projectFallback;
@@ -750,7 +814,8 @@ async function openConfigJson(path = settingsJsonPath.value) {
     preview.openCodeFile(target, content);
   } catch (openError) {
     // Missing file: open an empty object so the user can create it via save.
-    const message = openError instanceof Error ? openError.message : String(openError);
+    const message =
+      openError instanceof Error ? openError.message : String(openError);
     if (/not found|no such file|ENOENT/i.test(message)) {
       preview.openCodeFile(target, "{\n}\n");
       return;
@@ -797,7 +862,11 @@ async function openGlobalConfigJson() {
   await openConfigJson(path);
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => {
       reject(new Error(message));
@@ -810,7 +879,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
       (reason: unknown) => {
         window.clearTimeout(timer);
         reject(reason);
-      },
+      }
     );
   });
 }
@@ -825,7 +894,7 @@ async function testConnection() {
         protocol: settings.provider.protocol,
       }),
       REMOTE_MODEL_TIMEOUT_MS,
-      copy.value.testTimeout,
+      copy.value.testTimeout
     );
     if (result.ok) {
       connectionTestFeedback.value = {
@@ -841,7 +910,8 @@ async function testConnection() {
   } catch (testError) {
     connectionTestFeedback.value = {
       type: "error",
-      message: testError instanceof Error ? testError.message : String(testError),
+      message:
+        testError instanceof Error ? testError.message : String(testError),
     };
   } finally {
     isTestingConnection.value = false;
@@ -856,16 +926,23 @@ async function loadModelList() {
     await flushPendingLlmSettings();
     const configured = await listLlmProviderModels(
       workspace.rootPath || undefined,
-      settings.provider.id,
+      settings.provider.id
     );
-    modelList.value = configured.map((model) => ({ ...model, source: "config" as const }));
+    modelList.value = configured.map((model) => ({
+      ...model,
+      source: "config" as const,
+    }));
     try {
       const remote = await withTimeout(
-        refreshLlmProviderModels(workspace.rootPath || undefined, settings.provider.id, {
+        refreshLlmProviderModels(
+          workspace.rootPath || undefined,
+          settings.provider.id,
+          {
           protocol: settings.provider.protocol,
-        }),
+          }
+        ),
         REMOTE_MODEL_TIMEOUT_MS,
-        copy.value.modelListTimeout,
+        copy.value.modelListTimeout
       );
       if (remote.length) {
         modelList.value = mergeModels(modelList.value, remote);
@@ -873,7 +950,9 @@ async function loadModelList() {
     } catch (remoteError) {
       if (!modelList.value.length) {
         modelListError.value =
-          remoteError instanceof Error ? remoteError.message : String(remoteError);
+          remoteError instanceof Error
+            ? remoteError.message
+            : String(remoteError);
       }
     }
     // Keep combobox options in sync with the settings list panel.
@@ -884,7 +963,8 @@ async function loadModelList() {
       };
     });
   } catch (loadError) {
-    modelListError.value = loadError instanceof Error ? loadError.message : String(loadError);
+    modelListError.value =
+      loadError instanceof Error ? loadError.message : String(loadError);
   } finally {
     isLoadingModels.value = false;
   }
@@ -947,13 +1027,14 @@ async function toggleApiKeyReveal() {
     const config = await withTimeout(
       inspectLlmConfig(workspace.rootPath || undefined, null, true),
       INSPECT_TIMEOUT_MS,
-      copy.value.inspectTimeout,
+      copy.value.inspectTimeout
     );
     loadedApiKey.value = config.apiKeyValue ?? null;
     revealApiKey.value = true;
     if (!apiKeyFocused.value) apiKeyFocused.value = false;
   } catch (revealError) {
-    error.value = revealError instanceof Error ? revealError.message : String(revealError);
+    error.value =
+      revealError instanceof Error ? revealError.message : String(revealError);
   }
 }
 
@@ -970,7 +1051,7 @@ async function saveApiKeyIfNeeded() {
     await settings.saveApiKey(
       nextKey,
       workspace.rootPath || undefined,
-      editingIsDefault.value,
+      editingIsDefault.value
     );
     loadedApiKey.value = nextKey;
     apiKey.value = "";
@@ -979,7 +1060,8 @@ async function saveApiKeyIfNeeded() {
     await resolveSettingsJsonPath();
     status.value = copy.value.keySavedStatus;
   } catch (saveError) {
-    error.value = saveError instanceof Error ? saveError.message : String(saveError);
+    error.value =
+      saveError instanceof Error ? saveError.message : String(saveError);
   }
 }
 
@@ -1055,7 +1137,8 @@ async function onWallpaperFileChange(event: Event) {
     await settings.setCustomWallpaper(file);
     status.value = copy.value.wallpaperReady;
   } catch (uploadError) {
-    error.value = uploadError instanceof Error ? uploadError.message : String(uploadError);
+    error.value =
+      uploadError instanceof Error ? uploadError.message : String(uploadError);
   } finally {
     wallpaperBusy.value = false;
   }
@@ -1098,7 +1181,7 @@ watch(
     if (blurApplyTimer === undefined) {
       wallpaperBlurDraft.value = value;
     }
-  },
+  }
 );
 
 watch(
@@ -1106,7 +1189,7 @@ watch(
   async () => {
     if (!showModelList.value) return;
     await loadModelList();
-  },
+  }
 );
 
 watch(
@@ -1118,7 +1201,7 @@ watch(
     settings.wallpaperBlur,
     settings.customPaletteId,
   ],
-  scheduleAppearanceSave,
+  scheduleAppearanceSave
 );
 
 // Do not watch provider.id — chip switches must not autosave/promote defaults.
@@ -1128,29 +1211,48 @@ watch(
     settings.provider.apiBaseUrl,
     settings.provider.model,
   ],
-  scheduleLlmSave,
+  scheduleLlmSave
 );
 
 watch(
   () => workspace.rootPath,
   () => {
     void resolveSettingsJsonPath();
-  },
+  }
 );
 
 watch(
   () => settings.provider.id,
   (id) => {
     providerIdDraft.value = id;
-  },
+  }
 );
 </script>
 
 <template>
   <section class="settings-panel">
     <div class="settings-header">
+      <div class="settings-header-row">
       <h2>{{ copy.title }}</h2>
-      <p>{{ copy.description }}</p>
+        <!-- Save / connection feedback belongs next to the title: it applies to
+             the whole page, and inline it reads as a comment on whichever
+             section happens to sit above it. -->
+        <p
+          v-if="connectionTestFeedback"
+          class="header-feedback"
+          :class="connectionTestFeedback.type"
+          role="status"
+        >
+          {{ connectionTestFeedback.message }}
+        </p>
+        <p v-else-if="error" class="header-feedback error" role="status">
+          {{ error }}
+        </p>
+        <p v-else-if="status" class="header-feedback" role="status">
+          {{ status }}
+        </p>
+    </div>
+      <p class="settings-description">{{ copy.description }}</p>
     </div>
 
     <div class="settings-body">
@@ -1233,7 +1335,11 @@ watch(
                 :disabled="wallpaperBusy"
                 @click="openWallpaperPicker"
               >
-                {{ wallpaperBusy ? copy.wallpaperUploading : copy.wallpaperUpload }}
+                    {{
+                      wallpaperBusy
+                        ? copy.wallpaperUploading
+                        : copy.wallpaperUpload
+                    }}
               </button>
               <button
                 v-if="settings.wallpaperDataUrl"
@@ -1247,7 +1353,10 @@ watch(
 
             <template v-if="showWallpaperTuning">
               <label class="wallpaper-opacity">
-                <span>{{ copy.wallpaperOpacity }} · {{ Math.round(settings.wallpaperOpacity * 100) }}%</span>
+                    <span
+                      >{{ copy.wallpaperOpacity }} ·
+                      {{ Math.round(settings.wallpaperOpacity * 100) }}%</span
+                    >
                 <input
                   type="range"
                   :min="MIN_WALLPAPER_OPACITY"
@@ -1259,7 +1368,10 @@ watch(
               </label>
 
               <label class="wallpaper-opacity">
-                <span>{{ copy.wallpaperBlur }} · {{ Math.round(wallpaperBlurDraft) }}px</span>
+                    <span
+                      >{{ copy.wallpaperBlur }} ·
+                      {{ Math.round(wallpaperBlurDraft) }}px</span
+                    >
                 <input
                   type="range"
                   :min="MIN_WALLPAPER_BLUR"
@@ -1284,7 +1396,10 @@ watch(
                 <strong>{{ copy.customPalettes }}</strong>
                 <small>{{ copy.customPalettesHint }}</small>
               </div>
-              <p v-if="settings.customPalettesLoading" class="custom-palettes-status">
+                  <p
+                    v-if="settings.customPalettesLoading"
+                    class="custom-palettes-status"
+                  >
                 {{ copy.customPalettesLoading }}
               </p>
               <p
@@ -1353,7 +1468,11 @@ watch(
       </div>
 
       <div class="provider-toolbar">
-        <div class="provider-chips" role="tablist" :aria-label="copy.providersLabel">
+            <div
+              class="provider-chips"
+              role="tablist"
+              :aria-label="copy.providersLabel"
+            >
           <button
             v-for="provider in providerProfiles"
             :key="provider.id"
@@ -1368,7 +1487,9 @@ watch(
             @click="selectProviderProfile(provider)"
           >
             <span class="provider-chip-id">{{ provider.id }}</span>
-            <span v-if="provider.isDefault" class="provider-badge">{{ copy.defaultBadge }}</span>
+                <span v-if="provider.isDefault" class="provider-badge">{{
+                  copy.defaultBadge
+                }}</span>
           </button>
           <button
             type="button"
@@ -1377,7 +1498,9 @@ watch(
           >
             + {{ copy.newProvider }}
           </button>
-          <p v-if="!providerProfiles.length" class="provider-empty">{{ copy.emptyProviders }}</p>
+              <p v-if="!providerProfiles.length" class="provider-empty">
+                {{ copy.emptyProviders }}
+              </p>
         </div>
       </div>
 
@@ -1448,7 +1571,11 @@ watch(
               :value="apiKeyDisplay"
               :type="revealApiKey ? 'text' : 'password'"
               autocomplete="new-password"
-              :placeholder="settings.hasApiKey ? copy.keyReplacePlaceholder : copy.keyPlaceholder"
+                  :placeholder="
+                    settings.hasApiKey
+                      ? copy.keyReplacePlaceholder
+                      : copy.keyPlaceholder
+                  "
               @focus="onApiKeyFocus"
               @input="onApiKeyInput"
               @blur="saveApiKeyIfNeeded"
@@ -1595,7 +1722,11 @@ watch(
           :disabled="isTestingConnection || isSavingConfig"
           @click="testConnection"
         >
-          {{ isTestingConnection ? copy.testingConnection : copy.testConnection }}
+              {{
+                isTestingConnection
+                  ? copy.testingConnection
+                  : copy.testConnection
+              }}
         </button>
         <button
           type="button"
@@ -1608,46 +1739,58 @@ watch(
       </div>
     </section>
 
-    <p
-      v-if="connectionTestFeedback"
-      class="connection-feedback"
-      :class="connectionTestFeedback.type"
-      role="status"
-    >
-      {{ connectionTestFeedback.message }}
-    </p>
-
-    <p v-if="status" class="status">{{ status }}</p>
-    <p v-if="error" class="status error">{{ error }}</p>
-
     <section v-if="showModelList" class="model-list-card">
       <div class="model-list-header">
         <span>
           <strong>{{ copy.modelListTitle }}</strong>
           <small>{{ copy.modelListHint }}</small>
         </span>
-        <button type="button" class="link-button" :disabled="isLoadingModels" @click="loadModelList">
+            <button
+              type="button"
+              class="link-button"
+              :disabled="isLoadingModels"
+              @click="loadModelList"
+            >
           {{ copy.refresh }}
         </button>
       </div>
       <p v-if="isLoadingModels" class="status">{{ copy.loadingModels }}</p>
-      <p v-else-if="modelListError" class="status error">{{ modelListError }}</p>
-      <p v-else-if="!modelList.length" class="status">{{ copy.modelListEmpty }}</p>
+          <p v-else-if="modelListError" class="status error">
+            {{ modelListError }}
+          </p>
+          <p v-else-if="!modelList.length" class="status">
+            {{ copy.modelListEmpty }}
+          </p>
       <ul v-else class="model-list">
         <li v-for="model in modelList" :key="model.id">
-          <button type="button" class="model-item" @click="selectModel(model)">
+              <button
+                type="button"
+                class="model-item"
+                @click="selectModel(model)"
+              >
             <span class="model-id">{{ model.id }}</span>
-            <span v-if="model.displayName && model.displayName !== model.id" class="model-alias">
+                <span
+                  v-if="model.displayName && model.displayName !== model.id"
+                  class="model-alias"
+                >
               {{ model.displayName }}
             </span>
             <span v-if="model.source" class="model-source">
-              {{ model.source === "config" ? copy.modelSourceConfig : copy.modelSourceRemote }}
+                  {{
+                    model.source === "config"
+                      ? copy.modelSourceConfig
+                      : copy.modelSourceRemote
+                  }}
             </span>
           </button>
         </li>
       </ul>
     </section>
 
+        <EditorSettingsSection
+          :ref="(el) => setSectionRef('editor', el)"
+          class="section-divided"
+        />
         <StorageUsageSection
           :ref="(el) => setSectionRef('storage', el)"
           class="section-divided"
@@ -1740,13 +1883,38 @@ watch(
   margin-bottom: 16px;
 }
 
+.settings-header-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.header-feedback {
+  margin: 0;
+  overflow: hidden;
+  color: var(--accent);
+  font-size: 12px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-feedback.error {
+  color: var(--danger-muted);
+}
+
+.header-feedback.success {
+  color: var(--success, #4ade80);
+}
+
 .settings-header h2 {
   margin: 0 0 6px;
   font-size: 18px;
   font-weight: 650;
 }
 
-.settings-header p {
+.settings-description {
   margin: 0;
   color: var(--text-muted);
   font-size: 12px;
@@ -2058,7 +2226,8 @@ watch(
 }
 
 .model-id {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
 .model-alias,
