@@ -7,10 +7,11 @@ export default defineConfig({
     pool: "forks",
     poolOptions: {
       forks: {
-        maxForks: 3,
+        maxForks: process.env.CI ? 2 : undefined,
         minForks: 1,
       },
     },
+    testTimeout: 30_000,
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],

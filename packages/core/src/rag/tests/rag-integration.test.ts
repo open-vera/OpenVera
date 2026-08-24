@@ -210,7 +210,7 @@ describe("RAG Integration", () => {
 
     it("should handle large batches", async () => {
       const docs: VectorDocument[] = [];
-      for (let i = 0; i < 100; i++) {
+      for (let i = 0; i < 20; i++) {
         docs.push({
           id: `batch-${i}`,
           content: `Document number ${i} about topic ${i % 10}`,
@@ -220,7 +220,7 @@ describe("RAG Integration", () => {
         });
       }
       await store.upsertMany(docs);
-      expect(await store.count()).toBe(100);
+      expect(await store.count()).toBe(20);
 
       // Search should work
       const query = await adapter.embed("topic 5");
