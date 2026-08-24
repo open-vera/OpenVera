@@ -45,7 +45,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build core package
-        run: pnpm --filter @open-vera/core build
+        run: pnpm --filter @open-vera/core... build
 
       - name: Download benchmark history
         uses: actions/download-artifact@v4

@@ -71,7 +71,7 @@ jobs:
 
       - name: Build workspace deps for sidecar
         run: |
-          pnpm --filter @open-vera/core build
+          pnpm --filter @open-vera/core... build
           pnpm --filter @open-vera/openvera build
 
       - name: Typecheck and build Partner sidecar
